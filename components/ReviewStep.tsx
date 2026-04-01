@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, ArrowLeft, Plus, Trash2, AlertTriangle, ChevronDown, ChevronUp, AlertCircle } from "lucide-react";
+import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, ArrowLeft, Plus, Trash2, AlertTriangle, ChevronDown, ChevronUp, AlertCircle, GitCompareArrows } from "lucide-react";
 import { ExtractedData, Socio, QSASocio, FaturamentoMensal, SCRModalidade, SCRInstituicao } from "@/types";
 
 interface ReviewStepProps {
@@ -296,6 +296,36 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
       <SectionCard number="05" icon={<BarChart3 size={16} className="text-cf-warning" />} title="SCR / Bacen — Perfil de Crédito"
         iconColor="bg-cf-warning/10" expanded={open.scr} onToggle={() => toggle("scr")}>
         <div className="space-y-5">
+          {/* Período */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Field label="Período de Referência" value={form.scr.periodoReferencia} onChange={v => setSCR("periodoReferencia", v)} />
+          </div>
+
+          {/* Comparativo (se SCR anterior disponível) */}
+          {form.scrAnterior && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <GitCompareArrows size={14} className="text-blue-600" />
+                <span className="text-xs font-bold text-blue-700 uppercase tracking-wide">
+                  Comparativo: {form.scrAnterior.periodoReferencia || "Anterior"} x {form.scr.periodoReferencia || "Atual"}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                {([
+                  ["A Vencer", form.scrAnterior.carteiraAVencer, form.scr.carteiraAVencer],
+                  ["Vencidos", form.scrAnterior.vencidos, form.scr.vencidos],
+                  ["Prejuízos", form.scrAnterior.prejuizos, form.scr.prejuizos],
+                  ["Limite", form.scrAnterior.limiteCredito, form.scr.limiteCredito],
+                ] as [string, string, string][]).map(([label, ant, atual]) => (
+                  <div key={label} className="bg-white rounded-lg p-2 border border-blue-100">
+                    <span className="text-[10px] text-cf-text-3 font-semibold uppercase block">{label}</span>
+                    <div className="text-cf-text-2 mt-0.5">{ant || "-"} → {atual || "-"}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Resumo principal */}
           <div>
             <span className="section-label block mb-2">Resumo</span>

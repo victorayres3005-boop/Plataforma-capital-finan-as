@@ -80,6 +80,8 @@ export interface SCRInstituicao {
 }
 
 export interface SCRData {
+  // Período de referência (ex: "02/2026")
+  periodoReferencia: string;
   // Resumo principal (campos do relatório)
   carteiraAVencer: string;
   vencidos: string;
@@ -113,6 +115,7 @@ export interface ExtractedData {
   contrato: ContratoSocialData;
   faturamento: FaturamentoData;
   scr: SCRData;
+  scrAnterior: SCRData | null;  // SCR do período anterior para comparativo
   resumoRisco: string;
 }
 

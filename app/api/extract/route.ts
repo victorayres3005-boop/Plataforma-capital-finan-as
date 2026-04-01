@@ -270,6 +270,7 @@ Analise o relatório SCR e extraia TODOS os dados disponíveis com máxima preci
 Retorne APENAS JSON válido, sem texto adicional:
 
 {
+  "periodoReferencia": "",
   "carteiraAVencer": "",
   "vencidos": "",
   "prejuizos": "",
@@ -310,6 +311,7 @@ Regras:
 - instituicoes: listar TODAS as instituições financeiras com valores
 - tempoAtraso: faixas "15-30 dias", "31-60 dias", etc.
 - coobrigacoes: passivo contingente (NÃO confundir com dívida direta)
+- periodoReferencia: mês/ano de referência do relatório (ex: "02/2026")
 - Campos ausentes → "" ou arrays vazios
 - NÃO invente dados`;
 
@@ -513,6 +515,7 @@ function fillFaturamentoDefaults(data: Partial<FaturamentoData>): FaturamentoDat
 
 function fillSCRDefaults(data: Partial<SCRData>): SCRData {
   return {
+    periodoReferencia: data.periodoReferencia || "",
     carteiraAVencer: data.carteiraAVencer || "", vencidos: data.vencidos || "",
     prejuizos: data.prejuizos || "", limiteCredito: data.limiteCredito || "",
     qtdeInstituicoes: data.qtdeInstituicoes || "", qtdeOperacoes: data.qtdeOperacoes || "",

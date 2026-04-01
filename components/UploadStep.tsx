@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, AlertCircle, Info } from "lucide-react";
+import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, AlertCircle, Info, GitCompareArrows } from "lucide-react";
 import UploadArea from "./UploadArea";
 import { DocStatus, ExtractedData, CNPJData, QSAData, ContratoSocialData, FaturamentoData, SCRData } from "@/types";
 
@@ -12,26 +12,27 @@ const defaultCNPJ: CNPJData = { razaoSocial:"",nomeFantasia:"",cnpj:"",dataAbert
 const defaultQSA: QSAData = { capitalSocial:"", quadroSocietario:[{nome:"",cpfCnpj:"",qualificacao:"",participacao:""}] };
 const defaultContrato: ContratoSocialData = { socios:[{nome:"",cpf:"",participacao:"",qualificacao:""}],capitalSocial:"",objetoSocial:"",dataConstituicao:"",temAlteracoes:false,prazoDuracao:"",administracao:"",foro:"" };
 const defaultFaturamento: FaturamentoData = { meses:[],somatoriaAno:"0,00",mediaAno:"0,00",faturamentoZerado:true,dadosAtualizados:false,ultimoMesComDados:"" };
-const defaultSCR: SCRData = { carteiraAVencer:"",vencidos:"",prejuizos:"",limiteCredito:"",qtdeInstituicoes:"",qtdeOperacoes:"",totalDividasAtivas:"",operacoesAVencer:"",operacoesEmAtraso:"",operacoesVencidas:"",tempoAtraso:"",coobrigacoes:"",classificacaoRisco:"",carteiraCurtoPrazo:"",carteiraLongoPrazo:"",modalidades:[],instituicoes:[],valoresMoedaEstrangeira:"",historicoInadimplencia:"" };
+const defaultSCR: SCRData = { periodoReferencia:"",carteiraAVencer:"",vencidos:"",prejuizos:"",limiteCredito:"",qtdeInstituicoes:"",qtdeOperacoes:"",totalDividasAtivas:"",operacoesAVencer:"",operacoesEmAtraso:"",operacoesVencidas:"",tempoAtraso:"",coobrigacoes:"",classificacaoRisco:"",carteiraCurtoPrazo:"",carteiraLongoPrazo:"",modalidades:[],instituicoes:[],valoresMoedaEstrangeira:"",historicoInadimplencia:"" };
 
-export interface OriginalFiles { cnpj?: File; qsa?: File; contrato?: File; faturamento?: File; scr?: File; }
+export interface OriginalFiles { cnpj?: File; qsa?: File; contrato?: File; faturamento?: File; scr?: File; scrAnterior?: File; }
 
-type DocKey = 'cnpj' | 'qsa' | 'contrato' | 'faturamento' | 'scr';
+type DocKey = 'cnpj' | 'qsa' | 'contrato' | 'faturamento' | 'scr' | 'scrAnterior';
 
-const DOC_DEFAULTS: Record<DocKey, CNPJData | QSAData | ContratoSocialData | FaturamentoData | SCRData> = {
-  cnpj: defaultCNPJ, qsa: defaultQSA, contrato: defaultContrato, faturamento: defaultFaturamento, scr: defaultSCR,
+const DOC_DEFAULTS: Record<string, CNPJData | QSAData | ContratoSocialData | FaturamentoData | SCRData> = {
+  cnpj: defaultCNPJ, qsa: defaultQSA, contrato: defaultContrato, faturamento: defaultFaturamento, scr: defaultSCR, scrAnterior: defaultSCR,
 };
 
 export default function UploadStep({ onComplete }: { onComplete: (data: ExtractedData, files: OriginalFiles) => void }) {
   const [docs, setDocs] = useState<Record<DocKey, DocState>>({
-    cnpj:       { file: null, status: "idle" },
-    qsa:        { file: null, status: "idle" },
-    contrato:   { file: null, status: "idle" },
-    faturamento:{ file: null, status: "idle" },
-    scr:        { file: null, status: "idle" },
+    cnpj:        { file: null, status: "idle" },
+    qsa:         { file: null, status: "idle" },
+    contrato:    { file: null, status: "idle" },
+    faturamento: { file: null, status: "idle" },
+    scr:         { file: null, status: "idle" },
+    scrAnterior: { file: null, status: "idle" },
   });
   const [extracted, setExtracted] = useState<ExtractedData>({
-    cnpj: defaultCNPJ, qsa: defaultQSA, contrato: defaultContrato, faturamento: defaultFaturamento, scr: defaultSCR, resumoRisco: "",
+    cnpj: defaultCNPJ, qsa: defaultQSA, contrato: defaultContrato, faturamento: defaultFaturamento, scr: defaultSCR, scrAnterior: null, resumoRisco: "",
   });
 
   const updateDoc = (type: DocKey, p: Partial<DocState>) => setDocs(prev => ({ ...prev, [type]: { ...prev[type], ...p } }));
@@ -39,7 +40,9 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
   const processFile = async (type: DocKey, file: File) => {
     updateDoc(type, { file, status: "processing", error: undefined });
     const fd = new FormData();
-    fd.append("file", file); fd.append("type", type);
+    fd.append("file", file);
+    // Tanto scr quanto scrAnterior usam o mesmo tipo de extração "scr"
+    fd.append("type", type === "scrAnterior" ? "scr" : type);
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 120000);
@@ -48,10 +51,15 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
       const json = await res.json();
       if (!res.ok || !json.success) { updateDoc(type, { status: "error", error: json.error || "Erro ao processar." }); return; }
       if (json.meta?.aiError) {
-        updateDoc(type, { status: "error", error: "Não foi possível extrair dados do documento. Tente enviar em outro formato (ex: JPG/PNG para documentos escaneados)." });
+        updateDoc(type, { status: "error", error: "Não foi possível extrair dados do documento. Tente enviar em outro formato." });
         return;
       }
-      setExtracted(prev => ({ ...prev, [type]: json.data }));
+      // Mapear scrAnterior para o campo correto no ExtractedData
+      if (type === "scrAnterior") {
+        setExtracted(prev => ({ ...prev, scrAnterior: json.data }));
+      } else {
+        setExtracted(prev => ({ ...prev, [type]: json.data }));
+      }
       updateDoc(type, { status: "done", meta: json.meta ?? undefined });
     } catch (err) {
       const msg = err instanceof Error && err.name === "AbortError"
@@ -63,14 +71,21 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
 
   const removeDoc = (type: DocKey) => {
     updateDoc(type, { file: null, status: "idle", error: undefined });
-    setExtracted(prev => ({ ...prev, [type]: DOC_DEFAULTS[type] }));
+    if (type === "scrAnterior") {
+      setExtracted(prev => ({ ...prev, scrAnterior: null }));
+    } else {
+      setExtracted(prev => ({ ...prev, [type]: DOC_DEFAULTS[type] }));
+    }
   };
 
-  const allDone = Object.values(docs).every(d => d.status === "done");
+  // SCR Anterior é opcional, os outros 5 são obrigatórios
+  const requiredKeys: DocKey[] = ['cnpj', 'qsa', 'contrato', 'faturamento', 'scr'];
+  const allDone = requiredKeys.every(k => docs[k].status === "done");
   const anyProcessing = Object.values(docs).some(d => d.status === "processing");
   const errors = Object.entries(docs).filter(([, d]) => d.status === "error");
-  const doneCount = Object.values(docs).filter(d => d.status === "done").length;
-  const totalDocs = 5;
+  const doneCount = requiredKeys.filter(k => docs[k].status === "done").length;
+  const scrAnteriorDone = docs.scrAnterior.status === "done";
+  const totalRequired = 5;
 
   return (
     <div className="animate-slide-up space-y-4">
@@ -79,8 +94,8 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
       <div className="flex items-start gap-3 bg-cf-navy/5 border border-cf-navy/15 rounded-xl px-4 py-3">
         <Info size={15} className="text-cf-navy flex-shrink-0 mt-0.5" />
         <p className="text-xs text-cf-text-2 leading-relaxed">
-          Envie os 5 documentos obrigatórios: Cartão CNPJ, QSA, Contrato Social, Faturamento e SCR.
-          Aceita PDF, Word, Excel (.xlsx) e imagens. A extração é automática — você poderá revisar todos os campos.
+          Envie os 5 documentos obrigatórios + o SCR anterior (opcional, para comparativo).
+          Aceita PDF, Word, Excel (.xlsx) e imagens. A extração é automática.
         </p>
       </div>
 
@@ -115,10 +130,17 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
         />
         <div className="border-t border-cf-border" />
         <UploadArea
-          stepNumber="5" title="SCR / Bacen" description="Relatório do Sistema de Informações de Crédito do Banco Central"
+          stepNumber="5" title="SCR / Bacen — Atual" description="Relatório SCR do período mais recente"
           status={docs.scr.status} fileName={docs.scr.file?.name} meta={docs.scr.meta}
           onFileSelect={f => processFile("scr", f)} onRemove={() => removeDoc("scr")}
           icon={<BarChart3 size={19} />}
+        />
+        <div className="border-t border-cf-border border-dashed" />
+        <UploadArea
+          stepNumber="▿" title="SCR / Bacen — Anterior (opcional)" description="Relatório SCR do período anterior para comparativo"
+          status={docs.scrAnterior.status} fileName={docs.scrAnterior.file?.name} meta={docs.scrAnterior.meta}
+          onFileSelect={f => processFile("scrAnterior", f)} onRemove={() => removeDoc("scrAnterior")}
+          icon={<GitCompareArrows size={19} />}
         />
       </div>
 
@@ -127,7 +149,7 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
         <div className="bg-cf-danger-bg border border-cf-danger/20 rounded-xl p-3 space-y-1">
           {errors.map(([k, d]) => (
             <p key={k} className="text-xs text-cf-danger flex items-center gap-2 font-medium">
-              <AlertCircle size={13} />{k.toUpperCase()}: {d.error}
+              <AlertCircle size={13} />{k === "scrAnterior" ? "SCR ANTERIOR" : k.toUpperCase()}: {d.error}
             </p>
           ))}
         </div>
@@ -137,11 +159,16 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
       <div className="card p-4 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1">
-            {Array.from({ length: totalDocs }).map((_, i) => (
+            {Array.from({ length: totalRequired }).map((_, i) => (
               <div key={i} className={`h-1.5 w-8 rounded-full transition-all duration-300 ${i < doneCount ? "bg-cf-green" : i === doneCount && anyProcessing ? "bg-cf-navy animate-pulse" : "bg-cf-border"}`} />
             ))}
+            {/* Indicador SCR anterior (opcional) */}
+            <div className={`h-1.5 w-4 rounded-full transition-all duration-300 ml-1 ${scrAnteriorDone ? "bg-blue-400" : "bg-cf-border/50"}`} />
           </div>
-          <span className="text-xs text-cf-text-3 font-medium">{doneCount}/{totalDocs} documentos</span>
+          <span className="text-xs text-cf-text-3 font-medium">
+            {doneCount}/{totalRequired}
+            {scrAnteriorDone && " + comparativo"}
+          </span>
         </div>
 
         <button
@@ -151,6 +178,7 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
               contrato: docs.contrato.file || undefined,
               faturamento: docs.faturamento.file || undefined,
               scr: docs.scr.file || undefined,
+              scrAnterior: docs.scrAnterior.file || undefined,
             })}
           disabled={!allDone || anyProcessing}
           className="btn-primary"
