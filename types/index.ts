@@ -1,3 +1,4 @@
+// ─── Sócio (usado em QSA e Contrato Social) ───
 export interface Socio {
   nome: string;
   cpf: string;
@@ -5,6 +6,7 @@ export interface Socio {
   qualificacao: string; // ex: Sócio-Administrador, Sócio, Procurador
 }
 
+// ─── Cartão CNPJ ───
 export interface CNPJData {
   razaoSocial: string;
   nomeFantasia: string;
@@ -23,46 +25,105 @@ export interface CNPJData {
   email: string;
 }
 
+// ─── QSA (Quadro de Sócios e Administradores) ───
+export interface QSASocio {
+  nome: string;
+  cpfCnpj: string;
+  qualificacao: string;
+  participacao: string;
+}
+
+export interface QSAData {
+  capitalSocial: string;
+  quadroSocietario: QSASocio[];
+}
+
+// ─── Contrato Social ───
 export interface ContratoSocialData {
   socios: Socio[];
   capitalSocial: string;
   objetoSocial: string;
   dataConstituicao: string;
   temAlteracoes: boolean;
-  prazoDuracao: string;        // determinado/indeterminado
-  administracao: string;       // quem administra e poderes
-  foro: string;                // comarca/foro eleito
+  prazoDuracao: string;
+  administracao: string;
+  foro: string;
+}
+
+// ─── Faturamento ───
+export interface FaturamentoMensal {
+  mes: string;     // "01/2025", "02/2025"
+  valor: string;   // "1.234.567,89"
+}
+
+export interface FaturamentoData {
+  meses: FaturamentoMensal[];
+  somatoriaAno: string;
+  mediaAno: string;
+  faturamentoZerado: boolean;
+  dadosAtualizados: boolean;     // false = últimos 60 dias sem dados
+  ultimoMesComDados: string;     // "01/2026"
+}
+
+// ─── SCR Detalhado ───
+export interface SCRModalidade {
+  nome: string;
+  total: string;
+  aVencer: string;
+  vencido: string;
+  participacao: string; // "86,1%"
+}
+
+export interface SCRInstituicao {
+  nome: string;
+  valor: string;
 }
 
 export interface SCRData {
+  // Resumo principal (campos do relatório)
+  carteiraAVencer: string;
+  vencidos: string;
+  prejuizos: string;
+  limiteCredito: string;
+  qtdeInstituicoes: string;
+  qtdeOperacoes: string;
+  // Detalhamento
   totalDividasAtivas: string;
-  operacoesAVencer: string;    // operações a vencer (adimplentes)
+  operacoesAVencer: string;
   operacoesEmAtraso: string;
-  operacoesVencidas: string;   // vencidas há mais de 15 dias
+  operacoesVencidas: string;
   tempoAtraso: string;
-  prejuizo: string;            // créditos baixados como prejuízo
-  coobrigacoes: string;        // garantias prestadas
-  classificacaoRisco: string;  // rating A-H do Bacen
-  modalidadesCredito: string;
-  instituicoesCredoras: string;
-  concentracaoCredito: string; // % maior credor
+  coobrigacoes: string;
+  classificacaoRisco: string;
+  // Curto/Longo prazo
+  carteiraCurtoPrazo: string;
+  carteiraLongoPrazo: string;
+  // Tabelas
+  modalidades: SCRModalidade[];
+  instituicoes: SCRInstituicao[];
+  // Outros
+  valoresMoedaEstrangeira: string;
   historicoInadimplencia: string;
 }
 
+// ─── Dados extraídos consolidados ───
 export interface ExtractedData {
   cnpj: CNPJData;
+  qsa: QSAData;
   contrato: ContratoSocialData;
+  faturamento: FaturamentoData;
   scr: SCRData;
   resumoRisco: string;
 }
 
-export type DocumentType = 'cnpj' | 'contrato' | 'scr';
+// ─── App types ───
+export type DocumentType = 'cnpj' | 'qsa' | 'contrato' | 'faturamento' | 'scr';
 export type DocStatus = 'idle' | 'processing' | 'done' | 'error';
 export type AppStep = 'upload' | 'review' | 'generate';
 
-// Supabase — Histórico de coletas
+// ─── Supabase — Histórico de coletas ───
 export interface CollectionDocument {
-  type: 'cnpj' | 'scr_bacen' | 'contrato_social' | 'outro';
+  type: 'cnpj' | 'qsa' | 'contrato_social' | 'faturamento' | 'scr_bacen' | 'outro';
   filename: string;
   extracted_data: Record<string, unknown>;
   uploaded_at: string;

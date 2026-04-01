@@ -17,9 +17,9 @@ interface UploadAreaProps {
   stepNumber: string;
 }
 
-const ACCEPTED_EXTS = [".pdf", ".docx", ".jpg", ".jpeg", ".png"];
-const ACCEPTED_TYPES = ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "image/jpeg", "image/png"];
-const ACCEPT_STRING = ".pdf,.docx,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png";
+const ACCEPTED_EXTS = [".pdf", ".docx", ".jpg", ".jpeg", ".png", ".xlsx"];
+const ACCEPTED_TYPES = ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "image/jpeg", "image/png", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"];
+const ACCEPT_STRING = ".pdf,.docx,.jpg,.jpeg,.png,.xlsx,application/pdf,image/jpeg,image/png";
 
 function isAcceptedFile(file: File): boolean {
   const ext = file.name.toLowerCase().slice(file.name.lastIndexOf("."));
@@ -35,7 +35,7 @@ export default function UploadArea({ title, description, status, fileName, meta,
     setDragOver(false);
     const file = e.dataTransfer.files[0];
     if (file && isAcceptedFile(file)) onFileSelect(file);
-    else if (file) toast.error("Formato não aceito. Use PDF, Word (.docx), JPG ou PNG.");
+    else if (file) toast.error("Formato não aceito. Use PDF, Word (.docx), Excel (.xlsx), JPG ou PNG.");
   }, [onFileSelect]);
 
   const isClickable = status === "idle";
@@ -112,7 +112,7 @@ export default function UploadArea({ title, description, status, fileName, meta,
         )}
         {status === "idle" && !fileName && (
           <p className="text-xs text-cf-text-4 mt-1 flex items-center gap-1">
-            <Upload size={10} />Clique ou arraste o arquivo aqui (PDF, Word ou imagem)
+            <Upload size={10} />Clique ou arraste o arquivo aqui (PDF, Word, Excel ou imagem)
           </p>
         )}
       </div>
