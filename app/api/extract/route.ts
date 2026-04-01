@@ -1,569 +1,367 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { CNPJData, ContratoSocialData, SCRData, Socio } from "@/types";
+import type { CNPJData, ContratoSocialData, SCRData } from "@/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120;
+
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
+const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash"];
+
+function geminiUrl(model: string) {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+}
+
+// ─────────────────────────────────────────
+// MIME types
+// ─────────────────────────────────────────
+const EXT_TO_MIME: Record<string, string> = {
+  pdf: "application/pdf",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+};
 
 function getFileExt(fileName: string): string {
   return fileName.split(".").pop()?.toLowerCase() || "";
 }
 
-async function extractText(buffer: Buffer, ext: string): Promise<{ text: string; isScanned: boolean }> {
+// ─────────────────────────────────────────
+// Extração de texto (fallback para DOCX ou quando multimodal falhar)
+// ─────────────────────────────────────────
+async function extractTextFallback(buffer: Buffer, ext: string): Promise<string> {
   try {
-    // PDF
     if (ext === "pdf") {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const pdfParse = require("pdf-parse/lib/pdf-parse.js");
       const data = await pdfParse(buffer);
-      return { text: data.text ?? "", isScanned: false };
+      return data.text ?? "";
     }
-
-    // DOCX (Word)
     if (ext === "docx") {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const mammoth = require("mammoth");
       const result = await mammoth.extractRawText({ buffer });
-      return { text: result.value ?? "", isScanned: false };
+      return result.value ?? "";
     }
-
-    // Imagens (JPG, PNG) — OCR com Tesseract.js (com timeout de 50s)
-    if (["jpg", "jpeg", "png"].includes(ext)) {
-      const { createWorker } = await import("tesseract.js");
-      let worker: Awaited<ReturnType<typeof createWorker>> | null = null;
-      try {
-        const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("OCR timeout — imagem muito grande ou servidor ocupado")), 50000));
-        worker = await createWorker("por");
-        const result = await Promise.race([worker.recognize(buffer), timeout]);
-        return { text: (result as { data: { text: string } }).data.text ?? "", isScanned: true };
-      } finally {
-        if (worker) await worker.terminate().catch(() => {});
-      }
-    }
-
-    return { text: "", isScanned: false };
+    return "";
   } catch (err) {
-    console.error(`Extraction failed for .${ext}:`, err);
-    return { text: "", isScanned: false };
+    console.error(`[fallback] Text extraction failed for .${ext}:`, err);
+    return "";
   }
 }
 
-// Limpa espaços extras e caracteres de controle
-function clean(s: string | undefined | null): string {
-  if (!s) return "";
-  return s.replace(/[\r\n\t]+/g, " ").replace(/\s{2,}/g, " ").trim();
+// ─────────────────────────────────────────
+// Prompts especializados por tipo de documento
+// ─────────────────────────────────────────
+
+const PROMPT_CNPJ = `Você é um especialista em documentos da Receita Federal do Brasil.
+
+Você vai receber um documento — um Comprovante de Inscrição e Situação Cadastral (Cartão CNPJ). Analise o documento VISUALMENTE, observando layout, campos, rótulos e valores.
+
+Retorne APENAS um JSON válido, sem texto adicional, com esta estrutura exata:
+
+{
+  "razaoSocial": "",
+  "nomeFantasia": "",
+  "cnpj": "",
+  "dataAbertura": "",
+  "situacaoCadastral": "",
+  "dataSituacaoCadastral": "",
+  "motivoSituacao": "",
+  "naturezaJuridica": "",
+  "cnaePrincipal": "",
+  "cnaeSecundarios": "",
+  "porte": "",
+  "capitalSocialCNPJ": "",
+  "endereco": "",
+  "telefone": "",
+  "email": ""
 }
 
-// Busca valor após um rótulo, tolerando espaços/quebras de linha entre eles
-function after(text: string, ...labels: string[]): string {
-  for (const label of labels) {
-    const regex = new RegExp(
-      label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "[\\s\\S]{0,10}") +
-        "[:\\s]*([^\\n\\r]{1,120})",
-      "i"
-    );
-    const m = text.match(regex);
-    if (m?.[1]) {
-      const val = clean(m[1]);
-      if (val.length > 1) return val;
+Regras:
+- Leia TODOS os campos visíveis no documento com atenção máxima
+- Campos com "********" ou ilegíveis → string vazia ""
+- Datas: manter no formato DD/MM/YYYY como aparece no documento
+- CNPJ: manter com pontuação (XX.XXX.XXX/XXXX-XX)
+- Situação cadastral: retornar o valor EXATO encontrado no documento
+- endereco: concatenar logradouro, número, complemento, bairro, município, UF e CEP em uma string única separada por vírgula
+- cnaePrincipal: incluir código e descrição juntos
+- cnaeSecundarios: incluir TODOS os códigos e descrições, separados por ponto e vírgula
+- capitalSocialCNPJ: incluir valor formatado em reais (ex: "1.000,00")
+- Campos ausentes no documento → string vazia ""
+- NÃO invente dados — extraia apenas o que está visível no documento`;
+
+const PROMPT_CONTRATO = `Você é um especialista em análise de documentos societários brasileiros para operações de crédito em FIDC.
+
+Você vai receber um Contrato Social (ou Alteração/Consolidação Contratual). Analise o documento VISUALMENTE, observando cada cláusula, assinaturas e dados dos sócios.
+
+Retorne APENAS um JSON válido, sem texto adicional, com esta estrutura exata:
+
+{
+  "socios": [
+    {
+      "nome": "",
+      "cpf": "",
+      "participacao": "",
+      "qualificacao": ""
     }
-  }
-  return "";
+  ],
+  "capitalSocial": "",
+  "objetoSocial": "",
+  "dataConstituicao": "",
+  "temAlteracoes": false,
+  "prazoDuracao": "",
+  "administracao": "",
+  "foro": ""
 }
 
-// Normaliza texto: remove acentos para comparações alternativas
-function normalize(text: string): string {
-  return text
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toUpperCase();
+Regras:
+- Leia o documento INTEIRO antes de responder — dados de sócios podem estar em diferentes páginas
+- socios: listar TODOS os sócios com nome completo, CPF (com pontuação XXX.XXX.XXX-XX), participação (quotas e/ou percentual) e qualificação (Sócio-Administrador, Sócio, etc.)
+- capitalSocial: incluir valor em reais e por extenso se disponível (ex: "R$ 100.000,00 (cem mil reais)")
+- objetoSocial: resumir em no máximo 2 frases, preservando atividades principais
+- dataConstituicao: data de constituição ou registro na Junta, formato DD/MM/YYYY ou por extenso
+- temAlteracoes: true se o documento é uma alteração contratual ou consolidação
+- prazoDuracao: "Indeterminado" ou período específico
+- administracao: descrever quem administra, modelo (individual/conjunta) e poderes de representação
+- foro: comarca eleita
+- Campos ausentes → string vazia "" ou false para booleanos
+- NÃO confundir CPF de testemunhas com CPF de sócios
+- NÃO incluir advogados ou testemunhas como sócios
+- NÃO invente dados — extraia apenas o que está visível no documento`;
+
+const PROMPT_SCR = `Você é um especialista em análise de crédito e documentos do Sistema de Informações de Crédito (SCR) do Banco Central do Brasil.
+
+Você vai receber um relatório SCR. Analise o documento VISUALMENTE, prestando atenção especial a TABELAS, valores numéricos, colunas e linhas.
+
+Retorne APENAS um JSON válido, sem texto adicional, com esta estrutura exata:
+
+{
+  "totalDividasAtivas": "",
+  "operacoesAVencer": "",
+  "operacoesEmAtraso": "",
+  "operacoesVencidas": "",
+  "tempoAtraso": "",
+  "prejuizo": "",
+  "coobrigacoes": "",
+  "classificacaoRisco": "",
+  "modalidadesCredito": "",
+  "instituicoesCredoras": "",
+  "concentracaoCredito": "",
+  "historicoInadimplencia": ""
 }
 
+Regras:
+- Analise CADA tabela e seção do documento com cuidado — dados podem estar espalhados em várias páginas
+- Valores monetários: manter formatação brasileira com vírgula decimal (ex: "34.170,50")
+- totalDividasAtivas: somar responsabilidade total ativa se não explicitado
+- operacoesAVencer: valor das operações a vencer (adimplentes/em dia)
+- operacoesEmAtraso: valor das operações em atraso (1-14 dias ou conforme documento)
+- operacoesVencidas: valor das operações vencidas (15+ dias)
+- tempoAtraso: classificar em faixas "15-30 dias", "31-60 dias", "61-90 dias", "91-180 dias" ou "180+ dias"
+- classificacaoRisco: letra A-H do Bacen, ou AA se disponível. Se houver múltiplas, listar a predominante
+- modalidadesCredito: listar TODAS as modalidades encontradas separadas por vírgula
+- instituicoesCredoras: listar TODAS as instituições encontradas separadas por vírgula
+- concentracaoCredito: percentual do maior credor se disponível
+- coobrigacoes: são passivo contingente — NÃO confundir com dívida direta
+- prejuizo: créditos já baixados pela instituição financeira
+- historicoInadimplencia: resumir ocorrências relevantes
+- Campos ausentes → string vazia ""
+- NÃO invente dados — extraia apenas o que está visível no documento`;
+
 // ─────────────────────────────────────────
-// CARTÃO CNPJ
+// Chamada ao Gemini — MULTIMODAL (envia arquivo direto)
 // ─────────────────────────────────────────
-function extractCNPJData(raw: string): CNPJData {
-  const text = raw;
-  const norm = normalize(raw);
 
-  // CNPJ — padrão XX.XXX.XXX/XXXX-XX
-  const cnpjMatch = text.match(/\d{2}[\.\s]?\d{3}[\.\s]?\d{3}[\s]?\/[\s]?\d{4}[\s]?-[\s]?\d{2}/);
-  const cnpj = cnpjMatch ? cnpjMatch[0].replace(/\s/g, "") : "";
-
-  // Razão Social — múltiplos rótulos possíveis
-  const razaoSocial =
-    after(text, "RAZÃO SOCIAL", "RAZAO SOCIAL", "NOME EMPRESARIAL", "NOME EMPRESARIAL:") ||
-    after(norm, "RAZAO SOCIAL", "NOME EMPRESARIAL") ||
-    "";
-
-  // Nome Fantasia
-  const nomeFantasia =
-    after(text, "NOME FANTASIA", "TÍTULO DO ESTABELECIMENTO", "TITULO DO ESTABELECIMENTO", "NOME DE FANTASIA") ||
-    after(norm, "NOME FANTASIA", "TITULO DO ESTABELECIMENTO") ||
-    "";
-
-  // Data de Abertura
-  const dataAbertura =
-    after(text, "DATA DE ABERTURA", "DATA ABERTURA", "ABERTURA") ||
-    after(norm, "DATA DE ABERTURA", "DATA ABERTURA") ||
-    (() => {
-      const m = text.match(/ABERTURA[:\s]+(\d{2}\/\d{2}\/\d{4})/i);
-      return m ? m[1] : "";
-    })();
-
-  // Situação Cadastral
-  const situacaoCadastral = (() => {
-    const patterns = [
-      /SITUA[CÇ][AÃ]O\s+CADASTRAL[:\s]+(ATIVA|BAIXADA|INAPTA|SUSPENSA|NULA|ATIVO)/i,
-      /CADASTRAL[:\s]+(ATIVA|BAIXADA|INAPTA|SUSPENSA|NULA)/i,
-      /(ATIVA|BAIXADA|INAPTA|SUSPENSA|NULA)\s+DATA\s+DA\s+SITUA/i,
-    ];
-    for (const p of patterns) {
-      const m = text.match(p) || norm.match(p);
-      if (m?.[1]) return clean(m[1]);
-    }
-    return after(text, "SITUAÇÃO CADASTRAL", "SITUACAO CADASTRAL");
-  })();
-
-  // CNAE Principal
-  const cnaePrincipal = (() => {
-    const patterns = [
-      /CNAE\s+FISCAL\s*[:\-]?\s*(\d[\d\-\/\.]{3,12}[^\n]{0,80})/i,
-      /ATIVIDADE\s+ECON[OÔ]MICA\s+PRINCIPAL[:\s]+([^\n]{5,100})/i,
-      /C[OÓ]DIGO\s+E\s+DESCRI[CÇ][AÃ]O\s+DA\s+ATIVIDADE[^\n]*\n([^\n]{5,100})/i,
-    ];
-    for (const p of patterns) {
-      const m = text.match(p);
-      if (m?.[1]) return clean(m[1]);
-    }
-    return after(text, "CNAE FISCAL", "CNAE:", "ATIVIDADE ECONÔMICA PRINCIPAL");
-  })();
-
-  // Porte
-  const porte = (() => {
-    const m =
-      text.match(/PORTE\s*[:\-]?\s*(MICROEMPRESA|MICRO\s+EMPRESA|EMPRESA\s+DE\s+PEQUENO\s+PORTE|GRANDE\s+EMPRESA|MEI|EPP|ME|DEMAIS|MÉDIO)/i) ||
-      norm.match(/PORTE\s*[:\-]?\s*(MICROEMPRESA|MICRO\s+EMPRESA|EMPRESA\s+DE\s+PEQUENO\s+PORTE|GRANDE\s+EMPRESA|MEI|EPP|ME|DEMAIS|MEDIO)/i);
-    if (m?.[1]) return clean(m[1]);
-    return after(text, "PORTE DA EMPRESA", "PORTE:");
-  })();
-
-  // Endereço — montar por partes, parando no próximo rótulo
-  const afterClean = (t: string, ...labels: string[]) => {
-    for (const label of labels) {
-      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "[\\s\\S]{0,10}");
-      const regex = new RegExp(escaped + "[:\\s]*([^\\n\\r]{1,80}?)(?=\\s+(?:NÚMERO|NUMERO|NRO|BAIRRO|MUNICÍPIO|MUNICIPIO|UF|CEP|COMPLEMENTO)\\b|$)", "i");
-      const m = t.match(regex);
-      if (m?.[1]) { const v = clean(m[1]); if (v.length > 1) return v; }
-    }
-    return after(t, ...labels);
-  };
-  const logradouro = afterClean(text, "LOGRADOURO", "ENDEREÇO", "ENDERECO");
-  const numero = after(text, "NÚMERO", "NUMERO", "NRO", "N°");
-  const complemento = after(text, "COMPLEMENTO");
-  const bairro = afterClean(text, "BAIRRO", "DISTRICT");
-  const municipio = afterClean(text, "MUNICÍPIO", "MUNICIPIO", "CIDADE");
-  const uf = (() => {
-    const m = text.match(/\bUF[:\s]+([A-Z]{2})\b/i);
-    return m ? clean(m[1]) : "";
-  })();
-  const cep = (() => {
-    const m = text.match(/CEP[:\s]*(\d{5}-?\d{3})/i) || text.match(/\b(\d{5}-\d{3})\b/);
-    return m ? clean(m[1]) : "";
-  })();
-
-  const endParts = [logradouro, numero, complemento, bairro, municipio, uf, cep].filter(Boolean);
-  const endereco = endParts.length > 0 ? endParts.join(", ") : after(text, "ENDEREÇO COMPLETO", "ENDERECO");
-
-  // ── Novos campos FIDC ──
-
-  // Data da Situação Cadastral
-  const dataSituacaoCadastral =
-    after(text, "DATA DA SITUAÇÃO CADASTRAL", "DATA DA SITUACAO CADASTRAL") ||
-    after(norm, "DATA DA SITUACAO CADASTRAL") || "";
-
-  // Motivo da Situação
-  const motivoSituacao =
-    after(text, "MOTIVO DE SITUAÇÃO CADASTRAL", "MOTIVO DA SITUAÇÃO", "MOTIVO SITUAÇÃO") ||
-    after(norm, "MOTIVO DE SITUACAO CADASTRAL", "MOTIVO DA SITUACAO") || "";
-
-  // Natureza Jurídica
-  const naturezaJuridica =
-    after(text, "NATUREZA JURÍDICA", "NATUREZA JURIDICA") ||
-    after(norm, "NATUREZA JURIDICA") || "";
-
-  // CNAEs Secundários
-  const cnaeSecundarios = (() => {
-    const m = text.match(/(?:CNAE[S]?\s+SECUND[AÁ]RI[AO]S?|ATIVIDADES?\s+SECUND[AÁ]RI[AO]S?)[:\s]+([\s\S]{5,300}?)(?=\n{2}|NATUREZA|PORTE|LOGRADOURO)/i);
-    return m?.[1] ? clean(m[1]).substring(0, 300) : "";
-  })();
-
-  // Capital Social (do CNPJ)
-  const capitalSocialCNPJ =
-    after(text, "CAPITAL SOCIAL DA EMPRESA", "CAPITAL SOCIAL") ||
-    after(norm, "CAPITAL SOCIAL") || "";
-
-  // Telefone
-  const telefone = (() => {
-    const m = text.match(/(?:TELEFONE|TEL|FONE)[:\s]*(\(?\d{2}\)?\s*\d{4,5}[\s\-]?\d{4})/i);
-    return m ? clean(m[1]) : "";
-  })();
-
-  // E-mail
-  const email = (() => {
-    const m = text.match(/(?:E[\-\s]?MAIL|CORREIO\s+ELETR[OÔ]NICO)[:\s]*([^\s@]+@[^\s,;]{3,60})/i) ||
-              text.match(/\b([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]{2,60}\.[a-zA-Z]{2,6})\b/);
-    return m ? clean(m[1]).substring(0, 100) : "";
-  })();
-
-  return { razaoSocial, nomeFantasia, cnpj, dataAbertura, situacaoCadastral, dataSituacaoCadastral, motivoSituacao, naturezaJuridica, cnaePrincipal, cnaeSecundarios, porte, capitalSocialCNPJ, endereco, telefone, email };
+interface GeminiPart {
+  text?: string;
+  inlineData?: { mimeType: string; data: string };
 }
 
-// ─────────────────────────────────────────
-// CONTRATO SOCIAL
-// ─────────────────────────────────────────
-function extractContratoData(raw: string): ContratoSocialData {
-  const text = raw;
-  const socios: Socio[] = [];
+async function callGeminiMultimodal(
+  model: string,
+  systemPrompt: string,
+  fileParts: GeminiPart[]
+): Promise<string> {
+  const parts: GeminiPart[] = [
+    ...fileParts,
+    { text: systemPrompt },
+  ];
 
-  // Extrair todos os CPFs do documento
-  const cpfRegex = /(\d{3}[\.\s]?\d{3}[\.\s]?\d{3}[\s]?[-–][\s]?\d{2})/g;
-  const allCpfs: string[] = [];
-  let cpfMatch;
-  while ((cpfMatch = cpfRegex.exec(text)) !== null) {
-    const cpf = cpfMatch[1].replace(/\s/g, "");
-    if (!allCpfs.includes(cpf)) allCpfs.push(cpf);
+  const response = await fetch(geminiUrl(model), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts }],
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 8192,
+        responseMimeType: "application/json",
+      },
+    }),
+  });
+
+  if (response.status === 429) throw new Error("RATE_LIMIT");
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    console.error(`[Gemini][${model}] HTTP ${response.status}:`, errorBody.substring(0, 500));
+    throw new Error(`Gemini API retornou status ${response.status}`);
   }
 
-  // Extrair percentuais de participação
-  const percentRegex = /(\d{1,3}(?:[,\.]\d{1,4})?)\s*(?:%|por\s+cento)/gi;
-  const percents: string[] = [];
-  let pMatch;
-  while ((pMatch = percentRegex.exec(text)) !== null) {
-    percents.push(pMatch[1].replace(".", ",") + "%");
+  const result = await response.json();
+  const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) {
+    const finishReason = result?.candidates?.[0]?.finishReason;
+    console.error(`[Gemini][${model}] Empty response. finishReason: ${finishReason}`);
+    throw new Error("Resposta vazia do Gemini");
   }
 
-  // Para cada CPF, buscar nome no trecho imediatamente antes
-  const usedNames = new Set<string>();
-  allCpfs.forEach((cpf, i) => {
-    const idx = text.indexOf(cpf);
-    if (idx === -1) return;
+  return text;
+}
 
-    // Janela curta (150 chars) para evitar pegar nomes de outro sócio
-    const prevCpfEnd = i > 0 ? text.indexOf(allCpfs[i - 1]) + allCpfs[i - 1].length : 0;
-    const windowStart = Math.max(prevCpfEnd, idx - 150);
-    const window = text.substring(windowStart, idx);
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-    // Padrões de nome: NOME COMPLETO EM MAIÚSCULAS ou capitalizado
-    const namePatterns = [
-      /([A-ZÁÉÍÓÚÂÊÔÀÃÕÜ][A-ZÁÉÍÓÚÂÊÔÀÃÕÜa-záéíóúâêôàãõü]+(?:\s+(?:da|de|do|dos|das|e|[A-ZÁÉÍÓÚÂÊÔÀÃÕÜ][A-ZÁÉÍÓÚÂÊÔÀÃÕÜa-záéíóúâêôàãõü]+)){1,6})\s*$/,
-      /SÓCIO[^:]*:\s*([A-ZÁÉÍÓÚÂÊÔÀÃÕÜ][^\n,;]{5,60})/i,
-      /NOME[:\s]+([A-ZÁÉÍÓÚÂÊÔÀÃÕÜ][^\n,;]{5,60})/i,
-    ];
-
-    let nome = "";
-    for (const p of namePatterns) {
-      const m = window.match(p);
-      if (m?.[1]) {
-        const candidate = clean(m[1]);
-        if (!usedNames.has(candidate)) { nome = candidate; break; }
+async function callGemini(systemPrompt: string, fileParts: GeminiPart[]): Promise<string> {
+  for (const model of GEMINI_MODELS) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        console.log(`[Gemini] Trying ${model}, attempt ${attempt + 1}`);
+        return await callGeminiMultimodal(model, systemPrompt, fileParts);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "";
+        if (msg === "RATE_LIMIT") {
+          const waitMs = 3000 * Math.pow(2, attempt);
+          console.log(`[Gemini] Rate limited on ${model}, waiting ${waitMs}ms...`);
+          await sleep(waitMs);
+          continue;
+        }
+        console.log(`[Gemini] ${model} failed: ${msg}, trying next model...`);
+        break;
       }
     }
-    if (nome) usedNames.add(nome);
+  }
+  throw new Error("Serviço de IA temporariamente indisponível. Aguarde 1 minuto e tente novamente.");
+}
 
-    // Qualificação: busca "administrador", "sócio", "procurador" na janela
-    const qualWindow = text.substring(Math.max(0, idx - 200), Math.min(text.length, idx + 200));
-    const qualMatch = qualWindow.match(/(?:S[OÓ]CIO[\s\-]*ADMINISTRADOR|ADMINISTRADOR|S[OÓ]CIO[\s\-]*GERENTE|PROCURADOR|DIRETOR|PRESIDENTE|S[OÓ]CIO|TITULAR|ACIONISTA)/i);
-    const qualificacao = qualMatch ? clean(qualMatch[0]) : "";
+function parseJSON<T>(raw: string): T {
+  let cleaned = raw.trim();
+  if (cleaned.startsWith("```")) {
+    cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+  }
+  return JSON.parse(cleaned);
+}
 
-    socios.push({
-      nome: nome || `Sócio ${i + 1}`,
-      cpf,
-      participacao: percents[i] || "",
-      qualificacao,
-    });
-  });
+// ─────────────────────────────────────────
+// Preparar parts do arquivo para o Gemini
+// ─────────────────────────────────────────
 
-  // Se não encontrou CPFs, tenta blocos de SÓCIO / ACIONISTA
-  if (socios.length === 0) {
-    const socioPattern = /(?:SÓ[CG]IO|ACIONISTA|TITULAR)[:\s]+([^\n,;]{5,80})/gi;
-    let sm;
-    let idx = 0;
-    while ((sm = socioPattern.exec(text)) !== null) {
-      socios.push({ nome: clean(sm[1]), cpf: "", participacao: percents[idx++] || "", qualificacao: "" });
+async function prepareFileParts(
+  buffer: Buffer,
+  ext: string,
+  mimeType: string
+): Promise<{ parts: GeminiPart[]; mode: "multimodal" | "text"; isScanned: boolean }> {
+
+  // DOCX não é suportado como inlineData no Gemini — extrair texto
+  if (ext === "docx") {
+    const text = await extractTextFallback(buffer, ext);
+    if (text && text.trim().length >= 10) {
+      return {
+        parts: [{ text: "--- DOCUMENTO (texto extraído) ---\n\n" + text }],
+        mode: "text",
+        isScanned: false,
+      };
     }
+    throw new Error("Não foi possível extrair texto do documento DOCX.");
   }
 
-  // Capital Social
-  const capitalSocial = (() => {
-    const patterns = [
-      /CAPITAL\s+SOCIAL[:\s]+(?:DE\s+)?R\$?\s*([\d.,]+(?:\s*\([^)]+\))?)/i,
-      /CAPITAL\s+SOCIAL[:\s]+([^\n]{5,80})/i,
-      /R\$\s*([\d]{1,3}(?:\.\d{3})*(?:,\d{2})?)\s*\(([^)]{5,60})\)/i,
-    ];
-    for (const p of patterns) {
-      const m = text.match(p);
-      if (m?.[1]) return clean(m[1]);
+  // PDF e imagens: enviar como inlineData (multimodal)
+  const base64 = buffer.toString("base64");
+
+  // Verificar tamanho — Gemini tem limite de ~20MB para inline data
+  const sizeMB = buffer.length / (1024 * 1024);
+  if (sizeMB > 15) {
+    // Arquivo muito grande para inline — tentar fallback texto para PDF
+    if (ext === "pdf") {
+      console.log(`[prepare] PDF too large for inline (${sizeMB.toFixed(1)}MB), falling back to text`);
+      const text = await extractTextFallback(buffer, ext);
+      if (text && text.trim().length >= 10) {
+        return {
+          parts: [{ text: "--- DOCUMENTO (texto extraído) ---\n\n" + text }],
+          mode: "text",
+          isScanned: false,
+        };
+      }
     }
-    return "";
-  })();
-
-  // Data de Constituição
-  const dataConstituicao = (() => {
-    const patterns = [
-      /(?:DATA\s+DE\s+CONSTITUI[CÇ][AÃ]O|CONSTITUI[CÇ][AÃ]O)[:\s]+(\d{2}\/\d{2}\/\d{4})/i,
-      /constitu[ií]d[ao](?:s)?\s+(?:em|a\s+partir\s+de)\s+(\d{2}\/\d{2}\/\d{4})/i,
-      /constitu[ií]d[ao](?:s)?\s+(?:em|a\s+partir\s+de)\s+(\d{1,2}\s+de\s+\w+\s+de\s+\d{4})/i,
-      /em\s+(\d{2}\s+de\s+\w+\s+de\s+\d{4})/i,
-      /(\d{2}\/\d{2}\/\d{4})/,
-    ];
-    for (const p of patterns) {
-      const m = text.match(p);
-      if (m?.[1]) return clean(m[1]);
-    }
-    return "";
-  })();
-
-  // Objeto Social
-  const objetoSocial = (() => {
-    const patterns = [
-      /OBJETO\s+SOCIAL[:\s]+([\s\S]{20,600}?)(?=CAPITAL|CL[AÁ]USULA\s+[IVX\d]|SEDE|§|\n{3})/i,
-      /OBJETO[:\s]+([\s\S]{20,400}?)(?=CAPITAL|CL[AÁ]USULA|SEDE|\n{2})/i,
-    ];
-    for (const p of patterns) {
-      const m = text.match(p);
-      if (m?.[1]) return clean(m[1]).substring(0, 500);
-    }
-    return "";
-  })();
-
-  // Alterações recentes
-  const temAlteracoes = /ALTERA[CÇ][AÃ]O\s+(?:CONTRATUAL|ESTATUT|SOCIAL)|ADITAMENTO|CONSOLIDADO|QUARTA|QUINTA|SEXTA|SÉTIMA|OITAVA|\d+[ªº]\s+ALTERA/i.test(text);
-
-  // ── Novos campos FIDC ──
-
-  // Prazo de duração
-  const prazoDuracao = (() => {
-    if (/PRAZO\s+INDETERMINADO|DURA[CÇ][AÃ]O\s+INDETERMINAD/i.test(text)) return "Indeterminado";
-    const m = text.match(/(?:PRAZO|DURA[CÇ][AÃ]O)[:\s]+(?:DE\s+)?(\d+\s+(?:ANOS?|MESES?))/i) ||
-              text.match(/PRAZO\s+(?:DE\s+)?DURA[CÇ][AÃ]O[:\s]+([^\n]{5,60})/i);
-    return m ? clean(m[1]) : "";
-  })();
-
-  // Administração e poderes
-  const administracao = (() => {
-    const patterns = [
-      /(?:ADMINISTRA[CÇ][AÃ]O|GERÊNCIA|GEST[AÃ]O)[:\s]+([\s\S]{10,400}?)(?=CL[AÁ]USULA|§|\n{3}|DO\s+CAPITAL)/i,
-      /(?:PODERES?\s+(?:DE\s+)?REPRESENTA[CÇ][AÃ]O|REPRESENTAR\s+A\s+SOCIEDADE)[:\s]*([\s\S]{10,300}?)(?=CL[AÁ]USULA|§|\n{3})/i,
-    ];
-    for (const p of patterns) { const m = text.match(p); if (m?.[1]) return clean(m[1]).substring(0, 400); }
-    return "";
-  })();
-
-  // Foro
-  const foro = (() => {
-    const m = text.match(/(?:FORO|COMARCA)[:\s]+(?:DA\s+|DE\s+)?([^\n,.;]{3,60})/i);
-    return m ? clean(m[1]) : "";
-  })();
+    throw new Error("Arquivo muito grande para processamento.");
+  }
 
   return {
-    socios: socios.length > 0 ? socios : [{ nome: "", cpf: "", participacao: "", qualificacao: "" }],
-    capitalSocial,
-    objetoSocial,
-    dataConstituicao,
-    temAlteracoes,
-    prazoDuracao,
-    administracao,
-    foro,
+    parts: [{ inlineData: { mimeType, data: base64 } }],
+    mode: "multimodal",
+    isScanned: ["jpg", "jpeg", "png"].includes(ext),
   };
 }
 
 // ─────────────────────────────────────────
-// SCR / BACEN
+// Defaults para campos ausentes
 // ─────────────────────────────────────────
-function extractSCRData(raw: string): SCRData {
-  const text = raw;
-  const norm = normalize(raw);
+function fillCNPJDefaults(data: Partial<CNPJData>): CNPJData {
+  return {
+    razaoSocial: data.razaoSocial || "",
+    nomeFantasia: data.nomeFantasia || "",
+    cnpj: data.cnpj || "",
+    dataAbertura: data.dataAbertura || "",
+    situacaoCadastral: data.situacaoCadastral || "",
+    dataSituacaoCadastral: data.dataSituacaoCadastral || "",
+    motivoSituacao: data.motivoSituacao || "",
+    naturezaJuridica: data.naturezaJuridica || "",
+    cnaePrincipal: data.cnaePrincipal || "",
+    cnaeSecundarios: data.cnaeSecundarios || "",
+    porte: data.porte || "",
+    capitalSocialCNPJ: data.capitalSocialCNPJ || "",
+    endereco: data.endereco || "",
+    telefone: data.telefone || "",
+    email: data.email || "",
+  };
+}
 
-  // Total de dívidas
-  const totalDividasAtivas = (() => {
-    const patterns = [
-      /TOTAL\s+(?:DE\s+)?(?:D[ÍI]VIDAS?|RESPONSABILIDADES?)[:\s]+R?\$?\s*([\d.,]+)/i,
-      /SALDO\s+(?:DEVEDOR\s+)?TOTAL[:\s]+R?\$?\s*([\d.,]+)/i,
-      /VOLUME\s+TOTAL[:\s]+R?\$?\s*([\d.,]+)/i,
-      /TOTAL\s+GERAL[:\s]+R?\$?\s*([\d.,]+)/i,
-      /(?:TOTAL|SALDO)[:\s]+R\$\s*([\d.,]+)/i,
-    ];
-    for (const p of patterns) {
-      const m = text.match(p) || norm.match(p);
-      if (m?.[1]) return clean(m[1]);
-    }
-    return "";
-  })();
-
-  // Operações em atraso
-  const operacoesEmAtraso = (() => {
-    const patterns = [
-      /OPERA[CÇ][OÕ]ES? +(?:EM +)?ATRASO[:\s]+(\d+)/i,
-      /(\d+) *(?:OPERA[CÇ][OÕ]ES?|CONTRATOS?|PARCELAS?) +(?:EM +)?ATRASO/i,
-      /INADIMPL[EÊ]NCIA[:\s]+(\d+)\s*OPERA/i,
-      /ATRASOS?[:\s]+(\d+)/i,
-    ];
-    for (const p of patterns) {
-      const m = text.match(p) || norm.match(p);
-      if (m?.[1]) return clean(m[1]);
-    }
-    return "";
-  })();
-
-  // Tempo de atraso
-  const tempoAtraso = (() => {
-    const patterns = [
-      /ATRASO[:\s]+(?:DE\s+|MÉDIO\s+)?(?:ATÉ\s+)?(\d+\s+DIAS?)/i,
-      /(\d+)\s+DIAS?\s+(?:DE\s+)?ATRASO/i,
-      /PRAZO\s+(?:DE\s+)?ATRASO[:\s]+(\d+\s+(?:DIAS?|MESES?))/i,
-      /(?:FAIXA|PERÍODO)\s+DE\s+ATRASO[:\s]+([^\n]{3,40})/i,
-      /MAIOR\s+ATRASO[:\s]+(\d+\s+DIAS?)/i,
-    ];
-    for (const p of patterns) {
-      const m = text.match(p) || norm.match(p);
-      if (m?.[1]) return clean(m[1]);
-    }
-    return "";
-  })();
-
-  // Modalidades de crédito
-  const modalidades: string[] = [];
-  const modalMap: [string, string][] = [
-    ["CAPITAL DE GIRO", "Capital de Giro"],
-    ["CHEQUE ESPECIAL", "Cheque Especial"],
-    ["CONTA GARANTIDA", "Conta Garantida"],
-    ["CDC|CRÉDITO DIRETO AO CONSUMIDOR", "CDC"],
-    ["FINANCIAMENTO", "Financiamento"],
-    ["LEASING", "Leasing"],
-    ["ANTECIPA[CÇ][AÃ]O", "Antecipação de Recebíveis"],
-    ["DESCONTO DE T[IÍ]TULOS?", "Desconto de Títulos"],
-    ["CART[AÃ]O DE CR[EÉ]DITO", "Cartão de Crédito"],
-    ["EMPRÉSTIMO PESSOAL|CREDITO PESSOAL", "Empréstimo Pessoal"],
-    ["COMPROR", "Compror"],
-    ["VENDOR", "Vendor"],
-    ["LIMITE DE CR[EÉ]DITO", "Limite de Crédito"],
-    ["FINAME", "Finame"],
-    ["BNDES", "BNDES"],
-  ];
-  modalMap.forEach(([p, label]) => {
-    if (new RegExp(p, "i").test(text)) modalidades.push(label);
-  });
-
-  // Instituições credoras
-  const instituicoes: string[] = [];
-  const bankMap: [string, string][] = [
-    ["BANCO DO BRASIL|BB\\b", "Banco do Brasil"],
-    ["BRADESCO", "Bradesco"],
-    ["ITA[ÚU]\\b|ITAÚ\\s+UNIBANCO", "Itaú"],
-    ["CAIXA ECON[OÔ]MICA|CEF\\b", "Caixa Econômica Federal"],
-    ["SANTANDER", "Santander"],
-    ["BTG PACTUAL|BTG\\b", "BTG Pactual"],
-    ["NUBANK|NU\\s+BANK", "Nubank"],
-    ["SICOOB", "Sicoob"],
-    ["SICREDI", "Sicredi"],
-    ["INTER\\b|BANCO INTER", "Banco Inter"],
-    ["C6\\s*BANK|C6\\b", "C6 Bank"],
-    ["SAFRA", "Safra"],
-    ["VOTORANTIM|BV\\b", "Votorantim/BV"],
-    ["BANCO ORIGINAL", "Banco Original"],
-    ["MERCANTIL", "Mercantil"],
-    ["ABC\\s+BRASIL", "ABC Brasil"],
-    ["PINE\\b", "Banco Pine"],
-    ["DAYCOVAL", "Daycoval"],
-  ];
-  bankMap.forEach(([p, label]) => {
-    if (new RegExp(p, "i").test(text)) instituicoes.push(label);
-  });
-
-  // Histórico de inadimplência
-  const historicoInadimplencia = (() => {
-    const patterns = [
-      /(?:HIST[OÓ]RICO|OCORR[EÊ]NCIAS?)[:\s]+([\s\S]{10,400}?)(?=\n{2}|TOTAL|SALDO|$)/i,
-      /INADIMPL[EÊ]NCIA[:\s]+([\s\S]{10,300}?)(?=\n{2}|TOTAL|$)/i,
-    ];
-    for (const p of patterns) {
-      const m = text.match(p);
-      if (m?.[1]) return clean(m[1]).substring(0, 400);
-    }
-    return "";
-  })();
-
-  // ── Novos campos FIDC ──
-
-  // Operações a vencer (adimplentes)
-  const operacoesAVencer = (() => {
-    const patterns = [
-      /(?:A\s+VENCER|VINCENDAS?|ADIMPLENTES?)[:\s]+R?\$?\s*([\d.,]+)/i,
-      /(?:CARTEIRA\s+)?(?:NORMAL|ATIVA|ADIMPLENTE)[:\s]+R?\$?\s*([\d.,]+)/i,
-    ];
-    for (const p of patterns) { const m = text.match(p) || norm.match(p); if (m?.[1]) return clean(m[1]); }
-    return "";
-  })();
-
-  // Operações vencidas (mais de 15 dias)
-  const operacoesVencidas = (() => {
-    const patterns = [
-      /(?:VENCID[AO]S?|VENCIMENTO)[:\s]+R?\$?\s*([\d.,]+)/i,
-      /(?:OPERA[CÇ][OÕ]ES?\s+)?VENCID[AO]S?[:\s]+R?\$?\s*([\d.,]+)/i,
-    ];
-    for (const p of patterns) { const m = text.match(p) || norm.match(p); if (m?.[1]) return clean(m[1]); }
-    return "";
-  })();
-
-  // Créditos baixados como prejuízo
-  const prejuizo = (() => {
-    const patterns = [
-      /PREJU[IÍ]ZO[:\s]+R?\$?\s*([\d.,]+)/i,
-      /BAIXAD[AO]S?\s+(?:COMO\s+)?PREJU[IÍ]ZO[:\s]+R?\$?\s*([\d.,]+)/i,
-      /PERDA[:\s]+R?\$?\s*([\d.,]+)/i,
-    ];
-    for (const p of patterns) { const m = text.match(p) || norm.match(p); if (m?.[1]) return clean(m[1]); }
-    return "";
-  })();
-
-  // Coobrigações / garantias
-  const coobrigacoes = (() => {
-    const patterns = [
-      /COOBRIGA[CÇ][OÕ]ES?[:\s]+R?\$?\s*([\d.,]+)/i,
-      /GARANTIAS?\s+(?:PRESTADAS?)?[:\s]+R?\$?\s*([\d.,]+)/i,
-      /AVAL(?:ES)?[:\s]+R?\$?\s*([\d.,]+)/i,
-    ];
-    for (const p of patterns) { const m = text.match(p) || norm.match(p); if (m?.[1]) return clean(m[1]); }
-    return "";
-  })();
-
-  // Classificação de risco (A-H do Bacen)
-  const classificacaoRisco = (() => {
-    const m = text.match(/(?:CLASSIFICA[CÇ][AÃ]O|RATING|N[IÍ]VEL\s+DE\s+RISCO|RISCO)[:\s]+([A-H](?:[\s\/\-]+[A-H])?)/i) ||
-              text.match(/\b(AA|[A-H]{1,2})\b\s*(?:[\-–]\s*(?:RISCO|RATING))/i);
-    return m ? clean(m[1]).toUpperCase() : "";
-  })();
-
-  // Concentração de crédito (% do maior credor)
-  const concentracaoCredito = (() => {
-    const m = text.match(/CONCENTRA[CÇ][AÃ]O[:\s]+(\d{1,3}[,.]?\d{0,2}\s*%)/i) ||
-              text.match(/MAIOR\s+(?:CREDOR|EXPOSI[CÇ][AÃ]O)[:\s]+(\d{1,3}[,.]?\d{0,2}\s*%)/i);
-    return m ? clean(m[1]) : "";
-  })();
+function fillContratoDefaults(data: Partial<ContratoSocialData>): ContratoSocialData {
+  const socios = Array.isArray(data.socios) && data.socios.length > 0
+    ? data.socios.map(s => ({
+        nome: s.nome || "",
+        cpf: s.cpf || "",
+        participacao: s.participacao || "",
+        qualificacao: s.qualificacao || "",
+      }))
+    : [{ nome: "", cpf: "", participacao: "", qualificacao: "" }];
 
   return {
-    totalDividasAtivas,
-    operacoesAVencer,
-    operacoesEmAtraso,
-    operacoesVencidas,
-    tempoAtraso,
-    prejuizo,
-    coobrigacoes,
-    classificacaoRisco,
-    modalidadesCredito: modalidades.join(", "),
-    instituicoesCredoras: instituicoes.join(", "),
-    concentracaoCredito,
-    historicoInadimplencia,
+    socios,
+    capitalSocial: data.capitalSocial || "",
+    objetoSocial: data.objetoSocial || "",
+    dataConstituicao: data.dataConstituicao || "",
+    temAlteracoes: data.temAlteracoes || false,
+    prazoDuracao: data.prazoDuracao || "",
+    administracao: data.administracao || "",
+    foro: data.foro || "",
+  };
+}
+
+function fillSCRDefaults(data: Partial<SCRData>): SCRData {
+  return {
+    totalDividasAtivas: data.totalDividasAtivas || "",
+    operacoesAVencer: data.operacoesAVencer || "",
+    operacoesEmAtraso: data.operacoesEmAtraso || "",
+    operacoesVencidas: data.operacoesVencidas || "",
+    tempoAtraso: data.tempoAtraso || "",
+    prejuizo: data.prejuizo || "",
+    coobrigacoes: data.coobrigacoes || "",
+    classificacaoRisco: data.classificacaoRisco || "",
+    modalidadesCredito: data.modalidadesCredito || "",
+    instituicoesCredoras: data.instituicoesCredoras || "",
+    concentracaoCredito: data.concentracaoCredito || "",
+    historicoInadimplencia: data.historicoInadimplencia || "",
   };
 }
 
@@ -580,69 +378,130 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Arquivo ou tipo não informado." }, { status: 400 });
     }
 
-    // Limite de 20MB (compatível com memória serverless Vercel)
+    if (!GEMINI_API_KEY) {
+      return NextResponse.json({ error: "GEMINI_API_KEY não configurada no servidor." }, { status: 500 });
+    }
+
     const MAX_SIZE = 20 * 1024 * 1024;
     if (file.size > MAX_SIZE) {
       return NextResponse.json({ error: "Arquivo excede o limite de 20MB." }, { status: 413 });
     }
 
     const ext = getFileExt(file.name);
-    const supportedExts = ["pdf", "docx", "jpg", "jpeg", "png"];
-    if (!supportedExts.includes(ext)) {
+    const mimeType = EXT_TO_MIME[ext];
+    if (!mimeType) {
       return NextResponse.json({ error: `Formato .${ext} não suportado. Use PDF, DOCX, JPG ou PNG.` }, { status: 400 });
     }
 
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
-    const { text, isScanned } = await extractText(buffer, ext);
 
-    if (!text || text.trim().length < 10) {
+    // Preparar arquivo para envio ao Gemini
+    let filePrepared: { parts: GeminiPart[]; mode: "multimodal" | "text"; isScanned: boolean };
+    try {
+      filePrepared = await prepareFileParts(buffer, ext, mimeType);
+    } catch (prepErr) {
+      console.error("[prepare] Failed:", prepErr);
       return NextResponse.json({
-        error: "Não foi possível extrair texto do documento. Verifique se o arquivo contém texto legível ou preencha os campos manualmente.",
+        error: prepErr instanceof Error ? prepErr.message : "Não foi possível processar o documento.",
       }, { status: 422 });
     }
 
-    let data: CNPJData | ContratoSocialData | SCRData;
+    console.log(`[extract] ${file.name} | type=${docType} | ext=${ext} | mode=${filePrepared.mode} | size=${(file.size / 1024).toFixed(0)}KB`);
 
+    let prompt: string;
     switch (docType) {
-      case "cnpj":     data = extractCNPJData(text); break;
-      case "contrato": data = extractContratoData(text); break;
-      case "scr":      data = extractSCRData(text); break;
+      case "cnpj":     prompt = PROMPT_CNPJ; break;
+      case "contrato": prompt = PROMPT_CONTRATO; break;
+      case "scr":      prompt = PROMPT_SCR; break;
       default:
         return NextResponse.json({ error: "Tipo de documento inválido." }, { status: 400 });
     }
 
-    // Sanitizar: limitar tamanho de strings e remover HTML
-    const sanitize = (val: unknown): unknown => {
-      if (typeof val === "string") return val.replace(/<[^>]*>/g, "").substring(0, 1000);
-      if (Array.isArray(val)) return val.map(sanitize);
-      if (val && typeof val === "object") {
-        const obj: Record<string, unknown> = {};
-        for (const [k, v] of Object.entries(val)) obj[k] = sanitize(v);
-        return obj;
-      }
-      return val;
-    };
-    data = sanitize(data) as typeof data;
+    let data: CNPJData | ContratoSocialData | SCRData;
 
-    // Contar campos preenchidos para informar o frontend
-    const filled = Object.values(data).filter(v =>
-      typeof v === "string" ? v.length > 0 :
-      Array.isArray(v) ? v.some((s: Socio) => s.nome) :
-      typeof v === "boolean" ? true : false
-    ).length;
+    try {
+      const geminiResponse = await callGemini(prompt, filePrepared.parts);
+      console.log(`[extract] Gemini response length: ${geminiResponse.length}`);
+      const parsed = parseJSON<Record<string, unknown>>(geminiResponse);
+
+      switch (docType) {
+        case "cnpj":     data = fillCNPJDefaults(parsed as Partial<CNPJData>); break;
+        case "contrato": data = fillContratoDefaults(parsed as Partial<ContratoSocialData>); break;
+        case "scr":      data = fillSCRDefaults(parsed as Partial<SCRData>); break;
+        default:         data = fillCNPJDefaults(parsed as Partial<CNPJData>);
+      }
+    } catch (aiError) {
+      console.error("[extract] Gemini failed:", aiError);
+
+      // FALLBACK: se multimodal falhou e é PDF, tentar com texto extraído
+      if (filePrepared.mode === "multimodal" && ext === "pdf") {
+        console.log("[extract] Trying text fallback for PDF...");
+        try {
+          const fallbackText = await extractTextFallback(buffer, ext);
+          if (fallbackText && fallbackText.trim().length >= 10) {
+            const textParts: GeminiPart[] = [{ text: "--- DOCUMENTO (texto extraído) ---\n\n" + fallbackText }];
+            const geminiResponse = await callGemini(prompt, textParts);
+            const parsed = parseJSON<Record<string, unknown>>(geminiResponse);
+
+            switch (docType) {
+              case "cnpj":     data = fillCNPJDefaults(parsed as Partial<CNPJData>); break;
+              case "contrato": data = fillContratoDefaults(parsed as Partial<ContratoSocialData>); break;
+              case "scr":      data = fillSCRDefaults(parsed as Partial<SCRData>); break;
+              default:         data = fillCNPJDefaults(parsed as Partial<CNPJData>);
+            }
+
+            console.log("[extract] Text fallback succeeded!");
+            const filled = countFilledFields(data);
+            return NextResponse.json({
+              success: true,
+              data,
+              meta: { rawTextLength: fallbackText.length, filledFields: filled, isScanned: false, aiPowered: true, usedFallback: true },
+            });
+          }
+        } catch (fallbackErr) {
+          console.error("[extract] Text fallback also failed:", fallbackErr);
+        }
+      }
+
+      // Retorna estrutura vazia para preenchimento manual
+      switch (docType) {
+        case "cnpj":     data = fillCNPJDefaults({}); break;
+        case "contrato": data = fillContratoDefaults({}); break;
+        case "scr":      data = fillSCRDefaults({}); break;
+        default: data = fillCNPJDefaults({});
+      }
+      return NextResponse.json({
+        success: true,
+        data,
+        meta: { rawTextLength: 0, filledFields: 0, isScanned: filePrepared.isScanned, aiError: true },
+      });
+    }
+
+    const filled = countFilledFields(data);
 
     return NextResponse.json({
       success: true,
       data,
       meta: {
-        rawTextLength: text.length,
+        rawTextLength: 0,
         filledFields: filled,
-        isScanned,
+        isScanned: filePrepared.isScanned,
+        aiPowered: true,
+        multimodal: filePrepared.mode === "multimodal",
       },
     });
   } catch (err) {
-    console.error("Extraction error:", err instanceof Error ? err.message : err);
+    console.error("[extract] Unhandled error:", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "Erro interno ao processar o documento." }, { status: 500 });
   }
+}
+
+function countFilledFields(data: CNPJData | ContratoSocialData | SCRData): number {
+  const obj = data as unknown as Record<string, unknown>;
+  return Object.values(obj).filter(v =>
+    typeof v === "string" ? v.length > 0 :
+    Array.isArray(v) ? v.some((s: { nome?: string }) => s.nome) :
+    typeof v === "boolean" ? true : false
+  ).length;
 }

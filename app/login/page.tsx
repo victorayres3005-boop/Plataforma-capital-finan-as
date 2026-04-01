@@ -22,15 +22,31 @@ function Logo({ size = "lg" }: { size?: "lg" | "sm" }) {
 }
 
 export default function LoginPage() {
-  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [mode, setMode] = useState<"login" | "signup" | "reset">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
+  const handleReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email) { toast.error("Digite seu e-mail"); return; }
+    setLoading(true);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/login` });
+      if (error) throw error;
+      toast.success("E-mail de recuperação enviado! Verifique sua caixa de entrada.");
+      setMode("login");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao enviar e-mail");
+    } finally { setLoading(false); }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (mode === "reset") { handleReset(e); return; }
     if (!email || !password) { toast.error("Preencha todos os campos"); return; }
     if (mode === "signup" && password.length < 6) { toast.error("A senha deve ter no mínimo 6 caracteres"); return; }
 
@@ -136,24 +152,26 @@ export default function LoginPage() {
             {/* Header */}
             <div>
               <h2 className="text-2xl font-bold text-cf-text-1">
-                {mode === "login" ? "Bem-vindo de volta" : "Crie sua conta"}
+                {mode === "login" ? "Bem-vindo de volta" : mode === "signup" ? "Crie sua conta" : "Recuperar senha"}
               </h2>
               <p className="text-sm text-cf-text-3 mt-1.5">
-                {mode === "login"
-                  ? "Acesse a plataforma com suas credenciais"
-                  : "Preencha os dados abaixo para começar"}
+                {mode === "login" ? "Acesse a plataforma com suas credenciais"
+                  : mode === "signup" ? "Preencha os dados abaixo para começar"
+                  : "Digite seu e-mail para receber o link de recuperação"}
               </p>
             </div>
 
             {/* Tabs */}
-            <div className="flex bg-cf-surface rounded-xl p-1 border border-cf-border">
-              {(["login", "signup"] as const).map((m) => (
-                <button key={m} onClick={() => setMode(m)}
-                  className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${mode === m ? "bg-white text-cf-navy shadow-sm" : "text-cf-text-3 hover:text-cf-text-1"}`}>
-                  {m === "login" ? "Entrar" : "Cadastrar"}
-                </button>
-              ))}
-            </div>
+            {mode !== "reset" && (
+              <div className="flex bg-cf-surface rounded-xl p-1 border border-cf-border">
+                {(["login", "signup"] as const).map((m) => (
+                  <button key={m} onClick={() => setMode(m)}
+                    className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${mode === m ? "bg-white text-cf-navy shadow-sm" : "text-cf-text-3 hover:text-cf-text-1"}`}>
+                    {m === "login" ? "Entrar" : "Cadastrar"}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* Form */}
             <form onSubmit={handleSubmit} className="space-y-4">

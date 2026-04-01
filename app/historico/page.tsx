@@ -7,10 +7,11 @@ import { DocumentCollection, CollectionDocument } from "@/types";
 import { toast } from "sonner";
 import {
   ArrowLeft, ChevronDown, ChevronUp, FileText, Building2, BarChart3, ScrollText,
-  Loader2, Pencil, Check, RotateCcw, Inbox, LogOut, User
+  Loader2, Pencil, Check, RotateCcw, Inbox, LogOut, User, Trash2, Download
 } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/lib/useAuth";
+import { listFiles, getDownloadUrl, deleteCollectionFiles } from "@/lib/storage";
 
 function Logo({ light = false }: { light?: boolean }) {
   const textColor = light ? "#ffffff" : "#203b88";
@@ -40,7 +41,40 @@ const docLabel: Record<string, string> = {
   outro: "Outro documento",
 };
 
-function CollectionCard({ col, highlight }: { col: DocumentCollection; highlight: boolean }) {
+function CollectionCard({ col, highlight, onDelete, userId }: { col: DocumentCollection; highlight: boolean; onDelete: (id: string) => void; userId?: string }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [storedFiles, setStoredFiles] = useState<{ originals: { name: string; path: string }[]; reports: { name: string; path: string }[] }>({ originals: [], reports: [] });
+  const [filesLoaded, setFilesLoaded] = useState(false);
+
+  const loadFiles = async () => {
+    if (filesLoaded || !userId) return;
+    const [originals, reports] = await Promise.all([
+      listFiles(userId, col.id, "originals"),
+      listFiles(userId, col.id, "reports"),
+    ]);
+    setStoredFiles({ originals, reports });
+    setFilesLoaded(true);
+  };
+
+  const handleDownload = async (path: string, name: string) => {
+    const url = await getDownloadUrl(path);
+    if (url) { const a = document.createElement("a"); a.href = url; a.download = name; a.click(); }
+    else toast.error("Erro ao gerar link de download");
+  };
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      const supabase = createClient();
+      if (userId) await deleteCollectionFiles(userId, col.id);
+      const { error } = await supabase.from("document_collections").delete().eq("id", col.id);
+      if (error) throw error;
+      toast.success("Coleta excluída");
+      onDelete(col.id);
+    } catch { toast.error("Erro ao excluir"); }
+    finally { setDeleting(false); setConfirmDelete(false); }
+  };
   const [expanded, setExpanded] = useState(false);
   const [editingLabel, setEditingLabel] = useState(false);
   const [label, setLabel] = useState(col.label || "");
@@ -113,9 +147,23 @@ function CollectionCard({ col, highlight }: { col: DocumentCollection; highlight
                 <RotateCcw size={12} /> Retomar
               </Link>
             )}
-            <button onClick={() => setExpanded(p => !p)} className="inline-flex items-center gap-1.5 text-xs font-semibold text-cf-navy hover:bg-cf-navy/5 border border-cf-navy/15 rounded-lg px-3 py-1.5 transition-colors">
+            <button onClick={() => { setExpanded(p => !p); loadFiles(); }} className="inline-flex items-center gap-1.5 text-xs font-semibold text-cf-navy hover:bg-cf-navy/5 border border-cf-navy/15 rounded-lg px-3 py-1.5 transition-colors">
               {expanded ? <><ChevronUp size={12} /> Fechar</> : <><ChevronDown size={12} /> Ver detalhes</>}
             </button>
+            {!confirmDelete ? (
+              <button onClick={() => setConfirmDelete(true)} className="inline-flex items-center gap-1.5 text-xs font-semibold text-cf-text-4 hover:text-cf-danger hover:bg-cf-danger-bg border border-cf-border rounded-lg px-2.5 py-1.5 transition-colors" title="Excluir coleta">
+                <Trash2 size={12} />
+              </button>
+            ) : (
+              <div className="flex items-center gap-1">
+                <button onClick={handleDelete} disabled={deleting} className="inline-flex items-center gap-1 text-[11px] font-semibold text-white bg-cf-danger hover:bg-red-700 rounded-lg px-2.5 py-1.5 transition-colors">
+                  {deleting ? <Loader2 size={11} className="animate-spin" /> : "Excluir"}
+                </button>
+                <button onClick={() => setConfirmDelete(false)} className="text-[11px] font-semibold text-cf-text-3 hover:text-cf-text-1 px-2 py-1.5 transition-colors">
+                  Cancelar
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -139,6 +187,42 @@ function CollectionCard({ col, highlight }: { col: DocumentCollection; highlight
               </span>
             </div>
           ))}
+
+          {/* Arquivos salvos — originais + relatórios */}
+          {filesLoaded && (storedFiles.originals.length > 0 || storedFiles.reports.length > 0) && (
+            <div className="mt-4 pt-4 border-t border-cf-border space-y-3">
+              {storedFiles.originals.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-bold text-cf-text-3 uppercase tracking-widest mb-2">Documentos Originais</p>
+                  <div className="space-y-1.5">
+                    {storedFiles.originals.map((f, i) => (
+                      <button key={i} onClick={() => handleDownload(f.path, f.name)}
+                        className="w-full flex items-center gap-3 bg-cf-bg rounded-lg px-3 py-2 border border-cf-border hover:border-cf-navy/30 hover:bg-cf-surface transition-all text-left" style={{ minHeight: "auto" }}>
+                        <FileText size={14} className="text-cf-navy flex-shrink-0" />
+                        <span className="text-xs font-medium text-cf-text-1 flex-1 truncate">{f.name}</span>
+                        <Download size={12} className="text-cf-text-3" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {storedFiles.reports.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-bold text-cf-text-3 uppercase tracking-widest mb-2">Relatórios Gerados</p>
+                  <div className="space-y-1.5">
+                    {storedFiles.reports.map((f, i) => (
+                      <button key={i} onClick={() => handleDownload(f.path, f.name)}
+                        className="w-full flex items-center gap-3 bg-cf-green/5 rounded-lg px-3 py-2 border border-cf-green/20 hover:bg-cf-green/10 transition-all text-left" style={{ minHeight: "auto" }}>
+                        <Download size={14} className="text-cf-green flex-shrink-0" />
+                        <span className="text-xs font-medium text-cf-text-1 flex-1 truncate">{f.name}</span>
+                        <span className="text-[10px] text-cf-green font-semibold">Baixar</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -246,7 +330,7 @@ function HistoricoContent() {
         ) : (
           <div className="space-y-4">
             {collections.map(col => (
-              <CollectionCard key={col.id} col={col} highlight={col.id === highlightId} />
+              <CollectionCard key={col.id} col={col} highlight={col.id === highlightId} userId={user?.id} onDelete={(id) => setCollections(prev => prev.filter(c => c.id !== id))} />
             ))}
           </div>
         )}

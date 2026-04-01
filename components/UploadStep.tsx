@@ -12,7 +12,9 @@ const defaultCNPJ: CNPJData = { razaoSocial:"",nomeFantasia:"",cnpj:"",dataAbert
 const defaultContrato: ContratoSocialData = { socios:[{nome:"",cpf:"",participacao:"",qualificacao:""}],capitalSocial:"",objetoSocial:"",dataConstituicao:"",temAlteracoes:false,prazoDuracao:"",administracao:"",foro:"" };
 const defaultSCR: SCRData = { totalDividasAtivas:"",operacoesAVencer:"",operacoesEmAtraso:"",operacoesVencidas:"",tempoAtraso:"",prejuizo:"",coobrigacoes:"",classificacaoRisco:"",modalidadesCredito:"",instituicoesCredoras:"",concentracaoCredito:"",historicoInadimplencia:"" };
 
-export default function UploadStep({ onComplete }: { onComplete: (data: ExtractedData) => void }) {
+export interface OriginalFiles { cnpj?: File; contrato?: File; scr?: File; }
+
+export default function UploadStep({ onComplete }: { onComplete: (data: ExtractedData, files: OriginalFiles) => void }) {
   const [docs, setDocs] = useState({ cnpj:{file:null,status:"idle"} as DocState, contrato:{file:null,status:"idle"} as DocState, scr:{file:null,status:"idle"} as DocState });
   const [extracted, setExtracted] = useState<ExtractedData>({ cnpj:defaultCNPJ, contrato:defaultContrato, scr:defaultSCR, resumoRisco:"" });
 
@@ -23,13 +25,19 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
     const fd = new FormData();
     fd.append("file", file); fd.append("type", type);
     try {
-      const res = await fetch("/api/extract", { method: "POST", body: fd });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 120000); // 120s timeout
+      const res = await fetch("/api/extract", { method: "POST", body: fd, signal: controller.signal });
+      clearTimeout(timeout);
       const json = await res.json();
       if (!res.ok || !json.success) { updateDoc(type, { status: "error", error: json.error || "Erro ao processar." }); return; }
       setExtracted(prev => ({ ...prev, [type]: json.data }));
       updateDoc(type, { status: "done", meta: json.meta ?? undefined });
-    } catch {
-      updateDoc(type, { status: "error", error: "Falha na conexão." });
+    } catch (err) {
+      const msg = err instanceof Error && err.name === "AbortError"
+        ? "Processamento demorou demais. Tente novamente."
+        : "Falha na conexão. Verifique sua internet.";
+      updateDoc(type, { status: "error", error: msg });
     }
   };
 
@@ -105,7 +113,11 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
         </div>
 
         <button
-          onClick={() => allDone && onComplete(extracted)}
+          onClick={() => allDone && onComplete(extracted, {
+              cnpj: docs.cnpj.file || undefined,
+              contrato: docs.contrato.file || undefined,
+              scr: docs.scr.file || undefined,
+            })}
           disabled={!allDone || anyProcessing}
           className="btn-primary"
         >
