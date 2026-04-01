@@ -26,14 +26,15 @@ async function extractText(buffer: Buffer, ext: string): Promise<{ text: string;
       return { text: result.value ?? "", isScanned: false };
     }
 
-    // Imagens (JPG, PNG) — OCR com Tesseract.js
+    // Imagens (JPG, PNG) — OCR com Tesseract.js (com timeout de 50s)
     if (["jpg", "jpeg", "png"].includes(ext)) {
       const { createWorker } = await import("tesseract.js");
       let worker: Awaited<ReturnType<typeof createWorker>> | null = null;
       try {
+        const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("OCR timeout — imagem muito grande ou servidor ocupado")), 50000));
         worker = await createWorker("por");
-        const { data } = await worker.recognize(buffer);
-        return { text: data.text ?? "", isScanned: true };
+        const result = await Promise.race([worker.recognize(buffer), timeout]);
+        return { text: (result as { data: { text: string } }).data.text ?? "", isScanned: true };
       } finally {
         if (worker) await worker.terminate().catch(() => {});
       }
@@ -579,10 +580,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Arquivo ou tipo não informado." }, { status: 400 });
     }
 
-    // Limite de 50MB
-    const MAX_SIZE = 50 * 1024 * 1024;
+    // Limite de 20MB (compatível com memória serverless Vercel)
+    const MAX_SIZE = 20 * 1024 * 1024;
     if (file.size > MAX_SIZE) {
-      return NextResponse.json({ error: "Arquivo excede o limite de 50MB." }, { status: 413 });
+      return NextResponse.json({ error: "Arquivo excede o limite de 20MB." }, { status: 413 });
     }
 
     const ext = getFileExt(file.name);
