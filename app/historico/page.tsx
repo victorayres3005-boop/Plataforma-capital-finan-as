@@ -68,7 +68,7 @@ function CollectionCard({ col, highlight, onDelete, userId }: { col: DocumentCol
     try {
       const supabase = createClient();
       if (userId) await deleteCollectionFiles(userId, col.id);
-      const { error } = await supabase.from("document_collections").delete().eq("id", col.id);
+      const { error } = await supabase.from("document_collections").delete().eq("id", col.id).eq("user_id", userId);
       if (error) throw error;
       toast.success("Coleta excluída");
       onDelete(col.id);
@@ -91,7 +91,7 @@ function CollectionCard({ col, highlight, onDelete, userId }: { col: DocumentCol
     setSaving(true);
     try {
       const supabase = createClient();
-      await supabase.from("document_collections").update({ label: label || null }).eq("id", col.id);
+      await supabase.from("document_collections").update({ label: label || null }).eq("id", col.id).eq("user_id", userId);
       setEditingLabel(false);
       toast.success("Título atualizado");
     } catch { toast.error("Erro ao salvar título"); }
@@ -246,8 +246,11 @@ function HistoricoContent() {
         const supabase = createClient();
         const { data: { user } } = await supabase.auth.getUser();
 
-        let query = supabase.from("document_collections").select("*").order("created_at", { ascending: false });
-        if (user) query = query.eq("user_id", user.id);
+        if (!user) {
+          setCollections([]);
+          return;
+        }
+        const query = supabase.from("document_collections").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
 
         const { data, error } = await query;
         if (error) throw error;

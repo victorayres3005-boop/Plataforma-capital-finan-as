@@ -84,9 +84,13 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         return collectionId;
       } else {
         const { data: session } = await supabase.auth.getUser();
-        const userId = session.user?.id ?? "anonymous";
+        if (!session.user) {
+          toast.error("Você precisa estar logado para salvar coletas.");
+          return null;
+        }
+        const userId = session.user.id;
         const { data: row, error } = await supabase.from("document_collections").insert({
-          user_id: session.user?.id ?? null,
+          user_id: userId,
           status: "in_progress",
           label: data.cnpj.razaoSocial || null,
           documents,
