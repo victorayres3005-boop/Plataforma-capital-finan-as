@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { CNPJData, ContratoSocialData, SCRData, QSAData, FaturamentoData, ProtestosData, ProcessosData, GrupoEconomicoData } from "@/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 180;
 
 // ─────────────────────────────────────────
 // API Keys & Config
@@ -16,7 +16,7 @@ const GEMINI_API_KEYS = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_K
 const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
 
 const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash"];
-const GEMINI_MODELS_CRITICAL = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"];
+const GEMINI_MODELS_CRITICAL = ["gemini-2.5-flash", "gemini-2.0-flash"];
 const GROQ_MODEL = "llama-3.3-70b-versatile";
 
 function geminiUrl(model: string, key: string) {
@@ -492,7 +492,7 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
     for (const model of models) {
       for (let attempt = 0; attempt < 2; attempt++) {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 45000);
+        const timeoutId = setTimeout(() => controller.abort(), 90000);
         try {
           console.log(`[Gemini] key=${apiKey.substring(0, 8)}... model=${model} attempt=${attempt + 1}`);
           const response = await fetch(geminiUrl(model, apiKey), {
@@ -550,7 +550,7 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
 async function callGroq(prompt: string, content: string): Promise<string> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 45000);
+    const timeoutId = setTimeout(() => controller.abort(), 90000);
     try {
       console.log(`[Groq] Attempt ${attempt + 1}...`);
       const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {

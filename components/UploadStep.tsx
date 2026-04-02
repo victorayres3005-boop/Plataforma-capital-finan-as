@@ -123,7 +123,7 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
 
       try {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 120000);
+        const timeout = setTimeout(() => controller.abort(), 180000);
         const res = await fetch("/api/extract", { method: "POST", body: fd, signal: controller.signal });
         clearTimeout(timeout);
         const json = await res.json();
