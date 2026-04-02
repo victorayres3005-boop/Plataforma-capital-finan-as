@@ -53,7 +53,7 @@ const stepDescriptions: Record<AppStep, string> = {
 export default function HomePage() {
   const [step, setStep] = useState<AppStep>("upload");
   const [extractedData, setExtractedData] = useState<ExtractedData>(defaultData);
-  const [originalFiles, setOriginalFiles] = useState<OriginalFiles>({});
+  const [originalFiles, setOriginalFiles] = useState<OriginalFiles>({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [] });
   const { user, loading: authLoading, signOut } = useAuth();
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -518,7 +518,7 @@ export default function HomePage() {
             <ReviewStep data={extractedData} onComplete={(d) => { setExtractedData(d); setStep("generate"); }} onBack={() => setStep("upload")} />
           )}
           {step === "generate" && (
-            <GenerateStep data={extractedData} originalFiles={originalFiles} onBack={() => setStep("review")} onReset={() => { setShowDashboard(true); setStep("upload"); setExtractedData(defaultData); setOriginalFiles({}); }} onNotify={(msg) => setNotifications(prev => [{ id: Date.now().toString(), msg, time: new Date(), read: false }, ...prev])} />
+            <GenerateStep data={extractedData} originalFiles={originalFiles} onBack={() => setStep("review")} onReset={() => { setShowDashboard(true); setStep("upload"); setExtractedData(defaultData); setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [] }); }} onNotify={(msg) => setNotifications(prev => [{ id: Date.now().toString(), msg, time: new Date(), read: false }, ...prev])} />
           )}
         </div>
         )}

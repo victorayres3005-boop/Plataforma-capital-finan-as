@@ -35,11 +35,25 @@ function triggerDownload(blob: Blob, fileName: string) {
   }
 }
 
-// ── Alert type ──
-type AlertSeverity = "ALTA" | "MODERADA";
+// ── Alert & Analysis types ──
+type AlertSeverity = "ALTA" | "MODERADA" | "INFO";
 interface Alert {
   message: string;
   severity: AlertSeverity;
+  impacto?: string;
+}
+
+interface AIAnalysis {
+  rating: number;
+  ratingMax: number;
+  decisao: string;
+  resumoExecutivo: string;
+  alertas: Array<{ severidade: string; descricao: string; impacto: string }>;
+  pontosFortes: string[];
+  pontosFracos: string[];
+  perguntasVisita: Array<{ pergunta: string; contexto: string }>;
+  indicadores: Record<string, string>;
+  parecer: string;
 }
 
 export default function GenerateStep({ data: initialData, originalFiles, onBack, onReset, onNotify }: GenerateStepProps) {
@@ -53,6 +67,42 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   const setContrato = (k: keyof typeof data.contrato, v: string | boolean) => setData(p => ({ ...p, contrato: { ...p.contrato, [k]: v } }));
   const setSCR = (k: keyof typeof data.scr, v: string) => setData(p => ({ ...p, scr: { ...p.scr, [k]: v } }));
   const setResumoRisco = (v: string) => setData(p => ({ ...p, resumoRisco: v }));
+
+  // ── AI Analysis ──
+  const [aiAnalysis, setAiAnalysis] = useState<AIAnalysis | null>(null);
+  const [analyzingAI, setAnalyzingAI] = useState(false);
+  const analysisFetched = useRef(false);
+
+  useEffect(() => {
+    if (analysisFetched.current) return;
+    analysisFetched.current = true;
+
+    const runAnalysis = async () => {
+      setAnalyzingAI(true);
+      try {
+        const res = await fetch("/api/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data }),
+        });
+        const json = await res.json();
+        if (json.success && json.analysis) {
+          setAiAnalysis(json.analysis);
+          // Preencher resumoRisco com o parecer da IA
+          if (json.analysis.parecer) {
+            setResumoRisco(json.analysis.parecer);
+          }
+        }
+      } catch (err) {
+        console.error("AI analysis failed:", err);
+      } finally {
+        setAnalyzingAI(false);
+      }
+    };
+
+    runAnalysis();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Supabase: Salvar / Finalizar coleta ──
   const [collectionId, setCollectionId] = useState<string | null>(null);
@@ -115,14 +165,16 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         if (originalFiles) {
           const fileMap = {
             cnpj: "cartao-cnpj", qsa: "qsa", contrato: "contrato-social",
-            faturamento: "faturamento", scr: "scr-bacen",
-            protestos: "protestos", processos: "processos", grupoEconomico: "grupo-economico",
+            faturamento: "faturamento", scr: "scr-bacen", scrAnterior: "scr-anterior",
           } as const;
           for (const [key, label] of Object.entries(fileMap)) {
-            const file = originalFiles[key as keyof typeof originalFiles];
-            if (file) {
-              uploadFile(userId, row.id, "originals", `${label}.${file.name.split(".").pop() || "pdf"}`, file)
-                .catch(() => {}); // non-blocking
+            const filesArr = originalFiles[key as keyof typeof originalFiles];
+            if (Array.isArray(filesArr)) {
+              filesArr.forEach((file, i) => {
+                const suffix = filesArr.length > 1 ? `-${i + 1}` : "";
+                uploadFile(userId, row.id, "originals", `${label}${suffix}.${file.name.split(".").pop() || "pdf"}`, file)
+                  .catch(() => {});
+              });
             }
           }
         }
@@ -188,7 +240,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   const protestosVigentes = parseInt(data.protestos?.vigentesQtd || "0", 10) || 0;
   const processosBancariosAtivos = (data.processos?.bancarios || []).filter(b => b.status && /andamento|distribu/i.test(b.status)).length;
 
-  // ── Rating (0-10) ──
+  // ── Rating local (0-10) — usado como fallback se IA não disponível ──
   const ratingScore = (() => {
     let s = 0;
     // Situação ATIVA (+1)
@@ -221,30 +273,43 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     return Math.min(10, Math.round(s * 10) / 10);
   })();
 
-  // ── Decision ──
-  const decision: "APROVADO" | "PENDENTE" | "REPROVADO" = ratingScore >= 7 ? "APROVADO" : ratingScore >= 4 ? "PENDENTE" : "REPROVADO";
+  // ── Decision (usa IA se disponível, senão cálculo local) ──
+  const finalRating = aiAnalysis ? aiAnalysis.rating : ratingScore;
+  const decision: "APROVADO" | "PENDENTE" | "REPROVADO" =
+    aiAnalysis ? (aiAnalysis.decisao as "APROVADO" | "PENDENTE" | "REPROVADO") :
+    (finalRating >= 7 ? "APROVADO" : finalRating >= 4 ? "PENDENTE" : "REPROVADO");
   const decisionColor = decision === "APROVADO" ? "#16A34A" : decision === "PENDENTE" ? "#D97706" : "#DC2626";
   const decisionBg = decision === "APROVADO" ? "#F0FDF4" : decision === "PENDENTE" ? "#FFFBEB" : "#FEF2F2";
   const decisionBorder = decision === "APROVADO" ? "#BBF7D0" : decision === "PENDENTE" ? "#FDE68A" : "#FECACA";
 
-  // ── Alerts system ──
+  // ── Alerts (usa IA se disponível) ──
   const alerts: Alert[] = (() => {
+    if (aiAnalysis && aiAnalysis.alertas.length > 0) {
+      return aiAnalysis.alertas.map(a => ({
+        message: a.descricao,
+        severity: a.severidade as AlertSeverity,
+        impacto: a.impacto,
+      }));
+    }
     const a: Alert[] = [];
-    if (protestosVigentes > 0) a.push({ message: `Protestos vigentes: ${protestosVigentes}`, severity: "ALTA" });
-    if (vencidosSCR > 0 || vencidas > 0) a.push({ message: "SCR com operacoes vencidas", severity: "ALTA" });
-    if (prejuizosVal > 0) a.push({ message: "SCR com prejuizos registrados", severity: "ALTA" });
-    if (data.processos?.temRJ) a.push({ message: "Processo de Recuperacao Judicial identificado", severity: "ALTA" });
-    if (data.faturamento.faturamentoZerado) a.push({ message: "Faturamento zerado no periodo", severity: "ALTA" });
+    if (vencidosSCR > 0 || vencidas > 0) a.push({ message: "SCR com operações vencidas", severity: "ALTA" });
+    if (prejuizosVal > 0) a.push({ message: "SCR com prejuízos registrados", severity: "ALTA" });
+    if (data.faturamento.faturamentoZerado) a.push({ message: "Faturamento zerado no período", severity: "ALTA" });
     if (!data.faturamento.dadosAtualizados) a.push({ message: "Faturamento desatualizado", severity: "MODERADA" });
     const rl = data.scr.classificacaoRisco?.toUpperCase();
-    if (rl && ["D", "E", "F", "G", "H"].includes(rl)) a.push({ message: `Classificacao de risco ${rl}`, severity: "MODERADA" });
-    if (processosBancariosAtivos > 0) a.push({ message: `Processos bancarios ativos: ${processosBancariosAtivos}`, severity: "MODERADA" });
-    if (atraso > 0) a.push({ message: "Operacoes em atraso no SCR", severity: "MODERADA" });
+    if (rl && ["D", "E", "F", "G", "H"].includes(rl)) a.push({ message: `Classificação de risco ${rl}`, severity: "MODERADA" });
+    if (atraso > 0) a.push({ message: "Operações em atraso no SCR", severity: "MODERADA" });
     return a;
   })();
 
   const alertsHigh = alerts.filter(a => a.severity === "ALTA");
-  const alertsMod = alerts.filter(a => a.severity === "MODERADA");
+  const alertsMod = alerts.filter(a => a.severity === "MODERADA" || a.severity === "INFO");
+
+  // ── Pontos fortes/fracos e parecer da IA ──
+  const pontosFortes = aiAnalysis?.pontosFortes || [];
+  const pontosFracos = aiAnalysis?.pontosFracos || [];
+  const perguntasVisita = aiAnalysis?.perguntasVisita || [];
+  const resumoExecutivo = aiAnalysis?.resumoExecutivo || "";
 
   // ── Legacy risk for UI badge ──
   const riskScore = (() => {
@@ -593,13 +658,13 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       doc.text(`Gerado em ${coverDate}`, W / 2, 190, { align: "center" });
 
       // Rating badge on cover
-      const ratingColorPDF: [number, number, number] = ratingScore >= 7 ? colors.green : ratingScore >= 4 ? colors.amber : colors.red;
+      const ratingColorPDF: [number, number, number] = finalRating >= 7 ? colors.green : finalRating >= 4 ? colors.amber : colors.red;
       doc.setFillColor(255, 255, 255);
       doc.roundedRect(W / 2 - 50, 200, 42, 22, 3, 3, "F");
       doc.setFontSize(14);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...ratingColorPDF);
-      doc.text(`${ratingScore}/10`, W / 2 - 29, 214, { align: "center" });
+      doc.text(`${finalRating}/10`, W / 2 - 29, 214, { align: "center" });
       doc.setFontSize(6);
       doc.text("RATING", W / 2 - 29, 207, { align: "center" });
 
@@ -1027,7 +1092,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       doc.setFontSize(8);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...dTextColor);
-      doc.text(`Rating: ${ratingScore}/10`, margin + contentW / 3 + 10, y + 10);
+      doc.text(`Rating: ${finalRating}/10`, margin + contentW / 3 + 10, y + 10);
 
       y += 22;
 
@@ -1269,7 +1334,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
               ] }),
               spacer(400),
               new Paragraph({ alignment: AlignmentType.CENTER, children: [
-                new TextRun({ text: `Rating: ${ratingScore}/10  |  ${decision}`, size: 24, bold: true, color: decision === "APROVADO" ? green : decision === "PENDENTE" ? warning : danger, font: "Arial" }),
+                new TextRun({ text: `Rating: ${finalRating}/10  |  ${decision}`, size: 24, bold: true, color: decision === "APROVADO" ? green : decision === "PENDENTE" ? warning : danger, font: "Arial" }),
               ] }),
               spacer(800),
               new Paragraph({ alignment: AlignmentType.CENTER, children: [
@@ -1449,7 +1514,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
               sectionTitle("09", "PARECER FINAL", navy),
               spacer(100),
               new Paragraph({ spacing: { after: 100 }, children: [
-                new TextRun({ text: `Decisao: ${decision}  |  Rating: ${ratingScore}/10`, size: 22, bold: true, color: decision === "APROVADO" ? green : decision === "PENDENTE" ? warning : danger, font: "Arial" }),
+                new TextRun({ text: `Decisao: ${decision}  |  Rating: ${finalRating}/10`, size: 22, bold: true, color: decision === "APROVADO" ? green : decision === "PENDENTE" ? warning : danger, font: "Arial" }),
               ] }),
               spacer(100),
               fieldTable([
@@ -1516,7 +1581,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
       ws.mergeCells(r, 1, r, 6); ws.getRow(r).height = 22;
       const info = ws.getRow(r).getCell(1);
-      info.value = `     ${data.cnpj.razaoSocial || "Empresa"}  |  CNPJ: ${data.cnpj.cnpj || "—"}  |  Rating: ${ratingScore}/10  |  ${decision}  |  ${genDate}`;
+      info.value = `     ${data.cnpj.razaoSocial || "Empresa"}  |  CNPJ: ${data.cnpj.cnpj || "—"}  |  Rating: ${finalRating}/10  |  ${decision}  |  ${genDate}`;
       info.font = { size: 10, bold: true, color: { argb: NAVY }, name: "Arial" }; info.fill = F(STRIPE); info.alignment = { vertical: "middle" };
       r++; r++;
 
@@ -1819,7 +1884,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       // ======= SECAO 09: PARECER =======
       secTitle("09", "PARECER FINAL", NAVY);
       field2("Decisao", decision, 0);
-      field2("Rating", `${ratingScore}/10`, 1);
+      field2("Rating", `${finalRating}/10`, 1);
       field2("Parecer", data.resumoRisco || "Parecer nao preenchido.", 2);
 
       xlSpacer(); xlSpacer();
@@ -1959,7 +2024,7 @@ td.val.muted{color:#9CA3AF;font-weight:400}
   <div class="rating-panel">
     <div class="rating-card" style="background:${decisionBg};border-color:${decisionBorder}">
       <div style="font-size:11px;color:#6B7280;text-transform:uppercase;letter-spacing:0.08em">Rating</div>
-      <div style="font-size:28px;font-weight:700;color:${decisionColor}">${ratingScore}/10</div>
+      <div style="font-size:28px;font-weight:700;color:${decisionColor}">${finalRating}/10</div>
       <div style="font-size:13px;font-weight:700;color:${decisionColor}">${decision}</div>
     </div>
     <div class="rating-card" style="background:${riskScore === 'baixo' ? '#F0FDF4' : riskScore === 'medio' ? '#FFFBEB' : '#FEF2F2'};border-color:${riskScore === 'baixo' ? '#BBF7D0' : riskScore === 'medio' ? '#FDE68A' : '#FECACA'}">
@@ -2161,7 +2226,7 @@ td.val.muted{color:#9CA3AF;font-weight:400}
   <div class="sec-title"><div class="sec-bar"></div><span class="sec-num">09</span><h2>Parecer Final</h2></div>
   <div style="display:flex;gap:16px;margin-bottom:16px">
     <span class="badge ${decision === 'APROVADO' ? 'badge-green' : decision === 'PENDENTE' ? 'badge-amber' : 'badge-red'}" style="font-size:16px;padding:8px 24px">${decision}</span>
-    <span class="badge ${ratingScore >= 7 ? 'badge-green' : ratingScore >= 4 ? 'badge-amber' : 'badge-red'}" style="font-size:16px;padding:8px 24px">Rating: ${ratingScore}/10</span>
+    <span class="badge ${finalRating >= 7 ? 'badge-green' : finalRating >= 4 ? 'badge-amber' : 'badge-red'}" style="font-size:16px;padding:8px 24px">Rating: ${finalRating}/10</span>
   </div>
   <table>
     ${row("Parecer", d.resumoRisco || "Parecer nao preenchido.")}
@@ -2211,8 +2276,8 @@ td.val.muted{color:#9CA3AF;font-weight:400}
           <div className="grid grid-cols-3 gap-4">
             <div className={`px-4 py-3 rounded-lg border`} style={{ background: decisionBg, borderColor: decisionBorder }}>
               <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280]">Rating</p>
-              <p className="text-[22px] font-bold" style={{ color: decisionColor }}>{ratingScore}/10</p>
-              <p className="text-[11px] text-[#6B7280]">{ratingScore >= 7 ? 'Perfil saudavel' : ratingScore >= 4 ? 'Atencao recomendada' : 'Perfil critico'}</p>
+              <p className="text-[22px] font-bold" style={{ color: decisionColor }}>{finalRating}/10</p>
+              <p className="text-[11px] text-[#6B7280]">{finalRating >= 7 ? 'Perfil saudavel' : finalRating >= 4 ? 'Atencao recomendada' : 'Perfil critico'}</p>
             </div>
             <div className={`px-4 py-3 rounded-lg border`} style={{ background: decisionBg, borderColor: decisionBorder }}>
               <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280]">Decisao</p>
@@ -2254,6 +2319,53 @@ td.val.muted{color:#9CA3AF;font-weight:400}
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* AI Analysis: Resumo + Pontos Fortes/Fracos */}
+          {analyzingAI && (
+            <div className="bg-cf-surface border border-cf-border rounded-lg px-4 py-3 flex items-center gap-2">
+              <Loader2 size={14} className="animate-spin text-cf-navy" />
+              <span className="text-xs text-cf-text-2">Gerando análise inteligente com IA...</span>
+            </div>
+          )}
+          {resumoExecutivo && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
+              <p className="text-[10px] uppercase tracking-[0.08em] text-blue-700 font-bold mb-1">Resumo Executivo</p>
+              <p className="text-xs text-blue-900 leading-relaxed">{resumoExecutivo}</p>
+            </div>
+          )}
+          {pontosFortes.length > 0 && (
+            <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3">
+              <p className="text-[10px] uppercase tracking-[0.08em] text-green-700 font-bold mb-1">Pontos Fortes ({pontosFortes.length})</p>
+              {pontosFortes.map((p, i) => (
+                <div key={i} className="flex items-start gap-2 text-[12px] text-green-800 mt-1">
+                  <CheckCircle2 size={12} className="text-green-600 flex-shrink-0 mt-0.5" />
+                  <span>{p}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {pontosFracos.length > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+              <p className="text-[10px] uppercase tracking-[0.08em] text-red-700 font-bold mb-1">Pontos Fracos ({pontosFracos.length})</p>
+              {pontosFracos.map((p, i) => (
+                <div key={i} className="flex items-start gap-2 text-[12px] text-red-800 mt-1">
+                  <AlertTriangle size={12} className="text-red-600 flex-shrink-0 mt-0.5" />
+                  <span>{p}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {perguntasVisita.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+              <p className="text-[10px] uppercase tracking-[0.08em] text-amber-700 font-bold mb-1">Perguntas para Visita ({perguntasVisita.length})</p>
+              {perguntasVisita.map((q, i) => (
+                <div key={i} className="mt-2">
+                  <p className="text-[12px] text-amber-900 font-semibold">{i + 1}. {q.pergunta}</p>
+                  <p className="text-[11px] text-amber-700 mt-0.5">{q.contexto}</p>
+                </div>
+              ))}
             </div>
           )}
 
