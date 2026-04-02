@@ -128,13 +128,16 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
         clearTimeout(timeout);
         const json = await res.json();
 
-        if (!res.ok || !json.success || json.meta?.aiError) {
+        if (!res.ok || !json.success) {
           setSections(prev => ({
             ...prev,
             [type]: { ...prev[type], errorCount: prev[type].errorCount + 1 },
           }));
           continue;
         }
+
+        // Se aiError mas tem dados (estrutura vazia), aceitar como parcial
+        // O usuário pode preencher manualmente na revisão
 
         // Merge the incoming data
         setExtracted(prev => {
