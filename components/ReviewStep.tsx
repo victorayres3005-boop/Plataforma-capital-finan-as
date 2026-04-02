@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, ArrowLeft, Plus, Trash2, AlertTriangle, ChevronDown, ChevronUp, AlertCircle, GitCompareArrows } from "lucide-react";
-import { ExtractedData, Socio, QSASocio, FaturamentoMensal, SCRModalidade, SCRInstituicao } from "@/types";
+import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, ArrowLeft, Plus, Trash2, AlertTriangle, ChevronDown, ChevronUp, AlertCircle, GitCompareArrows, Scale, Network } from "lucide-react";
+import { ExtractedData, Socio, QSASocio, FaturamentoMensal, SCRModalidade, SCRInstituicao, ProtestoDetalhe, ProcessoDistribuicao, ProcessoBancario, EmpresaGrupo } from "@/types";
 
 interface ReviewStepProps {
   data: ExtractedData;
@@ -54,7 +54,7 @@ function Field({ label, value, onChange, multiline = false, span2 = false }: {
 
 export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps) {
   const [form, setForm] = useState<ExtractedData>(() => JSON.parse(JSON.stringify(data)));
-  const [open, setOpen] = useState({ cnpj: true, qsa: true, contrato: false, faturamento: true, scr: true });
+  const [open, setOpen] = useState({ cnpj: true, qsa: true, contrato: false, faturamento: true, scr: true, protestos: true, processos: true, grupoEconomico: true });
 
   const toggle = (k: keyof typeof open) => setOpen(p => ({ ...p, [k]: !p[k] }));
 
@@ -100,6 +100,34 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
     setForm(p => { const inst = [...p.scr.instituicoes]; inst[i] = { ...inst[i], [k]: v }; return { ...p, scr: { ...p.scr, instituicoes: inst } }; });
   const addSCRInst = () => setForm(p => ({ ...p, scr: { ...p.scr, instituicoes: [...p.scr.instituicoes, { nome: "", valor: "" }] } }));
   const removeSCRInst = (i: number) => setForm(p => ({ ...p, scr: { ...p.scr, instituicoes: p.scr.instituicoes.filter((_, idx) => idx !== i) } }));
+
+  // ── Protestos setters ──
+  const setProtestoField = (k: 'vigentesQtd' | 'vigentesValor' | 'regularizadosQtd' | 'regularizadosValor', v: string) =>
+    setForm(p => ({ ...p, protestos: { ...p.protestos, [k]: v } }));
+  const setProtestoDetalhe = (i: number, k: keyof ProtestoDetalhe, v: string | boolean) =>
+    setForm(p => { const d = [...p.protestos.detalhes]; d[i] = { ...d[i], [k]: v }; return { ...p, protestos: { ...p.protestos, detalhes: d } }; });
+  const addProtestoDetalhe = () => setForm(p => ({ ...p, protestos: { ...p.protestos, detalhes: [...p.protestos.detalhes, { data: "", credor: "", valor: "", regularizado: false }] } }));
+  const removeProtestoDetalhe = (i: number) => setForm(p => ({ ...p, protestos: { ...p.protestos, detalhes: p.protestos.detalhes.filter((_, idx) => idx !== i) } }));
+
+  // ── Processos setters ──
+  const setProcessoField = (k: 'passivosTotal' | 'ativosTotal' | 'valorTotalEstimado', v: string) =>
+    setForm(p => ({ ...p, processos: { ...p.processos, [k]: v } }));
+  const setProcessoTemRJ = (v: boolean) =>
+    setForm(p => ({ ...p, processos: { ...p.processos, temRJ: v } }));
+  const setDistribuicao = (i: number, k: keyof ProcessoDistribuicao, v: string) =>
+    setForm(p => { const d = [...p.processos.distribuicao]; d[i] = { ...d[i], [k]: v }; return { ...p, processos: { ...p.processos, distribuicao: d } }; });
+  const addDistribuicao = () => setForm(p => ({ ...p, processos: { ...p.processos, distribuicao: [...p.processos.distribuicao, { tipo: "", qtd: "", pct: "" }] } }));
+  const removeDistribuicao = (i: number) => setForm(p => ({ ...p, processos: { ...p.processos, distribuicao: p.processos.distribuicao.filter((_, idx) => idx !== i) } }));
+  const setBancario = (i: number, k: keyof ProcessoBancario, v: string) =>
+    setForm(p => { const b = [...p.processos.bancarios]; b[i] = { ...b[i], [k]: v }; return { ...p, processos: { ...p.processos, bancarios: b } }; });
+  const addBancario = () => setForm(p => ({ ...p, processos: { ...p.processos, bancarios: [...p.processos.bancarios, { banco: "", assunto: "", status: "", data: "" }] } }));
+  const removeBancario = (i: number) => setForm(p => ({ ...p, processos: { ...p.processos, bancarios: p.processos.bancarios.filter((_, idx) => idx !== i) } }));
+
+  // ── Grupo Econômico setters ──
+  const setEmpresaGrupo = (i: number, k: keyof EmpresaGrupo, v: string) =>
+    setForm(p => { const e = [...p.grupoEconomico.empresas]; e[i] = { ...e[i], [k]: v }; return { ...p, grupoEconomico: { ...p.grupoEconomico, empresas: e } }; });
+  const addEmpresaGrupo = () => setForm(p => ({ ...p, grupoEconomico: { ...p.grupoEconomico, empresas: [...p.grupoEconomico.empresas, { razaoSocial: "", cnpj: "", relacao: "", scrTotal: "", protestos: "", processos: "" }] } }));
+  const removeEmpresaGrupo = (i: number) => setForm(p => ({ ...p, grupoEconomico: { ...p.grupoEconomico, empresas: p.grupoEconomico.empresas.filter((_, idx) => idx !== i) } }));
 
   return (
     <div className="animate-slide-up space-y-4">
@@ -429,6 +457,252 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
               </div>
             ) : (
               <div className="text-center py-4 text-xs text-cf-text-3 bg-cf-surface rounded-xl border border-cf-border">Nenhuma instituição extraída.</div>
+            )}
+          </div>
+        </div>
+      </SectionCard>
+
+      {/* ═══ 06 — Protestos ═══ */}
+      <SectionCard number="06" icon={<AlertTriangle size={16} className="text-red-600" />} title="Protestos"
+        iconColor="bg-red-100" expanded={open.protestos} onToggle={() => toggle("protestos")}>
+        <div className="space-y-4">
+          {/* Resumo */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="Vigentes (Qtd)" value={form.protestos.vigentesQtd} onChange={v => setProtestoField("vigentesQtd", v)} />
+            <Field label="Vigentes (Valor R$)" value={form.protestos.vigentesValor} onChange={v => setProtestoField("vigentesValor", v)} />
+            <Field label="Regularizados (Qtd)" value={form.protestos.regularizadosQtd} onChange={v => setProtestoField("regularizadosQtd", v)} />
+            <Field label="Regularizados (Valor R$)" value={form.protestos.regularizadosValor} onChange={v => setProtestoField("regularizadosValor", v)} />
+          </div>
+
+          {/* Tabela de detalhes */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="section-label">Detalhes dos Protestos</span>
+              <button onClick={addProtestoDetalhe} className="inline-flex items-center gap-1.5 text-xs font-semibold text-cf-navy hover:bg-cf-surface border border-cf-border hover:border-cf-navy rounded-lg px-2.5 py-1.5 transition-colors">
+                <Plus size={12} /> Adicionar
+              </button>
+            </div>
+            {form.protestos.detalhes.length > 0 ? (
+              <div className="rounded-xl border border-cf-border overflow-hidden">
+                <div className="hidden sm:block">
+                  <div className="grid grid-cols-[110px_1fr_120px_90px_36px] bg-cf-surface px-3 py-2 gap-2">
+                    {["Data","Credor","Valor (R$)","Regulariz.",""].map((h, i) => (
+                      <span key={i} className="text-[11px] font-semibold text-cf-text-3 uppercase tracking-wide">{h}</span>
+                    ))}
+                  </div>
+                  {form.protestos.detalhes.map((d, i) => (
+                    <div key={i} className={`grid grid-cols-[110px_1fr_120px_90px_36px] px-3 py-2 gap-2 items-center ${i > 0 ? "border-t border-cf-border" : ""}`}>
+                      <input value={d.data} onChange={e => setProtestoDetalhe(i,"data",e.target.value)} placeholder="DD/MM/YYYY" className="input-field py-1.5 text-xs" />
+                      <input value={d.credor} onChange={e => setProtestoDetalhe(i,"credor",e.target.value)} placeholder="Nome do credor" className="input-field py-1.5 text-xs" />
+                      <input value={d.valor} onChange={e => setProtestoDetalhe(i,"valor",e.target.value)} placeholder="0,00" className="input-field py-1.5 text-xs" />
+                      <label className="flex items-center justify-center gap-1.5 cursor-pointer">
+                        <input type="checkbox" checked={d.regularizado} onChange={e => setProtestoDetalhe(i,"regularizado",e.target.checked)} className="w-4 h-4 rounded accent-green-500 cursor-pointer" />
+                        <span className="text-[11px] text-cf-text-3">Sim</span>
+                      </label>
+                      <button onClick={() => removeProtestoDetalhe(i)} className="w-8 h-8 flex items-center justify-center text-cf-text-3 hover:text-cf-danger hover:bg-cf-danger-bg rounded-lg transition-colors"><Trash2 size={13} /></button>
+                    </div>
+                  ))}
+                </div>
+                {/* Mobile */}
+                <div className="sm:hidden divide-y divide-cf-border">
+                  {form.protestos.detalhes.map((d, i) => (
+                    <div key={i} className="p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-cf-text-3 uppercase">Protesto {i + 1}</span>
+                        <button onClick={() => removeProtestoDetalhe(i)} className="w-7 h-7 flex items-center justify-center text-cf-text-3 hover:text-cf-danger rounded-lg"><Trash2 size={12} /></button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <input value={d.data} onChange={e => setProtestoDetalhe(i,"data",e.target.value)} placeholder="Data" className="input-field py-2 text-sm" />
+                        <input value={d.valor} onChange={e => setProtestoDetalhe(i,"valor",e.target.value)} placeholder="Valor" className="input-field py-2 text-sm" />
+                      </div>
+                      <input value={d.credor} onChange={e => setProtestoDetalhe(i,"credor",e.target.value)} placeholder="Credor" className="input-field py-2 text-sm" />
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input type="checkbox" checked={d.regularizado} onChange={e => setProtestoDetalhe(i,"regularizado",e.target.checked)} className="w-4 h-4 rounded accent-green-500 cursor-pointer" />
+                        <span className="text-sm text-cf-text-2">Regularizado</span>
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-4 text-xs text-cf-text-3 bg-cf-surface rounded-xl border border-cf-border">Nenhum protesto extraído.</div>
+            )}
+          </div>
+        </div>
+      </SectionCard>
+
+      {/* ═══ 07 — Processos Judiciais ═══ */}
+      <SectionCard number="07" icon={<Scale size={16} className="text-purple-600" />} title="Processos Judiciais"
+        iconColor="bg-purple-100" expanded={open.processos} onToggle={() => toggle("processos")}
+        badge={form.processos.temRJ ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded-full border border-red-200"><AlertCircle size={10} /> RJ</span> : undefined}>
+        <div className="space-y-5">
+          {/* Resumo */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Field label="Passivos (Total)" value={form.processos.passivosTotal} onChange={v => setProcessoField("passivosTotal", v)} />
+            <Field label="Ativos (Total)" value={form.processos.ativosTotal} onChange={v => setProcessoField("ativosTotal", v)} />
+            <Field label="Valor Total Estimado (R$)" value={form.processos.valorTotalEstimado} onChange={v => setProcessoField("valorTotalEstimado", v)} />
+          </div>
+
+          <label className="flex items-center gap-2.5 cursor-pointer select-none group">
+            <input type="checkbox" checked={form.processos.temRJ} onChange={e => setProcessoTemRJ(e.target.checked)} className="w-4 h-4 rounded accent-red-500 cursor-pointer" />
+            <span className="text-sm text-cf-text-2 group-hover:text-cf-text-1 transition-colors flex items-center gap-1.5">
+              <AlertCircle size={13} className="text-red-500" /> Recuperação Judicial (RJ)
+            </span>
+          </label>
+
+          {/* Distribuição por tipo */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="section-label">Distribuição por Tipo</span>
+              <button onClick={addDistribuicao} className="inline-flex items-center gap-1.5 text-xs font-semibold text-cf-navy hover:bg-cf-surface border border-cf-border hover:border-cf-navy rounded-lg px-2.5 py-1.5 transition-colors">
+                <Plus size={12} /> Adicionar
+              </button>
+            </div>
+            {form.processos.distribuicao.length > 0 ? (
+              <div className="rounded-xl border border-cf-border overflow-hidden">
+                <div className="hidden sm:block">
+                  <div className="grid grid-cols-[1fr_100px_80px_36px] bg-cf-surface px-3 py-2 gap-2">
+                    {["Tipo","Qtd","Part. %",""].map((h, i) => (
+                      <span key={i} className="text-[11px] font-semibold text-cf-text-3 uppercase tracking-wide">{h}</span>
+                    ))}
+                  </div>
+                  {form.processos.distribuicao.map((d, i) => (
+                    <div key={i} className={`grid grid-cols-[1fr_100px_80px_36px] px-3 py-2 gap-2 items-center ${i > 0 ? "border-t border-cf-border" : ""}`}>
+                      <input value={d.tipo} onChange={e => setDistribuicao(i,"tipo",e.target.value)} placeholder="Trabalhista, Fiscal..." className="input-field py-1.5 text-xs" />
+                      <input value={d.qtd} onChange={e => setDistribuicao(i,"qtd",e.target.value)} placeholder="0" className="input-field py-1.5 text-xs" />
+                      <input value={d.pct} onChange={e => setDistribuicao(i,"pct",e.target.value)} placeholder="0%" className="input-field py-1.5 text-xs" />
+                      <button onClick={() => removeDistribuicao(i)} className="w-8 h-8 flex items-center justify-center text-cf-text-3 hover:text-cf-danger hover:bg-cf-danger-bg rounded-lg transition-colors"><Trash2 size={13} /></button>
+                    </div>
+                  ))}
+                </div>
+                {/* Mobile */}
+                <div className="sm:hidden divide-y divide-cf-border">
+                  {form.processos.distribuicao.map((d, i) => (
+                    <div key={i} className="p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-cf-text-3 uppercase">Tipo {i + 1}</span>
+                        <button onClick={() => removeDistribuicao(i)} className="w-7 h-7 flex items-center justify-center text-cf-text-3 hover:text-cf-danger rounded-lg"><Trash2 size={12} /></button>
+                      </div>
+                      <input value={d.tipo} onChange={e => setDistribuicao(i,"tipo",e.target.value)} placeholder="Tipo" className="input-field py-2 text-sm" />
+                      <div className="grid grid-cols-2 gap-2">
+                        <input value={d.qtd} onChange={e => setDistribuicao(i,"qtd",e.target.value)} placeholder="Qtd" className="input-field py-2 text-sm" />
+                        <input value={d.pct} onChange={e => setDistribuicao(i,"pct",e.target.value)} placeholder="Part. %" className="input-field py-2 text-sm" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-4 text-xs text-cf-text-3 bg-cf-surface rounded-xl border border-cf-border">Nenhuma distribuição extraída.</div>
+            )}
+          </div>
+
+          {/* Processos Bancários */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="section-label">Processos Bancários</span>
+              <button onClick={addBancario} className="inline-flex items-center gap-1.5 text-xs font-semibold text-cf-navy hover:bg-cf-surface border border-cf-border hover:border-cf-navy rounded-lg px-2.5 py-1.5 transition-colors">
+                <Plus size={12} /> Adicionar
+              </button>
+            </div>
+            {form.processos.bancarios.length > 0 ? (
+              <div className="rounded-xl border border-cf-border overflow-hidden">
+                <div className="hidden sm:block">
+                  <div className="grid grid-cols-[1fr_1fr_120px_110px_36px] bg-cf-surface px-3 py-2 gap-2">
+                    {["Banco","Assunto","Status","Data",""].map((h, i) => (
+                      <span key={i} className="text-[11px] font-semibold text-cf-text-3 uppercase tracking-wide">{h}</span>
+                    ))}
+                  </div>
+                  {form.processos.bancarios.map((b, i) => (
+                    <div key={i} className={`grid grid-cols-[1fr_1fr_120px_110px_36px] px-3 py-2 gap-2 items-center ${i > 0 ? "border-t border-cf-border" : ""}`}>
+                      <input value={b.banco} onChange={e => setBancario(i,"banco",e.target.value)} placeholder="Nome do banco" className="input-field py-1.5 text-xs" />
+                      <input value={b.assunto} onChange={e => setBancario(i,"assunto",e.target.value)} placeholder="Assunto" className="input-field py-1.5 text-xs" />
+                      <input value={b.status} onChange={e => setBancario(i,"status",e.target.value)} placeholder="Em andamento" className="input-field py-1.5 text-xs" />
+                      <input value={b.data} onChange={e => setBancario(i,"data",e.target.value)} placeholder="DD/MM/YYYY" className="input-field py-1.5 text-xs" />
+                      <button onClick={() => removeBancario(i)} className="w-8 h-8 flex items-center justify-center text-cf-text-3 hover:text-cf-danger hover:bg-cf-danger-bg rounded-lg transition-colors"><Trash2 size={13} /></button>
+                    </div>
+                  ))}
+                </div>
+                {/* Mobile */}
+                <div className="sm:hidden divide-y divide-cf-border">
+                  {form.processos.bancarios.map((b, i) => (
+                    <div key={i} className="p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-cf-text-3 uppercase">Processo {i + 1}</span>
+                        <button onClick={() => removeBancario(i)} className="w-7 h-7 flex items-center justify-center text-cf-text-3 hover:text-cf-danger rounded-lg"><Trash2 size={12} /></button>
+                      </div>
+                      <input value={b.banco} onChange={e => setBancario(i,"banco",e.target.value)} placeholder="Banco" className="input-field py-2 text-sm" />
+                      <input value={b.assunto} onChange={e => setBancario(i,"assunto",e.target.value)} placeholder="Assunto" className="input-field py-2 text-sm" />
+                      <div className="grid grid-cols-2 gap-2">
+                        <input value={b.status} onChange={e => setBancario(i,"status",e.target.value)} placeholder="Status" className="input-field py-2 text-sm" />
+                        <input value={b.data} onChange={e => setBancario(i,"data",e.target.value)} placeholder="Data" className="input-field py-2 text-sm" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-4 text-xs text-cf-text-3 bg-cf-surface rounded-xl border border-cf-border">Nenhum processo bancário extraído.</div>
+            )}
+          </div>
+        </div>
+      </SectionCard>
+
+      {/* ═══ 08 — Grupo Econômico ═══ */}
+      <SectionCard number="08" icon={<Network size={16} className="text-teal-600" />} title="Grupo Econômico"
+        iconColor="bg-teal-100" expanded={open.grupoEconomico} onToggle={() => toggle("grupoEconomico")}>
+        <div className="space-y-4">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="section-label">Empresas do Grupo</span>
+              <button onClick={addEmpresaGrupo} className="inline-flex items-center gap-1.5 text-xs font-semibold text-cf-navy hover:bg-cf-surface border border-cf-border hover:border-cf-navy rounded-lg px-2.5 py-1.5 transition-colors">
+                <Plus size={12} /> Adicionar
+              </button>
+            </div>
+            {form.grupoEconomico.empresas.length > 0 ? (
+              <div className="rounded-xl border border-cf-border overflow-hidden">
+                <div className="hidden sm:block">
+                  <div className="grid grid-cols-[1fr_150px_110px_100px_90px_90px_36px] bg-cf-surface px-3 py-2 gap-2">
+                    {["Razão Social","CNPJ","Relação","SCR Total","Protestos","Processos",""].map((h, i) => (
+                      <span key={i} className="text-[11px] font-semibold text-cf-text-3 uppercase tracking-wide">{h}</span>
+                    ))}
+                  </div>
+                  {form.grupoEconomico.empresas.map((emp, i) => (
+                    <div key={i} className={`grid grid-cols-[1fr_150px_110px_100px_90px_90px_36px] px-3 py-2 gap-2 items-center ${i > 0 ? "border-t border-cf-border" : ""}`}>
+                      <input value={emp.razaoSocial} onChange={e => setEmpresaGrupo(i,"razaoSocial",e.target.value)} placeholder="Razão Social" className="input-field py-1.5 text-xs" />
+                      <input value={emp.cnpj} onChange={e => setEmpresaGrupo(i,"cnpj",e.target.value)} placeholder="00.000.000/0000-00" className="input-field py-1.5 text-xs" />
+                      <input value={emp.relacao} onChange={e => setEmpresaGrupo(i,"relacao",e.target.value)} placeholder="via Sócio" className="input-field py-1.5 text-xs" />
+                      <input value={emp.scrTotal} onChange={e => setEmpresaGrupo(i,"scrTotal",e.target.value)} placeholder="0,00" className="input-field py-1.5 text-xs" />
+                      <input value={emp.protestos} onChange={e => setEmpresaGrupo(i,"protestos",e.target.value)} placeholder="0" className="input-field py-1.5 text-xs" />
+                      <input value={emp.processos} onChange={e => setEmpresaGrupo(i,"processos",e.target.value)} placeholder="0" className="input-field py-1.5 text-xs" />
+                      <button onClick={() => removeEmpresaGrupo(i)} className="w-8 h-8 flex items-center justify-center text-cf-text-3 hover:text-cf-danger hover:bg-cf-danger-bg rounded-lg transition-colors"><Trash2 size={13} /></button>
+                    </div>
+                  ))}
+                </div>
+                {/* Mobile */}
+                <div className="sm:hidden divide-y divide-cf-border">
+                  {form.grupoEconomico.empresas.map((emp, i) => (
+                    <div key={i} className="p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-cf-text-3 uppercase">Empresa {i + 1}</span>
+                        <button onClick={() => removeEmpresaGrupo(i)} className="w-7 h-7 flex items-center justify-center text-cf-text-3 hover:text-cf-danger rounded-lg"><Trash2 size={12} /></button>
+                      </div>
+                      <input value={emp.razaoSocial} onChange={e => setEmpresaGrupo(i,"razaoSocial",e.target.value)} placeholder="Razão Social" className="input-field py-2 text-sm" />
+                      <div className="grid grid-cols-2 gap-2">
+                        <input value={emp.cnpj} onChange={e => setEmpresaGrupo(i,"cnpj",e.target.value)} placeholder="CNPJ" className="input-field py-2 text-sm" />
+                        <input value={emp.relacao} onChange={e => setEmpresaGrupo(i,"relacao",e.target.value)} placeholder="Relação" className="input-field py-2 text-sm" />
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <input value={emp.scrTotal} onChange={e => setEmpresaGrupo(i,"scrTotal",e.target.value)} placeholder="SCR Total" className="input-field py-2 text-sm" />
+                        <input value={emp.protestos} onChange={e => setEmpresaGrupo(i,"protestos",e.target.value)} placeholder="Protestos" className="input-field py-2 text-sm" />
+                        <input value={emp.processos} onChange={e => setEmpresaGrupo(i,"processos",e.target.value)} placeholder="Processos" className="input-field py-2 text-sm" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-4 text-xs text-cf-text-3 bg-cf-surface rounded-xl border border-cf-border">Nenhuma empresa do grupo extraída.</div>
             )}
           </div>
         </div>

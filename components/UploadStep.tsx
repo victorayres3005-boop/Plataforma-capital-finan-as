@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, AlertCircle, Info, GitCompareArrows } from "lucide-react";
+import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, AlertCircle, Info, GitCompareArrows, AlertTriangle, Scale, Network } from "lucide-react";
 import UploadArea from "./UploadArea";
-import { DocStatus, ExtractedData, CNPJData, QSAData, ContratoSocialData, FaturamentoData, SCRData } from "@/types";
+import { DocStatus, ExtractedData, CNPJData, QSAData, ContratoSocialData, FaturamentoData, SCRData, ProtestosData, ProcessosData, GrupoEconomicoData } from "@/types";
 
 interface DocMeta { filledFields: number; isScanned: boolean; }
 interface DocState { file: File | null; status: DocStatus; error?: string; meta?: DocMeta; }
@@ -13,26 +13,32 @@ const defaultQSA: QSAData = { capitalSocial:"", quadroSocietario:[{nome:"",cpfCn
 const defaultContrato: ContratoSocialData = { socios:[{nome:"",cpf:"",participacao:"",qualificacao:""}],capitalSocial:"",objetoSocial:"",dataConstituicao:"",temAlteracoes:false,prazoDuracao:"",administracao:"",foro:"" };
 const defaultFaturamento: FaturamentoData = { meses:[],somatoriaAno:"0,00",mediaAno:"0,00",faturamentoZerado:true,dadosAtualizados:false,ultimoMesComDados:"" };
 const defaultSCR: SCRData = { periodoReferencia:"",carteiraAVencer:"",vencidos:"",prejuizos:"",limiteCredito:"",qtdeInstituicoes:"",qtdeOperacoes:"",totalDividasAtivas:"",operacoesAVencer:"",operacoesEmAtraso:"",operacoesVencidas:"",tempoAtraso:"",coobrigacoes:"",classificacaoRisco:"",carteiraCurtoPrazo:"",carteiraLongoPrazo:"",modalidades:[],instituicoes:[],valoresMoedaEstrangeira:"",historicoInadimplencia:"" };
+const defaultProtestos: ProtestosData = { vigentesQtd:"",vigentesValor:"",regularizadosQtd:"",regularizadosValor:"",detalhes:[] };
+const defaultProcessos: ProcessosData = { passivosTotal:"",ativosTotal:"",valorTotalEstimado:"",temRJ:false,distribuicao:[],bancarios:[] };
+const defaultGrupoEconomico: GrupoEconomicoData = { empresas:[] };
 
-export interface OriginalFiles { cnpj?: File; qsa?: File; contrato?: File; faturamento?: File; scr?: File; scrAnterior?: File; }
+export interface OriginalFiles { cnpj?: File; qsa?: File; contrato?: File; faturamento?: File; scr?: File; protestos?: File; processos?: File; grupoEconomico?: File; scrAnterior?: File; }
 
-type DocKey = 'cnpj' | 'qsa' | 'contrato' | 'faturamento' | 'scr' | 'scrAnterior';
+type DocKey = 'cnpj' | 'qsa' | 'contrato' | 'faturamento' | 'scr' | 'protestos' | 'processos' | 'grupoEconomico' | 'scrAnterior';
 
-const DOC_DEFAULTS: Record<string, CNPJData | QSAData | ContratoSocialData | FaturamentoData | SCRData> = {
-  cnpj: defaultCNPJ, qsa: defaultQSA, contrato: defaultContrato, faturamento: defaultFaturamento, scr: defaultSCR, scrAnterior: defaultSCR,
+const DOC_DEFAULTS: Record<string, CNPJData | QSAData | ContratoSocialData | FaturamentoData | SCRData | ProtestosData | ProcessosData | GrupoEconomicoData> = {
+  cnpj: defaultCNPJ, qsa: defaultQSA, contrato: defaultContrato, faturamento: defaultFaturamento, scr: defaultSCR, protestos: defaultProtestos, processos: defaultProcessos, grupoEconomico: defaultGrupoEconomico, scrAnterior: defaultSCR,
 };
 
 export default function UploadStep({ onComplete }: { onComplete: (data: ExtractedData, files: OriginalFiles) => void }) {
   const [docs, setDocs] = useState<Record<DocKey, DocState>>({
-    cnpj:        { file: null, status: "idle" },
-    qsa:         { file: null, status: "idle" },
-    contrato:    { file: null, status: "idle" },
-    faturamento: { file: null, status: "idle" },
-    scr:         { file: null, status: "idle" },
-    scrAnterior: { file: null, status: "idle" },
+    cnpj:            { file: null, status: "idle" },
+    qsa:             { file: null, status: "idle" },
+    contrato:        { file: null, status: "idle" },
+    faturamento:     { file: null, status: "idle" },
+    scr:             { file: null, status: "idle" },
+    protestos:       { file: null, status: "idle" },
+    processos:       { file: null, status: "idle" },
+    grupoEconomico:  { file: null, status: "idle" },
+    scrAnterior:     { file: null, status: "idle" },
   });
   const [extracted, setExtracted] = useState<ExtractedData>({
-    cnpj: defaultCNPJ, qsa: defaultQSA, contrato: defaultContrato, faturamento: defaultFaturamento, scr: defaultSCR, scrAnterior: null, resumoRisco: "",
+    cnpj: defaultCNPJ, qsa: defaultQSA, contrato: defaultContrato, faturamento: defaultFaturamento, scr: defaultSCR, protestos: defaultProtestos, processos: defaultProcessos, grupoEconomico: defaultGrupoEconomico, scrAnterior: null, resumoRisco: "",
   });
 
   const updateDoc = (type: DocKey, p: Partial<DocState>) => setDocs(prev => ({ ...prev, [type]: { ...prev[type], ...p } }));
@@ -42,7 +48,8 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
     const fd = new FormData();
     fd.append("file", file);
     // Tanto scr quanto scrAnterior usam o mesmo tipo de extração "scr"
-    fd.append("type", type === "scrAnterior" ? "scr" : type);
+    const apiType = type === "scrAnterior" ? "scr" : type;
+    fd.append("type", apiType);
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 120000);
@@ -78,14 +85,14 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
     }
   };
 
-  // SCR Anterior é opcional, os outros 5 são obrigatórios
-  const requiredKeys: DocKey[] = ['cnpj', 'qsa', 'contrato', 'faturamento', 'scr'];
+  // SCR Anterior é opcional, os outros 8 são obrigatórios
+  const requiredKeys: DocKey[] = ['cnpj', 'qsa', 'contrato', 'faturamento', 'scr', 'protestos', 'processos', 'grupoEconomico'];
   const allDone = requiredKeys.every(k => docs[k].status === "done");
   const anyProcessing = Object.values(docs).some(d => d.status === "processing");
   const errors = Object.entries(docs).filter(([, d]) => d.status === "error");
   const doneCount = requiredKeys.filter(k => docs[k].status === "done").length;
   const scrAnteriorDone = docs.scrAnterior.status === "done";
-  const totalRequired = 5;
+  const totalRequired = 8;
 
   return (
     <div className="animate-slide-up space-y-4">
@@ -94,7 +101,7 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
       <div className="flex items-start gap-3 bg-cf-navy/5 border border-cf-navy/15 rounded-xl px-4 py-3">
         <Info size={15} className="text-cf-navy flex-shrink-0 mt-0.5" />
         <p className="text-xs text-cf-text-2 leading-relaxed">
-          Envie os 5 documentos obrigatórios + o SCR anterior (opcional, para comparativo).
+          Envie os 8 documentos obrigatórios + o SCR anterior (opcional, para comparativo).
           Aceita PDF, Word, Excel (.xlsx) e imagens. A extração é automática.
         </p>
       </div>
@@ -134,6 +141,27 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
           status={docs.scr.status} fileName={docs.scr.file?.name} meta={docs.scr.meta}
           onFileSelect={f => processFile("scr", f)} onRemove={() => removeDoc("scr")}
           icon={<BarChart3 size={19} />}
+        />
+        <div className="border-t border-cf-border" />
+        <UploadArea
+          stepNumber="6" title="Protestos" description="Certidão de protestos da empresa"
+          status={docs.protestos.status} fileName={docs.protestos.file?.name} meta={docs.protestos.meta}
+          onFileSelect={f => processFile("protestos", f)} onRemove={() => removeDoc("protestos")}
+          icon={<AlertTriangle size={19} />}
+        />
+        <div className="border-t border-cf-border" />
+        <UploadArea
+          stepNumber="7" title="Processos Judiciais" description="Relatório de processos judiciais"
+          status={docs.processos.status} fileName={docs.processos.file?.name} meta={docs.processos.meta}
+          onFileSelect={f => processFile("processos", f)} onRemove={() => removeDoc("processos")}
+          icon={<Scale size={19} />}
+        />
+        <div className="border-t border-cf-border" />
+        <UploadArea
+          stepNumber="8" title="Grupo Econômico" description="Relatório de empresas do grupo econômico"
+          status={docs.grupoEconomico.status} fileName={docs.grupoEconomico.file?.name} meta={docs.grupoEconomico.meta}
+          onFileSelect={f => processFile("grupoEconomico", f)} onRemove={() => removeDoc("grupoEconomico")}
+          icon={<Network size={19} />}
         />
         <div className="border-t border-cf-border border-dashed" />
         <UploadArea
@@ -178,6 +206,9 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
               contrato: docs.contrato.file || undefined,
               faturamento: docs.faturamento.file || undefined,
               scr: docs.scr.file || undefined,
+              protestos: docs.protestos.file || undefined,
+              processos: docs.processos.file || undefined,
+              grupoEconomico: docs.grupoEconomico.file || undefined,
               scrAnterior: docs.scrAnterior.file || undefined,
             })}
           disabled={!allDone || anyProcessing}

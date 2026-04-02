@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { CNPJData, ContratoSocialData, SCRData, QSAData, FaturamentoData } from "@/types";
+import type { CNPJData, ContratoSocialData, SCRData, QSAData, FaturamentoData, ProtestosData, ProcessosData, GrupoEconomicoData } from "@/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -315,6 +315,80 @@ Regras:
 - Campos ausentes → "" ou arrays vazios
 - NÃO invente dados`;
 
+const PROMPT_PROTESTOS = `Você é um especialista em análise de crédito.
+Analise o documento de certidão de protestos e extraia os dados.
+Retorne APENAS JSON válido:
+
+{
+  "vigentesQtd": "",
+  "vigentesValor": "",
+  "regularizadosQtd": "",
+  "regularizadosValor": "",
+  "detalhes": [
+    { "data": "", "credor": "", "valor": "", "regularizado": false }
+  ]
+}
+
+Regras:
+- vigentesQtd/Valor: total de protestos ativos (não regularizados)
+- regularizadosQtd/Valor: total de protestos já quitados
+- detalhes: listar TODOS os protestos encontrados
+- Valores em formatação brasileira
+- regularizado: true se consta como pago/regularizado
+- NÃO invente dados`;
+
+const PROMPT_PROCESSOS = `Você é um especialista em análise jurídica.
+Analise o documento de processos judiciais e extraia os dados.
+Retorne APENAS JSON válido:
+
+{
+  "passivosTotal": "",
+  "ativosTotal": "",
+  "valorTotalEstimado": "",
+  "temRJ": false,
+  "distribuicao": [
+    { "tipo": "", "qtd": "", "pct": "" }
+  ],
+  "bancarios": [
+    { "banco": "", "assunto": "", "status": "", "data": "" }
+  ]
+}
+
+Regras:
+- passivosTotal: número total de processos como réu
+- ativosTotal: número total de processos como autor
+- temRJ: true se houver Recuperação Judicial
+- distribuicao: agrupar por tipo (TRABALHISTA, BANCO, FISCAL, FORNECEDOR, OUTROS) com qtd e %
+- bancarios: listar processos contra bancos/instituições financeiras com detalhes
+- status: ARQUIVADO, EM ANDAMENTO, DISTRIBUIDO, JULGADO, EM GRAU DE RECURSO
+- NÃO invente dados`;
+
+const PROMPT_GRUPO_ECONOMICO = `Você é um especialista em análise de crédito.
+Analise o documento de grupo econômico e extraia os dados das empresas relacionadas.
+Retorne APENAS JSON válido:
+
+{
+  "empresas": [
+    {
+      "razaoSocial": "",
+      "cnpj": "",
+      "relacao": "",
+      "scrTotal": "",
+      "protestos": "",
+      "processos": ""
+    }
+  ]
+}
+
+Regras:
+- Listar TODAS as empresas do grupo econômico
+- relacao: "via Sócio", "Controlada", "Coligada" ou como consta no documento
+- scrTotal: valor total do SCR da empresa se disponível
+- protestos: quantidade ou valor de protestos se disponível
+- processos: quantidade de processos se disponível
+- Campos ausentes → ""
+- NÃO invente dados`;
+
 // ─────────────────────────────────────────
 // PROVEDOR 1: Gemini (primário — melhor qualidade)
 // ─────────────────────────────────────────
@@ -531,7 +605,30 @@ function fillSCRDefaults(data: Partial<SCRData>): SCRData {
   };
 }
 
-function countFilledFields(data: CNPJData | QSAData | ContratoSocialData | FaturamentoData | SCRData): number {
+function fillProtestosDefaults(data: Partial<ProtestosData>): ProtestosData {
+  return {
+    vigentesQtd: data.vigentesQtd || "", vigentesValor: data.vigentesValor || "",
+    regularizadosQtd: data.regularizadosQtd || "", regularizadosValor: data.regularizadosValor || "",
+    detalhes: Array.isArray(data.detalhes) ? data.detalhes : [],
+  };
+}
+
+function fillProcessosDefaults(data: Partial<ProcessosData>): ProcessosData {
+  return {
+    passivosTotal: data.passivosTotal || "", ativosTotal: data.ativosTotal || "",
+    valorTotalEstimado: data.valorTotalEstimado || "", temRJ: data.temRJ || false,
+    distribuicao: Array.isArray(data.distribuicao) ? data.distribuicao : [],
+    bancarios: Array.isArray(data.bancarios) ? data.bancarios : [],
+  };
+}
+
+function fillGrupoEconomicoDefaults(data: Partial<GrupoEconomicoData>): GrupoEconomicoData {
+  return { empresas: Array.isArray(data.empresas) ? data.empresas : [] };
+}
+
+type AnyExtracted = CNPJData | QSAData | ContratoSocialData | FaturamentoData | SCRData | ProtestosData | ProcessosData | GrupoEconomicoData;
+
+function countFilledFields(data: AnyExtracted): number {
   const obj = data as unknown as Record<string, unknown>;
   return Object.values(obj).filter(v =>
     typeof v === "string" ? v.length > 0 :
@@ -595,7 +692,10 @@ export async function POST(request: NextRequest) {
       case "qsa":        prompt = PROMPT_QSA; break;
       case "contrato":   prompt = PROMPT_CONTRATO; break;
       case "faturamento": prompt = PROMPT_FATURAMENTO; break;
-      case "scr":        prompt = PROMPT_SCR; break;
+      case "scr":            prompt = PROMPT_SCR; break;
+      case "protestos":      prompt = PROMPT_PROTESTOS; break;
+      case "processos":      prompt = PROMPT_PROCESSOS; break;
+      case "grupoEconomico": prompt = PROMPT_GRUPO_ECONOMICO; break;
       default:
         return NextResponse.json({ error: "Tipo de documento inválido." }, { status: 400 });
     }
@@ -625,6 +725,7 @@ export async function POST(request: NextRequest) {
     if (textContent) {
       const maxChars: Record<string, number> = {
         cnpj: 8000, qsa: 15000, contrato: 40000, faturamento: 20000, scr: 40000,
+        protestos: 25000, processos: 30000, grupoEconomico: 20000,
       };
       textContent = textContent.substring(0, maxChars[docType] || 25000);
     }
@@ -632,7 +733,6 @@ export async function POST(request: NextRequest) {
     console.log(`[extract] ${file.name} | type=${docType} | ext=${ext} | textLen=${textContent.length} | hasImage=${!!imageContent}`);
 
     // ──── Chamar IA ────
-    type AnyExtracted = CNPJData | QSAData | ContratoSocialData | FaturamentoData | SCRData;
     let data: AnyExtracted;
 
     try {
@@ -641,23 +741,29 @@ export async function POST(request: NextRequest) {
       const parsed = parseJSON<Record<string, unknown>>(aiResponse);
 
       switch (docType) {
-        case "cnpj":       data = fillCNPJDefaults(parsed as Partial<CNPJData>); break;
-        case "qsa":        data = fillQSADefaults(parsed as Partial<QSAData>); break;
-        case "contrato":   data = fillContratoDefaults(parsed as Partial<ContratoSocialData>); break;
-        case "faturamento": data = fillFaturamentoDefaults(parsed as Partial<FaturamentoData>); break;
-        case "scr":        data = fillSCRDefaults(parsed as Partial<SCRData>); break;
-        default:           data = fillCNPJDefaults(parsed as Partial<CNPJData>);
+        case "cnpj":           data = fillCNPJDefaults(parsed as Partial<CNPJData>); break;
+        case "qsa":            data = fillQSADefaults(parsed as Partial<QSAData>); break;
+        case "contrato":       data = fillContratoDefaults(parsed as Partial<ContratoSocialData>); break;
+        case "faturamento":    data = fillFaturamentoDefaults(parsed as Partial<FaturamentoData>); break;
+        case "scr":            data = fillSCRDefaults(parsed as Partial<SCRData>); break;
+        case "protestos":      data = fillProtestosDefaults(parsed as Partial<ProtestosData>); break;
+        case "processos":      data = fillProcessosDefaults(parsed as Partial<ProcessosData>); break;
+        case "grupoEconomico": data = fillGrupoEconomicoDefaults(parsed as Partial<GrupoEconomicoData>); break;
+        default:               data = fillCNPJDefaults(parsed as Partial<CNPJData>);
       }
     } catch (aiError) {
       console.error("[extract] AI failed:", aiError);
 
       switch (docType) {
-        case "cnpj":       data = fillCNPJDefaults({}); break;
-        case "qsa":        data = fillQSADefaults({}); break;
-        case "contrato":   data = fillContratoDefaults({}); break;
-        case "faturamento": data = fillFaturamentoDefaults({}); break;
-        case "scr":        data = fillSCRDefaults({}); break;
-        default:           data = fillCNPJDefaults({});
+        case "cnpj":           data = fillCNPJDefaults({}); break;
+        case "qsa":            data = fillQSADefaults({}); break;
+        case "contrato":       data = fillContratoDefaults({}); break;
+        case "faturamento":    data = fillFaturamentoDefaults({}); break;
+        case "scr":            data = fillSCRDefaults({}); break;
+        case "protestos":      data = fillProtestosDefaults({}); break;
+        case "processos":      data = fillProcessosDefaults({}); break;
+        case "grupoEconomico": data = fillGrupoEconomicoDefaults({}); break;
+        default:               data = fillCNPJDefaults({});
       }
       return NextResponse.json({
         success: true, data,

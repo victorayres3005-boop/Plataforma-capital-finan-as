@@ -3,7 +3,7 @@ export interface Socio {
   nome: string;
   cpf: string;
   participacao: string;
-  qualificacao: string; // ex: Sócio-Administrador, Sócio, Procurador
+  qualificacao: string;
 }
 
 // ─── Cartão CNPJ ───
@@ -52,8 +52,8 @@ export interface ContratoSocialData {
 
 // ─── Faturamento ───
 export interface FaturamentoMensal {
-  mes: string;     // "01/2025", "02/2025"
-  valor: string;   // "1.234.567,89"
+  mes: string;
+  valor: string;
 }
 
 export interface FaturamentoData {
@@ -61,8 +61,8 @@ export interface FaturamentoData {
   somatoriaAno: string;
   mediaAno: string;
   faturamentoZerado: boolean;
-  dadosAtualizados: boolean;     // false = últimos 60 dias sem dados
-  ultimoMesComDados: string;     // "01/2026"
+  dadosAtualizados: boolean;
+  ultimoMesComDados: string;
 }
 
 // ─── SCR Detalhado ───
@@ -71,7 +71,7 @@ export interface SCRModalidade {
   total: string;
   aVencer: string;
   vencido: string;
-  participacao: string; // "86,1%"
+  participacao: string;
 }
 
 export interface SCRInstituicao {
@@ -80,16 +80,13 @@ export interface SCRInstituicao {
 }
 
 export interface SCRData {
-  // Período de referência (ex: "02/2026")
   periodoReferencia: string;
-  // Resumo principal (campos do relatório)
   carteiraAVencer: string;
   vencidos: string;
   prejuizos: string;
   limiteCredito: string;
   qtdeInstituicoes: string;
   qtdeOperacoes: string;
-  // Detalhamento
   totalDividasAtivas: string;
   operacoesAVencer: string;
   operacoesEmAtraso: string;
@@ -97,15 +94,65 @@ export interface SCRData {
   tempoAtraso: string;
   coobrigacoes: string;
   classificacaoRisco: string;
-  // Curto/Longo prazo
   carteiraCurtoPrazo: string;
   carteiraLongoPrazo: string;
-  // Tabelas
   modalidades: SCRModalidade[];
   instituicoes: SCRInstituicao[];
-  // Outros
   valoresMoedaEstrangeira: string;
   historicoInadimplencia: string;
+}
+
+// ─── Protestos ───
+export interface ProtestoDetalhe {
+  data: string;
+  credor: string;
+  valor: string;
+  regularizado: boolean;
+}
+
+export interface ProtestosData {
+  vigentesQtd: string;
+  vigentesValor: string;
+  regularizadosQtd: string;
+  regularizadosValor: string;
+  detalhes: ProtestoDetalhe[];
+}
+
+// ─── Processos Judiciais ───
+export interface ProcessoDistribuicao {
+  tipo: string;   // TRABALHISTA, BANCO, FISCAL, FORNECEDOR, OUTROS
+  qtd: string;
+  pct: string;
+}
+
+export interface ProcessoBancario {
+  banco: string;
+  assunto: string;
+  status: string;  // ARQUIVADO, EM ANDAMENTO, DISTRIBUIDO, etc.
+  data: string;
+}
+
+export interface ProcessosData {
+  passivosTotal: string;
+  ativosTotal: string;
+  valorTotalEstimado: string;
+  temRJ: boolean;
+  distribuicao: ProcessoDistribuicao[];
+  bancarios: ProcessoBancario[];
+}
+
+// ─── Grupo Econômico ───
+export interface EmpresaGrupo {
+  razaoSocial: string;
+  cnpj: string;
+  relacao: string;  // "via Sócio", "Controlada", "Coligada"
+  scrTotal: string;
+  protestos: string;
+  processos: string;
+}
+
+export interface GrupoEconomicoData {
+  empresas: EmpresaGrupo[];
 }
 
 // ─── Dados extraídos consolidados ───
@@ -115,18 +162,21 @@ export interface ExtractedData {
   contrato: ContratoSocialData;
   faturamento: FaturamentoData;
   scr: SCRData;
-  scrAnterior: SCRData | null;  // SCR do período anterior para comparativo
+  scrAnterior: SCRData | null;
+  protestos: ProtestosData;
+  processos: ProcessosData;
+  grupoEconomico: GrupoEconomicoData;
   resumoRisco: string;
 }
 
 // ─── App types ───
-export type DocumentType = 'cnpj' | 'qsa' | 'contrato' | 'faturamento' | 'scr';
+export type DocumentType = 'cnpj' | 'qsa' | 'contrato' | 'faturamento' | 'scr' | 'protestos' | 'processos' | 'grupoEconomico';
 export type DocStatus = 'idle' | 'processing' | 'done' | 'error';
 export type AppStep = 'upload' | 'review' | 'generate';
 
 // ─── Supabase — Histórico de coletas ───
 export interface CollectionDocument {
-  type: 'cnpj' | 'qsa' | 'contrato_social' | 'faturamento' | 'scr_bacen' | 'outro';
+  type: 'cnpj' | 'qsa' | 'contrato_social' | 'faturamento' | 'scr_bacen' | 'protestos' | 'processos' | 'grupo_economico' | 'outro';
   filename: string;
   extracted_data: Record<string, unknown>;
   uploaded_at: string;
