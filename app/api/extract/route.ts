@@ -197,55 +197,96 @@ Retorne APENAS JSON válido, sem texto adicional:
 
 Regras:
 - CNPJ com pontuação (XX.XXX.XXX/XXXX-XX), datas DD/MM/YYYY
-- endereco: concatenar logradouro, nº, complemento, bairro, município, UF, CEP
-- cnaePrincipal: código + descrição. cnaeSecundarios: todos separados por ;
+- endereco: montar string estruturada no formato "Logradouro, Nº Número, Complemento, Bairro, Município-UF, CEP XXXXX-XXX". Extraia cada componente separadamente do documento (logradouro, número, complemento, bairro, município, UF, CEP) e concatene nesse formato. Se algum componente estiver ausente, omita-o da string sem deixar vírgulas duplas.
+- naturezaJuridica: incluir código numérico + descrição (ex: "206-2 - Sociedade Empresária Limitada")
+- cnaePrincipal: código completo com pontuação + descrição (ex: "47.61-0-03 - Comércio varejista de artigos de papelaria")
+- cnaeSecundarios: todos os CNAEs secundários separados por ";" no mesmo formato código + descrição
+- capitalSocialCNPJ: valor formatado em reais (ex: "R$ 100.000,00")
+- situacaoCadastral: valor exato do documento (ATIVA, BAIXADA, INAPTA, SUSPENSA, NULA)
+- Se a situação NÃO for ATIVA, preencher motivoSituacao com o motivo exato
+- porte: MICROEMPRESA, EMPRESA DE PEQUENO PORTE, DEMAIS, ou como consta no documento
 - Campos ausentes → ""
 - NÃO invente dados`;
 
 const PROMPT_QSA = `Você é um especialista em análise de documentos societários brasileiros.
-Analise o documento QSA (Quadro de Sócios e Administradores) recebido e extraia os dados.
+Analise o documento QSA (Quadro de Sócios e Administradores) recebido e extraia os dados com máxima precisão.
 Retorne APENAS JSON válido, sem texto adicional:
 
 {
   "capitalSocial": "",
   "quadroSocietario": [
-    { "nome": "", "cpfCnpj": "", "qualificacao": "", "participacao": "" }
+    {
+      "nome": "",
+      "cpfCnpj": "",
+      "tipo_pessoa": "",
+      "qualificacao": "",
+      "participacao": "",
+      "eh_administrador": false
+    }
   ]
 }
 
 Regras:
-- Liste TODOS os sócios/administradores encontrados
-- CPF com pontuação (XXX.XXX.XXX-XX), CNPJ com pontuação
-- qualificacao: Sócio-Administrador, Sócio, Administrador, Procurador, etc. (valor exato do documento)
-- participacao: percentual ou quantidade de quotas se disponível
-- capitalSocial: valor em reais formatado (ex: "R$ 220.000,00")
-- NÃO confunda testemunhas ou advogados com sócios
+- Liste TODOS os sócios/administradores encontrados no documento, sem exceção
+- CPF com pontuação (XXX.XXX.XXX-XX), CNPJ com pontuação (XX.XXX.XXX/XXXX-XX)
+- tipo_pessoa: "PF" para pessoa física (CPF), "PJ" para pessoa jurídica (CNPJ)
+- qualificacao: valor exato do documento — Sócio-Administrador, Sócio, Administrador, Procurador, Diretor, etc.
+- participacao: percentual se disponível (ex: "50%") ou quantidade de quotas (ex: "110.000 quotas")
+- eh_administrador: true se a qualificação indica poder de administração (Sócio-Administrador, Administrador, Diretor)
+- capitalSocial: valor numérico em reais formatado (ex: "R$ 220.000,00")
+- NÃO confunda testemunhas, advogados ou contadores com sócios
 - NÃO invente dados`;
 
 const PROMPT_CONTRATO = `Você é um especialista em análise de documentos societários brasileiros.
-Analise o Contrato Social recebido e extraia os dados.
+Analise o Contrato Social (ou Alteração Contratual / Consolidação) recebido e extraia os dados com máxima precisão.
 Retorne APENAS JSON válido, sem texto adicional:
 
 {
-  "socios": [{ "nome": "", "cpf": "", "participacao": "", "qualificacao": "" }],
-  "capitalSocial": "", "objetoSocial": "", "dataConstituicao": "",
-  "temAlteracoes": false, "prazoDuracao": "", "administracao": "", "foro": ""
+  "socios": [
+    { "nome": "", "cpf": "", "participacao": "", "qualificacao": "" }
+  ],
+  "capitalSocial": "",
+  "objetoSocial": "",
+  "dataConstituicao": "",
+  "temAlteracoes": false,
+  "prazoDuracao": "",
+  "administracao": "",
+  "foro": "",
+  "historico_alteracoes": "",
+  "data_inicio_atividades_real": "",
+  "administrador_nao_socio": false
 }
 
 Regras:
-- Liste TODOS os sócios. CPF com pontuação. Não inclua testemunhas/advogados.
-- objetoSocial: resumir em até 2 frases
-- temAlteracoes: true se for alteração/consolidação
+- Liste TODOS os sócios. CPF com pontuação (XXX.XXX.XXX-XX). Não inclua testemunhas/advogados.
+- participacao: percentual ou quantidade de quotas (ex: "50%" ou "50.000 quotas de R$ 1,00")
+- qualificacao: Sócio-Administrador, Sócio, Administrador, etc.
+- capitalSocial: valor em reais formatado (ex: "R$ 500.000,00")
+- objetoSocial: resumir em até 2 frases claras e precisas
+- dataConstituicao: data de constituição original da empresa (DD/MM/YYYY)
+- temAlteracoes: true se o documento é uma alteração contratual ou consolidação (não o contrato original)
+- prazoDuracao: "Indeterminado" ou prazo específico se mencionado
+- administracao: descrever quem administra (nomes e forma — isolada ou conjunta)
+- foro: comarca indicada no contrato
+- historico_alteracoes: se for consolidação/alteração, resumir brevemente as alterações mencionadas (ex: "1ª Alt: mudança de endereço; 2ª Alt: inclusão de sócio"). Se não houver, deixar ""
+- data_inicio_atividades_real: se mencionada uma data de início de atividades diferente da constituição, informar aqui (DD/MM/YYYY). Caso contrário, ""
+- administrador_nao_socio: true se o administrador designado NÃO consta na lista de sócios (administrador externo/terceiro)
 - Campos ausentes → "" ou false
 - NÃO invente dados`;
 
-const PROMPT_FATURAMENTO = `Você é um especialista em análise financeira.
-Analise o documento de faturamento recebido e extraia os valores mensais.
+const PROMPT_FATURAMENTO = `Você é um especialista em análise financeira de empresas brasileiras.
+Analise o documento de faturamento recebido e extraia os valores mensais com máxima precisão.
 Retorne APENAS JSON válido, sem texto adicional:
 
 {
+  "cnpj_empresa": "",
+  "periodo_inicio": "",
+  "periodo_fim": "",
   "meses": [
     { "mes": "01/2025", "valor": "1.234.567,89" }
+  ],
+  "serie_mensal": [
+    { "competencia": "01/2025", "valor_total": "1.234.567,89" }
   ],
   "somatoriaAno": "",
   "mediaAno": "",
@@ -255,36 +296,63 @@ Retorne APENAS JSON válido, sem texto adicional:
 }
 
 Regras:
+- cnpj_empresa: CNPJ da empresa se constar no documento (para validação cruzada)
+- periodo_inicio: primeiro mês com dados (MM/YYYY)
+- periodo_fim: último mês com dados (MM/YYYY)
 - meses: listar TODOS os meses com faturamento encontrado, em ordem cronológica
-- mes: formato MM/YYYY
-- valor: formatação brasileira (1.234.567,89)
-- somatoriaAno: soma de todos os meses
+- serie_mensal: mesma lista em formato alternativo — competencia (MM/YYYY) e valor_total
+- mes/competencia: formato MM/YYYY
+- valor/valor_total: formatação brasileira (1.234.567,89) — SEM prefixo "R$"
+- somatoriaAno: soma de todos os meses no período
 - mediaAno: média aritmética dos meses
 - faturamentoZerado: true se todos os valores são zero ou ausentes
-- dadosAtualizados: false se o último mês com dados é anterior a 60 dias
-- ultimoMesComDados: último mês que tem valor de faturamento
+- dadosAtualizados: false se o último mês com dados é anterior a 60 dias da data atual
+- ultimoMesComDados: último mês que tem valor de faturamento (MM/YYYY)
+- Se houver faturamento por CNPJ filial, somar tudo no total mensal
 - NÃO invente dados`;
 
-const PROMPT_SCR = `Você é um especialista em análise de crédito e documentos do Sistema de Informações de Crédito (SCR) do Banco Central do Brasil.
+const PROMPT_SCR = `Você é um especialista no Sistema de Informações de Crédito (SCR) do Banco Central do Brasil.
 
-Analise VISUALMENTE o documento SCR recebido. O documento pode conter tabelas, gráficos e dados em formato de relatório do Bacen. Leia CADA página, CADA tabela, CADA linha com atenção máxima.
+Analise VISUALMENTE este documento SCR oficial do Bacen. O documento contém dados de endividamento bancário da empresa.
 
-Retorne APENAS JSON válido, sem texto adicional:
+ESTRUTURA TÍPICA DO DOCUMENTO SCR:
+- Cabeçalho: CNPJ consultado, período de referência (MM/AAAA), % docs e volume processados
+- Seção "Carteira a Vencer": tabela com prazos (até 30d, 31-60d, 61-90d, 91-180d, 181-360d, acima 360d)
+- Seção "Vencidos": mesmos prazos
+- Seção "Prejuízos": até 12m, acima 12m
+- Seção "Limite de Crédito": até 360d, acima 360d
+- Seção "Outros": coobrigações, responsabilidade total, créditos a liberar, vendor
+- Seção "Modalidades": tabela detalhada de tipos de operação
+- Pode ter múltiplas páginas
+
+Retorne APENAS JSON:
 
 {
-  "periodoReferencia": "",
-  "carteiraAVencer": "",
-  "vencidos": "",
-  "prejuizos": "",
-  "limiteCredito": "",
+  "periodoReferencia": "MM/AAAA",
+  "cnpjConsultado": "",
+  "percentualDocsProcessados": "",
+  "percentualVolumeProcessado": "",
   "qtdeInstituicoes": "",
   "qtdeOperacoes": "",
+  "carteiraAVencer": "",
+  "carteiraAVencerDetalhado": {
+    "ate30d": "", "de31a60d": "", "de61a90d": "",
+    "de91a180d": "", "de181a360d": "", "acima360d": "", "total": ""
+  },
+  "vencidos": "",
+  "vencidosDetalhado": {
+    "de15a30d": "", "de31a60d": "", "de61a90d": "",
+    "de91a180d": "", "de181a360d": "", "acima360d": "", "total": ""
+  },
+  "prejuizos": "",
+  "prejuizosDetalhado": { "ate12m": "", "acima12m": "", "total": "" },
+  "limiteCredito": "",
+  "limiteCreditoDetalhado": { "ate360d": "", "acima360d": "", "total": "" },
   "totalDividasAtivas": "",
-  "operacoesAVencer": "",
-  "operacoesEmAtraso": "",
-  "operacoesVencidas": "",
-  "tempoAtraso": "",
   "coobrigacoes": "",
+  "responsabilidadeTotal": "",
+  "creditosALiberar": "",
+  "riscoIndiretoVendor": "",
   "classificacaoRisco": "",
   "carteiraCurtoPrazo": "",
   "carteiraLongoPrazo": "",
@@ -295,31 +363,18 @@ Retorne APENAS JSON válido, sem texto adicional:
     { "nome": "", "valor": "" }
   ],
   "valoresMoedaEstrangeira": "",
-  "historicoInadimplencia": ""
+  "historicoInadimplencia": "",
+  "status": "COM_HISTORICO"
 }
 
-ONDE ENCONTRAR OS DADOS NO DOCUMENTO:
-- periodoReferencia: geralmente aparece como "Data-base", "Referência" ou "MM/AAAA" no cabeçalho
-- carteiraAVencer / totalDividasAtivas: seção "Resumo" ou "Responsabilidade Total", "A vencer", "Em dia"
-- vencidos: "Vencido", "Operações vencidas" (separado de "a vencer")
-- prejuizos: "Prejuízo", "Créditos baixados como prejuízo"
-- limiteCredito: "Limite de crédito", "Créditos a liberar"
-- qtdeInstituicoes: "Quantidade de IFs", "Instituições", contar linhas da tabela de instituições
-- carteiraCurtoPrazo: operações com vencimento até 360 dias, ou "CP"
-- carteiraLongoPrazo: operações com vencimento acima de 360 dias, ou "LP"
-- classificacaoRisco: "Classificação de risco", letras AA, A, B, C, D, E, F, G, H
-- modalidades: tabela "Modalidades", "Tipo de operação" com valores e percentuais
-- instituicoes: tabela de "Instituições financeiras", "IFs credoras"
-- coobrigacoes: "Coobrigações", "Responsabilidades indiretas"
-
-Regras:
-- Valores monetários: formatação brasileira com vírgula decimal (ex: "23.785,80")
-- Se o valor estiver em "mil R$" ou "R$ mil", multiplique por 1000 e formate
-- Procure em TODAS as páginas do documento — dados podem estar espalhados
-- modalidades: listar TODAS encontradas com total, a vencer, vencido e % participação
-- instituicoes: listar TODAS com nome e valor
-- Campos ausentes → "" ou arrays vazios []
-- NÃO invente dados — extraia apenas o que está visível no documento`;
+REGRAS:
+- Se TODOS os valores forem zero ou vazios: status = "SEM_HISTORICO_BANCARIO"
+- Valores monetários: formatação brasileira (ex: "23.785,80")
+- Se valores em "mil R$": converter (multiplicar por 1000)
+- Leia CADA tabela, CADA linha, CADA página
+- modalidades: listar TODAS as modalidades/operações
+- instituicoes: listar TODAS as IFs
+- NÃO invente dados`;
 
 const PROMPT_PROTESTOS = `Você é um especialista em análise de crédito.
 Analise o documento de certidão de protestos e extraia os dados.
@@ -593,21 +648,99 @@ function fillFaturamentoDefaults(data: Partial<FaturamentoData>): FaturamentoDat
   };
 }
 
-function fillSCRDefaults(data: Partial<SCRData>): SCRData {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function fillSCRDefaults(data: Record<string, any>): SCRData {
+  // Map detailed breakdown totals to top-level fields if top-level is empty
+  const carteiraAVencer = data.carteiraAVencer
+    || data.carteiraAVencerDetalhado?.total
+    || "";
+  const vencidos = data.vencidos
+    || data.vencidosDetalhado?.total
+    || "";
+  const prejuizos = data.prejuizos
+    || data.prejuizosDetalhado?.total
+    || "";
+  const limiteCredito = data.limiteCredito
+    || data.limiteCreditoDetalhado?.total
+    || "";
+
+  // Build detailed breakdown strings to store in existing string fields where useful
+  const detailParts: string[] = [];
+  if (data.carteiraAVencerDetalhado) {
+    const d = data.carteiraAVencerDetalhado;
+    const parts = [
+      d.ate30d && `até 30d: ${d.ate30d}`,
+      d.de31a60d && `31-60d: ${d.de31a60d}`,
+      d.de61a90d && `61-90d: ${d.de61a90d}`,
+      d.de91a180d && `91-180d: ${d.de91a180d}`,
+      d.de181a360d && `181-360d: ${d.de181a360d}`,
+      d.acima360d && `>360d: ${d.acima360d}`,
+    ].filter(Boolean);
+    if (parts.length > 0) detailParts.push(`A Vencer: ${parts.join("; ")}`);
+  }
+  if (data.vencidosDetalhado) {
+    const d = data.vencidosDetalhado;
+    const parts = [
+      d.de15a30d && `15-30d: ${d.de15a30d}`,
+      d.de31a60d && `31-60d: ${d.de31a60d}`,
+      d.de61a90d && `61-90d: ${d.de61a90d}`,
+      d.de91a180d && `91-180d: ${d.de91a180d}`,
+      d.de181a360d && `181-360d: ${d.de181a360d}`,
+      d.acima360d && `>360d: ${d.acima360d}`,
+    ].filter(Boolean);
+    if (parts.length > 0) detailParts.push(`Vencidos: ${parts.join("; ")}`);
+  }
+  if (data.prejuizosDetalhado) {
+    const d = data.prejuizosDetalhado;
+    const parts = [
+      d.ate12m && `até 12m: ${d.ate12m}`,
+      d.acima12m && `>12m: ${d.acima12m}`,
+    ].filter(Boolean);
+    if (parts.length > 0) detailParts.push(`Prejuízos: ${parts.join("; ")}`);
+  }
+  if (data.limiteCreditoDetalhado) {
+    const d = data.limiteCreditoDetalhado;
+    const parts = [
+      d.ate360d && `até 360d: ${d.ate360d}`,
+      d.acima360d && `>360d: ${d.acima360d}`,
+    ].filter(Boolean);
+    if (parts.length > 0) detailParts.push(`Limite: ${parts.join("; ")}`);
+  }
+
+  // Concatenate extra SCR info into historicoInadimplencia if it was empty
+  const extraInfo = detailParts.join(" | ");
+  const historicoInadimplencia = data.historicoInadimplencia
+    || (extraInfo ? extraInfo : "");
+
+  // Map new fields that don't exist in SCRData to existing fields
+  const operacoesAVencer = data.operacoesAVencer || carteiraAVencer || "";
+  const coobrigacoes = data.coobrigacoes || data.responsabilidadeTotal || "";
+  const tempoAtraso = data.tempoAtraso || "";
+  const operacoesEmAtraso = data.operacoesEmAtraso || "";
+  const operacoesVencidas = data.operacoesVencidas || vencidos || "";
+  const totalDividasAtivas = data.totalDividasAtivas || data.responsabilidadeTotal || "";
+
   return {
     periodoReferencia: data.periodoReferencia || "",
-    carteiraAVencer: data.carteiraAVencer || "", vencidos: data.vencidos || "",
-    prejuizos: data.prejuizos || "", limiteCredito: data.limiteCredito || "",
-    qtdeInstituicoes: data.qtdeInstituicoes || "", qtdeOperacoes: data.qtdeOperacoes || "",
-    totalDividasAtivas: data.totalDividasAtivas || "", operacoesAVencer: data.operacoesAVencer || "",
-    operacoesEmAtraso: data.operacoesEmAtraso || "", operacoesVencidas: data.operacoesVencidas || "",
-    tempoAtraso: data.tempoAtraso || "", coobrigacoes: data.coobrigacoes || "",
+    carteiraAVencer,
+    vencidos,
+    prejuizos,
+    limiteCredito,
+    qtdeInstituicoes: data.qtdeInstituicoes || "",
+    qtdeOperacoes: data.qtdeOperacoes || "",
+    totalDividasAtivas,
+    operacoesAVencer,
+    operacoesEmAtraso,
+    operacoesVencidas,
+    tempoAtraso,
+    coobrigacoes,
     classificacaoRisco: data.classificacaoRisco || "",
-    carteiraCurtoPrazo: data.carteiraCurtoPrazo || "", carteiraLongoPrazo: data.carteiraLongoPrazo || "",
+    carteiraCurtoPrazo: data.carteiraCurtoPrazo || "",
+    carteiraLongoPrazo: data.carteiraLongoPrazo || "",
     modalidades: Array.isArray(data.modalidades) ? data.modalidades : [],
     instituicoes: Array.isArray(data.instituicoes) ? data.instituicoes : [],
     valoresMoedaEstrangeira: data.valoresMoedaEstrangeira || "",
-    historicoInadimplencia: data.historicoInadimplencia || "",
+    historicoInadimplencia,
   };
 }
 
@@ -713,8 +846,8 @@ export async function POST(request: NextRequest) {
 
     if (isImage) {
       imageContent = { mimeType, base64: buffer.toString("base64") };
-    } else if (ext === "pdf" && (docType === "scr" || docType === "qsa")) {
-      // SCR e QSA do Bacen/Receita: sempre enviar como binário (encoding problemático)
+    } else if (ext === "pdf" && (docType === "scr" || docType === "qsa" || docType === "contrato")) {
+      // SCR, QSA e Contrato: sempre enviar como binário (encoding problemático em PDFs desses tipos)
       console.log(`[extract] ${docType} PDF — sending as binary (always multimodal for this type)`);
       imageContent = { mimeType: "application/pdf", base64: buffer.toString("base64") };
     } else {
@@ -755,7 +888,7 @@ export async function POST(request: NextRequest) {
         case "qsa":            data = fillQSADefaults(parsed as Partial<QSAData>); break;
         case "contrato":       data = fillContratoDefaults(parsed as Partial<ContratoSocialData>); break;
         case "faturamento":    data = fillFaturamentoDefaults(parsed as Partial<FaturamentoData>); break;
-        case "scr":            data = fillSCRDefaults(parsed as Partial<SCRData>); break;
+        case "scr":            data = fillSCRDefaults(parsed as Record<string, unknown>); break;
         case "protestos":      data = fillProtestosDefaults(parsed as Partial<ProtestosData>); break;
         case "processos":      data = fillProcessosDefaults(parsed as Partial<ProcessosData>); break;
         case "grupoEconomico": data = fillGrupoEconomicoDefaults(parsed as Partial<GrupoEconomicoData>); break;
