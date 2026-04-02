@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { uploadFile } from "@/lib/storage";
 import { ExtractedData, CollectionDocument } from "@/types";
 import type { OriginalFiles } from "@/components/UploadStep";
+import Image from "next/image";
 
 type Format = "pdf" | "docx" | "xlsx" | "html";
 
@@ -2469,9 +2470,9 @@ td.val.muted{color:#9CA3AF;font-weight:400}
                 { fmt: "pdf" as Format, label: "PDF", sub: "Baixar PDF", fn: generatePDF,
                   logo: <svg viewBox="0 0 24 24" width="36" height="36" fill="#FF0000"><path d="M7.998 17.5c-.21 0-.42-.072-.588-.218-.397-.345-.44-.95-.095-1.348.862-.993 2.13-2.543 2.13-2.543s-1.07-3.475-.544-4.95c.218-.609.613-1.066 1.16-1.14.263-.035.672.007.89.3.367.498.377 1.267.027 2.42-.223.738-.532 1.576-.891 2.422.452.97 1.09 1.877 1.618 2.46.88-.12 1.64-.143 2.18-.015.509.12.889.439.989.836.108.427-.045.893-.413 1.26-.382.38-.897.488-1.35.288-.56-.247-1.164-.76-1.735-1.376-.898.236-1.884.568-2.756.923-.506.9-.996 1.584-1.47 1.87a.797.797 0 0 1-.452.141l.1-.03zm.558-1.04s-.005.008-.01.013l.01-.014zm6.553-2.865-.029-.006.036.01-.007-.004zm-3.3-6.47-.005.02.009-.028-.004.009z"/></svg> },
                 { fmt: "docx" as Format, label: "Word", sub: "Gerar Word", fn: generateDOCX,
-                  logo: <img src="/logos/word.jpg" alt="Word" width={48} height={48} className="rounded-lg object-contain" /> },
+                  logo: <Image src="/logos/word.jpg" alt="Word" width={48} height={48} className="rounded-lg object-contain" /> },
                 { fmt: "xlsx" as Format, label: "Excel", sub: "Baixar Excel", fn: generateExcel,
-                  logo: <img src="/logos/excel.jpg" alt="Excel" width={48} height={48} className="rounded-lg object-contain" /> },
+                  logo: <Image src="/logos/excel.jpg" alt="Excel" width={48} height={48} className="rounded-lg object-contain" /> },
                 { fmt: "html" as Format, label: "HTML", sub: "Gerar HTML", fn: generateHTML,
                   logo: <svg viewBox="0 0 24 24" width="36" height="36" fill="#E34F26"><path d="M4.136 3.012h15.729l-1.431 16.15L11.991 21l-6.436-1.838L4.136 3.012zM7.266 9.76l-.186-2.166h9.835l-.191 2.166H12.17l.204 2.256h4.345l-.543 5.508L12 18.903v.012l-.008.002-4.161-1.162-.287-3.166h2.147l.149 1.62 2.16.573 2.148-.57.237-2.529H7.46L7.266 9.76z"/></svg> },
               ]).map(({ fmt, label, sub, fn, logo }) => {

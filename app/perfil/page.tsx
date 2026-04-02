@@ -9,6 +9,7 @@ import {
   ArrowLeft, User, Mail, Lock, Camera, Loader2, Check, Shield, Eye, EyeOff,
 } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 
 function Logo({ light = false }: { light?: boolean }) {
   const c = light ? "#ffffff" : "#203b88";
@@ -161,7 +162,7 @@ export default function PerfilPage() {
             <div className="relative flex-shrink-0">
               <div className="w-20 h-20 rounded-2xl bg-cf-navy/10 flex items-center justify-center overflow-hidden border-2 border-cf-border">
                 {avatarUrl ? (
-                  <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                  <Image src={avatarUrl} alt="Avatar" width={96} height={96} className="w-full h-full object-cover" unoptimized />
                 ) : (
                   <User size={32} className="text-cf-navy/40" />
                 )}
@@ -212,7 +213,7 @@ export default function PerfilPage() {
             </div>
             <div>
               <h2 className="text-sm font-bold text-cf-text-1">Alterar Senha</h2>
-              <p className="text-[11px] text-cf-text-3">Mínimo 6 caracteres</p>
+              <p className="text-[11px] text-cf-text-3">Mínimo 8 caracteres (maiúscula + número)</p>
             </div>
             <button onClick={() => setShowPasswords(p => !p)} className="ml-auto text-cf-text-4 hover:text-cf-navy transition-colors" style={{ minHeight: "auto" }}>
               {showPasswords ? <EyeOff size={16} /> : <Eye size={16} />}

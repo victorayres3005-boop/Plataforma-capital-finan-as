@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import UploadStep, { OriginalFiles } from "@/components/UploadStep";
 import ReviewStep from "@/components/ReviewStep";
 import GenerateStep from "@/components/GenerateStep";
@@ -65,6 +65,50 @@ export default function HomePage() {
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<{ id: string; msg: string; time: Date; read: boolean }[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showRestorePrompt, setShowRestorePrompt] = useState(false);
+
+  // Auto-save: persist extractedData to localStorage
+  useEffect(() => {
+    if (step !== 'upload') {
+      localStorage.setItem('cf_autosave_data', JSON.stringify(extractedData));
+      localStorage.setItem('cf_autosave_step', step);
+      localStorage.setItem('cf_autosave_time', new Date().toISOString());
+    }
+  }, [extractedData, step]);
+
+  // Auto-save: check for saved data on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('cf_autosave_data');
+    const savedTime = localStorage.getItem('cf_autosave_time');
+    if (saved && savedTime) {
+      const age = Date.now() - new Date(savedTime).getTime();
+      if (age < 24 * 60 * 60 * 1000) {
+        setShowRestorePrompt(true);
+      } else {
+        localStorage.removeItem('cf_autosave_data');
+        localStorage.removeItem('cf_autosave_step');
+        localStorage.removeItem('cf_autosave_time');
+      }
+    }
+  }, []);
+
+  const restoreData = useCallback(() => {
+    const saved = localStorage.getItem('cf_autosave_data');
+    const savedStep = localStorage.getItem('cf_autosave_step') as AppStep;
+    if (saved) {
+      setExtractedData(JSON.parse(saved));
+      setStep(savedStep || 'review');
+      setShowDashboard(false);
+    }
+    setShowRestorePrompt(false);
+  }, []);
+
+  const discardSaved = useCallback(() => {
+    localStorage.removeItem('cf_autosave_data');
+    localStorage.removeItem('cf_autosave_step');
+    localStorage.removeItem('cf_autosave_time');
+    setShowRestorePrompt(false);
+  }, []);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10);
@@ -356,6 +400,20 @@ export default function HomePage() {
           return (
           <div className="max-w-4xl mx-auto animate-fade-in">
 
+            {/* Restore prompt */}
+            {showRestorePrompt && (
+              <div className="card p-4 border-2 border-cf-navy bg-cf-navy/5 flex items-center justify-between gap-4 animate-slide-up mb-6">
+                <div>
+                  <p className="text-sm font-semibold text-cf-navy">Análise não finalizada encontrada</p>
+                  <p className="text-xs text-cf-text-3 mt-0.5">Você tem dados salvos automaticamente. Deseja continuar de onde parou?</p>
+                </div>
+                <div className="flex gap-2 flex-shrink-0">
+                  <button onClick={discardSaved} className="btn-secondary text-xs px-3 py-1.5">Descartar</button>
+                  <button onClick={restoreData} className="btn-primary text-xs px-3 py-1.5">Continuar</button>
+                </div>
+              </div>
+            )}
+
             {/* Header + Filtro de data */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
               <div>
@@ -442,7 +500,7 @@ export default function HomePage() {
 
             {/* CTA: Nova coleta */}
             <button
-              onClick={() => { setShowDashboard(false); setStep("upload"); setExtractedData(defaultData); }}
+              onClick={() => { setShowDashboard(false); setStep("upload"); setExtractedData(defaultData); localStorage.removeItem('cf_autosave_data'); localStorage.removeItem('cf_autosave_step'); localStorage.removeItem('cf_autosave_time'); }}
               className="btn-green w-full sm:w-auto h-12 text-sm px-8 mb-8"
             >
               <Plus size={18} /> Nova Coleta de Documentos
@@ -518,7 +576,7 @@ export default function HomePage() {
             <ReviewStep data={extractedData} onComplete={(d) => { setExtractedData(d); setStep("generate"); }} onBack={() => setStep("upload")} />
           )}
           {step === "generate" && (
-            <GenerateStep data={extractedData} originalFiles={originalFiles} onBack={() => setStep("review")} onReset={() => { setShowDashboard(true); setStep("upload"); setExtractedData(defaultData); setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [] }); }} onNotify={(msg) => setNotifications(prev => [{ id: Date.now().toString(), msg, time: new Date(), read: false }, ...prev])} />
+            <GenerateStep data={extractedData} originalFiles={originalFiles} onBack={() => setStep("review")} onReset={() => { setShowDashboard(true); setStep("upload"); setExtractedData(defaultData); setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [] }); localStorage.removeItem('cf_autosave_data'); localStorage.removeItem('cf_autosave_step'); localStorage.removeItem('cf_autosave_time'); }} onNotify={(msg) => setNotifications(prev => [{ id: Date.now().toString(), msg, time: new Date(), read: false }, ...prev])} />
           )}
         </div>
         )}

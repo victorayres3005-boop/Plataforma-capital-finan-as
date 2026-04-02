@@ -48,7 +48,11 @@ export default function LoginPage() {
     e.preventDefault();
     if (mode === "reset") { handleReset(e); return; }
     if (!email || !password) { toast.error("Preencha todos os campos"); return; }
-    if (mode === "signup" && password.length < 6) { toast.error("A senha deve ter no mínimo 6 caracteres"); return; }
+    if (mode === "signup") {
+      if (password.length < 8) { toast.error("A senha deve ter no mínimo 8 caracteres"); return; }
+      if (!/[A-Z]/.test(password)) { toast.error("A senha deve conter pelo menos uma letra maiúscula"); return; }
+      if (!/[0-9]/.test(password)) { toast.error("A senha deve conter pelo menos um número"); return; }
+    }
 
     setLoading(true);
     try {
@@ -200,7 +204,7 @@ export default function LoginPage() {
                 <div className="relative">
                   <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-cf-text-4" />
                   <input type="password" value={password} onChange={e => setPassword(e.target.value)}
-                    placeholder={mode === "signup" ? "Mínimo 6 caracteres" : "Sua senha"}
+                    placeholder={mode === "signup" ? "Mínimo 8 caracteres (maiúscula + número)" : "Sua senha"}
                     className="input-field pl-10 h-11" autoComplete={mode === "login" ? "current-password" : "new-password"} />
                 </div>
               </div>
