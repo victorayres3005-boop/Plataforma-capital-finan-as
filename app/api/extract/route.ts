@@ -23,6 +23,20 @@ function geminiUrl(model: string, key: string) {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
 }
 
+// Circuit breaker: se IA falhou recentemente, não tentar de novo por 5 minutos
+let aiLastFailTime = 0;
+const AI_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutos
+
+function isAIAvailable(): boolean {
+  if (aiLastFailTime === 0) return true;
+  return Date.now() - aiLastFailTime > AI_COOLDOWN_MS;
+}
+
+function markAIFailed() {
+  aiLastFailTime = Date.now();
+  console.log("[circuit-breaker] AI marcada como indisponível por 5 minutos");
+}
+
 // ─────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────
@@ -1110,11 +1124,18 @@ async function callAI(
   imageContent?: { mimeType: string; base64: string },
   docType?: string
 ): Promise<string> {
+  // Circuit breaker: se IA falhou recentemente, não tentar
+  if (!isAIAvailable()) {
+    console.log("[AI] Circuit breaker ativo — pulando IA");
+    throw new Error("AI_CIRCUIT_BREAKER");
+  }
+
   if (GEMINI_API_KEYS.length > 0) {
     try {
       return await callGemini(prompt, imageContent || textContent, docType);
     } catch (err) {
       console.log(`[AI] Gemini failed: ${err instanceof Error ? err.message : err}`);
+      markAIFailed();
     }
   }
 
