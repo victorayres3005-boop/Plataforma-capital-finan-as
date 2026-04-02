@@ -1118,19 +1118,53 @@ async function callGroq(prompt: string, content: string): Promise<string> {
 // ─────────────────────────────────────────
 // Chamada com fallback: Gemini -> Groq (kept for AI fallback)
 // ─────────────────────────────────────────
+async function callGroqVision(prompt: string, imageBase64: string, mimeType: string): Promise<string> {
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${GROQ_API_KEY}` },
+    body: JSON.stringify({
+      model: "meta-llama/llama-4-scout-17b-16e-instruct",
+      messages: [{
+        role: "user",
+        content: [
+          { type: "image_url", image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
+          { type: "text", text: prompt },
+        ],
+      }],
+      temperature: 0.1,
+      max_tokens: 4096,
+    }),
+  });
+  if (response.status === 429) throw new Error("RATE_LIMIT");
+  if (!response.ok) throw new Error(`Groq Vision ${response.status}`);
+  const result = await response.json();
+  return result?.choices?.[0]?.message?.content || "";
+}
+
 async function callAI(
   prompt: string,
   textContent: string,
   imageContent?: { mimeType: string; base64: string },
   docType?: string
 ): Promise<string> {
-  // Circuit breaker: se IA falhou recentemente, não tentar
-  if (!isAIAvailable()) {
-    console.log("[AI] Circuit breaker ativo — pulando IA");
-    throw new Error("AI_CIRCUIT_BREAKER");
+  // 1. GROQ PRIMEIRO (funciona, tem cota)
+  if (GROQ_API_KEY) {
+    try {
+      if (imageContent) {
+        // Para PDFs/imagens: usar Groq Vision (Llama 4 Scout)
+        console.log("[AI] Trying Groq Vision...");
+        return await callGroqVision(prompt, imageContent.base64, imageContent.mimeType);
+      } else if (textContent) {
+        console.log("[AI] Trying Groq Text...");
+        return await callGroq(prompt, smartTruncate(textContent, 20000));
+      }
+    } catch (err) {
+      console.log(`[AI] Groq failed: ${err instanceof Error ? err.message : err}`);
+    }
   }
 
-  if (GEMINI_API_KEYS.length > 0) {
+  // 2. GEMINI COMO FALLBACK
+  if (GEMINI_API_KEYS.length > 0 && isAIAvailable()) {
     try {
       return await callGemini(prompt, imageContent || textContent, docType);
     } catch (err) {
@@ -1139,15 +1173,7 @@ async function callAI(
     }
   }
 
-  if (GROQ_API_KEY && textContent) {
-    try {
-      return await callGroq(prompt, smartTruncate(textContent, 20000));
-    } catch (err) {
-      console.log(`[AI] Groq failed: ${err instanceof Error ? err.message : err}`);
-    }
-  }
-
-  throw new Error("Serviço de IA temporariamente indisponível. Aguarde 1 minuto e tente novamente.");
+  throw new Error("Serviço de IA temporariamente indisponível.");
 }
 
 // ─────────────────────────────────────────
