@@ -116,6 +116,7 @@ function generateLocalAlerts(data: any, fatMetrics: any, scrMetrics: any) {
 // ─────────────────────────────────────────
 // Chamada Gemini
 // ─────────────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function callGemini(prompt: string, data: string): Promise<string> {
   const parts = [{ text: prompt + "\n\n--- DADOS EXTRAÍDOS ---\n\n" + data }];
 
@@ -144,6 +145,7 @@ async function callGemini(prompt: string, data: string): Promise<string> {
 // ─────────────────────────────────────────
 // Chamada Groq
 // ─────────────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function callGroq(prompt: string, data: string): Promise<string> {
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
@@ -166,6 +168,7 @@ async function callGroq(prompt: string, data: string): Promise<string> {
 // ─────────────────────────────────────────
 // PROMPT DE ANÁLISE
 // ─────────────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const ANALYSIS_PROMPT = `Você é um analista de crédito sênior de um FIDC (Fundo de Investimento em Direitos Creditórios) focado em antecipação de recebíveis.
 
 Receberá dados extraídos de documentos de um cedente (empresa que quer vender duplicatas ao fundo), INCLUINDO indicadores pré-calculados no campo "_indicadores_calculados" e alertas detectados automaticamente no campo "_alertas_detectados".
@@ -263,60 +266,98 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Dados não informados." }, { status: 400 });
     }
 
-    // Calculate local metrics before sending to AI
+    // Calculate local metrics
     const fatMetrics = calculateFaturamentoMetrics(body.data.faturamento);
     const scrMetrics = calculateSCRMetrics(body.data.scr, fatMetrics.fmm);
     const localAlerts = generateLocalAlerts(body.data, fatMetrics, scrMetrics);
 
-    // Build enriched data for AI
-    const enrichedData = {
-      ...body.data,
-      _indicadores_calculados: {
-        fmm: fatMetrics.fmm,
-        faturamento_total: fatMetrics.total,
-        faturamento_media: fatMetrics.media,
-        tendencia_6m: fatMetrics.tendencia,
-        coeficiente_variacao: fatMetrics.cv,
-        alavancagem: scrMetrics.alavancagem,
-        comprometimento_fmm_pct: scrMetrics.comprometimento,
-        scr_carteira: scrMetrics.carteira,
-        scr_vencidos: scrMetrics.vencidos,
-        scr_prejuizos: scrMetrics.prejuizos,
-      },
-      _alertas_detectados: localAlerts,
-    };
+    // ── GERAR ANÁLISE 100% LOCAL ──
+    const d = body.data;
+    const empresa = d.cnpj?.razaoSocial || "Empresa";
+    const cnpj = d.cnpj?.cnpj || "";
 
-    // Serializar os dados enriquecidos para envio à IA
-    const dataStr = JSON.stringify(enrichedData, null, 2);
-
-    let analysisText: string;
-
-    // Tentar Gemini primeiro, Groq como fallback
-    try {
-      analysisText = await callGemini(ANALYSIS_PROMPT, dataStr);
-    } catch {
-      if (GROQ_API_KEY) {
-        try {
-          analysisText = await callGroq(ANALYSIS_PROMPT, dataStr.substring(0, 10000));
-        } catch {
-          return NextResponse.json({ error: "Serviço de IA indisponível." }, { status: 503 });
-        }
-      } else {
-        return NextResponse.json({ error: "Serviço de IA indisponível." }, { status: 503 });
+    // Rating local (0-10)
+    let rating = 0.5; // base
+    if (d.cnpj?.situacaoCadastral?.toUpperCase().includes("ATIVA")) rating += 1;
+    if (d.cnpj?.dataAbertura) {
+      const parts = d.cnpj.dataAbertura.split("/");
+      const year = parseInt(parts[parts.length - 1], 10);
+      if (!isNaN(year)) {
+        const age = new Date().getFullYear() - year;
+        if (age > 10) rating += 1.5;
+        else if (age > 5) rating += 1;
+        else rating += 0.5;
       }
     }
+    if (!d.faturamento?.faturamentoZerado && fatMetrics.fmm > 0) rating += 1.5;
+    if (d.faturamento?.dadosAtualizados) rating += 0.5;
+    if (scrMetrics.vencidos === 0) rating += 1.5;
+    if (scrMetrics.prejuizos === 0) rating += 1.5;
+    const cl = d.scr?.classificacaoRisco?.toUpperCase();
+    if (cl && ["A", "AA", "B", "C"].includes(cl)) rating += 1;
+    if (scrMetrics.alavancagem !== null && scrMetrics.alavancagem < 5) rating += 0.5;
 
-    // Parse do JSON retornado
-    let cleaned = analysisText.trim();
-    if (cleaned.startsWith("```")) {
-      cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-    }
-    if (!cleaned.startsWith("{")) {
-      const match = cleaned.match(/\{[\s\S]*\}/);
-      if (match) cleaned = match[0];
-    }
+    // Penalidades
+    if (scrMetrics.vencidos > 0) rating -= 2;
+    if (scrMetrics.prejuizos > 0) rating -= 2;
+    if (d.faturamento?.faturamentoZerado) rating -= 2;
 
-    const analysis = JSON.parse(cleaned);
+    rating = Math.max(0, Math.min(10, Math.round(rating * 10) / 10));
+
+    const decisao = rating >= 7 ? "APROVADO" : rating >= 4 ? "PENDENTE" : "REPROVADO";
+
+    // Pontos fortes
+    const pontosFortes: string[] = [];
+    if (d.cnpj?.dataAbertura) {
+      const parts = d.cnpj.dataAbertura.split("/");
+      const year = parseInt(parts[parts.length - 1], 10);
+      const age = new Date().getFullYear() - year;
+      if (age > 5) pontosFortes.push(`${age} anos de operação — empresa com histórico comprovado`);
+    }
+    if (fatMetrics.fmm > 0) pontosFortes.push(`FMM de R$ ${fatMetrics.fmm.toLocaleString("pt-BR", {minimumFractionDigits: 2})} — faturamento recorrente`);
+    if (fatMetrics.tendencia === "CRESCENTE") pontosFortes.push("Tendência de faturamento crescente nos últimos 6 meses");
+    if (scrMetrics.vencidos === 0 && scrMetrics.prejuizos === 0) pontosFortes.push("SCR limpo — sem operações vencidas ou prejuízos");
+    if (scrMetrics.alavancagem !== null && scrMetrics.alavancagem < 3) pontosFortes.push(`Alavancagem de ${scrMetrics.alavancagem}x — nível saudável`);
+    if (d.cnpj?.situacaoCadastral?.toUpperCase().includes("ATIVA")) pontosFortes.push("Empresa com situação cadastral ATIVA na Receita Federal");
+
+    // Pontos fracos
+    const pontosFracos: string[] = [];
+    if (scrMetrics.vencidos > 0) pontosFracos.push(`Operações vencidas no SCR: R$ ${scrMetrics.vencidos.toLocaleString("pt-BR")}`);
+    if (scrMetrics.prejuizos > 0) pontosFracos.push(`Prejuízos registrados no SCR: R$ ${scrMetrics.prejuizos.toLocaleString("pt-BR")}`);
+    if (d.faturamento?.faturamentoZerado) pontosFracos.push("Faturamento zerado — risco de inatividade operacional");
+    if (!d.faturamento?.dadosAtualizados) pontosFracos.push(`Dados de faturamento desatualizados (último: ${d.faturamento?.ultimoMesComDados || "N/D"})`);
+    if (fatMetrics.tendencia === "DECRESCENTE") pontosFracos.push("Tendência de queda no faturamento dos últimos 6 meses");
+    if (scrMetrics.alavancagem !== null && scrMetrics.alavancagem > 5) pontosFracos.push(`Alavancagem elevada: ${scrMetrics.alavancagem}x (carteira/FMM)`);
+    if (cl && ["D", "E", "F", "G", "H"].includes(cl)) pontosFracos.push(`Classificação de risco Bacen: ${cl}`);
+
+    // Resumo executivo
+    const resumo = `${empresa} (CNPJ: ${cnpj}). ${fatMetrics.fmm > 0 ? `FMM de R$ ${(fatMetrics.fmm/1000).toFixed(0)} mil` : "Faturamento não disponível"}. ${scrMetrics.carteira > 0 ? `Carteira SCR de R$ ${(scrMetrics.carteira/1000).toFixed(0)} mil` : "Sem histórico bancário no SCR"}. Decisão: ${decisao} (Rating ${rating}/10).`;
+
+    // Parecer
+    const parecerParts: string[] = [];
+    parecerParts.push(`A empresa ${empresa} apresenta rating de ${rating}/10, resultando em decisão ${decisao}.`);
+    if (pontosFortes.length > 0) parecerParts.push(`Pontos positivos identificados: ${pontosFortes.join("; ")}.`);
+    if (pontosFracos.length > 0) parecerParts.push(`Pontos de atenção: ${pontosFracos.join("; ")}.`);
+    if (scrMetrics.alavancagem !== null) parecerParts.push(`A alavancagem atual é de ${scrMetrics.alavancagem}x o FMM${scrMetrics.alavancagem < 5 ? ", dentro de parâmetros aceitáveis" : ", acima do recomendado"}.`);
+    if (fatMetrics.tendencia !== "SEM_DADOS") parecerParts.push(`A tendência de faturamento dos últimos 6 meses é ${fatMetrics.tendencia.toLowerCase()}.`);
+
+    const analysis = {
+      rating,
+      ratingMax: 10,
+      decisao,
+      resumoExecutivo: resumo,
+      alertas: localAlerts.map(a => ({ severidade: a.severidade, descricao: a.mensagem, impacto: a.codigo })),
+      pontosFortes,
+      pontosFracos,
+      perguntasVisita: [] as Array<{pergunta: string; contexto: string}>,
+      indicadores: {
+        fmm: fatMetrics.fmm > 0 ? `R$ ${fatMetrics.fmm.toLocaleString("pt-BR", {minimumFractionDigits: 2})}` : "N/D",
+        alavancagem: scrMetrics.alavancagem !== null ? `${scrMetrics.alavancagem}x` : "N/D",
+        comprometimento: scrMetrics.comprometimento !== null ? `${scrMetrics.comprometimento}%` : "N/D",
+        tendencia: fatMetrics.tendencia,
+      },
+      parecer: parecerParts.join(" "),
+    };
 
     // Validar e corrigir campos críticos
     if (typeof analysis.rating === 'number') {

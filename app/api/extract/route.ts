@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { CNPJData, ContratoSocialData, SCRData, QSAData, FaturamentoData, ProtestosData, ProcessosData, GrupoEconomicoData } from "@/types";
+import type { SCRModalidade, SCRInstituicao, QSASocio, Socio } from "@/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 // ─────────────────────────────────────────
-// API Keys & Config
+// API Keys & Config (kept for AI fallback)
 // ─────────────────────────────────────────
-// Suporta múltiplas keys separadas por vírgula: "key1,key2,key3"
 const GEMINI_API_KEYS = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || "")
   .split(",")
   .map(k => k.trim())
@@ -205,7 +205,506 @@ async function extractExcel(buffer: Buffer): Promise<FaturamentoData> {
 }
 
 // ─────────────────────────────────────────
-// Prompts
+// LOCAL EXTRACTION: Regex/pattern-matching
+// ─────────────────────────────────────────
+
+/** Helper: match the first pattern that returns a non-empty capture group */
+function regexGet(text: string, patterns: RegExp[]): string {
+  for (const p of patterns) {
+    const m = text.match(p);
+    if (m && m[1]?.trim()) return m[1].trim();
+  }
+  return "";
+}
+
+/** Helper: find a monetary value near a keyword */
+function findValue(text: string, keywords: string[]): string {
+  for (const kw of keywords) {
+    const pattern = new RegExp(kw + '[:\\s]*(?:R\\$\\s*)?([\\d.,]+)', 'i');
+    const m = text.match(pattern);
+    if (m) return m[1];
+  }
+  return "";
+}
+
+// ── CNPJ ──
+function localExtractCNPJ(text: string): CNPJData {
+  const get = (patterns: RegExp[]): string => regexGet(text, patterns);
+
+  const logradouro = get([/LOGRADOURO[:\s]*(.+?)(?:\n|$)/i]);
+  const numero = get([/(?:^|\n)\s*N[ÚU]MERO[:\s]*(.+?)(?:\n|$)/i]);
+  const complemento = get([/COMPLEMENTO[:\s]*(.+?)(?:\n|$)/i]);
+  const bairro = get([/BAIRRO(?:\/DISTRITO)?[:\s]*(.+?)(?:\n|$)/i]);
+  const cep = get([/CEP[:\s]*([\d.\-]+)/i]);
+  const municipio = get([/MUNIC[ÍI]PIO[:\s]*(.+?)(?:\n|$)/i]);
+  const uf = get([/\bUF[:\s]*([A-Z]{2})/i]);
+
+  const enderecoPartes = [logradouro, numero, complemento, bairro, municipio, uf, cep].filter(Boolean);
+  const endereco = enderecoPartes.join(", ");
+
+  return {
+    cnpj: get([
+      /(?:N[ÚU]MERO DE INSCRI[ÇC][ÃA]O|CNPJ)[:\s]*(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})/i,
+      /(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})/,
+    ]),
+    razaoSocial: get([/(?:NOME EMPRESARIAL|RAZ[ÃA]O SOCIAL)[:\s]*(.+?)(?:\n|$)/i]),
+    nomeFantasia: get([
+      /(?:NOME DE FANTASIA|T[ÍI]TULO DO ESTABELECIMENTO)[^:]*[:\s]*(.+?)(?:\n|$)/i,
+    ]),
+    dataAbertura: get([/DATA DE ABERTURA[:\s]*(\d{2}\/\d{2}\/\d{4})/i]),
+    situacaoCadastral: get([/SITUA[ÇC][ÃA]O CADASTRAL[:\s]*([A-Z\u00C0-\u00FF]+)/i]),
+    dataSituacaoCadastral: get([/DATA DA SITUA[ÇC][ÃA]O CADASTRAL[:\s]*(\d{2}\/\d{2}\/\d{4})/i]),
+    motivoSituacao: get([/MOTIVO DE SITUA[ÇC][ÃA]O CADASTRAL[:\s]*(.+?)(?:\n|$)/i]),
+    naturezaJuridica: get([
+      /(?:C[ÓO]DIGO E DESCRI[ÇC][ÃA]O DA NATUREZA JUR[ÍI]DICA)[:\s]*(.+?)(?:\n|$)/i,
+      /(?:NATUREZA JUR[ÍI]DICA)[:\s]*(.+?)(?:\n|$)/i,
+    ]),
+    cnaePrincipal: get([
+      /(?:C[ÓO]DIGO E DESCRI[ÇC][ÃA]O DA ATIVIDADE ECON[ÔO]MICA PRINCIPAL)[:\s]*(.+?)(?:\n|$)/i,
+      /(?:ATIVIDADE ECON[ÔO]MICA PRINCIPAL|CNAE PRINCIPAL)[:\s]*(.+?)(?:\n|$)/i,
+    ]),
+    cnaeSecundarios: get([
+      /(?:C[ÓO]DIGO E DESCRI[ÇC][ÃA]O DAS? ATIVIDADES? ECON[ÔO]MICAS? SECUND[ÁA]RIAS?)[:\s]*([\s\S]+?)(?=C[ÓO]DIGO E DESCRI[ÇC][ÃA]O DA NATUREZA|$)/i,
+      /(?:ATIVIDADES? ECON[ÔO]MICAS? SECUND[ÁA]RIAS?|CNAE SECUND[ÁA]RI)[:\s]*([\s\S]+?)(?=C[ÓO]DIGO E DESCRI[ÇC][ÃA]O DA NATUREZA|SITUA[ÇC][ÃA]O|$)/i,
+    ]),
+    porte: get([/PORTE DA EMPRESA[:\s]*(.+?)(?:\n|$)/i, /PORTE[:\s]*(.+?)(?:\n|$)/i]),
+    capitalSocialCNPJ: get([/CAPITAL SOCIAL[:\s]*(?:R\$\s*)?([\d.,]+)/i]),
+    endereco,
+    telefone: get([/TELEFONE[:\s]*([\d\s()\-+.]+)/i]),
+    email: get([/(?:ENDERE[ÇC]O ELETR[ÔO]NICO|E-?MAIL)[:\s]*(\S+@\S+)/i]),
+  };
+}
+
+// ── QSA ──
+function extractSociosFromTextQSA(text: string): QSASocio[] {
+  const socios: QSASocio[] = [];
+  const seen = new Set<string>();
+
+  // Pattern: find all CPFs/CNPJs in the document
+  const cpfPattern = /(\d{3}\.?\d{3}\.?\d{3}-?\d{2})/g;
+  let match;
+  while ((match = cpfPattern.exec(text)) !== null) {
+    const cpf = match[1];
+    if (seen.has(cpf)) continue;
+    seen.add(cpf);
+
+    // Look for name near this CPF (before or after, within 300 chars)
+    const startIdx = Math.max(0, match.index - 300);
+    const endIdx = Math.min(text.length, match.index + 300);
+    const context = text.substring(startIdx, endIdx);
+
+    // Find name: sequence of uppercase words (at least 6 chars total)
+    const nameMatch = context.match(/([A-Z\u00C0-\u00DC][A-Z\u00C0-\u00DC\s]{5,})/);
+    const qualMatch = context.match(/(S[ÓO]CIO[\s-]*ADMINISTRADOR|S[ÓO]CIO|ADMINISTRADOR|PROCURADOR|DIRETOR|PRESIDENTE|REPRESENTANTE)/i);
+
+    if (nameMatch) {
+      socios.push({
+        nome: nameMatch[1].trim(),
+        cpfCnpj: cpf,
+        qualificacao: qualMatch ? qualMatch[1].trim() : "",
+        participacao: "",
+      });
+    }
+  }
+
+  // Also look for CNPJs of partner companies (PJ partners)
+  const cnpjPattern = /(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})/g;
+  while ((match = cnpjPattern.exec(text)) !== null) {
+    const cnpj = match[1];
+    if (seen.has(cnpj)) continue;
+
+    const startIdx = Math.max(0, match.index - 300);
+    const endIdx = Math.min(text.length, match.index + 300);
+    const context = text.substring(startIdx, endIdx);
+
+    const nameMatch = context.match(/([A-Z\u00C0-\u00DC][A-Z\u00C0-\u00DC\s]{5,})/);
+    const qualMatch = context.match(/(S[ÓO]CIO[\s-]*ADMINISTRADOR|S[ÓO]CIO|ADMINISTRADOR|PROCURADOR|DIRETOR|PRESIDENTE)/i);
+
+    if (nameMatch) {
+      seen.add(cnpj);
+      socios.push({
+        nome: nameMatch[1].trim(),
+        cpfCnpj: cnpj,
+        qualificacao: qualMatch ? qualMatch[1].trim() : "",
+        participacao: "",
+      });
+    }
+  }
+
+  return socios;
+}
+
+function localExtractQSA(text: string): QSAData {
+  const socios = extractSociosFromTextQSA(text);
+
+  const capitalMatch = text.match(/CAPITAL\s*(?:SOCIAL)?[:\s]*(?:R\$\s*)?([\d.,]+)/i);
+
+  return {
+    capitalSocial: capitalMatch ? capitalMatch[1] : "",
+    quadroSocietario: socios.length > 0 ? socios : [{ nome: "", cpfCnpj: "", qualificacao: "", participacao: "" }],
+  };
+}
+
+// ── CONTRATO SOCIAL ──
+function extractSociosFromTextContrato(text: string): Socio[] {
+  const socios: Socio[] = [];
+  const seen = new Set<string>();
+
+  const cpfPattern = /(\d{3}\.?\d{3}\.?\d{3}-?\d{2})/g;
+  let match;
+  while ((match = cpfPattern.exec(text)) !== null) {
+    const cpf = match[1];
+    if (seen.has(cpf)) continue;
+    seen.add(cpf);
+
+    const startIdx = Math.max(0, match.index - 300);
+    const endIdx = Math.min(text.length, match.index + 300);
+    const context = text.substring(startIdx, endIdx);
+
+    const nameMatch = context.match(/([A-Z\u00C0-\u00DC][A-Z\u00C0-\u00DC\s]{5,})/);
+    const qualMatch = context.match(/(S[ÓO]CIO[\s-]*ADMINISTRADOR|S[ÓO]CIO|ADMINISTRADOR|PROCURADOR|DIRETOR|PRESIDENTE)/i);
+
+    // Try to find participation percentage or quota info near the CPF
+    const partMatch = context.match(/(\d+[.,]?\d*)\s*%/);
+    const quotaMatch = context.match(/([\d.]+)\s*(?:quotas?|cotas?)/i);
+
+    if (nameMatch) {
+      socios.push({
+        nome: nameMatch[1].trim(),
+        cpf,
+        qualificacao: qualMatch ? qualMatch[1].trim() : "",
+        participacao: partMatch ? `${partMatch[1]}%` : (quotaMatch ? `${quotaMatch[1]} quotas` : ""),
+      });
+    }
+  }
+
+  return socios;
+}
+
+function localExtractContrato(text: string): ContratoSocialData {
+  const get = (patterns: RegExp[]): string => regexGet(text, patterns);
+  const socios = extractSociosFromTextContrato(text);
+
+  return {
+    socios: socios.length > 0 ? socios : [{ nome: "", cpf: "", participacao: "", qualificacao: "" }],
+    capitalSocial: get([/CAPITAL\s*SOCIAL[:\s]*(?:R\$\s*)?([\d.,]+(?:\s*\([^)]+\))?)/i]),
+    objetoSocial: get([/OBJETO\s*SOCIAL[:\s]*([\s\S]+?)(?=CL[ÁA]USULA|ART(?:IGO)?\.?\s|CAP[ÍI]TULO|$)/i]),
+    dataConstituicao: get([
+      /(?:DATA\s*(?:DE\s*)?CONSTITUI[ÇC][ÃA]O|CONSTITU[ÍI]DA\s*EM|REGISTRAD[OA]\s*EM)[:\s]*(\d{2}\/\d{2}\/\d{4})/i,
+    ]),
+    temAlteracoes: /ALTERA[ÇC][ÃA]O|CONSOLIDA[ÇC][ÃA]O/i.test(text),
+    prazoDuracao: get([/PRAZO[:\s]*(?:DE\s*DURA[ÇC][ÃA]O)?[:\s]*(.+?)(?:\.|$)/im]) || (/INDETERMINADO/i.test(text) ? "Indeterminado" : ""),
+    administracao: get([/ADMINISTRA[ÇC][ÃA]O[:\s]*([\s\S]+?)(?=CL[ÁA]USULA|ART(?:IGO)?\.?\s|$)/i]),
+    foro: get([/FORO[:\s]*(?:DA\s*)?(?:COMARCA\s*(?:DE|DO)?\s*)?(.+?)(?:\.|$)/im]),
+  };
+}
+
+// ── FATURAMENTO (PDF) ──
+function localExtractFaturamento(text: string): FaturamentoData {
+  const meses: { mes: string; valor: string }[] = [];
+  const monthNames: Record<string, string> = {
+    jan: "01", fev: "02", mar: "03", abr: "04", mai: "05", jun: "06",
+    jul: "07", ago: "08", set: "09", out: "10", nov: "11", dez: "12",
+    janeiro: "01", fevereiro: "02", "março": "03", abril: "04", maio: "05", junho: "06",
+    julho: "07", agosto: "08", setembro: "09", outubro: "10", novembro: "11", dezembro: "12",
+  };
+
+  // Pattern 1: "Janeiro/2025    R$ 1.234.567,89" or "Janeiro 2025  1.234.567,89"
+  const pattern1 = /([a-záéíóúçã]+)\/?[\s]*(\d{2,4})\s*(?:R\$\s*)?([\d.,]+)/gi;
+  let m;
+  while ((m = pattern1.exec(text)) !== null) {
+    const monthKey = m[1].toLowerCase().substring(0, 3);
+    const monthNum = monthNames[monthKey] || monthNames[m[1].toLowerCase()];
+    if (monthNum) {
+      const year = m[2].length === 2 ? `20${m[2]}` : m[2];
+      meses.push({ mes: `${monthNum}/${year}`, valor: m[3] });
+    }
+  }
+
+  // Pattern 2: "01/2025    1.234.567,89"
+  if (meses.length === 0) {
+    const pattern2 = /(\d{1,2})\/(\d{4})\s+(?:R\$\s*)?([\d.,]+)/g;
+    while ((m = pattern2.exec(text)) !== null) {
+      const monthNum = parseInt(m[1], 10);
+      if (monthNum >= 1 && monthNum <= 12) {
+        meses.push({ mes: `${m[1].padStart(2, "0")}/${m[2]}`, valor: m[3] });
+      }
+    }
+  }
+
+  // Calculate sum and average
+  const values = meses.map(item => {
+    const num = parseFloat(item.valor.replace(/\./g, "").replace(",", "."));
+    return isNaN(num) ? 0 : num;
+  });
+  const sum = values.reduce((a, b) => a + b, 0);
+  const avg = values.length > 0 ? sum / values.length : 0;
+
+  const faturamentoZerado = values.length === 0 || values.every(v => v === 0);
+  const ultimoMes = meses.length > 0 ? meses[meses.length - 1].mes : "";
+
+  // Verificar se dados estão atualizados (últimos 60 dias)
+  let dadosAtualizados = true;
+  if (ultimoMes) {
+    const [mesNum, anoNum] = ultimoMes.split("/").map(Number);
+    const lastDataDate = new Date(anoNum, mesNum - 1, 28);
+    const now = new Date();
+    const diffDays = (now.getTime() - lastDataDate.getTime()) / (1000 * 60 * 60 * 24);
+    dadosAtualizados = diffDays <= 75;
+  }
+
+  return {
+    meses,
+    somatoriaAno: sum.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+    mediaAno: avg.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+    faturamentoZerado,
+    dadosAtualizados,
+    ultimoMesComDados: ultimoMes,
+  };
+}
+
+// ── SCR ──
+function localExtractModalidades(text: string): SCRModalidade[] {
+  const modalidades: SCRModalidade[] = [];
+  const lines = text.split('\n');
+  for (const line of lines) {
+    // Pattern: "Capital de giro...  1.234,56  1.234,56  0,00  50,0%"
+    const m = line.match(/([A-Za-z\u00C0-\u00FF\s/\-]{10,}?)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+%?)/);
+    if (m) {
+      modalidades.push({
+        nome: m[1].trim(),
+        total: m[2],
+        aVencer: m[3],
+        vencido: m[4],
+        participacao: m[5].includes('%') ? m[5] : m[5] + '%',
+      });
+    }
+  }
+  return modalidades;
+}
+
+function localExtractInstituicoes(text: string): SCRInstituicao[] {
+  const instituicoes: SCRInstituicao[] = [];
+  const seen = new Set<string>();
+  const bankNames = ["BANCO", "CAIXA", "ITAU", "ITA[ÚU]", "BRADESCO", "SANTANDER", "SICOOB", "SICREDI", "BTG", "SAFRA", "ORIGINAL", "INTER", "NUBANK", "C6", "BB", "BNDES", "BRB", "BANRISUL", "VOTORANTIM", "ABC", "BMG", "DAYCOVAL", "PINE", "FIBRA", "SOFISA"];
+  for (const bank of bankNames) {
+    const pattern = new RegExp(`(${bank}[\\w\\s]*?)\\s+(?:R\\$\\s*)?([\\d.,]{4,})`, 'gi');
+    let m;
+    while ((m = pattern.exec(text)) !== null) {
+      const name = m[1].trim();
+      if (!seen.has(name.toUpperCase())) {
+        seen.add(name.toUpperCase());
+        instituicoes.push({ nome: name, valor: m[2] });
+      }
+    }
+  }
+  return instituicoes;
+}
+
+function localExtractSCR(text: string): SCRData {
+  const get = (patterns: RegExp[]): string => regexGet(text, patterns);
+
+  const modalidades = localExtractModalidades(text);
+  const instituicoes = localExtractInstituicoes(text);
+
+  const carteiraAVencer = findValue(text, ["CARTEIRA A VENCER", "A VENCER", "EM DIA"]);
+  const vencidos = findValue(text, ["OPERA[ÇC][ÕO]ES VENCIDAS", "VENCID[OA]S?"]);
+  const prejuizos = findValue(text, ["PREJU[ÍI]ZO", "BAIXAD[OA]S?"]);
+  const limiteCredito = findValue(text, ["LIMITE DE CR[ÉE]DITO", "LIMITE", "CR[ÉE]DITOS A LIBERAR"]);
+
+  return {
+    periodoReferencia: get([
+      /(?:DATA[\s-]*BASE|REFER[ÊE]NCIA|PER[ÍI]ODO)[:\s]*(\d{2}\/\d{4})/i,
+      /(\d{2}\/\d{4})/,
+    ]),
+    carteiraAVencer,
+    vencidos,
+    prejuizos,
+    limiteCredito,
+    qtdeInstituicoes: get([/(?:QUANTIDADE|QTD|QTDE)[\s]*(?:DE\s*)?(?:INSTITUI[ÇC][ÕO]ES|IFs?)[:\s]*(\d+)/i]),
+    qtdeOperacoes: get([/(?:QUANTIDADE|QTD|QTDE)[\s]*(?:DE\s*)?OPERA[ÇC][ÕO]ES[:\s]*(\d+)/i]),
+    totalDividasAtivas: findValue(text, ["RESPONSABILIDADE TOTAL", "D[ÍI]VIDA TOTAL", "TOTAL"]),
+    operacoesAVencer: carteiraAVencer,
+    operacoesEmAtraso: findValue(text, ["EM ATRASO"]),
+    operacoesVencidas: vencidos,
+    tempoAtraso: "",
+    coobrigacoes: findValue(text, ["COOBRIGA[ÇC][ÕO]ES", "RESPONSABILIDADE INDIRETA"]),
+    classificacaoRisco: get([/CLASSIFICA[ÇC][ÃA]O[:\s]*(?:DE\s*RISCO)?[:\s]*([A-H]{1,2})/i]),
+    carteiraCurtoPrazo: findValue(text, ["CURTO PRAZO", "AT[ÉE] 360"]),
+    carteiraLongoPrazo: findValue(text, ["LONGO PRAZO", "ACIMA (?:DE )?360"]),
+    modalidades,
+    instituicoes,
+    valoresMoedaEstrangeira: findValue(text, ["MOEDA ESTRANGEIRA"]),
+    historicoInadimplencia: "",
+  };
+}
+
+// ── PROTESTOS ──
+function localExtractProtestos(text: string): ProtestosData {
+  const get = (patterns: RegExp[]): string => regexGet(text, patterns);
+
+  const detalhes: { data: string; credor: string; valor: string; regularizado: boolean }[] = [];
+
+  // Try to find individual protest entries
+  // Pattern: date + credor + value
+  const protestPattern = /(\d{2}\/\d{2}\/\d{4})\s+(.+?)\s+(?:R\$\s*)?([\d.,]+)/g;
+  let m;
+  while ((m = protestPattern.exec(text)) !== null) {
+    detalhes.push({
+      data: m[1],
+      credor: m[2].trim(),
+      valor: m[3],
+      regularizado: false,
+    });
+  }
+
+  // Mark regularized ones
+  for (const d of detalhes) {
+    const ctx = text.substring(
+      Math.max(0, text.indexOf(d.data) - 50),
+      Math.min(text.length, text.indexOf(d.data) + 200)
+    );
+    if (/regularizado|quitado|cancelado|pago/i.test(ctx)) {
+      d.regularizado = true;
+    }
+  }
+
+  const vigentes = detalhes.filter(d => !d.regularizado);
+  const regularizados = detalhes.filter(d => d.regularizado);
+
+  const sumValues = (items: typeof detalhes) => {
+    const total = items.reduce((acc, item) => {
+      const num = parseFloat(item.valor.replace(/\./g, "").replace(",", "."));
+      return acc + (isNaN(num) ? 0 : num);
+    }, 0);
+    return total > 0 ? total.toLocaleString("pt-BR", { minimumFractionDigits: 2 }) : "";
+  };
+
+  return {
+    vigentesQtd: get([/(?:PROTESTOS?\s*)?VIGENTES?[:\s]*(\d+)/i]) || (vigentes.length > 0 ? String(vigentes.length) : ""),
+    vigentesValor: get([/VIGENTES?[:\s]*(?:R\$\s*)?([\d.,]+)/i]) || sumValues(vigentes),
+    regularizadosQtd: get([/REGULARIZADOS?[:\s]*(\d+)/i]) || (regularizados.length > 0 ? String(regularizados.length) : ""),
+    regularizadosValor: get([/REGULARIZADOS?[:\s]*(?:R\$\s*)?([\d.,]+)/i]) || sumValues(regularizados),
+    detalhes,
+  };
+}
+
+// ── PROCESSOS ──
+function localExtractProcessos(text: string): ProcessosData {
+  const get = (patterns: RegExp[]): string => regexGet(text, patterns);
+
+  const distribuicao: { tipo: string; qtd: string; pct: string }[] = [];
+  const bancarios: { banco: string; assunto: string; status: string; data: string }[] = [];
+
+  // Try to find process type distribution
+  const types = ["TRABALHISTA", "BANCO", "BANC[ÁA]RI", "FISCAL", "TRIBUT[ÁA]RI", "FORNECEDOR", "C[ÍI]VEL", "OUTROS?"];
+  for (const tipo of types) {
+    const pattern = new RegExp(`(${tipo}[A-Z]*)\\s*[:\\s]*(\\d+)\\s*(?:\\((\\d+[,.]?\\d*%)\\))?`, 'i');
+    const m = text.match(pattern);
+    if (m) {
+      distribuicao.push({
+        tipo: m[1].toUpperCase().replace(/[ÁA]RI[OA]?/g, match => match),
+        qtd: m[2],
+        pct: m[3] || "",
+      });
+    }
+  }
+
+  // Try to find banking processes
+  const bankNames = ["ITAU", "ITA[ÚU]", "BRADESCO", "SANTANDER", "CAIXA", "BANCO DO BRASIL", "BB", "SICOOB", "NUBANK", "C6", "SAFRA", "BTG"];
+  for (const bank of bankNames) {
+    const pattern = new RegExp(`(${bank}[\\w\\s]*?)\\s*[-–]\\s*(.+?)\\s*[-–]\\s*(ARQUIVADO|EM ANDAMENTO|DISTRIBU[ÍI]DO|JULGADO|EM GRAU DE RECURSO|ATIVO)\\s*[-–]?\\s*(\\d{2}\\/\\d{2}\\/\\d{4})?`, 'gi');
+    let m;
+    while ((m = pattern.exec(text)) !== null) {
+      bancarios.push({
+        banco: m[1].trim(),
+        assunto: m[2].trim(),
+        status: m[3].trim(),
+        data: m[4] || "",
+      });
+    }
+  }
+
+  return {
+    passivosTotal: get([/(?:PASSIVOS?|R[ÉE]U)[:\s]*(\d+)/i, /(\d+)\s*(?:processos?\s*)?(?:como\s*)?r[ée]u/i]),
+    ativosTotal: get([/(?:ATIVOS?|AUTOR)[:\s]*(\d+)/i, /(\d+)\s*(?:processos?\s*)?(?:como\s*)?autor/i]),
+    valorTotalEstimado: get([/VALOR\s*TOTAL[:\s]*(?:R\$\s*)?([\d.,]+)/i]),
+    temRJ: /RECUPERA[ÇC][ÃA]O\s*JUDICIAL/i.test(text),
+    distribuicao,
+    bancarios,
+  };
+}
+
+// ── GRUPO ECONOMICO ──
+function localExtractGrupoEconomico(text: string): GrupoEconomicoData {
+  const empresas: { razaoSocial: string; cnpj: string; relacao: string; scrTotal: string; protestos: string; processos: string }[] = [];
+
+  // Find all CNPJs and try to associate with company names
+  const cnpjPattern = /(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})/g;
+  const seen = new Set<string>();
+  let match;
+  while ((match = cnpjPattern.exec(text)) !== null) {
+    const cnpj = match[1];
+    if (seen.has(cnpj)) continue;
+    seen.add(cnpj);
+
+    const startIdx = Math.max(0, match.index - 300);
+    const endIdx = Math.min(text.length, match.index + 300);
+    const context = text.substring(startIdx, endIdx);
+
+    // Find company name near CNPJ
+    const nameMatch = context.match(/([A-Z\u00C0-\u00DC][A-Z\u00C0-\u00DC\s&.,]{5,}(?:LTDA|S\.?A\.?|EIRELI|ME|EPP|S\/S|INDIVIDUAL)?)/i);
+    const relMatch = context.match(/(via\s+S[óo]cio|Controlada|Coligada|Filial|Matriz|Controladora)/i);
+
+    if (nameMatch) {
+      empresas.push({
+        razaoSocial: nameMatch[1].trim(),
+        cnpj,
+        relacao: relMatch ? relMatch[1].trim() : "",
+        scrTotal: "",
+        protestos: "",
+        processos: "",
+      });
+    }
+  }
+
+  return { empresas };
+}
+
+// ── Dispatcher ──
+function localExtract(text: string, docType: string): CNPJData | QSAData | ContratoSocialData | FaturamentoData | SCRData | ProtestosData | ProcessosData | GrupoEconomicoData {
+  switch (docType) {
+    case "cnpj":           return localExtractCNPJ(text);
+    case "qsa":            return localExtractQSA(text);
+    case "contrato":       return localExtractContrato(text);
+    case "faturamento":    return localExtractFaturamento(text);
+    case "scr":            return localExtractSCR(text);
+    case "protestos":      return localExtractProtestos(text);
+    case "processos":      return localExtractProcessos(text);
+    case "grupoEconomico": return localExtractGrupoEconomico(text);
+    default:               return localExtractCNPJ(text);
+  }
+}
+
+// ── Merge: AI fills gaps from local ──
+function mergeData(local: Record<string, unknown>, ai: Record<string, unknown>): Record<string, unknown> {
+  const merged = { ...local };
+  for (const [key, val] of Object.entries(ai)) {
+    const localVal = merged[key];
+    // Only replace if local field is empty/missing and AI has something
+    const localEmpty = localVal === "" || localVal === null || localVal === undefined ||
+      (Array.isArray(localVal) && localVal.length === 0);
+    const aiHasValue = val !== "" && val !== null && val !== undefined &&
+      !(Array.isArray(val) && val.length === 0);
+    if (localEmpty && aiHasValue) {
+      merged[key] = val;
+    }
+  }
+  return merged;
+}
+
+// ─────────────────────────────────────────
+// Prompts (kept for AI fallback)
 // ─────────────────────────────────────────
 
 const PROMPT_CNPJ = `Você é um especialista em documentos da Receita Federal do Brasil.
@@ -475,7 +974,7 @@ Regras:
 - NÃO invente dados`;
 
 // ─────────────────────────────────────────
-// PROVEDOR 1: Gemini (primário — melhor qualidade)
+// PROVEDOR 1: Gemini (fallback — kept for AI fallback)
 // ─────────────────────────────────────────
 async function callGemini(prompt: string, content: string | { mimeType: string; base64: string }, docType?: string): Promise<string> {
   const models = (docType === "scr" || docType === "contrato") ? GEMINI_MODELS_CRITICAL : GEMINI_MODELS;
@@ -512,7 +1011,7 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
 
           if (response.status === 429) {
             console.log(`[Gemini] Rate limited on key=${apiKey.substring(0, 8)} model=${model}, waiting before next key...`);
-            await sleep(3000); // Wait 3s before trying next key
+            await sleep(3000);
             break;
           }
 
@@ -533,7 +1032,7 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
           clearTimeout(timeoutId);
           if (err instanceof Error && err.name === 'AbortError') {
             console.log('[Gemini] Request timed out after 45s');
-            break; // try next model/key
+            break;
           }
           console.error(`[Gemini] Error:`, err instanceof Error ? err.message : err);
           break;
@@ -594,7 +1093,7 @@ async function callGroq(prompt: string, content: string): Promise<string> {
       clearTimeout(timeoutId);
       if (err instanceof Error && err.name === 'AbortError') {
         console.log('[Groq] Request timed out after 45s');
-        break; // try next model/key
+        break;
       }
       if (attempt === 2) throw err;
     }
@@ -603,7 +1102,7 @@ async function callGroq(prompt: string, content: string): Promise<string> {
 }
 
 // ─────────────────────────────────────────
-// Chamada com fallback: Gemini → Groq
+// Chamada com fallback: Gemini -> Groq (kept for AI fallback)
 // ─────────────────────────────────────────
 async function callAI(
   prompt: string,
@@ -843,7 +1342,8 @@ function fillGrupoEconomicoDefaults(data: Partial<GrupoEconomicoData>): GrupoEco
 
 type AnyExtracted = CNPJData | QSAData | ContratoSocialData | FaturamentoData | SCRData | ProtestosData | ProcessosData | GrupoEconomicoData;
 
-function getEmptyFields(data: Record<string, unknown>): string[] {
+// Used by AI fallback for re-extraction
+function getEmptyFields(data: Record<string, unknown>): string[] { // eslint-disable-line @typescript-eslint/no-unused-vars
   const empty: string[] = [];
   for (const [key, value] of Object.entries(data)) {
     if (value === "" || value === null || value === undefined) {
@@ -902,10 +1402,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Arquivo ou tipo não informado." }, { status: 400 });
     }
 
-    if (GEMINI_API_KEYS.length === 0 && !GROQ_API_KEY) {
-      return NextResponse.json({ error: "Nenhuma API key configurada." }, { status: 500 });
-    }
-
     const MAX_SIZE = 20 * 1024 * 1024;
     if (file.size > MAX_SIZE) {
       return NextResponse.json({ error: "Arquivo excede o limite de 20MB." }, { status: 413 });
@@ -920,6 +1416,12 @@ export async function POST(request: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
+    // Validate docType
+    const validDocTypes = ["cnpj", "qsa", "contrato", "faturamento", "scr", "protestos", "processos", "grupoEconomico"];
+    if (!validDocTypes.includes(docType)) {
+      return NextResponse.json({ error: "Tipo de documento inválido." }, { status: 400 });
+    }
+
     // ──── Excel: processamento direto sem IA ────
     if (ext === "xlsx" && docType === "faturamento") {
       try {
@@ -933,23 +1435,22 @@ export async function POST(request: NextRequest) {
         });
       } catch (err) {
         console.error("[extract] Excel processing failed:", err);
-        // Se falhar, tentar via IA
+        // Se falhar, continua para tentar via texto
       }
     }
 
-    // ──── Selecionar prompt ────
+    // ──── Selecionar prompt (para AI fallback) ────
     let prompt: string;
     switch (docType) {
-      case "cnpj":       prompt = PROMPT_CNPJ; break;
-      case "qsa":        prompt = PROMPT_QSA; break;
-      case "contrato":   prompt = PROMPT_CONTRATO; break;
-      case "faturamento": prompt = PROMPT_FATURAMENTO; break;
+      case "cnpj":           prompt = PROMPT_CNPJ; break;
+      case "qsa":            prompt = PROMPT_QSA; break;
+      case "contrato":       prompt = PROMPT_CONTRATO; break;
+      case "faturamento":    prompt = PROMPT_FATURAMENTO; break;
       case "scr":            prompt = PROMPT_SCR; break;
       case "protestos":      prompt = PROMPT_PROTESTOS; break;
       case "processos":      prompt = PROMPT_PROCESSOS; break;
       case "grupoEconomico": prompt = PROMPT_GRUPO_ECONOMICO; break;
-      default:
-        return NextResponse.json({ error: "Tipo de documento inválido." }, { status: 400 });
+      default:               prompt = PROMPT_CNPJ; break;
     }
 
     // ──── Preparar conteúdo ────
@@ -958,17 +1459,16 @@ export async function POST(request: NextRequest) {
     let imageContent: { mimeType: string; base64: string } | undefined;
 
     if (isImage) {
+      // Images can only be processed by AI
       imageContent = { mimeType, base64: buffer.toString("base64") };
-    } else if (ext === "pdf" && (docType === "scr" || docType === "qsa" || docType === "contrato")) {
-      // SCR, QSA e Contrato: sempre enviar como binário (encoding problemático em PDFs desses tipos)
-      console.log(`[extract] ${docType} PDF — sending as binary (always multimodal for this type)`);
-      imageContent = { mimeType: "application/pdf", base64: buffer.toString("base64") };
     } else {
+      // ALWAYS try pdf-parse / mammoth first for all document types
       textContent = await extractText(buffer, ext);
       const isUsableText = textContent.trim().length >= 20 && hasReadableContent(textContent);
 
       if (!isUsableText && ext === "pdf") {
-        console.log(`[extract] PDF text not usable, sending as binary...`);
+        // Text not readable — prepare binary for AI fallback
+        console.log(`[extract] PDF text not usable, will try AI with binary...`);
         imageContent = { mimeType: "application/pdf", base64: buffer.toString("base64") };
         textContent = "";
       } else if (!isUsableText) {
@@ -978,122 +1478,189 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (textContent) {
-      const maxChars: Record<string, number> = {
-        cnpj: 8000, qsa: 15000, contrato: 40000, faturamento: 20000, scr: 40000,
-        protestos: 25000, processos: 30000, grupoEconomico: 20000,
-      };
-      textContent = textContent.substring(0, maxChars[docType] || 25000);
-    }
-
     console.log(`[extract] ${file.name} | type=${docType} | ext=${ext} | textLen=${textContent.length} | hasImage=${!!imageContent}`);
 
-    // ──── Chamar IA ────
+    // ──── PRIMARY: Local regex extraction ────
     let data: AnyExtracted;
 
-    try {
-      const aiResponse = await callAI(prompt, textContent, imageContent, docType);
-      console.log(`[extract] AI response length: ${aiResponse.length}`);
-
-      let parsed: Record<string, unknown>;
+    if (textContent && textContent.trim().length >= 20) {
+      // We have readable text — try local extraction first
       try {
-        parsed = parseJSON<Record<string, unknown>>(aiResponse);
-      } catch (parseErr) {
-        console.log("[extract] JSON parse failed, attempting retry with correction prompt...");
-        try {
-          const fixPrompt = `Sua resposta anterior não foi JSON válido. Retorne APENAS um JSON válido com a estrutura solicitada, sem nenhum texto adicional. Começar com { e terminar com }.`;
-          const retryResponse = await callAI(fixPrompt, textContent, imageContent, docType);
-          parsed = parseJSON<Record<string, unknown>>(retryResponse);
-          console.log("[extract] JSON retry succeeded!");
-        } catch {
-          throw parseErr; // Fall through to error handler
+        console.log(`[extract] Trying LOCAL extraction for ${docType}...`);
+        const localResult = localExtract(textContent, docType);
+
+        // Apply defaults
+        let localData: AnyExtracted;
+        switch (docType) {
+          case "cnpj":           localData = fillCNPJDefaults(localResult as Partial<CNPJData>); break;
+          case "qsa":            localData = fillQSADefaults(localResult as Partial<QSAData>); break;
+          case "contrato":       localData = fillContratoDefaults(localResult as Partial<ContratoSocialData>); break;
+          case "faturamento":    localData = fillFaturamentoDefaults(localResult as Partial<FaturamentoData>); break;
+          case "scr":            localData = fillSCRDefaults(localResult as unknown as Record<string, unknown>); break;
+          case "protestos":      localData = fillProtestosDefaults(localResult as Partial<ProtestosData>); break;
+          case "processos":      localData = fillProcessosDefaults(localResult as Partial<ProcessosData>); break;
+          case "grupoEconomico": localData = fillGrupoEconomicoDefaults(localResult as Partial<GrupoEconomicoData>); break;
+          default:               localData = fillCNPJDefaults(localResult as Partial<CNPJData>);
         }
-      }
 
-      validateAndFixSchema(parsed, docType);
+        const filled = countFilledFields(localData);
+        console.log(`[extract] LOCAL extraction got ${filled} filled fields`);
 
-      switch (docType) {
-        case "cnpj":           data = fillCNPJDefaults(parsed as Partial<CNPJData>); break;
-        case "qsa":            data = fillQSADefaults(parsed as Partial<QSAData>); break;
-        case "contrato":       data = fillContratoDefaults(parsed as Partial<ContratoSocialData>); break;
-        case "faturamento":    data = fillFaturamentoDefaults(parsed as Partial<FaturamentoData>); break;
-        case "scr":            data = fillSCRDefaults(parsed as Record<string, unknown>); break;
-        case "protestos":      data = fillProtestosDefaults(parsed as Partial<ProtestosData>); break;
-        case "processos":      data = fillProcessosDefaults(parsed as Partial<ProcessosData>); break;
-        case "grupoEconomico": data = fillGrupoEconomicoDefaults(parsed as Partial<GrupoEconomicoData>); break;
-        default:               data = fillCNPJDefaults(parsed as Partial<CNPJData>);
-      }
-    } catch (aiError) {
-      console.error("[extract] AI failed:", aiError);
+        // If local extraction got very few fields, try AI as fallback
+        if (filled < 3 && (GEMINI_API_KEYS.length > 0 || GROQ_API_KEY)) {
+          console.log(`[extract] Local parsing got only ${filled} fields, trying AI fallback...`);
+          try {
+            // For PDFs that had readable text but local parsing failed, prepare binary too
+            if (!imageContent && ext === "pdf") {
+              imageContent = { mimeType: "application/pdf", base64: buffer.toString("base64") };
+            }
+            const aiResponse = await callAI(prompt, textContent, imageContent, docType);
+            const aiParsed = parseJSON<Record<string, unknown>>(aiResponse);
+            validateAndFixSchema(aiParsed, docType);
 
-      // Fallback: for binary PDFs, try extracting text and using Groq
-      if (imageContent && GROQ_API_KEY && ext === "pdf") {
-        try {
-          const fallbackText = await extractText(buffer, ext);
-          if (fallbackText && fallbackText.trim().length > 50) {
-            console.log(`[extract] Attempting Groq fallback with extracted text (${fallbackText.length} chars)...`);
-            const groqResponse = await callGroq(prompt, smartTruncate(fallbackText, 15000));
-            const fallbackParsed = parseJSON<Record<string, unknown>>(groqResponse);
-            // Apply defaults based on docType
+            // Merge: AI fills gaps from local
+            const merged = mergeData(localData as unknown as Record<string, unknown>, aiParsed);
+
             switch (docType) {
-              case "scr": data = fillSCRDefaults(fallbackParsed); break;
-              case "qsa": data = fillQSADefaults(fallbackParsed as Partial<QSAData>); break;
-              case "contrato": data = fillContratoDefaults(fallbackParsed as Partial<ContratoSocialData>); break;
-              default: break;
+              case "cnpj":           data = fillCNPJDefaults(merged as Partial<CNPJData>); break;
+              case "qsa":            data = fillQSADefaults(merged as Partial<QSAData>); break;
+              case "contrato":       data = fillContratoDefaults(merged as Partial<ContratoSocialData>); break;
+              case "faturamento":    data = fillFaturamentoDefaults(merged as Partial<FaturamentoData>); break;
+              case "scr":            data = fillSCRDefaults(merged as Record<string, unknown>); break;
+              case "protestos":      data = fillProtestosDefaults(merged as Partial<ProtestosData>); break;
+              case "processos":      data = fillProcessosDefaults(merged as Partial<ProcessosData>); break;
+              case "grupoEconomico": data = fillGrupoEconomicoDefaults(merged as Partial<GrupoEconomicoData>); break;
+              default:               data = fillCNPJDefaults(merged as Partial<CNPJData>);
             }
-            if (data!) {
-              console.log("[extract] Groq fallback succeeded!");
-              const filled = countFilledFields(data);
-              return NextResponse.json({
-                success: true, data,
-                meta: { rawTextLength: fallbackText.length, filledFields: filled, isScanned: false, aiPowered: true, usedFallback: true },
-              });
-            }
+
+            console.log(`[extract] AI fallback merged, now ${countFilledFields(data)} filled fields`);
+          } catch (aiErr) {
+            console.log(`[extract] AI fallback failed: ${aiErr instanceof Error ? aiErr.message : aiErr}, using local results`);
+            data = localData;
           }
-        } catch (fallbackErr) {
-          console.error("[extract] Groq fallback also failed:", fallbackErr);
+        } else {
+          // Local extraction was good enough
+          data = localData;
+        }
+      } catch (localErr) {
+        console.error("[extract] Local extraction crashed:", localErr);
+        // Local parsing crashed — try AI
+        try {
+          if (!imageContent && ext === "pdf") {
+            imageContent = { mimeType: "application/pdf", base64: buffer.toString("base64") };
+          }
+          const aiResponse = await callAI(prompt, textContent, imageContent, docType);
+          const parsed = parseJSON<Record<string, unknown>>(aiResponse);
+          validateAndFixSchema(parsed, docType);
+
+          switch (docType) {
+            case "cnpj":           data = fillCNPJDefaults(parsed as Partial<CNPJData>); break;
+            case "qsa":            data = fillQSADefaults(parsed as Partial<QSAData>); break;
+            case "contrato":       data = fillContratoDefaults(parsed as Partial<ContratoSocialData>); break;
+            case "faturamento":    data = fillFaturamentoDefaults(parsed as Partial<FaturamentoData>); break;
+            case "scr":            data = fillSCRDefaults(parsed as Record<string, unknown>); break;
+            case "protestos":      data = fillProtestosDefaults(parsed as Partial<ProtestosData>); break;
+            case "processos":      data = fillProcessosDefaults(parsed as Partial<ProcessosData>); break;
+            case "grupoEconomico": data = fillGrupoEconomicoDefaults(parsed as Partial<GrupoEconomicoData>); break;
+            default:               data = fillCNPJDefaults(parsed as Partial<CNPJData>);
+          }
+        } catch (aiErr2) {
+          console.error("[extract] AI also failed after local crash:", aiErr2);
+          // Return empty defaults
+          switch (docType) {
+            case "cnpj":           data = fillCNPJDefaults({}); break;
+            case "qsa":            data = fillQSADefaults({}); break;
+            case "contrato":       data = fillContratoDefaults({}); break;
+            case "faturamento":    data = fillFaturamentoDefaults({}); break;
+            case "scr":            data = fillSCRDefaults({}); break;
+            case "protestos":      data = fillProtestosDefaults({}); break;
+            case "processos":      data = fillProcessosDefaults({}); break;
+            case "grupoEconomico": data = fillGrupoEconomicoDefaults({}); break;
+            default:               data = fillCNPJDefaults({});
+          }
+          return NextResponse.json({
+            success: true, data,
+            meta: { rawTextLength: textContent.length, filledFields: 0, isScanned: isImage, aiError: true },
+          });
         }
       }
-
-      switch (docType) {
-        case "cnpj":           data = fillCNPJDefaults({}); break;
-        case "qsa":            data = fillQSADefaults({}); break;
-        case "contrato":       data = fillContratoDefaults({}); break;
-        case "faturamento":    data = fillFaturamentoDefaults({}); break;
-        case "scr":            data = fillSCRDefaults({}); break;
-        case "protestos":      data = fillProtestosDefaults({}); break;
-        case "processos":      data = fillProcessosDefaults({}); break;
-        case "grupoEconomico": data = fillGrupoEconomicoDefaults({}); break;
-        default:               data = fillCNPJDefaults({});
-      }
-      return NextResponse.json({
-        success: true, data,
-        meta: { rawTextLength: textContent.length, filledFields: 0, isScanned: isImage, aiError: true },
-      });
-    }
-
-    // ──── 2-pass extraction: re-extract if >15% fields empty ────
-    const allFields = Object.keys(data as unknown as Record<string, unknown>).filter(k => k !== 'status');
-    const emptyFields = getEmptyFields(data as unknown as Record<string, unknown>);
-    const emptyPct = allFields.length > 0 ? emptyFields.length / allFields.length : 0;
-
-    if (emptyPct > 0.15 && emptyFields.length > 1) {
-      console.log(`[extract] ${(emptyPct * 100).toFixed(0)}% fields empty, attempting re-extraction for: ${emptyFields.join(', ')}`);
+    } else if (imageContent) {
+      // No readable text — must use AI (binary PDF or image)
+      console.log(`[extract] No readable text, using AI for binary content...`);
       try {
-        const rePrompt = `Os seguintes campos NÃO foram encontrados na primeira análise: ${emptyFields.join(', ')}.\n\nAnalise o documento novamente focando ESPECIFICAMENTE nestes campos ausentes. Retorne APENAS os campos solicitados em JSON.`;
-        const reResponse = await callAI(rePrompt, textContent, imageContent, docType);
-        const reParsed = parseJSON<Record<string, unknown>>(reResponse);
-        // Merge: only fill in fields that were empty
-        for (const field of emptyFields) {
-          const newVal = reParsed[field];
-          if (newVal !== undefined && newVal !== null && newVal !== "") {
-            (data as unknown as Record<string, unknown>)[field] = newVal;
+        const aiResponse = await callAI(prompt, textContent, imageContent, docType);
+        const parsed = parseJSON<Record<string, unknown>>(aiResponse);
+        validateAndFixSchema(parsed, docType);
+
+        switch (docType) {
+          case "cnpj":           data = fillCNPJDefaults(parsed as Partial<CNPJData>); break;
+          case "qsa":            data = fillQSADefaults(parsed as Partial<QSAData>); break;
+          case "contrato":       data = fillContratoDefaults(parsed as Partial<ContratoSocialData>); break;
+          case "faturamento":    data = fillFaturamentoDefaults(parsed as Partial<FaturamentoData>); break;
+          case "scr":            data = fillSCRDefaults(parsed as Record<string, unknown>); break;
+          case "protestos":      data = fillProtestosDefaults(parsed as Partial<ProtestosData>); break;
+          case "processos":      data = fillProcessosDefaults(parsed as Partial<ProcessosData>); break;
+          case "grupoEconomico": data = fillGrupoEconomicoDefaults(parsed as Partial<GrupoEconomicoData>); break;
+          default:               data = fillCNPJDefaults(parsed as Partial<CNPJData>);
+        }
+      } catch (aiError) {
+        console.error("[extract] AI failed for binary content:", aiError);
+
+        // Last resort: try to extract text from the PDF anyway
+        if (ext === "pdf") {
+          try {
+            const fallbackText = await extractText(buffer, ext);
+            if (fallbackText && fallbackText.trim().length > 50) {
+              console.log(`[extract] Attempting local extraction on fallback text (${fallbackText.length} chars)...`);
+              const localResult = localExtract(fallbackText, docType);
+              switch (docType) {
+                case "cnpj":           data = fillCNPJDefaults(localResult as Partial<CNPJData>); break;
+                case "qsa":            data = fillQSADefaults(localResult as Partial<QSAData>); break;
+                case "contrato":       data = fillContratoDefaults(localResult as Partial<ContratoSocialData>); break;
+                case "faturamento":    data = fillFaturamentoDefaults(localResult as Partial<FaturamentoData>); break;
+                case "scr":            data = fillSCRDefaults(localResult as unknown as Record<string, unknown>); break;
+                case "protestos":      data = fillProtestosDefaults(localResult as Partial<ProtestosData>); break;
+                case "processos":      data = fillProcessosDefaults(localResult as Partial<ProcessosData>); break;
+                case "grupoEconomico": data = fillGrupoEconomicoDefaults(localResult as Partial<GrupoEconomicoData>); break;
+                default:               data = fillCNPJDefaults(localResult as Partial<CNPJData>);
+              }
+              const filled = countFilledFields(data);
+              if (filled >= 2) {
+                console.log(`[extract] Fallback local extraction got ${filled} fields`);
+                validateExtractedData(data as unknown as Record<string, unknown>, docType);
+                return NextResponse.json({
+                  success: true, data,
+                  meta: { rawTextLength: fallbackText.length, filledFields: filled, isScanned: false, aiPowered: false },
+                });
+              }
+            }
+          } catch (fallbackErr) {
+            console.error("[extract] Fallback text extraction also failed:", fallbackErr);
           }
         }
-        console.log(`[extract] Re-extraction filled ${emptyFields.length - getEmptyFields(data as unknown as Record<string, unknown>).length} additional fields`);
-      } catch {
-        console.log(`[extract] Re-extraction failed, using first pass results`);
+
+        // Return empty defaults
+        switch (docType) {
+          case "cnpj":           data = fillCNPJDefaults({}); break;
+          case "qsa":            data = fillQSADefaults({}); break;
+          case "contrato":       data = fillContratoDefaults({}); break;
+          case "faturamento":    data = fillFaturamentoDefaults({}); break;
+          case "scr":            data = fillSCRDefaults({}); break;
+          case "protestos":      data = fillProtestosDefaults({}); break;
+          case "processos":      data = fillProcessosDefaults({}); break;
+          case "grupoEconomico": data = fillGrupoEconomicoDefaults({}); break;
+          default:               data = fillCNPJDefaults({});
+        }
+        return NextResponse.json({
+          success: true, data,
+          meta: { rawTextLength: 0, filledFields: 0, isScanned: isImage, aiError: true },
+        });
       }
+    } else {
+      // No text and no image — should not happen, but handle gracefully
+      return NextResponse.json({
+        error: "Não foi possível extrair conteúdo do documento.",
+      }, { status: 422 });
     }
 
     // ──── Validate extracted data ────
@@ -1102,7 +1669,7 @@ export async function POST(request: NextRequest) {
     const filled = countFilledFields(data);
     return NextResponse.json({
       success: true, data,
-      meta: { rawTextLength: textContent.length, filledFields: filled, isScanned: isImage, aiPowered: true },
+      meta: { rawTextLength: textContent.length, filledFields: filled, isScanned: isImage, aiPowered: false },
     });
   } catch (err) {
     console.error("[extract] Error:", err instanceof Error ? err.message : err);
