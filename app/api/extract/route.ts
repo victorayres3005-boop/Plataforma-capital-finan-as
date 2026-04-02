@@ -265,8 +265,10 @@ Regras:
 - ultimoMesComDados: último mês que tem valor de faturamento
 - NÃO invente dados`;
 
-const PROMPT_SCR = `Você é um especialista em análise de crédito e documentos do SCR do Banco Central do Brasil.
-Analise o relatório SCR e extraia TODOS os dados disponíveis com máxima precisão.
+const PROMPT_SCR = `Você é um especialista em análise de crédito e documentos do Sistema de Informações de Crédito (SCR) do Banco Central do Brasil.
+
+Analise VISUALMENTE o documento SCR recebido. O documento pode conter tabelas, gráficos e dados em formato de relatório do Bacen. Leia CADA página, CADA tabela, CADA linha com atenção máxima.
+
 Retorne APENAS JSON válido, sem texto adicional:
 
 {
@@ -296,24 +298,28 @@ Retorne APENAS JSON válido, sem texto adicional:
   "historicoInadimplencia": ""
 }
 
+ONDE ENCONTRAR OS DADOS NO DOCUMENTO:
+- periodoReferencia: geralmente aparece como "Data-base", "Referência" ou "MM/AAAA" no cabeçalho
+- carteiraAVencer / totalDividasAtivas: seção "Resumo" ou "Responsabilidade Total", "A vencer", "Em dia"
+- vencidos: "Vencido", "Operações vencidas" (separado de "a vencer")
+- prejuizos: "Prejuízo", "Créditos baixados como prejuízo"
+- limiteCredito: "Limite de crédito", "Créditos a liberar"
+- qtdeInstituicoes: "Quantidade de IFs", "Instituições", contar linhas da tabela de instituições
+- carteiraCurtoPrazo: operações com vencimento até 360 dias, ou "CP"
+- carteiraLongoPrazo: operações com vencimento acima de 360 dias, ou "LP"
+- classificacaoRisco: "Classificação de risco", letras AA, A, B, C, D, E, F, G, H
+- modalidades: tabela "Modalidades", "Tipo de operação" com valores e percentuais
+- instituicoes: tabela de "Instituições financeiras", "IFs credoras"
+- coobrigacoes: "Coobrigações", "Responsabilidades indiretas"
+
 Regras:
-- Valores monetários: formatação brasileira (ex: "23.785,80")
-- carteiraAVencer: total de operações a vencer (em dia)
-- vencidos: total de operações vencidas
-- prejuizos: créditos baixados como prejuízo
-- limiteCredito: limite de crédito disponível
-- qtdeInstituicoes: número total de instituições financeiras
-- qtdeOperacoes: número total de operações
-- carteiraCurtoPrazo: vencimento até 360 dias
-- carteiraLongoPrazo: vencimento acima de 360 dias
-- classificacaoRisco: letra A-H ou AA
-- modalidades: listar TODAS as modalidades com total, a vencer, vencido e % participação
-- instituicoes: listar TODAS as instituições financeiras com valores
-- tempoAtraso: faixas "15-30 dias", "31-60 dias", etc.
-- coobrigacoes: passivo contingente (NÃO confundir com dívida direta)
-- periodoReferencia: mês/ano de referência do relatório (ex: "02/2026")
-- Campos ausentes → "" ou arrays vazios
-- NÃO invente dados`;
+- Valores monetários: formatação brasileira com vírgula decimal (ex: "23.785,80")
+- Se o valor estiver em "mil R$" ou "R$ mil", multiplique por 1000 e formate
+- Procure em TODAS as páginas do documento — dados podem estar espalhados
+- modalidades: listar TODAS encontradas com total, a vencer, vencido e % participação
+- instituicoes: listar TODAS com nome e valor
+- Campos ausentes → "" ou arrays vazios []
+- NÃO invente dados — extraia apenas o que está visível no documento`;
 
 const PROMPT_PROTESTOS = `Você é um especialista em análise de crédito.
 Analise o documento de certidão de protestos e extraia os dados.
@@ -707,6 +713,10 @@ export async function POST(request: NextRequest) {
 
     if (isImage) {
       imageContent = { mimeType, base64: buffer.toString("base64") };
+    } else if (ext === "pdf" && (docType === "scr" || docType === "qsa")) {
+      // SCR e QSA do Bacen/Receita: sempre enviar como binário (encoding problemático)
+      console.log(`[extract] ${docType} PDF — sending as binary (always multimodal for this type)`);
+      imageContent = { mimeType: "application/pdf", base64: buffer.toString("base64") };
     } else {
       textContent = await extractText(buffer, ext);
       const isUsableText = textContent.trim().length >= 20 && hasReadableContent(textContent);
