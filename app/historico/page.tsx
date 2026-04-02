@@ -239,22 +239,6 @@ function HistoricoContent() {
   const { user, loading: authLoading, signOut } = useAuth();
   const searchParams = useSearchParams();
   const highlightId = searchParams.get("highlight");
-  const [searchTerm, setSearchTerm] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
-  const perPage = 10;
-
-  const filteredCollections = collections.filter(c => {
-    if (!searchTerm) return true;
-    const term = searchTerm.toLowerCase();
-    if (c.label?.toLowerCase().includes(term)) return true;
-    return c.documents?.some(d => {
-      const data = d.extracted_data as Record<string, string>;
-      return data?.cnpj?.includes(term) || data?.razaoSocial?.toLowerCase().includes(term);
-    });
-  });
-
-  const totalPages = Math.ceil(filteredCollections.length / perPage);
-  const paginatedCollections = filteredCollections.slice((currentPage - 1) * perPage, currentPage * perPage);
 
   useEffect(() => {
     const load = async () => {
@@ -327,17 +311,7 @@ function HistoricoContent() {
           <Link href="/" className="btn-secondary text-xs">
             <ArrowLeft size={14} /> Voltar ao consolidador
           </Link>
-          <span className="text-xs text-cf-text-3 font-medium">{filteredCollections.length} coleta{filteredCollections.length !== 1 ? "s" : ""}</span>
-        </div>
-
-        <div className="mb-4">
-          <input
-            type="text"
-            placeholder="Buscar por empresa, CNPJ..."
-            value={searchTerm}
-            onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-            className="input-field w-full"
-          />
+          <span className="text-xs text-cf-text-3 font-medium">{collections.length} coleta{collections.length !== 1 ? "s" : ""}</span>
         </div>
 
         {loading ? (
@@ -345,32 +319,23 @@ function HistoricoContent() {
             <Loader2 size={24} className="text-cf-navy animate-spin" />
             <p className="text-sm text-cf-text-3">Carregando histórico...</p>
           </div>
-        ) : filteredCollections.length === 0 ? (
+        ) : collections.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 gap-4 text-center">
             <div className="w-16 h-16 rounded-2xl bg-cf-surface flex items-center justify-center">
               <Inbox size={28} className="text-cf-text-4" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-cf-text-1 mb-1">{searchTerm ? "Nenhuma coleta encontrada" : "Nenhuma coleta salva ainda"}</h3>
-              <p className="text-sm text-cf-text-3">{searchTerm ? "Tente buscar por outro termo." : "Finalize uma coleta para vê-la aqui."}</p>
+              <h3 className="text-lg font-bold text-cf-text-1 mb-1">Nenhuma coleta salva ainda</h3>
+              <p className="text-sm text-cf-text-3">Finalize uma coleta para vê-la aqui.</p>
             </div>
-            {!searchTerm && <Link href="/" className="btn-green mt-2">Ir para o consolidador</Link>}
+            <Link href="/" className="btn-green mt-2">Ir para o consolidador</Link>
           </div>
         ) : (
-          <>
-            <div className="space-y-4">
-              {paginatedCollections.map(col => (
-                <CollectionCard key={col.id} col={col} highlight={col.id === highlightId} userId={user?.id} onDelete={(id) => setCollections(prev => prev.filter(c => c.id !== id))} />
-              ))}
-            </div>
-            {totalPages > 1 && (
-              <div className="flex justify-center gap-2 mt-4">
-                <button disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)} className="btn-secondary text-xs px-3 py-1.5">Anterior</button>
-                <span className="text-xs text-cf-text-3 flex items-center">{currentPage} de {totalPages}</span>
-                <button disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)} className="btn-secondary text-xs px-3 py-1.5">Próxima</button>
-              </div>
-            )}
-          </>
+          <div className="space-y-4">
+            {collections.map(col => (
+              <CollectionCard key={col.id} col={col} highlight={col.id === highlightId} userId={user?.id} onDelete={(id) => setCollections(prev => prev.filter(c => c.id !== id))} />
+            ))}
+          </div>
         )}
       </main>
 

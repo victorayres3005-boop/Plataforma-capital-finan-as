@@ -7,7 +7,6 @@ import { createClient } from "@/lib/supabase/client";
 import { uploadFile } from "@/lib/storage";
 import { ExtractedData, CollectionDocument } from "@/types";
 import type { OriginalFiles } from "@/components/UploadStep";
-import Image from "next/image";
 
 type Format = "pdf" | "docx" | "xlsx" | "html";
 
@@ -353,544 +352,787 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   const generatePDF = async () => {
     setGeneratingFormat("pdf");
     try {
-      const genDate = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
+      const { jsPDF } = await import("jspdf");
+      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const W = 210;
+      const margin = 20;
+      const contentW = W - margin * 2;
+      let y = 0;
 
-      // ── SVG Bar Chart builder ──
-      const buildBarChart = (meses: Array<{mes: string, valor: string}>): string => {
-        const values = meses.map(m => {
-          const num = parseFloat(m.valor.replace(/[.]/g, '').replace(',', '.'));
-          return isNaN(num) ? 0 : num;
-        });
-        const max = Math.max(...values, 1);
-        const barW = Math.floor(540 / Math.max(meses.length, 1)) - 4;
-        const chartH = 180;
-
-        let bars = '';
-        meses.forEach((m, i) => {
-          const v = values[i];
-          const h = (v / max) * (chartH - 30);
-          const x = i * (barW + 4) + 30;
-          const yPos = chartH - h - 20;
-          const color = v > 0 ? '#203B88' : '#E5E7EB';
-          bars += `<rect x="${x}" y="${yPos}" width="${barW}" height="${h}" rx="3" fill="${color}" opacity="0.85"/>`;
-          bars += `<text x="${x + barW/2}" y="${chartH - 5}" text-anchor="middle" font-size="8" fill="#6B7280">${m.mes.substring(0,3)}</text>`;
-          if (v > 0) {
-            const label = v >= 1000000 ? (v/1000000).toFixed(1)+'M' : v >= 1000 ? (v/1000).toFixed(0)+'K' : v.toFixed(0);
-            bars += `<text x="${x + barW/2}" y="${yPos - 4}" text-anchor="middle" font-size="7" fill="#374151" font-weight="600">${label}</text>`;
-          }
-        });
-
-        // Average line
-        const avg = values.reduce((a,b) => a+b, 0) / values.length;
-        const avgY = chartH - (avg / max) * (chartH - 30) - 20;
-        bars += `<line x1="30" y1="${avgY}" x2="${30 + meses.length * (barW + 4)}" y2="${avgY}" stroke="#73B815" stroke-width="1.5" stroke-dasharray="6,3"/>`;
-        bars += `<text x="${30 + meses.length * (barW + 4) + 5}" y="${avgY + 3}" font-size="8" fill="#73B815" font-weight="600">FMM</text>`;
-
-        return `<svg width="600" height="${chartH}" viewBox="0 0 600 ${chartH}">${bars}</svg>`;
+      const colors = {
+        bg: [32, 59, 136] as [number, number, number],
+        primary: [32, 59, 136] as [number, number, number],
+        accent: [115, 184, 21] as [number, number, number],
+        "accent-light": [168, 217, 107] as [number, number, number],
+        surface: [255, 255, 255] as [number, number, number],
+        surface2: [237, 242, 251] as [number, number, number],
+        surface3: [220, 232, 248] as [number, number, number],
+        text: [17, 24, 39] as [number, number, number],
+        textSec: [55, 65, 81] as [number, number, number],
+        textMuted: [107, 114, 128] as [number, number, number],
+        border: [209, 220, 240] as [number, number, number],
+        warning: [217, 119, 6] as [number, number, number],
+        danger: [220, 38, 38] as [number, number, number],
+        white: [255, 255, 255] as [number, number, number],
+        navy: [32, 59, 136] as [number, number, number],
+        navyLight: [26, 48, 112] as [number, number, number],
+        green: [22, 163, 74] as [number, number, number],
+        amber: [217, 119, 6] as [number, number, number],
+        red: [220, 38, 38] as [number, number, number],
       };
 
-      // ── SVG Donut Chart builder ──
-      const buildDonutChart = (modalidades: Array<{nome: string, participacao: string}>): string => {
-        const chartColors = ['#203B88', '#3B82F6', '#73B815', '#D97706', '#DC2626', '#8B5CF6', '#06B6D4', '#F59E0B'];
-        const items = modalidades.filter(m => m.nome && m.participacao);
-        if (items.length === 0) return '';
+      const pageCount = { n: 0 };
+      const footerDateStr = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
 
-        let cumulativeAngle = 0;
-        const radius = 70;
-        const cx = 100, cy = 100;
-        let paths = '';
-        let legend = '';
-
-        items.forEach((m, i) => {
-          const pct = parseFloat(m.participacao.replace(',', '.').replace('%', '')) || 0;
-          const angle = (pct / 100) * 360;
-          const startAngle = cumulativeAngle;
-          const endAngle = cumulativeAngle + angle;
-
-          const startRad = (startAngle - 90) * Math.PI / 180;
-          const endRad = (endAngle - 90) * Math.PI / 180;
-          const largeArc = angle > 180 ? 1 : 0;
-
-          const x1 = cx + radius * Math.cos(startRad);
-          const y1 = cy + radius * Math.sin(startRad);
-          const x2 = cx + radius * Math.cos(endRad);
-          const y2 = cy + radius * Math.sin(endRad);
-
-          const innerR = 45;
-          const x3 = cx + innerR * Math.cos(endRad);
-          const y3 = cy + innerR * Math.sin(endRad);
-          const x4 = cx + innerR * Math.cos(startRad);
-          const y4 = cy + innerR * Math.sin(startRad);
-
-          const color = chartColors[i % chartColors.length];
-          paths += `<path d="M${x1},${y1} A${radius},${radius} 0 ${largeArc},1 ${x2},${y2} L${x3},${y3} A${innerR},${innerR} 0 ${largeArc},0 ${x4},${y4} Z" fill="${color}"/>`;
-
-          const name = m.nome.length > 25 ? m.nome.substring(0, 25) + '...' : m.nome;
-          legend += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><div style="width:10px;height:10px;border-radius:2px;background:${color};flex-shrink:0"></div><span style="font-size:9px;color:#374151">${name} (${m.participacao})</span></div>`;
-
-          cumulativeAngle = endAngle;
-        });
-
-        return `<div style="display:flex;align-items:center;gap:24px"><svg width="200" height="200" viewBox="0 0 200 200">${paths}</svg><div>${legend}</div></div>`;
+      const newPage = () => {
+        if (pageCount.n > 0) doc.addPage();
+        pageCount.n++;
+        doc.setFillColor(255, 255, 255);
+        doc.rect(0, 0, 210, 297, "F");
+        doc.setFillColor(...colors.navy);
+        doc.rect(0, 0, 210, 1.5, "F");
+        y = 1.5;
       };
 
-      // ── Rating gauge SVG ──
-      const buildRatingGauge = (rating: number): string => {
-        const pct = Math.min(rating / 10, 1);
-        const radius = 60;
-        const cx = 70, cy = 70;
-        const circumference = 2 * Math.PI * radius;
-        const arcLength = circumference * 0.75; // 270 degrees
-        const filled = arcLength * pct;
-        const gaugeColor = rating >= 7 ? '#16A34A' : rating >= 4 ? '#D97706' : '#DC2626';
-        return `<svg width="140" height="140" viewBox="0 0 140 140">
-          <circle cx="${cx}" cy="${cy}" r="${radius}" fill="none" stroke="#E5E7EB" stroke-width="10"
-            stroke-dasharray="${arcLength} ${circumference}" stroke-dashoffset="0"
-            transform="rotate(135 ${cx} ${cy})" stroke-linecap="round"/>
-          <circle cx="${cx}" cy="${cy}" r="${radius}" fill="none" stroke="${gaugeColor}" stroke-width="10"
-            stroke-dasharray="${filled} ${circumference}" stroke-dashoffset="0"
-            transform="rotate(135 ${cx} ${cy})" stroke-linecap="round"/>
-          <text x="${cx}" y="${cy + 5}" text-anchor="middle" font-size="28" font-weight="700" fill="white">${rating}</text>
-          <text x="${cx}" y="${cy + 20}" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.7)">/10</text>
-        </svg>`;
+      const checkPageBreak = (needed: number) => {
+        if (y + needed > 275) { newPage(); drawHeader(); }
       };
 
-      // ── Escape HTML ──
-      const esc = (s: string | undefined | null): string => {
-        if (!s) return '';
-        return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-      };
+      const drawHeader = () => {
+        doc.setFillColor(...colors.navy);
+        doc.rect(0, 1.5, 210, 32, "F");
+        doc.setFillColor(...colors.accent);
+        doc.rect(0, 33.5, 210, 2, "F");
 
-      // ── Build the complete HTML report ──
-      const buildReportHTML = (): string => {
-        const validQSA = data.qsa.quadroSocietario.filter(s => s.nome);
-        const validMeses = data.faturamento.meses.filter(m => m.mes);
-        // protestos/processos/grupo dados disponíveis em data.protestos, data.processos, data.grupoEconomico
-        const capitalSocial = data.qsa.capitalSocial || data.contrato.capitalSocial || '';
+        doc.setDrawColor(255, 255, 255);
+        doc.setLineWidth(1.2);
+        doc.circle(margin + 7, 12, 7);
+        doc.setFillColor(255, 255, 255);
+        doc.circle(margin + 7, 20.5, 1.5, "F");
 
-        // FMM (media mensal)
-        const fmm = data.faturamento.mediaAno || '';
-        // Alavancagem
-        const alavancagem = dividaAtiva > 0 && parseMoneyToNumber(fmm) > 0
-          ? (dividaAtiva / parseMoneyToNumber(fmm)).toFixed(2) + 'x'
-          : '';
-        // Comprometimento
-        const comprometimento = dividaAtiva > 0 && parseMoneyToNumber(data.faturamento.somatoriaAno || '0') > 0
-          ? ((dividaAtiva / parseMoneyToNumber(data.faturamento.somatoriaAno || '0')) * 100).toFixed(1) + '%'
-          : '';
+        doc.setFontSize(14);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(255, 255, 255);
+        doc.text("capital", margin + 17, 16);
+        doc.setTextColor(...colors["accent-light"]);
+        doc.text("financas", margin + 17 + doc.getTextWidth("capital") + 1, 16);
 
-        // MoM variation
-        const mesVariations = validMeses.map((m, i) => {
-          const cur = parseMoneyToNumber(m.valor);
-          if (i === 0) return '';
-          const prev = parseMoneyToNumber(validMeses[i-1].valor);
-          if (prev === 0) return cur > 0 ? '+100%' : '0%';
-          const pctChg = ((cur - prev) / prev * 100).toFixed(1);
-          return (cur >= prev ? '+' : '') + pctChg + '%';
-        });
+        doc.setFontSize(6);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(180, 200, 240);
+        doc.text("CONSOLIDADOR DE DOCUMENTOS", margin + 17, 21);
 
-        // Decision badge class
-        const badgeClass = decision === 'APROVADO' ? 'badge-green' : decision === 'PENDENTE' ? 'badge-amber' : 'badge-red';
+        doc.setFontSize(11);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(255, 255, 255);
+        doc.text("Relatório de Due Diligence", W - margin, 13, { align: "right" });
 
-        // CP vs LP
-        const cpVal = parseMoneyToNumber(data.scr.carteiraCurtoPrazo);
-        const lpVal = parseMoneyToNumber(data.scr.carteiraLongoPrazo);
-        const totalCPLP = cpVal + lpVal || 1;
-        const cpPct = ((cpVal / totalCPLP) * 100).toFixed(1);
-        const lpPct = ((lpVal / totalCPLP) * 100).toFixed(1);
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(180, 200, 240);
+        const now = new Date();
+        const dtStr = now.toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
+        doc.text(`Gerado em ${dtStr}`, W - margin, 20, { align: "right" });
 
-        // SCR comparison metrics
-        let scrCompHTML = '';
-        if (data.scrAnterior) {
-          const compMetrics = [
-            { label: 'Carteira a Vencer', anterior: data.scrAnterior.carteiraAVencer, atual: data.scr.carteiraAVencer },
-            { label: 'Vencidos', anterior: data.scrAnterior.vencidos, atual: data.scr.vencidos },
-            { label: 'Prejuizos', anterior: data.scrAnterior.prejuizos, atual: data.scr.prejuizos },
-            { label: 'Total Dividas', anterior: data.scrAnterior.totalDividasAtivas, atual: data.scr.totalDividasAtivas },
-            { label: 'Limite Credito', anterior: data.scrAnterior.limiteCredito, atual: data.scr.limiteCredito },
-            { label: 'Instituicoes', anterior: data.scrAnterior.qtdeInstituicoes, atual: data.scr.qtdeInstituicoes },
-            { label: 'Operacoes', anterior: data.scrAnterior.qtdeOperacoes, atual: data.scr.qtdeOperacoes },
-          ];
-
-          const compRows = compMetrics.map(m => {
-            const antVal = parseMoneyToNumber(m.anterior);
-            const atualVal = parseMoneyToNumber(m.atual);
-            const diff = atualVal - antVal;
-            const varStr = diff === 0 ? '=' : diff > 0 ? `+${diff.toLocaleString('pt-BR')}` : diff.toLocaleString('pt-BR');
-            const varColor = diff > 0 ? '#DC2626' : diff < 0 ? '#16A34A' : '#6B7280';
-            return `<tr>
-              <td>${esc(m.label)}</td>
-              <td>${esc(m.anterior) || '&mdash;'}</td>
-              <td>${esc(m.atual) || '&mdash;'}</td>
-              <td style="color:${varColor};font-weight:600">${varStr}</td>
-            </tr>`;
-          }).join('');
-
-          scrCompHTML = `
-          <div class="page">
-            <div class="sec-title"><div class="sec-bar"></div><span class="sec-num">06</span><span class="sec-name">COMPARATIVO SCR</span></div>
-            <table>
-              <thead><tr><th>Metrica</th><th>Anterior</th><th>Atual</th><th>Variacao</th></tr></thead>
-              <tbody>${compRows}</tbody>
-            </table>
-            <div class="footer"><span>Capital Financas &mdash; Consolidador | ${genDate} | Confidencial</span><span>Comparativo SCR</span></div>
-          </div>`;
+        if (data.cnpj.razaoSocial) {
+          doc.setFontSize(7);
+          doc.setTextColor(180, 200, 240);
+          doc.text(data.cnpj.razaoSocial.substring(0, 45), W - margin, 26, { align: "right" });
         }
 
-        // Section numbering adjusts based on whether SCR comparison exists
-        const riskSecNum = data.scrAnterior ? '07' : '06';
-        const parecerSecNum = data.scrAnterior ? '08' : '07';
-
-        return `<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=210mm">
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Open+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-<style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: 'Open Sans', sans-serif; color: #1F2937; font-size: 11px; line-height: 1.5; }
-
-.page {
-  width: 210mm; min-height: 297mm; padding: 20mm;
-  page-break-after: always; position: relative; background: white;
-}
-.page:last-child { page-break-after: avoid; }
-
-.cover {
-  background: linear-gradient(135deg, #1E3A6E 0%, #203B88 50%, #2D4BA0 100%);
-  color: white; display: flex; flex-direction: column; justify-content: center; align-items: center;
-  text-align: center;
-}
-
-.sec-title { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
-.sec-num { font-family: 'DM Sans', sans-serif; font-size: 24px; font-weight: 700; color: #203B88; }
-.sec-name { font-family: 'DM Sans', sans-serif; font-size: 16px; font-weight: 600; color: #1F2937; }
-.sec-bar { width: 4px; height: 28px; background: #203B88; border-radius: 2px; }
-
-table { width: 100%; border-collapse: collapse; font-size: 10px; }
-th { background: #203B88; color: white; padding: 8px 10px; text-align: left; font-weight: 600; }
-td { padding: 6px 10px; border-bottom: 1px solid #E5E7EB; }
-tr:nth-child(even) td { background: #F8FAFC; }
-
-.metric-card {
-  background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px;
-  padding: 12px; text-align: center;
-}
-.metric-label { font-size: 9px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; }
-.metric-value { font-size: 18px; font-weight: 700; color: #1F2937; margin-top: 4px; }
-
-.alert-box { padding: 10px 14px; border-radius: 8px; margin-bottom: 8px; font-size: 10px; }
-.alert-high { background: #FEF2F2; border: 1px solid #FECACA; color: #991B1B; }
-.alert-mod { background: #FFFBEB; border: 1px solid #FDE68A; color: #92400E; }
-
-.badge { display: inline-block; padding: 4px 14px; border-radius: 20px; font-weight: 700; font-size: 11px; }
-.badge-green { background: #DCFCE7; color: #166534; }
-.badge-amber { background: #FEF3C7; color: #92400E; }
-.badge-red { background: #FEE2E2; color: #991B1B; }
-
-.footer {
-  position: absolute; bottom: 10mm; left: 20mm; right: 20mm;
-  font-size: 8px; color: #9CA3AF; border-top: 1px solid #E5E7EB;
-  padding-top: 6px; display: flex; justify-content: space-between;
-}
-
-.grid-2x3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 16px; }
-.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
-.grid-5 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr; gap: 8px; margin-bottom: 16px; }
-
-.cover-logo { font-family: 'DM Sans', sans-serif; font-size: 36px; font-weight: 700; margin-bottom: 4px; }
-.cover-logo .green { color: #73B815; }
-.cover-subtitle { font-size: 11px; color: rgba(255,255,255,0.6); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 30px; }
-.cover-company { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
-.cover-info { font-size: 12px; color: rgba(255,255,255,0.7); margin-bottom: 4px; }
-.cover-gauge { margin: 30px 0 20px 0; }
-.cover-decision { margin-top: 10px; }
-
-.point-item { padding: 8px 12px; border-radius: 8px; margin-bottom: 6px; font-size: 10px; display: flex; align-items: flex-start; gap: 8px; }
-.point-forte { background: #F0FDF4; border: 1px solid #BBF7D0; color: #166534; }
-.point-fraco { background: #FEF2F2; border: 1px solid #FECACA; color: #991B1B; }
-.point-visita { background: #FFFBEB; border: 1px solid #FDE68A; color: #92400E; }
-
-.rating-bar-container { width: 100%; height: 20px; background: #E5E7EB; border-radius: 10px; position: relative; margin: 10px 0; }
-.rating-bar-fill { height: 100%; border-radius: 10px; }
-.rating-bar-label { position: absolute; top: 50%; transform: translateY(-50%); right: 10px; font-size: 11px; font-weight: 700; color: #1F2937; }
-
-.parecer-text { background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 16px; font-size: 11px; line-height: 1.7; margin-bottom: 16px; white-space: pre-wrap; }
-.signature-line { margin-top: 40px; text-align: center; }
-.signature-line hr { border: none; border-top: 1px solid #9CA3AF; width: 200px; margin: 0 auto 6px auto; }
-.signature-line span { font-size: 9px; color: #6B7280; }
-
-.cp-lp-bar { display: flex; height: 24px; border-radius: 6px; overflow: hidden; margin: 10px 0; font-size: 9px; font-weight: 600; color: white; }
-.cp-lp-bar .cp { background: #203B88; display: flex; align-items: center; justify-content: center; }
-.cp-lp-bar .lp { background: #3B82F6; display: flex; align-items: center; justify-content: center; }
-
-.highlight-box { background: #EDF2FB; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; }
-.highlight-label { font-size: 9px; color: #6B7280; text-transform: uppercase; }
-.highlight-value { font-size: 14px; font-weight: 700; color: #203B88; }
-</style>
-</head>
-<body>
-
-<!-- PAGE 1: Cover -->
-<div class="page cover">
-  <div class="cover-logo"><span style="color:white">capital</span> <span class="green">financas</span></div>
-  <div class="cover-subtitle">Consolidador de Documentos</div>
-  <div style="width:60px;height:2px;background:#73B815;margin:0 auto 30px auto;"></div>
-  <div style="font-size:20px;font-weight:600;color:rgba(255,255,255,0.8);margin-bottom:4px;">Relatorio de Due Diligence</div>
-  <div class="cover-company">${esc(data.cnpj.razaoSocial)}</div>
-  <div class="cover-info">CNPJ: ${esc(data.cnpj.cnpj)}</div>
-  <div class="cover-info">${genDate}</div>
-  <div class="cover-info">${esc(data.cnpj.endereco || '')}</div>
-  <div class="cover-gauge">${buildRatingGauge(finalRating)}</div>
-  <div class="cover-decision">
-    <span class="badge ${badgeClass}" style="font-size:16px;padding:8px 28px;">${decision}</span>
-  </div>
-  <div class="footer" style="color:rgba(255,255,255,0.4);border-top-color:rgba(255,255,255,0.15);">
-    <span>Documento confidencial &mdash; uso restrito</span><span>Capital Financas</span>
-  </div>
-</div>
-
-<!-- PAGE 2: Executive Summary -->
-<div class="page">
-  <div class="sec-title"><div class="sec-bar"></div><span class="sec-num">01</span><span class="sec-name">SINTESE DA ANALISE</span></div>
-
-  ${resumoExecutivo ? `<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:14px;margin-bottom:16px;font-size:11px;line-height:1.7;">${esc(resumoExecutivo)}</div>` : ''}
-
-  <div class="grid-2x3">
-    <div class="metric-card"><div class="metric-label">FMM</div><div class="metric-value">${esc(fmm) || '&mdash;'}</div></div>
-    <div class="metric-card"><div class="metric-label">Alavancagem</div><div class="metric-value">${alavancagem || '&mdash;'}</div></div>
-    <div class="metric-card"><div class="metric-label">Comprometimento</div><div class="metric-value">${comprometimento || '&mdash;'}</div></div>
-    <div class="metric-card"><div class="metric-label">Tendencia</div><div class="metric-value">${esc(aiAnalysis?.indicadores?.['tendencia'] || '') || '&mdash;'}</div></div>
-    <div class="metric-card"><div class="metric-label">IFs</div><div class="metric-value">${esc(data.scr.qtdeInstituicoes) || '&mdash;'}</div></div>
-    <div class="metric-card"><div class="metric-label">Operacoes</div><div class="metric-value">${esc(data.scr.qtdeOperacoes) || '&mdash;'}</div></div>
-  </div>
-
-  ${alertsHigh.map(a => `<div class="alert-box alert-high"><strong>[ALTA]</strong> ${esc(a.message)}${a.impacto ? ' &mdash; ' + esc(a.impacto) : ''}</div>`).join('')}
-  ${alertsMod.map(a => `<div class="alert-box alert-mod"><strong>[${esc(a.severity)}]</strong> ${esc(a.message)}${a.impacto ? ' &mdash; ' + esc(a.impacto) : ''}</div>`).join('')}
-
-  <div class="grid-5" style="margin-top:14px;">
-    <div class="metric-card"><div class="metric-label">Situacao</div><div class="metric-value" style="font-size:11px;">${esc(data.cnpj.situacaoCadastral) || '&mdash;'}</div></div>
-    <div class="metric-card"><div class="metric-label">CNAE</div><div class="metric-value" style="font-size:9px;">${esc(data.cnpj.cnaePrincipal ? data.cnpj.cnaePrincipal.substring(0,30) : '') || '&mdash;'}</div></div>
-    <div class="metric-card"><div class="metric-label">Porte</div><div class="metric-value" style="font-size:11px;">${esc(data.cnpj.porte || '') || '&mdash;'}</div></div>
-    <div class="metric-card"><div class="metric-label">Capital</div><div class="metric-value" style="font-size:11px;">${esc(capitalSocial) || '&mdash;'}</div></div>
-    <div class="metric-card"><div class="metric-label">Idade</div><div class="metric-value" style="font-size:11px;">${companyAge || '&mdash;'}</div></div>
-  </div>
-
-  <div class="footer"><span>Capital Financas &mdash; Consolidador | ${genDate} | Confidencial</span><span>Sintese</span></div>
-</div>
-
-<!-- PAGE 3: QSA + Contrato -->
-<div class="page">
-  <div class="sec-title"><div class="sec-bar"></div><span class="sec-num">02</span><span class="sec-name">QUADRO SOCIETARIO</span></div>
-
-  <table>
-    <thead><tr><th>Nome</th><th>CPF/CNPJ</th><th>Qualificacao</th><th>Participacao</th></tr></thead>
-    <tbody>
-      ${validQSA.map(s => `<tr><td>${esc(s.nome)}</td><td>${esc(s.cpfCnpj) || '&mdash;'}</td><td>${esc(s.qualificacao) || '&mdash;'}</td><td>${esc(s.participacao) || '&mdash;'}</td></tr>`).join('')}
-      ${validQSA.length === 0 ? '<tr><td colspan="4" style="text-align:center;color:#9CA3AF;">Nenhum socio identificado</td></tr>' : ''}
-    </tbody>
-  </table>
-
-  ${capitalSocial ? `<div class="highlight-box" style="margin-top:12px;"><div class="highlight-label">Capital Social</div><div class="highlight-value">${esc(capitalSocial)}</div></div>` : ''}
-
-  <div style="margin-top:24px;">
-    <div class="sec-title"><div class="sec-bar"></div><span class="sec-num">03</span><span class="sec-name">CONTRATO SOCIAL</span></div>
-
-    ${data.contrato.objetoSocial ? `<div style="margin-bottom:10px;"><div style="font-size:9px;color:#6B7280;text-transform:uppercase;margin-bottom:4px;">Objeto Social</div><div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:6px;padding:10px;font-size:10px;line-height:1.6;">${esc(data.contrato.objetoSocial)}</div></div>` : ''}
-    ${data.contrato.administracao ? `<div style="margin-bottom:10px;"><div style="font-size:9px;color:#6B7280;text-transform:uppercase;margin-bottom:4px;">Administracao</div><div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:6px;padding:10px;font-size:10px;line-height:1.6;">${esc(data.contrato.administracao)}</div></div>` : ''}
-
-    <div class="grid-2">
-      <div class="metric-card"><div class="metric-label">Data Constituicao</div><div class="metric-value" style="font-size:13px;">${esc(data.contrato.dataConstituicao) || '&mdash;'}</div></div>
-      <div class="metric-card"><div class="metric-label">Foro</div><div class="metric-value" style="font-size:13px;">${esc(data.contrato.foro) || '&mdash;'}</div></div>
-    </div>
-  </div>
-
-  <div class="footer"><span>Capital Financas &mdash; Consolidador | ${genDate} | Confidencial</span><span>QSA / Contrato</span></div>
-</div>
-
-<!-- PAGE 4: Faturamento -->
-<div class="page">
-  <div class="sec-title"><div class="sec-bar" style="background:#73B815;"></div><span class="sec-num" style="color:#73B815;">04</span><span class="sec-name">FATURAMENTO</span></div>
-
-  ${validMeses.length > 0 ? buildBarChart(validMeses) : '<div style="text-align:center;color:#9CA3AF;padding:40px;">Sem dados de faturamento</div>'}
-
-  <div style="display:flex;gap:12px;margin:14px 0;">
-    ${fmm ? `<div class="badge badge-green">FMM: R$ ${esc(fmm)}</div>` : ''}
-    ${data.faturamento.somatoriaAno ? `<div class="highlight-box" style="display:inline-block;padding:6px 14px;"><span class="highlight-label">Total Anual: </span><span style="font-weight:700;color:#203B88;">R$ ${esc(data.faturamento.somatoriaAno)}</span></div>` : ''}
-    ${data.faturamento.mediaAno ? `<div class="highlight-box" style="display:inline-block;padding:6px 14px;"><span class="highlight-label">Media: </span><span style="font-weight:700;color:#203B88;">R$ ${esc(data.faturamento.mediaAno)}</span></div>` : ''}
-  </div>
-
-  ${validMeses.length > 0 ? `
-  <table>
-    <thead><tr><th>Mes</th><th>Valor (R$)</th><th>Var. MoM</th></tr></thead>
-    <tbody>
-      ${validMeses.map((m, i) => {
-        const varVal = mesVariations[i];
-        const varColor = varVal.startsWith('+') ? '#16A34A' : varVal.startsWith('-') ? '#DC2626' : '#6B7280';
-        return `<tr><td>${esc(m.mes)}</td><td>${esc(m.valor) || '0,00'}</td><td style="color:${varColor};font-weight:600;">${varVal || '&mdash;'}</td></tr>`;
-      }).join('')}
-    </tbody>
-  </table>` : ''}
-
-  <div style="margin-top:10px;display:flex;gap:8px;">
-    ${data.faturamento.faturamentoZerado ? '<div class="badge badge-red">Faturamento Zerado</div>' : ''}
-    ${!data.faturamento.dadosAtualizados ? '<div class="badge badge-amber">Dados Desatualizados</div>' : ''}
-  </div>
-
-  <div class="footer"><span>Capital Financas &mdash; Consolidador | ${genDate} | Confidencial</span><span>Faturamento</span></div>
-</div>
-
-<!-- PAGE 5: SCR -->
-<div class="page">
-  <div class="sec-title"><div class="sec-bar" style="background:#D97706;"></div><span class="sec-num" style="color:#D97706;">05</span><span class="sec-name">SCR / ANALISE DE CREDITO</span></div>
-
-  <div class="grid-2x3">
-    <div class="metric-card"><div class="metric-label">Carteira a Vencer</div><div class="metric-value" style="font-size:13px;">${esc(data.scr.carteiraAVencer) || '&mdash;'}</div></div>
-    <div class="metric-card"><div class="metric-label">Vencidos</div><div class="metric-value" style="font-size:13px;${vencidosSCR > 0 ? 'color:#DC2626;' : ''}">${esc(data.scr.vencidos) || '&mdash;'}</div></div>
-    <div class="metric-card"><div class="metric-label">Prejuizos</div><div class="metric-value" style="font-size:13px;${prejuizosVal > 0 ? 'color:#DC2626;' : ''}">${esc(data.scr.prejuizos) || '&mdash;'}</div></div>
-    <div class="metric-card"><div class="metric-label">Limite Credito</div><div class="metric-value" style="font-size:13px;">${esc(data.scr.limiteCredito) || '&mdash;'}</div></div>
-    <div class="metric-card"><div class="metric-label">Classificacao Risco</div><div class="metric-value" style="font-size:13px;">${esc(data.scr.classificacaoRisco) || '&mdash;'}</div></div>
-    <div class="metric-card"><div class="metric-label">Total Dividas Ativas</div><div class="metric-value" style="font-size:13px;">${esc(data.scr.totalDividasAtivas) || '&mdash;'}</div></div>
-  </div>
-
-  ${(data.scr.modalidades && data.scr.modalidades.length > 0) ? `
-  <div style="margin-bottom:16px;">
-    ${buildDonutChart(data.scr.modalidades)}
-  </div>
-  <table>
-    <thead><tr><th>Modalidade</th><th>Total</th><th>A Vencer</th><th>Vencido</th><th>Part.</th></tr></thead>
-    <tbody>
-      ${data.scr.modalidades.map(m => `<tr><td>${esc(m.nome)}</td><td>${esc(m.total)}</td><td>${esc(m.aVencer)}</td><td>${esc(m.vencido)}</td><td>${esc(m.participacao)}</td></tr>`).join('')}
-    </tbody>
-  </table>` : ''}
-
-  ${(data.scr.instituicoes && data.scr.instituicoes.length > 0) ? `
-  <div style="margin-top:16px;">
-    <div style="font-size:11px;font-weight:600;margin-bottom:6px;">Instituicoes Credoras</div>
-    <table>
-      <thead><tr><th>Instituicao</th><th>Valor (R$)</th></tr></thead>
-      <tbody>
-        ${data.scr.instituicoes.map(inst => `<tr><td>${esc(inst.nome)}</td><td>${esc(inst.valor)}</td></tr>`).join('')}
-      </tbody>
-    </table>
-  </div>` : ''}
-
-  <div style="margin-top:16px;">
-    <div style="font-size:11px;font-weight:600;margin-bottom:6px;">Curto Prazo vs Longo Prazo</div>
-    <div class="cp-lp-bar">
-      <div class="cp" style="width:${cpPct}%">CP ${cpPct}%</div>
-      <div class="lp" style="width:${lpPct}%">LP ${lpPct}%</div>
-    </div>
-  </div>
-
-  <div class="footer"><span>Capital Financas &mdash; Consolidador | ${genDate} | Confidencial</span><span>SCR</span></div>
-</div>
-
-<!-- PAGE 6 (conditional): SCR Comparison -->
-${scrCompHTML}
-
-<!-- PAGE 7: Risk Analysis -->
-<div class="page">
-  <div class="sec-title"><div class="sec-bar" style="background:#DC2626;"></div><span class="sec-num" style="color:#DC2626;">${riskSecNum}</span><span class="sec-name">ANALISE DE RISCO</span></div>
-
-  ${pontosFortes.length > 0 ? `
-  <div style="margin-bottom:16px;">
-    <div style="font-size:12px;font-weight:600;color:#166534;margin-bottom:8px;">Pontos Fortes</div>
-    ${pontosFortes.map(p => `<div class="point-item point-forte"><span style="flex-shrink:0;">&#10003;</span><span>${esc(p)}</span></div>`).join('')}
-  </div>` : ''}
-
-  ${pontosFracos.length > 0 ? `
-  <div style="margin-bottom:16px;">
-    <div style="font-size:12px;font-weight:600;color:#991B1B;margin-bottom:8px;">Pontos Fracos</div>
-    ${pontosFracos.map(p => `<div class="point-item point-fraco"><span style="flex-shrink:0;">&#9888;</span><span>${esc(p)}</span></div>`).join('')}
-  </div>` : ''}
-
-  ${perguntasVisita.length > 0 ? `
-  <div style="margin-bottom:16px;">
-    <div style="font-size:12px;font-weight:600;color:#92400E;margin-bottom:8px;">Perguntas para Visita</div>
-    ${perguntasVisita.map((p, i) => `<div class="point-item point-visita"><span style="flex-shrink:0;font-weight:700;">${i+1}.</span><span><strong>${esc(p.pergunta)}</strong>${p.contexto ? '<br/><span style="font-size:9px;color:#92400E;opacity:0.8;">' + esc(p.contexto) + '</span>' : ''}</span></div>`).join('')}
-  </div>` : ''}
-
-  ${(pontosFortes.length === 0 && pontosFracos.length === 0 && perguntasVisita.length === 0) ? '<div style="text-align:center;color:#9CA3AF;padding:40px;">Analise de risco nao disponivel &mdash; aguardando IA</div>' : ''}
-
-  <div class="footer"><span>Capital Financas &mdash; Consolidador | ${genDate} | Confidencial</span><span>Risco</span></div>
-</div>
-
-<!-- PAGE 8: Final Opinion -->
-<div class="page">
-  <div class="sec-title"><div class="sec-bar"></div><span class="sec-num">${parecerSecNum}</span><span class="sec-name">PARECER FINAL</span></div>
-
-  <div style="text-align:center;margin:20px 0;">
-    <span class="badge ${badgeClass}" style="font-size:22px;padding:12px 40px;">${decision}</span>
-  </div>
-
-  <div style="margin:16px 0;">
-    <div style="font-size:10px;color:#6B7280;margin-bottom:4px;">Rating</div>
-    <div class="rating-bar-container">
-      <div class="rating-bar-fill" style="width:${finalRating * 10}%;background:${decisionColor};"></div>
-      <div class="rating-bar-label">${finalRating} / 10</div>
-    </div>
-  </div>
-
-  <div style="font-size:10px;color:#6B7280;margin-bottom:4px;">Parecer</div>
-  <div class="parecer-text">${esc(data.resumoRisco || 'Parecer nao preenchido.')}</div>
-
-  ${alerts.length > 0 ? `
-  <div style="margin-top:12px;">
-    <div style="font-size:11px;font-weight:600;margin-bottom:8px;">Resumo de Alertas</div>
-    ${alerts.map(a => `<div class="alert-box ${a.severity === 'ALTA' ? 'alert-high' : 'alert-mod'}"><strong>[${esc(a.severity)}]</strong> ${esc(a.message)}</div>`).join('')}
-  </div>` : ''}
-
-  <div class="signature-line">
-    <hr/>
-    <span>Analista Responsavel</span>
-  </div>
-
-  <div class="footer"><span>Capital Financas &mdash; Consolidador | ${genDate} | Confidencial</span><span>Parecer Final</span></div>
-</div>
-
-</body>
-</html>`;
+        y = 42;
       };
 
-      // ── Build HTML and render to PDF via html2canvas ──
-      const html = buildReportHTML();
+      const drawSectionTitle = (num: string, title: string, color: [number, number, number]) => {
+        checkPageBreak(16);
+        doc.setFillColor(...colors.surface2);
+        doc.roundedRect(margin, y, contentW, 10, 1.5, 1.5, "F");
+        doc.setFillColor(...color);
+        doc.roundedRect(margin, y, 3, 10, 0.5, 0.5, "F");
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...color);
+        doc.text(num, margin + 7, y + 6.5);
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.text);
+        doc.text(title, margin + 14, y + 6.5);
+        y += 14;
+      };
 
-      const container = document.createElement('div');
-      container.style.cssText = 'position:fixed;top:0;left:0;width:210mm;z-index:-9999;opacity:0;pointer-events:none;';
-      document.body.appendChild(container);
-      container.innerHTML = html;
+      const drawField = (label: string, value: string, fullWidth = false) => {
+        if (!value) return;
+        checkPageBreak(14);
+        const fieldW = fullWidth ? contentW : contentW / 2 - 2;
+        doc.setFillColor(...colors.surface);
+        doc.roundedRect(margin, y, fieldW, 12, 1, 1, "F");
+        doc.setFontSize(6);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...colors.textMuted);
+        doc.text(label.toUpperCase(), margin + 4, y + 4.5);
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.text);
+        const displayVal = value.length > (fullWidth ? 80 : 35) ? value.substring(0, fullWidth ? 80 : 35) + "..." : value;
+        doc.text(displayVal, margin + 4, y + 9.5);
+        y += 14;
+      };
 
-      // Wait for fonts & images to load
-      await new Promise(r => setTimeout(r, 500));
-
-      const pages = container.querySelectorAll('.page');
-      const { default: jsPDF } = await import('jspdf');
-      const { default: html2canvas } = await import('html2canvas');
-      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-
-      for (let i = 0; i < pages.length; i++) {
-        const canvas = await html2canvas(pages[i] as HTMLElement, {
-          scale: 2,
-          useCORS: true,
-          logging: false,
-          backgroundColor: '#ffffff',
+      const drawFieldRow = (fields: Array<{ label: string; value: string }>) => {
+        const validFields = fields.filter((f) => f.value);
+        if (validFields.length === 0) return;
+        checkPageBreak(14);
+        const fieldW = contentW / validFields.length - 2;
+        let x = margin;
+        validFields.forEach((field) => {
+          doc.setFillColor(...colors.surface);
+          doc.roundedRect(x, y, fieldW, 12, 1, 1, "F");
+          doc.setFontSize(6);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(...colors.textMuted);
+          doc.text(field.label.toUpperCase(), x + 4, y + 4.5);
+          doc.setFontSize(8);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(...colors.text);
+          const maxChars = Math.floor(fieldW / 2.8);
+          const displayVal = field.value.length > maxChars ? field.value.substring(0, maxChars) + "..." : field.value;
+          doc.text(displayVal, x + 4, y + 9.5);
+          x += fieldW + 4;
         });
+        y += 14;
+      };
 
-        const imgData = canvas.toDataURL('image/jpeg', 0.92);
-        if (i > 0) doc.addPage();
-        doc.addImage(imgData, 'JPEG', 0, 0, 210, 297);
+      const drawMultilineField = (label: string, value: string, maxLines = 6) => {
+        if (!value) return;
+        const lineH = 5;
+        const paddingV = 6;
+        const maxWidth = contentW - 8;
+        const lines = doc.splitTextToSize(value, maxWidth);
+        const displayLines = lines.slice(0, maxLines);
+        const boxH = displayLines.length * lineH + paddingV * 2 + 6;
+        checkPageBreak(boxH + 4);
+        doc.setFillColor(...colors.surface);
+        doc.roundedRect(margin, y, contentW, boxH, 1, 1, "F");
+        doc.setFontSize(6);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...colors.textMuted);
+        doc.text(label.toUpperCase(), margin + 4, y + 5);
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...colors.text);
+        displayLines.forEach((line: string, i: number) => {
+          doc.text(line, margin + 4, y + paddingV + 5 + i * lineH);
+        });
+        if (lines.length > maxLines) {
+          doc.setFontSize(7);
+          doc.setTextColor(...colors.textMuted);
+          doc.text(`+ ${lines.length - maxLines} linha(s) omitida(s)...`, margin + 4, y + boxH - 2);
+        }
+        y += boxH + 4;
+      };
+
+      const drawSpacer = (h = 6) => { y += h; };
+
+      // Helper: draw simple table
+      const drawTable = (headers: string[], rows: string[][], colWidths: number[]) => {
+        const rowH = 10;
+        const headerH = 8;
+
+        checkPageBreak(headerH + Math.min(rows.length, 3) * rowH + 4);
+
+        // Header
+        doc.setFillColor(...colors.surface2);
+        doc.roundedRect(margin, y, contentW, headerH, 1, 1, "F");
+        doc.setFontSize(6.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.textMuted);
+        let hx = margin;
+        headers.forEach((h, i) => {
+          doc.text(h, hx + 4, y + 5.5);
+          hx += colWidths[i];
+        });
+        y += headerH + 1;
+
+        // Rows
+        rows.forEach((row, idx) => {
+          checkPageBreak(rowH + 2);
+          const rowColor = idx % 2 === 0 ? colors.surface : colors.surface2;
+          doc.setFillColor(...rowColor);
+          doc.rect(margin, y, contentW, rowH, "F");
+          doc.setFontSize(7.5);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(...colors.text);
+          let rx = margin;
+          row.forEach((cell, ci) => {
+            const maxChars = Math.floor(colWidths[ci] / 2.2);
+            const val = cell.length > maxChars ? cell.substring(0, maxChars) + "..." : cell;
+            doc.text(val, rx + 4, y + 6.5);
+            rx += colWidths[ci];
+          });
+          y += rowH;
+        });
+        y += 4;
+      };
+
+      // Helper: draw alert box in PDF
+      const drawAlertBox = (text: string, severity: AlertSeverity) => {
+        checkPageBreak(10);
+        const bgColor: [number, number, number] = severity === "ALTA" ? [254, 242, 242] : [255, 251, 235];
+        const barColor: [number, number, number] = severity === "ALTA" ? colors.danger : colors.warning;
+        const textColor: [number, number, number] = severity === "ALTA" ? colors.danger : colors.warning;
+        doc.setFillColor(...bgColor);
+        doc.roundedRect(margin, y, contentW, 8, 1, 1, "F");
+        doc.setFillColor(...barColor);
+        doc.roundedRect(margin, y, 2.5, 8, 0.5, 0.5, "F");
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...textColor);
+        doc.text(`[${severity}] ${text}`, margin + 6, y + 5.5);
+        y += 10;
+      };
+
+      // Helper: draw badge
+      const drawBadge = (text: string, bgColor: [number, number, number], textColor: [number, number, number], x: number, yPos: number, w: number, h: number) => {
+        doc.setFillColor(...bgColor);
+        doc.roundedRect(x, yPos, w, h, 2, 2, "F");
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...textColor);
+        doc.text(text, x + w / 2, yPos + h / 2 + 3, { align: "center" });
+      };
+
+      // ===== PAGE 1 — CAPA + SINTESE =====
+      newPage();
+      doc.setFillColor(...colors.navy);
+      doc.rect(0, 0, 210, 297, "F");
+      doc.setFillColor(...colors.accent);
+      doc.rect(0, 0, 210, 3, "F");
+      doc.setDrawColor(255, 255, 255);
+      doc.setLineWidth(0.3);
+      doc.circle(160, 50, 40);
+      doc.circle(50, 250, 30);
+      doc.setDrawColor(255, 255, 255);
+      doc.setLineWidth(2);
+      doc.circle(W / 2, 65, 18);
+      doc.setFillColor(255, 255, 255);
+      doc.circle(W / 2, 84, 3, "F");
+
+      doc.setFontSize(28);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(255, 255, 255);
+      const capW = doc.getTextWidth("capital");
+      doc.text("capital", W / 2 - (capW + doc.getTextWidth("financas") + 2) / 2, 105);
+      doc.setTextColor(...colors["accent-light"]);
+      doc.text("financas", W / 2 - (capW + doc.getTextWidth("financas") + 2) / 2 + capW + 2, 105);
+
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(180, 200, 240);
+      doc.text("CONSOLIDADOR DE DOCUMENTOS", W / 2, 116, { align: "center" });
+
+      doc.setFillColor(...colors.accent);
+      doc.rect(W / 2 - 30, 123, 60, 1.5, "F");
+
+      doc.setFontSize(22);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(255, 255, 255);
+      doc.text("Relatório de", W / 2, 140, { align: "center" });
+      doc.text("Due Diligence", W / 2, 151, { align: "center" });
+
+      if (data.cnpj.razaoSocial) {
+        doc.setFontSize(13);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors["accent-light"]);
+        doc.text(data.cnpj.razaoSocial.substring(0, 50), W / 2, 168, { align: "center" });
+      }
+      if (data.cnpj.cnpj) {
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(180, 200, 240);
+        doc.text(`CNPJ: ${data.cnpj.cnpj}`, W / 2, 177, { align: "center" });
       }
 
-      // Cleanup and save
-      document.body.removeChild(container);
-      doc.save(`relatorio-${data.cnpj.razaoSocial || 'empresa'}-${genDate}.pdf`);
+      const coverDate = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
+      doc.setFontSize(9);
+      doc.setTextColor(140, 170, 220);
+      doc.text(`Gerado em ${coverDate}`, W / 2, 190, { align: "center" });
+
+      // Rating badge on cover
+      const ratingColorPDF: [number, number, number] = finalRating >= 7 ? colors.green : finalRating >= 4 ? colors.amber : colors.red;
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(W / 2 - 50, 200, 42, 22, 3, 3, "F");
+      doc.setFontSize(14);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...ratingColorPDF);
+      doc.text(`${finalRating}/10`, W / 2 - 29, 214, { align: "center" });
+      doc.setFontSize(6);
+      doc.text("RATING", W / 2 - 29, 207, { align: "center" });
+
+      // Decision badge on cover
+      const decisionColorPDF: [number, number, number] = decision === "APROVADO" ? colors.green : decision === "PENDENTE" ? colors.amber : colors.red;
+      const decisionBgPDF: [number, number, number] = decision === "APROVADO" ? [240, 253, 244] : decision === "PENDENTE" ? [255, 251, 235] : [254, 242, 242];
+      doc.setFillColor(...decisionBgPDF);
+      doc.roundedRect(W / 2 + 8, 200, 42, 22, 3, 3, "F");
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...decisionColorPDF);
+      doc.text(decision, W / 2 + 29, 214, { align: "center" });
+      doc.setFontSize(6);
+      doc.text("DECISAO", W / 2 + 29, 207, { align: "center" });
+
+      // Quick metrics
+      const metricsY = 230;
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(180, 200, 240);
+      const metrics = [
+        { label: "Situacao", val: data.cnpj.situacaoCadastral || "—" },
+        { label: "CNAE", val: data.cnpj.cnaePrincipal ? data.cnpj.cnaePrincipal.substring(0, 25) : "—" },
+        { label: "Capital Social", val: data.qsa.capitalSocial || data.contrato.capitalSocial || "—" },
+        { label: "Idade", val: companyAge || "—" },
+      ];
+      const mW = contentW / metrics.length;
+      metrics.forEach((m, i) => {
+        const mx = margin + i * mW;
+        doc.setTextColor(140, 170, 220);
+        doc.text(m.label.toUpperCase(), mx, metricsY);
+        doc.setTextColor(255, 255, 255);
+        doc.setFont("helvetica", "bold");
+        doc.text(m.val.substring(0, 20), mx, metricsY + 5);
+        doc.setFont("helvetica", "normal");
+      });
+
+      // Alerts panel on cover
+      if (alerts.length > 0) {
+        const alertY = 242;
+        doc.setFillColor(40, 50, 100);
+        const alertBoxH = 6 + alerts.length * 5;
+        doc.roundedRect(margin, alertY, contentW, alertBoxH, 2, 2, "F");
+        doc.setFontSize(6);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(255, 200, 100);
+        doc.text(`ALERTAS (${alerts.length})`, margin + 4, alertY + 4);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(6);
+        alerts.forEach((alert, i) => {
+          const aColor: [number, number, number] = alert.severity === "ALTA" ? [255, 120, 120] : [255, 200, 100];
+          doc.setTextColor(...aColor);
+          doc.text(`[${alert.severity}] ${alert.message}`, margin + 4, alertY + 9 + i * 5);
+        });
+      }
+
+      doc.setFontSize(7);
+      doc.setTextColor(100, 140, 200);
+      doc.text("Documento confidencial — uso restrito", W / 2, 280, { align: "center" });
+      doc.setFillColor(...colors.accent);
+      doc.rect(0, 294, 210, 3, "F");
+
+      // ===== PAGE 2 — QSA + CONTRATO =====
+      newPage();
+      drawHeader();
+
+      drawSectionTitle("02", "QUADRO SOCIETARIO (QSA)", colors.accent);
+
+      if (data.qsa.capitalSocial) {
+        drawField("Capital Social", data.qsa.capitalSocial, true);
+      }
+
+      const validQSA = data.qsa.quadroSocietario.filter(s => s.nome);
+      if (validQSA.length > 0) {
+        const qsaColW = [contentW * 0.30, contentW * 0.22, contentW * 0.28, contentW * 0.20];
+        drawTable(
+          ["NOME", "CPF/CNPJ", "QUALIFICACAO", "PART."],
+          validQSA.map(s => [s.nome, s.cpfCnpj || "—", s.qualificacao || "—", s.participacao || "—"]),
+          qsaColW,
+        );
+      }
+
+      drawSpacer(8);
+
+      drawSectionTitle("03", "CONTRATO SOCIAL", colors.primary);
+
+      if (data.contrato.temAlteracoes) {
+        checkPageBreak(12);
+        doc.setFillColor(254, 243, 199);
+        doc.roundedRect(margin, y, contentW, 10, 1, 1, "F");
+        doc.setFillColor(...colors.warning);
+        doc.roundedRect(margin, y, 3, 10, 0.5, 0.5, "F");
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.warning);
+        doc.text("ATENCAO: Documento com alteracoes societarias recentes", margin + 8, y + 6.5);
+        y += 14;
+      }
+
+      if (data.contrato.objetoSocial) drawMultilineField("Objeto Social", data.contrato.objetoSocial, 5);
+      if (data.contrato.administracao) drawMultilineField("Administracao e Poderes", data.contrato.administracao, 4);
+
+      drawFieldRow([
+        { label: "Capital Social", value: data.contrato.capitalSocial },
+        { label: "Data de Constituicao", value: data.contrato.dataConstituicao },
+      ]);
+      drawFieldRow([
+        { label: "Prazo de Duracao", value: data.contrato.prazoDuracao },
+        { label: "Foro", value: data.contrato.foro },
+      ]);
+
+      // ===== PAGE 3 — FATURAMENTO =====
+      newPage();
+      drawHeader();
+      drawSectionTitle("04", "FATURAMENTO", colors.accent);
+
+      // Alerts
+      if (data.faturamento.faturamentoZerado) {
+        drawAlertBox("Faturamento zerado no periodo", "ALTA");
+      }
+      if (!data.faturamento.dadosAtualizados) {
+        drawAlertBox(`Dados desatualizados — ultimo mes: ${data.faturamento.ultimoMesComDados || "N/A"}`, "MODERADA");
+      }
+
+      drawFieldRow([
+        { label: "Somatoria Anual", value: data.faturamento.somatoriaAno ? `R$ ${data.faturamento.somatoriaAno}` : "" },
+        { label: "Media Mensal", value: data.faturamento.mediaAno ? `R$ ${data.faturamento.mediaAno}` : "" },
+      ]);
+
+      // Monthly table with visual bars
+      const validMeses = data.faturamento.meses.filter(m => m.mes);
+      if (validMeses.length > 0) {
+        drawSpacer(4);
+        const maxFat = Math.max(...validMeses.map(m => parseMoneyToNumber(m.valor)), 1);
+        const rowH = 10;
+        const headerH = 8;
+
+        checkPageBreak(headerH + Math.min(validMeses.length, 3) * rowH + 4);
+
+        // Header
+        doc.setFillColor(...colors.surface2);
+        doc.roundedRect(margin, y, contentW, headerH, 1, 1, "F");
+        doc.setFontSize(6.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.textMuted);
+        doc.text("MES", margin + 4, y + 5.5);
+        doc.text("VALOR (R$)", margin + contentW * 0.25 + 4, y + 5.5);
+        doc.text("", margin + contentW * 0.55 + 4, y + 5.5);
+        y += headerH + 1;
+
+        validMeses.forEach((m, idx) => {
+          checkPageBreak(rowH + 2);
+          const rowColor = idx % 2 === 0 ? colors.surface : colors.surface2;
+          doc.setFillColor(...rowColor);
+          doc.rect(margin, y, contentW, rowH, "F");
+          doc.setFontSize(7.5);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(...colors.text);
+          doc.text(m.mes, margin + 4, y + 6.5);
+          doc.text(m.valor || "0,00", margin + contentW * 0.25 + 4, y + 6.5);
+          // Visual bar
+          const barVal = parseMoneyToNumber(m.valor);
+          const barW = Math.max(1, (barVal / maxFat) * (contentW * 0.40));
+          doc.setFillColor(...colors.accent);
+          doc.roundedRect(margin + contentW * 0.55, y + 3, barW, 4, 1, 1, "F");
+          y += rowH;
+        });
+        y += 4;
+      }
+
+      // ===== PAGE 4 — SCR =====
+      newPage();
+      drawHeader();
+      drawSectionTitle("05", "PERFIL DE CREDITO — SCR / BACEN", colors.warning);
+
+      // Summary fields
+      drawFieldRow([
+        { label: "Carteira a Vencer (R$)", value: data.scr.carteiraAVencer },
+        { label: "Vencidos (R$)", value: data.scr.vencidos },
+        { label: "Prejuizos (R$)", value: data.scr.prejuizos },
+      ]);
+      drawFieldRow([
+        { label: "Limite de Credito (R$)", value: data.scr.limiteCredito },
+        { label: "Qtde Instituicoes", value: data.scr.qtdeInstituicoes },
+        { label: "Qtde Operacoes", value: data.scr.qtdeOperacoes },
+      ]);
+      drawFieldRow([
+        { label: "Total Dividas Ativas (R$)", value: data.scr.totalDividasAtivas },
+        { label: "Classificacao Risco (A-H)", value: data.scr.classificacaoRisco },
+      ]);
+      drawFieldRow([
+        { label: "Operacoes a Vencer (R$)", value: data.scr.operacoesAVencer },
+        { label: "Operacoes em Atraso", value: data.scr.operacoesEmAtraso },
+        { label: "Operacoes Vencidas (R$)", value: data.scr.operacoesVencidas },
+      ]);
+      drawFieldRow([
+        { label: "Tempo Medio de Atraso", value: data.scr.tempoAtraso },
+        { label: "Coobrigacoes (R$)", value: data.scr.coobrigacoes },
+      ]);
+      drawFieldRow([
+        { label: "Carteira Curto Prazo (R$)", value: data.scr.carteiraCurtoPrazo },
+        { label: "Carteira Longo Prazo (R$)", value: data.scr.carteiraLongoPrazo },
+      ]);
+      if (data.scr.valoresMoedaEstrangeira) drawField("Valores Moeda Estrangeira", data.scr.valoresMoedaEstrangeira, true);
+
+      // SCR comparison table if scrAnterior exists
+      if (data.scrAnterior) {
+        drawSpacer(4);
+        checkPageBreak(20);
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.text);
+        doc.text("COMPARATIVO SCR (ANTERIOR vs ATUAL)", margin, y + 4);
+        y += 8;
+
+        const compMetrics: Array<{ label: string; anterior: string; atual: string }> = [
+          { label: "Carteira a Vencer", anterior: data.scrAnterior.carteiraAVencer, atual: data.scr.carteiraAVencer },
+          { label: "Vencidos", anterior: data.scrAnterior.vencidos, atual: data.scr.vencidos },
+          { label: "Prejuizos", anterior: data.scrAnterior.prejuizos, atual: data.scr.prejuizos },
+          { label: "Total Dividas", anterior: data.scrAnterior.totalDividasAtivas, atual: data.scr.totalDividasAtivas },
+          { label: "Limite Credito", anterior: data.scrAnterior.limiteCredito, atual: data.scr.limiteCredito },
+          { label: "Instituicoes", anterior: data.scrAnterior.qtdeInstituicoes, atual: data.scr.qtdeInstituicoes },
+          { label: "Operacoes", anterior: data.scrAnterior.qtdeOperacoes, atual: data.scr.qtdeOperacoes },
+        ];
+
+        const compRows = compMetrics.map(m => {
+          const antVal = parseMoneyToNumber(m.anterior);
+          const atualVal = parseMoneyToNumber(m.atual);
+          const diff = atualVal - antVal;
+          const varStr = diff === 0 ? "=" : diff > 0 ? `+${diff.toLocaleString("pt-BR")}` : diff.toLocaleString("pt-BR");
+          return [m.label, m.anterior || "—", m.atual || "—", varStr];
+        });
+
+        const compColW = [contentW * 0.28, contentW * 0.24, contentW * 0.24, contentW * 0.24];
+        drawTable(
+          ["METRICA", "ANTERIOR", "ATUAL", "VARIACAO"],
+          compRows,
+          compColW,
+        );
+      }
+
+      // Modalidades table
+      if (data.scr.modalidades && data.scr.modalidades.length > 0) {
+        drawSpacer(4);
+        checkPageBreak(20);
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.text);
+        doc.text("MODALIDADES DE CREDITO", margin, y + 4);
+        y += 8;
+        const modColW = [contentW * 0.30, contentW * 0.18, contentW * 0.18, contentW * 0.18, contentW * 0.16];
+        drawTable(
+          ["MODALIDADE", "TOTAL", "A VENCER", "VENCIDO", "PART."],
+          data.scr.modalidades.map(m => [m.nome, m.total, m.aVencer, m.vencido, m.participacao]),
+          modColW,
+        );
+      }
+
+      // Instituicoes table
+      if (data.scr.instituicoes && data.scr.instituicoes.length > 0) {
+        drawSpacer(4);
+        checkPageBreak(20);
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.text);
+        doc.text("INSTITUICOES CREDORAS", margin, y + 4);
+        y += 8;
+        const instColW = [contentW * 0.60, contentW * 0.40];
+        drawTable(
+          ["INSTITUICAO", "VALOR (R$)"],
+          data.scr.instituicoes.map(i => [i.nome, i.valor]),
+          instColW,
+        );
+      }
+
+      if (data.scr.historicoInadimplencia) drawMultilineField("Historico de Inadimplencia", data.scr.historicoInadimplencia, 5);
+
+      // ===== PAGE 5 — PROTESTOS =====
+      newPage();
+      drawHeader();
+      drawSectionTitle("06", "PROTESTOS", colors.danger);
+
+      drawFieldRow([
+        { label: "Vigentes (Qtd)", value: data.protestos?.vigentesQtd || "0" },
+        { label: "Vigentes (R$)", value: data.protestos?.vigentesValor || "0,00" },
+        { label: "Regularizados (Qtd)", value: data.protestos?.regularizadosQtd || "0" },
+        { label: "Regularizados (R$)", value: data.protestos?.regularizadosValor || "0,00" },
+      ]);
+
+      if (protestosVigentes > 0) {
+        drawAlertBox(`${protestosVigentes} protesto(s) vigente(s) — R$ ${data.protestos?.vigentesValor || "0,00"}`, "ALTA");
+      }
+
+      const protestoDetalhes = data.protestos?.detalhes || [];
+      if (protestoDetalhes.length > 0) {
+        drawSpacer(4);
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.text);
+        doc.text("DETALHES DOS PROTESTOS", margin, y + 4);
+        y += 8;
+        const pColW = [contentW * 0.18, contentW * 0.35, contentW * 0.22, contentW * 0.25];
+        drawTable(
+          ["DATA", "CREDOR", "VALOR (R$)", "STATUS"],
+          protestoDetalhes.map(p => [p.data || "—", p.credor || "—", p.valor || "—", p.regularizado ? "Regularizado" : "Vigente"]),
+          pColW,
+        );
+      } else {
+        drawSpacer(4);
+        checkPageBreak(12);
+        doc.setFillColor(240, 253, 244);
+        doc.roundedRect(margin, y, contentW, 10, 1, 1, "F");
+        doc.setFillColor(22, 163, 74);
+        doc.roundedRect(margin, y, 3, 10, 0.5, 0.5, "F");
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(22, 163, 74);
+        doc.text("Nenhum protesto identificado", margin + 8, y + 6.5);
+        y += 14;
+      }
+
+      // ===== PAGE 6 — PROCESSOS =====
+      newPage();
+      drawHeader();
+      drawSectionTitle("07", "PROCESSOS JUDICIAIS", colors.warning);
+
+      drawFieldRow([
+        { label: "Passivos (Total)", value: data.processos?.passivosTotal || "0" },
+        { label: "Ativos (Total)", value: data.processos?.ativosTotal || "0" },
+        { label: "Valor Estimado (R$)", value: data.processos?.valorTotalEstimado || "0,00" },
+      ]);
+
+      // RJ badge
+      if (data.processos?.temRJ) {
+        drawAlertBox("RECUPERACAO JUDICIAL identificada", "ALTA");
+      }
+
+      // Distribuicao table
+      const distribuicao = data.processos?.distribuicao || [];
+      if (distribuicao.length > 0) {
+        drawSpacer(4);
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.text);
+        doc.text("DISTRIBUICAO POR TIPO", margin, y + 4);
+        y += 8;
+        const distColW = [contentW * 0.45, contentW * 0.25, contentW * 0.30];
+        drawTable(
+          ["TIPO", "QUANTIDADE", "PERCENTUAL"],
+          distribuicao.map(d => [d.tipo || "—", d.qtd || "0", d.pct ? `${d.pct}%` : "—"]),
+          distColW,
+        );
+      }
+
+      // Processos bancarios table
+      const bancarios = data.processos?.bancarios || [];
+      if (bancarios.length > 0) {
+        drawSpacer(4);
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.text);
+        doc.text("PROCESSOS BANCARIOS", margin, y + 4);
+        y += 8;
+        const bancColW = [contentW * 0.25, contentW * 0.30, contentW * 0.22, contentW * 0.23];
+        drawTable(
+          ["BANCO", "ASSUNTO", "STATUS", "DATA"],
+          bancarios.map(b => [b.banco || "—", b.assunto || "—", b.status || "—", b.data || "—"]),
+          bancColW,
+        );
+      }
+
+      if (!data.processos || (parseInt(data.processos.passivosTotal || "0") === 0 && parseInt(data.processos.ativosTotal || "0") === 0)) {
+        drawSpacer(4);
+        checkPageBreak(12);
+        doc.setFillColor(240, 253, 244);
+        doc.roundedRect(margin, y, contentW, 10, 1, 1, "F");
+        doc.setFillColor(22, 163, 74);
+        doc.roundedRect(margin, y, 3, 10, 0.5, 0.5, "F");
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(22, 163, 74);
+        doc.text("Nenhum processo judicial identificado", margin + 8, y + 6.5);
+        y += 14;
+      }
+
+      // ===== PAGE 7 — GRUPO ECONOMICO =====
+      newPage();
+      drawHeader();
+      drawSectionTitle("08", "GRUPO ECONOMICO", colors.primary);
+
+      const empresasGrupo = data.grupoEconomico?.empresas || [];
+      if (empresasGrupo.length > 0) {
+        const geColW = [contentW * 0.25, contentW * 0.18, contentW * 0.15, contentW * 0.14, contentW * 0.14, contentW * 0.14];
+        drawTable(
+          ["RAZAO SOCIAL", "CNPJ", "RELACAO", "SCR (R$)", "PROTESTOS", "PROCESSOS"],
+          empresasGrupo.map(e => [e.razaoSocial || "—", e.cnpj || "—", e.relacao || "—", e.scrTotal || "—", e.protestos || "0", e.processos || "0"]),
+          geColW,
+        );
+      } else {
+        drawSpacer(4);
+        checkPageBreak(12);
+        doc.setFillColor(...colors.surface2);
+        doc.roundedRect(margin, y, contentW, 10, 1, 1, "F");
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...colors.textMuted);
+        doc.text("Nenhuma empresa identificada no grupo economico", margin + 8, y + 6.5);
+        y += 14;
+      }
+
+      // ===== PAGE 8 — PARECER =====
+      newPage();
+      drawHeader();
+      drawSectionTitle("09", "PARECER FINAL", colors.primary);
+
+      // Decision badge
+      checkPageBreak(30);
+      const dBgColor: [number, number, number] = decision === "APROVADO" ? [240, 253, 244] : decision === "PENDENTE" ? [255, 251, 235] : [254, 242, 242];
+      const dTextColor: [number, number, number] = decision === "APROVADO" ? colors.green : decision === "PENDENTE" ? colors.amber : colors.red;
+      drawBadge(decision, dBgColor, dTextColor, margin, y, contentW / 3, 16);
+
+      // Rating next to decision
+      doc.setFillColor(...colors.surface2);
+      doc.roundedRect(margin + contentW / 3 + 4, y, contentW / 3 - 4, 16, 2, 2, "F");
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...dTextColor);
+      doc.text(`Rating: ${finalRating}/10`, margin + contentW / 3 + 10, y + 10);
+
+      y += 22;
+
+      // Parecer text
+      const parecerText = data.resumoRisco || "Parecer nao preenchido.";
+      drawMultilineField("Resumo do Parecer", parecerText, 15);
+
+      // Alerts summary in parecer
+      if (alerts.length > 0) {
+        drawSpacer(4);
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.text);
+        doc.text("RESUMO DE ALERTAS", margin, y + 4);
+        y += 8;
+        alerts.forEach(alert => {
+          drawAlertBox(alert.message, alert.severity);
+        });
+      }
+
+      // Footer on all pages
+      const totalPages = doc.getNumberOfPages();
+      for (let p = 1; p <= totalPages; p++) {
+        doc.setPage(p);
+        doc.setFillColor(...colors.navy);
+        doc.rect(0, 284, 210, 13, "F");
+        doc.setFillColor(...colors.accent);
+        doc.rect(0, 284, 210, 1, "F");
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(180, 200, 240);
+        doc.text(`Capital Financas — Consolidador | ${footerDateStr} | Confidencial`, margin, 291);
+        doc.text(`Pagina ${p} de ${totalPages}`, W - margin, 291, { align: "right" });
+      }
+
+      doc.save(`capital-financas-${safeName}-${dateStr}.pdf`);
       setGenerated(true);
       if (generatedFormats.size === 0) onNotify?.(`PDF gerado para "${data.cnpj.razaoSocial || "empresa"}"`);
     } catch (err) {
       console.error("PDF generation error:", err);
-      toast.error("Erro ao gerar PDF: " + (err instanceof Error ? err.message : "Erro desconhecido"));
     } finally {
       setGeneratingFormat(null);
     }
@@ -2470,9 +2712,9 @@ td.val.muted{color:#9CA3AF;font-weight:400}
                 { fmt: "pdf" as Format, label: "PDF", sub: "Baixar PDF", fn: generatePDF,
                   logo: <svg viewBox="0 0 24 24" width="36" height="36" fill="#FF0000"><path d="M7.998 17.5c-.21 0-.42-.072-.588-.218-.397-.345-.44-.95-.095-1.348.862-.993 2.13-2.543 2.13-2.543s-1.07-3.475-.544-4.95c.218-.609.613-1.066 1.16-1.14.263-.035.672.007.89.3.367.498.377 1.267.027 2.42-.223.738-.532 1.576-.891 2.422.452.97 1.09 1.877 1.618 2.46.88-.12 1.64-.143 2.18-.015.509.12.889.439.989.836.108.427-.045.893-.413 1.26-.382.38-.897.488-1.35.288-.56-.247-1.164-.76-1.735-1.376-.898.236-1.884.568-2.756.923-.506.9-.996 1.584-1.47 1.87a.797.797 0 0 1-.452.141l.1-.03zm.558-1.04s-.005.008-.01.013l.01-.014zm6.553-2.865-.029-.006.036.01-.007-.004zm-3.3-6.47-.005.02.009-.028-.004.009z"/></svg> },
                 { fmt: "docx" as Format, label: "Word", sub: "Gerar Word", fn: generateDOCX,
-                  logo: <Image src="/logos/word.jpg" alt="Word" width={48} height={48} className="rounded-lg object-contain" /> },
+                  logo: <img src="/logos/word.jpg" alt="Word" width={48} height={48} className="rounded-lg object-contain" /> },
                 { fmt: "xlsx" as Format, label: "Excel", sub: "Baixar Excel", fn: generateExcel,
-                  logo: <Image src="/logos/excel.jpg" alt="Excel" width={48} height={48} className="rounded-lg object-contain" /> },
+                  logo: <img src="/logos/excel.jpg" alt="Excel" width={48} height={48} className="rounded-lg object-contain" /> },
                 { fmt: "html" as Format, label: "HTML", sub: "Gerar HTML", fn: generateHTML,
                   logo: <svg viewBox="0 0 24 24" width="36" height="36" fill="#E34F26"><path d="M4.136 3.012h15.729l-1.431 16.15L11.991 21l-6.436-1.838L4.136 3.012zM7.266 9.76l-.186-2.166h9.835l-.191 2.166H12.17l.204 2.256h4.345l-.543 5.508L12 18.903v.012l-.008.002-4.161-1.162-.287-3.166h2.147l.149 1.62 2.16.573 2.148-.57.237-2.529H7.46L7.266 9.76z"/></svg> },
               ]).map(({ fmt, label, sub, fn, logo }) => {
