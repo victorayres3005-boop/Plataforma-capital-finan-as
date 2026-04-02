@@ -15,7 +15,8 @@ const GEMINI_API_KEYS = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_K
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
 
-const GEMINI_MODELS = ["gemini-2.0-flash", "gemini-2.5-flash"];
+const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash"];
+const GEMINI_MODELS_CRITICAL = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"];
 const GROQ_MODEL = "llama-3.3-70b-versatile";
 
 function geminiUrl(model: string, key: string) {
@@ -46,6 +47,13 @@ function hasReadableContent(text: string): boolean {
   const commonWords = /\b(de|do|da|dos|das|que|para|com|por|uma|não|são|será|social|capital|sócio|contrato|empresa|sociedade|cnpj|cpf|quotas|artigo|cláusula|objeto|prazo|foro|comarca|administra|faturamento|receita|valor|total|mês|janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/gi;
   const matches = sample.match(commonWords);
   return (matches?.length || 0) >= 5;
+}
+
+function smartTruncate(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  const keepStart = Math.floor(maxChars * 0.6);
+  const keepEnd = maxChars - keepStart - 50;
+  return text.substring(0, keepStart) + "\n\n[...documento parcialmente omitido por limite de tamanho...]\n\n" + text.substring(text.length - keepEnd);
 }
 
 // ─────────────────────────────────────────
@@ -82,9 +90,7 @@ async function extractExcel(buffer: Buffer): Promise<FaturamentoData> {
 
   const meses: { mes: string; valor: string }[] = [];
 
-  // Tentar encontrar dados de faturamento na primeira sheet
-  const sheet = workbook.worksheets[0];
-  if (!sheet) throw new Error("Planilha vazia");
+  if (workbook.worksheets.length === 0) throw new Error("Planilha vazia");
 
   // Estratégia: procurar colunas com meses e valores
   const monthNames: Record<string, string> = {
@@ -94,58 +100,76 @@ async function extractExcel(buffer: Buffer): Promise<FaturamentoData> {
     julho: "07", agosto: "08", setembro: "09", outubro: "10", novembro: "11", dezembro: "12",
   };
 
-  sheet.eachRow((row, rowNumber) => {
-    if (rowNumber === 1) return; // pular cabeçalho
-    const cells = row.values as (string | number | null)[];
-    if (!cells || cells.length < 2) return;
+  for (const sheet of workbook.worksheets) {
+    sheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return; // pular cabeçalho
+      const cells = row.values as (string | number | null)[];
+      if (!cells || cells.length < 2) return;
 
-    // Procurar uma célula com mês e outra com valor numérico
-    let mesStr = "";
-    let valorNum = 0;
+      // Procurar uma célula com mês e outra com valor numérico
+      let mesStr = "";
+      let valorNum = 0;
 
-    for (const cell of cells) {
-      if (cell === null || cell === undefined) continue;
-      const str = String(cell).trim().toLowerCase();
+      for (const cell of cells) {
+        if (cell === null || cell === undefined) continue;
+        const str = String(cell).trim().toLowerCase();
 
-      // Verificar se é um mês
-      if (!mesStr) {
-        for (const [name, num] of Object.entries(monthNames)) {
-          if (str.includes(name)) {
-            // Tentar pegar o ano do texto
-            const yearMatch = str.match(/(\d{4})/);
-            const year = yearMatch ? yearMatch[1] : new Date().getFullYear().toString();
-            mesStr = `${num}/${year}`;
-            break;
+        // Verificar se é um mês
+        if (!mesStr) {
+          for (const [name, num] of Object.entries(monthNames)) {
+            if (str.includes(name)) {
+              // Tentar pegar o ano do texto
+              const yearMatch = str.match(/(\d{4})/);
+              const year = yearMatch ? yearMatch[1] : new Date().getFullYear().toString();
+              mesStr = `${num}/${year}`;
+              break;
+            }
+          }
+          // Verificar formato MM/YYYY ou MM/YY
+          const dateMatch = str.match(/^(\d{1,2})[\/\-](\d{2,4})$/);
+          if (dateMatch && !mesStr) {
+            const m = dateMatch[1].padStart(2, "0");
+            const y = dateMatch[2].length === 2 ? `20${dateMatch[2]}` : dateMatch[2];
+            mesStr = `${m}/${y}`;
+          }
+
+          // ISO format: 2025-01
+          const isoMatch = str.match(/^(\d{4})-(\d{1,2})$/);
+          if (isoMatch && !mesStr) {
+            mesStr = `${isoMatch[2].padStart(2, "0")}/${isoMatch[1]}`;
+          }
+
+          // Short month format: JAN/25 or jan/2025
+          const shortMonthMatch = str.match(/^([a-zç]{3})\/?(\d{2,4})$/i);
+          if (shortMonthMatch && !mesStr) {
+            const monthNum = monthNames[shortMonthMatch[1].toLowerCase()];
+            if (monthNum) {
+              const year = shortMonthMatch[2].length === 2 ? `20${shortMonthMatch[2]}` : shortMonthMatch[2];
+              mesStr = `${monthNum}/${year}`;
+            }
           }
         }
-        // Verificar formato MM/YYYY ou MM/YY
-        const dateMatch = str.match(/^(\d{1,2})[\/\-](\d{2,4})$/);
-        if (dateMatch && !mesStr) {
-          const m = dateMatch[1].padStart(2, "0");
-          const y = dateMatch[2].length === 2 ? `20${dateMatch[2]}` : dateMatch[2];
-          mesStr = `${m}/${y}`;
+
+        // Verificar se é valor numérico
+        if (typeof cell === "number" && cell > 0) {
+          valorNum = cell;
+        } else if (typeof cell === "string") {
+          const numStr = cell.replace(/[R$\s.]/g, "").replace(",", ".");
+          const parsed = parseFloat(numStr);
+          if (!isNaN(parsed) && parsed > 0 && parsed > valorNum) {
+            valorNum = parsed;
+          }
         }
       }
 
-      // Verificar se é valor numérico
-      if (typeof cell === "number" && cell > 0) {
-        valorNum = cell;
-      } else if (typeof cell === "string") {
-        const numStr = cell.replace(/[R$\s.]/g, "").replace(",", ".");
-        const parsed = parseFloat(numStr);
-        if (!isNaN(parsed) && parsed > 0 && parsed > valorNum) {
-          valorNum = parsed;
-        }
+      if (mesStr && valorNum > 0) {
+        meses.push({
+          mes: mesStr,
+          valor: valorNum.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+        });
       }
-    }
-
-    if (mesStr && valorNum > 0) {
-      meses.push({
-        mes: mesStr,
-        valor: valorNum.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-      });
-    }
-  });
+    });
+  }
 
   // Calcular soma e média
   const valores = meses.map(m => {
@@ -453,7 +477,8 @@ Regras:
 // ─────────────────────────────────────────
 // PROVEDOR 1: Gemini (primário — melhor qualidade)
 // ─────────────────────────────────────────
-async function callGemini(prompt: string, content: string | { mimeType: string; base64: string }): Promise<string> {
+async function callGemini(prompt: string, content: string | { mimeType: string; base64: string }, docType?: string): Promise<string> {
+  const models = (docType === "scr" || docType === "contrato") ? GEMINI_MODELS_CRITICAL : GEMINI_MODELS;
   const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
 
   if (typeof content === "string") {
@@ -464,8 +489,10 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
   }
 
   for (const apiKey of GEMINI_API_KEYS) {
-    for (const model of GEMINI_MODELS) {
+    for (const model of models) {
       for (let attempt = 0; attempt < 2; attempt++) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 45000);
         try {
           console.log(`[Gemini] key=${apiKey.substring(0, 8)}... model=${model} attempt=${attempt + 1}`);
           const response = await fetch(geminiUrl(model, apiKey), {
@@ -479,12 +506,14 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
                 responseMimeType: "application/json",
               },
             }),
+            signal: controller.signal,
           });
+          clearTimeout(timeoutId);
 
           if (response.status === 429) {
-            console.log(`[Gemini] Rate limited on key=${apiKey.substring(0, 8)} model=${model}, trying next...`);
-            await sleep(2000);
-            break; // Próximo modelo ou key
+            console.log(`[Gemini] Rate limited on key=${apiKey.substring(0, 8)} model=${model}, waiting before next key...`);
+            await sleep(3000); // Wait 3s before trying next key
+            break;
           }
 
           if (!response.ok) {
@@ -501,6 +530,11 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
           }
           return text;
         } catch (err) {
+          clearTimeout(timeoutId);
+          if (err instanceof Error && err.name === 'AbortError') {
+            console.log('[Gemini] Request timed out after 45s');
+            break; // try next model/key
+          }
           console.error(`[Gemini] Error:`, err instanceof Error ? err.message : err);
           break;
         }
@@ -515,6 +549,8 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
 // ─────────────────────────────────────────
 async function callGroq(prompt: string, content: string): Promise<string> {
   for (let attempt = 0; attempt < 3; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 45000);
     try {
       console.log(`[Groq] Attempt ${attempt + 1}...`);
       const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -535,7 +571,9 @@ async function callGroq(prompt: string, content: string): Promise<string> {
           temperature: 0.0,
           max_tokens: 4096,
         }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       if (response.status === 429) {
         await sleep(3000 * Math.pow(2, attempt));
@@ -553,6 +591,11 @@ async function callGroq(prompt: string, content: string): Promise<string> {
       if (!text) throw new Error("Resposta vazia");
       return text;
     } catch (err) {
+      clearTimeout(timeoutId);
+      if (err instanceof Error && err.name === 'AbortError') {
+        console.log('[Groq] Request timed out after 45s');
+        break; // try next model/key
+      }
       if (attempt === 2) throw err;
     }
   }
@@ -565,11 +608,12 @@ async function callGroq(prompt: string, content: string): Promise<string> {
 async function callAI(
   prompt: string,
   textContent: string,
-  imageContent?: { mimeType: string; base64: string }
+  imageContent?: { mimeType: string; base64: string },
+  docType?: string
 ): Promise<string> {
   if (GEMINI_API_KEYS.length > 0) {
     try {
-      return await callGemini(prompt, imageContent || textContent);
+      return await callGemini(prompt, imageContent || textContent, docType);
     } catch (err) {
       console.log(`[AI] Gemini failed: ${err instanceof Error ? err.message : err}`);
     }
@@ -577,7 +621,7 @@ async function callAI(
 
   if (GROQ_API_KEY && textContent) {
     try {
-      return await callGroq(prompt, textContent.substring(0, 10000));
+      return await callGroq(prompt, smartTruncate(textContent, 20000));
     } catch (err) {
       console.log(`[AI] Groq failed: ${err instanceof Error ? err.message : err}`);
     }
@@ -599,6 +643,38 @@ function parseJSON<T>(raw: string): T {
     if (match) cleaned = match[0];
   }
   return JSON.parse(cleaned);
+}
+
+// ─────────────────────────────────────────
+// Schema validation
+// ─────────────────────────────────────────
+function validateAndFixSchema(data: Record<string, unknown>, docType: string): void {
+  // Ensure arrays are arrays
+  const arrayFields: Record<string, string[]> = {
+    scr: ['modalidades', 'instituicoes'],
+    qsa: ['quadroSocietario'],
+    contrato: ['socios'],
+    faturamento: ['meses'],
+    protestos: ['detalhes'],
+    processos: ['distribuicao', 'bancarios'],
+    grupoEconomico: ['empresas'],
+  };
+
+  for (const field of (arrayFields[docType] || [])) {
+    if (!Array.isArray(data[field])) {
+      data[field] = data[field] ? [data[field]] : [];
+    }
+  }
+
+  // Convert numbers to strings (Gemini sometimes returns numbers)
+  for (const [key, val] of Object.entries(data)) {
+    if (typeof val === 'number' && key !== 'temAlteracoes' && key !== 'temRJ' && key !== 'faturamentoZerado' && key !== 'dadosAtualizados') {
+      data[key] = String(val);
+    }
+    if (val === null || val === undefined) {
+      data[key] = '';
+    }
+  }
 }
 
 // ─────────────────────────────────────────
@@ -767,6 +843,43 @@ function fillGrupoEconomicoDefaults(data: Partial<GrupoEconomicoData>): GrupoEco
 
 type AnyExtracted = CNPJData | QSAData | ContratoSocialData | FaturamentoData | SCRData | ProtestosData | ProcessosData | GrupoEconomicoData;
 
+function getEmptyFields(data: Record<string, unknown>): string[] {
+  const empty: string[] = [];
+  for (const [key, value] of Object.entries(data)) {
+    if (value === "" || value === null || value === undefined) {
+      empty.push(key);
+    } else if (Array.isArray(value) && value.length === 0) {
+      empty.push(key);
+    }
+  }
+  return empty;
+}
+
+function validateExtractedData(data: Record<string, unknown>, docType: string): void {
+  // Validate CNPJ format
+  if (docType === 'cnpj' && typeof data.cnpj === 'string' && data.cnpj) {
+    const cnpjClean = data.cnpj.replace(/\D/g, '');
+    if (cnpjClean.length !== 14) {
+      console.warn(`[validate] CNPJ format invalid: ${data.cnpj}`);
+    }
+  }
+
+  // SCR: detect empty SCR
+  if (docType === 'scr') {
+    const scrFields = ['carteiraAVencer', 'vencidos', 'prejuizos', 'totalDividasAtivas'];
+    const allZero = scrFields.every(f => {
+      const val = data[f];
+      if (!val || val === '' || val === '0' || val === '0,00') return true;
+      const num = parseFloat(String(val).replace(/[R$\s.]/g, '').replace(',', '.'));
+      return isNaN(num) || num === 0;
+    });
+    if (allZero) {
+      data.historicoInadimplencia = (data.historicoInadimplencia || '') + ' [SCR: SEM HISTÓRICO BANCÁRIO - todos os valores zerados]';
+      console.log('[validate] SCR detected as SEM_HISTORICO_BANCARIO');
+    }
+  }
+}
+
 function countFilledFields(data: AnyExtracted): number {
   const obj = data as unknown as Record<string, unknown>;
   return Object.values(obj).filter(v =>
@@ -879,9 +992,25 @@ export async function POST(request: NextRequest) {
     let data: AnyExtracted;
 
     try {
-      const aiResponse = await callAI(prompt, textContent, imageContent);
+      const aiResponse = await callAI(prompt, textContent, imageContent, docType);
       console.log(`[extract] AI response length: ${aiResponse.length}`);
-      const parsed = parseJSON<Record<string, unknown>>(aiResponse);
+
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = parseJSON<Record<string, unknown>>(aiResponse);
+      } catch (parseErr) {
+        console.log("[extract] JSON parse failed, attempting retry with correction prompt...");
+        try {
+          const fixPrompt = `Sua resposta anterior não foi JSON válido. Retorne APENAS um JSON válido com a estrutura solicitada, sem nenhum texto adicional. Começar com { e terminar com }.`;
+          const retryResponse = await callAI(fixPrompt, textContent, imageContent, docType);
+          parsed = parseJSON<Record<string, unknown>>(retryResponse);
+          console.log("[extract] JSON retry succeeded!");
+        } catch {
+          throw parseErr; // Fall through to error handler
+        }
+      }
+
+      validateAndFixSchema(parsed, docType);
 
       switch (docType) {
         case "cnpj":           data = fillCNPJDefaults(parsed as Partial<CNPJData>); break;
@@ -896,6 +1025,35 @@ export async function POST(request: NextRequest) {
       }
     } catch (aiError) {
       console.error("[extract] AI failed:", aiError);
+
+      // Fallback: for binary PDFs, try extracting text and using Groq
+      if (imageContent && GROQ_API_KEY && ext === "pdf") {
+        try {
+          const fallbackText = await extractText(buffer, ext);
+          if (fallbackText && fallbackText.trim().length > 50) {
+            console.log(`[extract] Attempting Groq fallback with extracted text (${fallbackText.length} chars)...`);
+            const groqResponse = await callGroq(prompt, smartTruncate(fallbackText, 15000));
+            const fallbackParsed = parseJSON<Record<string, unknown>>(groqResponse);
+            // Apply defaults based on docType
+            switch (docType) {
+              case "scr": data = fillSCRDefaults(fallbackParsed); break;
+              case "qsa": data = fillQSADefaults(fallbackParsed as Partial<QSAData>); break;
+              case "contrato": data = fillContratoDefaults(fallbackParsed as Partial<ContratoSocialData>); break;
+              default: break;
+            }
+            if (data!) {
+              console.log("[extract] Groq fallback succeeded!");
+              const filled = countFilledFields(data);
+              return NextResponse.json({
+                success: true, data,
+                meta: { rawTextLength: fallbackText.length, filledFields: filled, isScanned: false, aiPowered: true, usedFallback: true },
+              });
+            }
+          }
+        } catch (fallbackErr) {
+          console.error("[extract] Groq fallback also failed:", fallbackErr);
+        }
+      }
 
       switch (docType) {
         case "cnpj":           data = fillCNPJDefaults({}); break;
@@ -913,6 +1071,33 @@ export async function POST(request: NextRequest) {
         meta: { rawTextLength: textContent.length, filledFields: 0, isScanned: isImage, aiError: true },
       });
     }
+
+    // ──── 2-pass extraction: re-extract if >15% fields empty ────
+    const allFields = Object.keys(data as unknown as Record<string, unknown>).filter(k => k !== 'status');
+    const emptyFields = getEmptyFields(data as unknown as Record<string, unknown>);
+    const emptyPct = allFields.length > 0 ? emptyFields.length / allFields.length : 0;
+
+    if (emptyPct > 0.15 && emptyFields.length > 1) {
+      console.log(`[extract] ${(emptyPct * 100).toFixed(0)}% fields empty, attempting re-extraction for: ${emptyFields.join(', ')}`);
+      try {
+        const rePrompt = `Os seguintes campos NÃO foram encontrados na primeira análise: ${emptyFields.join(', ')}.\n\nAnalise o documento novamente focando ESPECIFICAMENTE nestes campos ausentes. Retorne APENAS os campos solicitados em JSON.`;
+        const reResponse = await callAI(rePrompt, textContent, imageContent, docType);
+        const reParsed = parseJSON<Record<string, unknown>>(reResponse);
+        // Merge: only fill in fields that were empty
+        for (const field of emptyFields) {
+          const newVal = reParsed[field];
+          if (newVal !== undefined && newVal !== null && newVal !== "") {
+            (data as unknown as Record<string, unknown>)[field] = newVal;
+          }
+        }
+        console.log(`[extract] Re-extraction filled ${emptyFields.length - getEmptyFields(data as unknown as Record<string, unknown>).length} additional fields`);
+      } catch {
+        console.log(`[extract] Re-extraction failed, using first pass results`);
+      }
+    }
+
+    // ──── Validate extracted data ────
+    validateExtractedData(data as unknown as Record<string, unknown>, docType);
 
     const filled = countFilledFields(data);
     return NextResponse.json({

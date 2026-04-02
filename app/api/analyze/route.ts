@@ -127,7 +127,7 @@ async function callGemini(prompt: string, data: string): Promise<string> {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             contents: [{ parts }],
-            generationConfig: { temperature: 0.3, maxOutputTokens: 8192, responseMimeType: "application/json" },
+            generationConfig: { temperature: 0.15, maxOutputTokens: 8192, responseMimeType: "application/json" },
           }),
         });
         if (response.status === 429) { await sleep(2000); break; }
@@ -317,6 +317,24 @@ export async function POST(request: NextRequest) {
     }
 
     const analysis = JSON.parse(cleaned);
+
+    // Validar e corrigir campos críticos
+    if (typeof analysis.rating === 'number') {
+      analysis.rating = Math.max(0, Math.min(10, Math.round(analysis.rating * 10) / 10));
+    } else {
+      analysis.rating = 5.0;
+    }
+    analysis.ratingMax = 10;
+    const validDecisions = ['APROVADO', 'PENDENTE', 'REPROVADO'];
+    if (!validDecisions.includes(analysis.decisao)) {
+      analysis.decisao = analysis.rating >= 7 ? 'APROVADO' : analysis.rating >= 4 ? 'PENDENTE' : 'REPROVADO';
+    }
+    if (!Array.isArray(analysis.alertas)) analysis.alertas = [];
+    if (!Array.isArray(analysis.pontosFortes)) analysis.pontosFortes = [];
+    if (!Array.isArray(analysis.pontosFracos)) analysis.pontosFracos = [];
+    if (!Array.isArray(analysis.perguntasVisita)) analysis.perguntasVisita = [];
+    if (!analysis.resumoExecutivo) analysis.resumoExecutivo = '';
+    if (!analysis.parecer) analysis.parecer = '';
 
     return NextResponse.json({
       success: true,
