@@ -63,11 +63,19 @@ function hydrateFromCollection(docs: { type: string; extracted_data: Record<stri
     void _em1;
     result.scr = { ...result.scr, ...data1 } as ExtractedData["scr"];
   } else if (scrDocs.length >= 2) {
+    console.log("[SCR sort] docs:", scrDocs.map(d => ({
+      filename: d.filename,
+      periodo: d.extracted_data?.periodoReferencia,
+    })));
     const sorted = [...scrDocs].sort((a, b) => {
       const [mA, yA] = (String(a.extracted_data?.periodoReferencia || "")).split("/").map(Number);
       const [mB, yB] = (String(b.extracted_data?.periodoReferencia || "")).split("/").map(Number);
       return (yB - yA) || (mB - mA); // decrescente — mais recente primeiro
     });
+    console.log("[SCR sort] resultado:", sorted.map(d => ({
+      filename: d.filename,
+      periodo: d.extracted_data?.periodoReferencia,
+    })));
     const { _editedManually: _em1, ...data1 } = sorted[0].extracted_data!;
     void _em1;
     const { _editedManually: _em2, ...data2 } = sorted[1].extracted_data!;
