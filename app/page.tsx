@@ -31,6 +31,7 @@ const defaultData: ExtractedData = {
 
 // ── Hydrate ExtractedData from saved CollectionDocuments ──
 function hydrateFromCollection(docs: { type: string; extracted_data: Record<string, unknown> }[]): ExtractedData {
+  console.log("[hydrate] chamado com", docs.length, "docs", docs.map(d => d.type));
   const result: ExtractedData = JSON.parse(JSON.stringify(defaultData));
   const typeMap: Record<string, keyof ExtractedData> = {
     cnpj: "cnpj",
