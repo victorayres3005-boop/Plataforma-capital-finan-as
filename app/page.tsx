@@ -57,7 +57,7 @@ function hydrateFromCollection(docs: { type: string; extracted_data: Record<stri
   }
 
   // SCR: ordena por periodoReferencia — mais recente = atual, mais antigo = anterior
-  const scrDocs = docs.filter(d => d.type === "scr_bacen" && d.extracted_data);
+  const scrDocs = docs.filter(d => d.type === "scr_bacen");
   if (scrDocs.length === 1) {
     const { _editedManually: _em1, ...data1 } = scrDocs[0].extracted_data!;
     void _em1;
