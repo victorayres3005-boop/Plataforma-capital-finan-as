@@ -31,7 +31,6 @@ const defaultData: ExtractedData = {
 
 // ── Hydrate ExtractedData from saved CollectionDocuments ──
 function hydrateFromCollection(docs: { type: string; extracted_data: Record<string, unknown> }[]): ExtractedData {
-  console.log("[hydrate] chamado com", docs.length, "docs", docs.map(d => d.type));
   const result: ExtractedData = JSON.parse(JSON.stringify(defaultData));
   const typeMap: Record<string, keyof ExtractedData> = {
     cnpj: "cnpj",
@@ -64,10 +63,6 @@ function hydrateFromCollection(docs: { type: string; extracted_data: Record<stri
     void _em1;
     result.scr = { ...result.scr, ...data1 } as ExtractedData["scr"];
   } else if (scrDocs.length >= 2) {
-    console.log("[SCR sort] docs:", scrDocs.map(d => ({
-      filename: (d as Record<string, unknown>).filename,
-      periodo: d.extracted_data?.periodoReferencia,
-    })));
     const sorted = [...scrDocs].sort((a, b) => {
       const periodoA = String(a.extracted_data?.periodoReferencia || "00/0000");
       const periodoB = String(b.extracted_data?.periodoReferencia || "00/0000");
@@ -80,10 +75,6 @@ function hydrateFromCollection(docs: { type: string; extracted_data: Record<stri
       return mB - mA;
     });
 
-    console.log("[SCR sort debug]", sorted.map(d => ({
-      filename: (d as Record<string, unknown>).filename,
-      periodo: d.extracted_data?.periodoReferencia,
-    })));
     const { _editedManually: _em1, ...data1 } = sorted[0].extracted_data!;
     void _em1;
     const { _editedManually: _em2, ...data2 } = sorted[1].extracted_data!;
