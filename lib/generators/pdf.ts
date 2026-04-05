@@ -930,6 +930,15 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         }
         yRight += 6;
 
+        doc.setFontSize(5);
+        doc.setTextColor(...colors.textMuted);
+        doc.text(
+          `[DEBUG] scr.periodo=${data.scr?.periodoReferencia || "?"} | scrAnterior.periodo=${data.scrAnterior?.periodoReferencia || "?"}`,
+          rightX + 2,
+          yRight + 3
+        );
+        yRight += 5;
+
         const fmtSCR = (v: string | undefined) => (v && v !== "0,00" && v !== "") ? `R$ ${v}` : "R$ 0,00";
         const fmtPct = (v: string | undefined) => (v && v !== "") ? `${v}%` : "—";
 
