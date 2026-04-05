@@ -686,7 +686,9 @@ function fillFaturamentoDefaults(data: Partial<FaturamentoData>): FaturamentoDat
 
   const porAno: Record<string, number[]> = {};
   for (const m of ordenados) {
-    const [, ano] = (m.mes || "").split("/");
+    const parts = (m.mes || "").split("/");
+    const anoRaw = parts[1] || "";
+    const ano = anoRaw.length === 2 ? "20" + anoRaw : anoRaw;
     if (!ano) continue;
     if (!porAno[ano]) porAno[ano] = [];
     porAno[ano].push(parseBR(m.valor));
