@@ -61,8 +61,8 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         ? parseMoneyToNumber(data.faturamento.fmm12m)
         : validMeses.slice(-12).reduce((s, m) => s + parseMoneyToNumber(m.valor), 0) / 12;
 
-      // Últimos 12 meses incluindo zeros (não filtra por valor > 0)
-      const mesesFMM = validMeses.slice(-12);
+      // Todos os meses extraídos
+      const mesesFMM = validMeses;
 
       const scrNum = parseMoneyToNumber(data.scr?.totalDividasAtivas || "0");
       const alavancagem = p.alavancagem ?? (fmmNum > 0 ? scrNum / fmmNum : 0);
@@ -604,12 +604,12 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       doc.text("FATURAMENTO / SCR", margin + 14, y + 6.5);
       y += 13;
 
-      // ── Two-column layout ──
+      // ── Stacked layout ──
       const colGap = 5;
-      const leftW = contentW * 0.60;
-      const rightW = contentW * 0.40 - colGap;
+      const leftW = contentW;
+      const rightW = contentW;
       const leftX = margin;
-      const rightX = margin + leftW + colGap;
+      const rightX = margin;
       const sectionY = y;
       // Gráfico usa os mesmos 12 meses do FMM
       const chartMeses = mesesFMM;
@@ -645,11 +645,25 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         const chartMax = Math.max(...chartVals, 1);
         const fmmChart = parseMoneyToNumber(data.faturamento.fmm12m || "0");
         const barAreaH = 48;
-        const labelH = 8;
+        const labelAreaH = mesesFMM.length > 12 ? 12 : 6;
         const n = chartMeses.length;
         const bW = Math.max(2, (leftW / n) - 1.5);
         const chartTopY = yLeft;
         const mesLabels = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+
+        const parseMesLabel = (mesStr: string): string => {
+          const parts = (mesStr || "").split("/");
+          const part0 = parts[0] || "";
+          const part1 = parts[1] || "";
+          const numerico = parseInt(part0);
+          if (!isNaN(numerico)) {
+            const yr = part1.length === 4 ? part1.slice(2) : part1;
+            return (mesLabels[numerico - 1] || part0) + (yr ? "/" + yr : "");
+          }
+          const capitalizado = part0.charAt(0).toUpperCase() + part0.slice(1).toLowerCase();
+          const yr = part1.length === 4 ? part1.slice(2) : part1;
+          return capitalizado + (yr ? "/" + yr : "");
+        };
 
         // FMM reference line
         if (fmmChart > 0) {
@@ -677,11 +691,14 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
           // Month label: "Jan/25"
           doc.setFontSize(4.5);
           doc.setTextColor(100, 100, 100);
-          const mParts = m.mes.split("/");
-          const mIdx = (parseInt(mParts[0]) - 1) % 12;
-          const yr = mParts[1] ? mParts[1].slice(2) : "";
-          const mLabel = (mesLabels[mIdx] || "") + (yr ? "/" + yr : "");
-          doc.text(mLabel, bX + bW / 2, chartTopY + barAreaH + 4.5, { align: "center" });
+          const mLabel = parseMesLabel(m.mes);
+          const labelX = bX + bW / 2;
+          const labelY = chartTopY + barAreaH + 4.5;
+          if (mesesFMM.length > 12) {
+            doc.text(mLabel, labelX, labelY, { align: "right", angle: 45 });
+          } else {
+            doc.text(mLabel, labelX, labelY, { align: "center" });
+          }
           // Value above bar in K (no decimals)
           if (bH > 6) {
             doc.setFontSize(4);
@@ -690,7 +707,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
           }
         });
 
-        yLeft = chartTopY + barAreaH + labelH + 1;
+        yLeft = chartTopY + barAreaH + labelAreaH + 1;
 
         // Summary line below chart
         const fmmK = fmmNum > 0 ? (fmmNum / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) : "—";
@@ -740,8 +757,8 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         yLeft += 30;
       }
 
-      // ── RIGHT COLUMN: SCR table ──
-      let yRight = sectionY;
+      // ── SCR (stacked below chart) ──
+      let yRight = yLeft + 6;
 
       const fmmVal = parseMoneyToNumber(data.faturamento.mediaAno || "0");
       const hasAnterior = !!(data.scrAnterior && data.scrAnterior.periodoReferencia);
@@ -922,8 +939,8 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         yRight += 4;
       }
 
-      // Advance y past both columns
-      y = Math.max(yLeft, yRight) + 6;
+      // Advance y past SCR
+      y = yRight + 6;
 
       // Modalidades and Instituicoes — overflow naturally via checkPageBreak
       if (data.scr.modalidades && data.scr.modalidades.length > 0) {
