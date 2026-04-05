@@ -605,7 +605,6 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       y += 13;
 
       // ── Stacked layout ──
-      const colGap = 5;
       const leftW = contentW;
       const rightW = contentW;
       const leftX = margin;
