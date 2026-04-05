@@ -645,7 +645,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         const fmmChart = parseMoneyToNumber(data.faturamento.fmm12m || "0");
         const barAreaH = 40;
         const barTopPadding = 10; // espaço reservado acima da barra mais alta para o label
-        const labelAreaH = mesesFMM.length > 6 ? 14 : 6;
+        const labelAreaH = mesesFMM.length > 6 ? 12 : 6;
         const n = chartMeses.length;
         const bW = Math.max(2, (leftW / n) - 1.5);
         const chartTopY = yLeft + barTopPadding;
@@ -693,8 +693,12 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
           doc.setTextColor(100, 100, 100);
           const mLabel = parseMesLabel(m.mes);
           const labelX = bX + bW / 2;
-          const labelY = chartTopY + barAreaH + 3;
-          doc.text(mLabel, labelX, labelY, { align: "left", angle: 90 });
+          const isEven = i % 2 === 0;
+          const labelY = chartTopY + barAreaH + (isEven ? 4 : 8);
+
+          doc.setFontSize(5.5);
+          doc.setTextColor(80, 80, 80);
+          doc.text(mLabel, labelX, labelY, { align: "center" });
           const vLabel = v >= 1000
             ? (v / 1000).toFixed(0) + "k"
             : v > 0
