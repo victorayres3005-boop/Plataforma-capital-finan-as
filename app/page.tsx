@@ -64,7 +64,7 @@ function hydrateFromCollection(docs: { type: string; extracted_data: Record<stri
     result.scr = { ...result.scr, ...data1 } as ExtractedData["scr"];
   } else if (scrDocs.length >= 2) {
     console.log("[SCR sort] docs:", scrDocs.map(d => ({
-      filename: d.filename,
+      filename: (d as Record<string, unknown>).filename,
       periodo: d.extracted_data?.periodoReferencia,
     })));
     const sorted = [...scrDocs].sort((a, b) => {
@@ -73,7 +73,7 @@ function hydrateFromCollection(docs: { type: string; extracted_data: Record<stri
       return (yB - yA) || (mB - mA); // decrescente — mais recente primeiro
     });
     console.log("[SCR sort] resultado:", sorted.map(d => ({
-      filename: d.filename,
+      filename: (d as Record<string, unknown>).filename,
       periodo: d.extracted_data?.periodoReferencia,
     })));
     const { _editedManually: _em1, ...data1 } = sorted[0].extracted_data!;
