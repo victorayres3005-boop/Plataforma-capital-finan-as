@@ -379,20 +379,19 @@ Schema JSON de saída (RESPEITE EXATAMENTE estes nomes de campos):
   "semHistorico": false,
   "numeroIfs": "",
   "faixasAVencer": {
-    "ate30d": "", "d31_60": "", "d61_90": "",
-    "d91_180": "", "d181_360": "", "acima360d": "",
-    "prazoIndeterminado": "", "total": ""
+    "ate30d": "0,00", "d31_60": "0,00", "d61_90": "0,00",
+    "d91_180": "0,00", "d181_360": "0,00", "acima360d": "0,00",
+    "prazoIndeterminado": "0,00", "total": "0,00"
   },
   "faixasVencidos": {
-    "ate30d": "", "d31_60": "", "d61_90": "",
-    "d91_180": "", "d181_360": "", "acima360d": "", "total": ""
+    "ate30d": "0,00", "d31_60": "0,00", "d61_90": "0,00",
+    "d91_180": "0,00", "d181_360": "0,00", "acima360d": "0,00", "total": "0,00"
   },
-  "faixasPrejuizos": { "ate12m": "", "acima12m": "", "total": "" },
-  "faixasLimite": { "ate360d": "", "acima360d": "", "total": "" },
+  "faixasPrejuizos": { "ate12m": "0,00", "acima12m": "0,00", "total": "0,00" },
+  "faixasLimite": { "ate360d": "0,00", "acima360d": "0,00", "total": "0,00" },
   "outrosValores": {
-    "carteiraCredito": "", "responsabilidadeTotal": "",
-    "riscoTotal": "", "coobrigacaoAssumida": "",
-    "coobrigacaoRecebida": "", "creditosALiberar": ""
+    "carteiraCredito": "0,00", "repasses": "0,00", "coobrigacoes": "0,00",
+    "responsabilidadeTotal": "0,00", "creditosALiberar": "0,00", "riscoTotal": "0,00"
   },
   "modalidades": [
     { "nome": "", "total": "", "aVencer": "", "vencido": "", "participacao": "" }
@@ -414,6 +413,19 @@ Schema JSON de saída (RESPEITE EXATAMENTE estes nomes de campos):
     "totalDividasAtivas": "", "vencidos": "", "prejuizos": "", "limiteCredito": "", "numeroIfs": ""
   }
 }
+
+REGRAS CRÍTICAS DE EXTRAÇÃO:
+- periodoReferencia: leia o cabeçalho do documento — "Resultado da Consulta - Período - MM/AAAA" — e extraia exatamente esse valor no formato MM/AAAA. Este campo é OBRIGATÓRIO e deve refletir o período impresso no topo do documento, nunca de outra seção.
+- Extraia TODOS os campos do documento, independente do layout ou formatação
+- O campo periodoReferencia é OBRIGATÓRIO — formato MM/YYYY (ex: "11/2025")
+- Se o documento mostrar "Resultado da Consulta - Período - MM/YYYY", esse é o periodoReferencia
+- Sempre extraia faixasAVencer com os campos: ate30d, d31_60, d61_90, d91_180, d181_360, acima360d, prazoIndeterminado, total
+- Sempre extraia faixasVencidos com os campos: ate30d, d31_60, d61_90, d91_180, d181_360, acima360d, total
+- Sempre extraia faixasPrejuizos com os campos: ate12m, acima12m, total
+- Sempre extraia faixasLimite com os campos: ate360d, acima360d, total
+- Sempre extraia outrosValores com os campos: carteiraCredito, repasses, coobrigacoes, responsabilidadeTotal, creditosALiberar, riscoTotal
+- Se um campo não existir no documento, retorne "0,00" — NUNCA omita o campo
+- pctDocumentosProcessados e pctVolumeProcessado são campos numéricos — extraia o valor sem o símbolo %
 
 REGRAS:
 - Campos de valor: use os valores TOTAIS da seção nos campos flat (carteiraAVencer, vencidos, prejuizos, limiteCredito) E os detalhes por faixa nos objetos (faixasAVencer, faixasVencidos, etc.)
