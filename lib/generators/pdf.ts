@@ -902,6 +902,93 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         }
 
         yRight += 4;
+
+        // ── Tabela comparativa de métricas ──
+        yRight += 3;
+        doc.setFillColor(...colors.primary);
+        doc.roundedRect(rightX, yRight, rightW, 6, 1, 1, "F");
+        doc.setFontSize(5.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(255, 255, 255);
+
+        const colMetrica = rightW * 0.40;
+        const colAt = rightW * 0.22;
+        const colAnt = rightW * 0.22;
+
+        doc.text("MÉTRICA", rightX + 2, yRight + 4);
+        doc.text(periodoAt, rightX + colMetrica + 2, yRight + 4);
+        if (hasAnterior) {
+          doc.text(periodoAnt, rightX + colMetrica + colAt + 2, yRight + 4);
+          doc.text("VAR.", rightX + colMetrica + colAt + colAnt + 2, yRight + 4);
+        }
+        yRight += 6;
+
+        const fmtSCR = (v: string | undefined) => (v && v !== "0,00" && v !== "") ? `R$ ${v}` : "R$ 0,00";
+        const fmtPct = (v: string | undefined) => (v && v !== "") ? `${v}%` : "—";
+
+        const fmmValSCR = data.faturamento?.fmm12m
+          ? parseMoneyToNumber(data.faturamento.fmm12m)
+          : 0;
+        const dividaAt = parseMoneyToNumber(data.scr.totalDividasAtivas || "0");
+        const dividaAnt = parseMoneyToNumber(data.scrAnterior?.totalDividasAtivas || "0");
+        const alavAt2 = fmmValSCR > 0 ? (dividaAt / fmmValSCR).toFixed(2) + "x" : "0,00x";
+        const alavAnt2 = fmmValSCR > 0 ? (dividaAnt / fmmValSCR).toFixed(2) + "x" : "0,00x";
+
+        const linhasComparativo = [
+          { label: "Carteira a Vencer",  at: fmtSCR(data.scr.carteiraAVencer),       ant: fmtSCR(data.scrAnterior?.carteiraAVencer),       positiveIsGood: false },
+          { label: "Vencidos",           at: fmtSCR(data.scr.vencidos),               ant: fmtSCR(data.scrAnterior?.vencidos),               positiveIsGood: false },
+          { label: "Prejuízos",          at: fmtSCR(data.scr.prejuizos),              ant: fmtSCR(data.scrAnterior?.prejuizos),              positiveIsGood: false },
+          { label: "Total Dívidas",      at: fmtSCR(data.scr.totalDividasAtivas),     ant: fmtSCR(data.scrAnterior?.totalDividasAtivas),     positiveIsGood: false, bold: true },
+          { label: "Limite de Crédito",  at: fmtSCR(data.scr.limiteCredito),          ant: fmtSCR(data.scrAnterior?.limiteCredito),          positiveIsGood: true },
+          { label: "Qtde IFs",           at: data.scr.qtdeInstituicoes || "0",        ant: data.scrAnterior?.qtdeInstituicoes || "0",        positiveIsGood: true },
+          { label: "Qtde Operações",     at: data.scr.qtdeOperacoes || "0",           ant: data.scrAnterior?.qtdeOperacoes || "0",           positiveIsGood: true },
+          { label: "% Docs Processados", at: fmtPct(data.scr.pctDocumentosProcessados), ant: fmtPct(data.scrAnterior?.pctDocumentosProcessados), positiveIsGood: true },
+          { label: "Alavancagem vs FMM", at: alavAt2,                                 ant: alavAnt2,                                         positiveIsGood: false, bold: true },
+        ];
+
+        linhasComparativo.forEach((linha, idx) => {
+          const bgColor: [number, number, number] = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+          doc.setFillColor(...bgColor);
+          doc.rect(rightX, yRight, rightW, 5.5, "F");
+
+          doc.setFontSize(5.5);
+          doc.setFont("helvetica", linha.bold ? "bold" : "normal");
+          doc.setTextColor(...colors.text);
+          doc.text(linha.label, rightX + 2, yRight + 3.8);
+          doc.text(linha.at, rightX + colMetrica + 2, yRight + 3.8);
+
+          if (hasAnterior) {
+            doc.text(linha.ant, rightX + colMetrica + colAt + 2, yRight + 3.8);
+
+            const numAt = parseFloat((linha.at || "0").replace(/[^0-9,]/g, "").replace(",", "."));
+            const numAnt = parseFloat((linha.ant || "0").replace(/[^0-9,]/g, "").replace(",", "."));
+
+            if (!isNaN(numAt) && !isNaN(numAnt) && numAnt !== 0) {
+              const varPct = ((numAt - numAnt) / numAnt) * 100;
+              const varStr = (varPct > 0 ? "+" : "") + varPct.toFixed(1) + "%";
+              const igual = Math.abs(varPct) < 0.1;
+              const melhorou = linha.positiveIsGood ? varPct > 0 : varPct < 0;
+              if (igual) {
+                doc.setTextColor(...colors.textMuted);
+              } else if (melhorou) {
+                doc.setTextColor(22, 163, 74);
+              } else {
+                doc.setTextColor(220, 38, 38);
+              }
+              doc.text(varStr, rightX + colMetrica + colAt + colAnt + 2, yRight + 3.8);
+              doc.setTextColor(...colors.text);
+            } else {
+              doc.setTextColor(...colors.textMuted);
+              doc.text("—", rightX + colMetrica + colAt + colAnt + 2, yRight + 3.8);
+              doc.setTextColor(...colors.text);
+            }
+          }
+
+          yRight += 5.5;
+        });
+
+        yRight += 4;
+
       } else {
         // Title
         const scrTableTitle = hasAnterior
