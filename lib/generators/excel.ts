@@ -1,0 +1,392 @@
+import type { ExtractedData, AIAnalysis } from "@/types";
+
+type AlertSeverity = "ALTA" | "MODERADA" | "INFO";
+interface Alert { message: string; severity: AlertSeverity; impacto?: string; }
+
+export interface ExcelReportParams {
+  data: ExtractedData;
+  aiAnalysis: AIAnalysis | null;
+  decision: string;
+  finalRating: number;
+  alerts: Alert[];
+  pontosFortes: string[];
+  pontosFracos: string[];
+  companyAge: string;
+  protestosVigentes: number;
+}
+
+function parseMoneyToNumber(val: string): number {
+  if (!val) return 0;
+  return parseFloat(val.replace(/\./g, "").replace(",", ".")) || 0;
+}
+
+export async function buildExcelReport(p: ExcelReportParams): Promise<Blob> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { data, decision, finalRating, alerts, pontosFortes, pontosFracos, companyAge, protestosVigentes } = p;
+
+      const ExcelJS = await import("exceljs");
+      const wb = new ExcelJS.Workbook();
+      wb.creator = "Capital Financas";
+      wb.created = new Date();
+
+      const NAVY = "FF203B88"; const GREEN = "FF73B815"; const WARNING = "FFD97706";
+      const SURFACE = "FFF5F7FB"; const STRIPE = "FFEDF2FB";
+      const BORDER_C = "FFD1DCF0"; const TEXT = "FF111827"; const MUTED = "FF6B7280"; const WHITE = "FFFFFFFF";
+      const DANGER = "FFDC2626";
+
+      const F = (c: string) => ({ type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: c } });
+      const B = { style: "thin" as const, color: { argb: BORDER_C } };
+      const BD = { top: B, bottom: B, left: B, right: B };
+      const genDate = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
+      const footerDate = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+
+      const ws = wb.addWorksheet("Relatorio Capital Financas");
+      ws.columns = [{ width: 2.5 }, { width: 28 }, { width: 28 }, { width: 20 }, { width: 14 }, { width: 2.5 }];
+      ws.views = [{ showGridLines: false }];
+
+      let r = 1;
+
+      // -- HEADER BRANDED --
+      ws.mergeCells(r, 1, r, 6);
+      ws.getRow(r).height = 48;
+      const h = ws.getRow(r).getCell(1);
+      h.value = "     capital financas"; h.font = { bold: true, size: 20, color: { argb: WHITE }, name: "Arial" };
+      h.fill = F(NAVY); h.alignment = { vertical: "middle" };
+      r++;
+
+      ws.mergeCells(r, 1, r, 6); ws.getRow(r).height = 5; ws.getRow(r).getCell(1).fill = F(GREEN); r++;
+
+      ws.mergeCells(r, 1, r, 6); ws.getRow(r).height = 24;
+      const sub = ws.getRow(r).getCell(1);
+      sub.value = "     RELATORIO CONSOLIDADO  —  Consolidador de Documentos";
+      sub.font = { size: 10, color: { argb: MUTED }, name: "Arial" }; sub.fill = F(SURFACE); sub.alignment = { vertical: "middle" };
+      r++;
+
+      ws.mergeCells(r, 1, r, 6); ws.getRow(r).height = 22;
+      const info = ws.getRow(r).getCell(1);
+      info.value = `     ${data.cnpj.razaoSocial || "Empresa"}  |  CNPJ: ${data.cnpj.cnpj || "—"}  |  Rating: ${finalRating}/10  |  ${decision}  |  ${genDate}`;
+      info.font = { size: 10, bold: true, color: { argb: NAVY }, name: "Arial" }; info.fill = F(STRIPE); info.alignment = { vertical: "middle" };
+      r++; r++;
+
+      // -- HELPERS --
+      const secTitle = (num: string, title: string, color: string) => {
+        ws.mergeCells(r, 2, r, 5);
+        ws.getRow(r).height = 30;
+        const c = ws.getRow(r).getCell(2);
+        c.value = `  ${num}    ${title}`;
+        c.font = { bold: true, size: 13, color: { argb: color }, name: "Arial" };
+        c.fill = F(SURFACE);
+        c.border = { left: { style: "medium" as const, color: { argb: color.replace("FF", "") } }, bottom: B };
+        c.alignment = { vertical: "middle" };
+        r++; r++;
+      };
+
+      const field2 = (label: string, value: string, i: number) => {
+        const bg = i % 2 === 0 ? STRIPE : WHITE;
+        ws.mergeCells(r, 3, r, 5);
+        ws.getRow(r).height = 24;
+        const cl = ws.getRow(r).getCell(2);
+        cl.value = label; cl.font = { bold: true, size: 10, color: { argb: MUTED }, name: "Arial" };
+        cl.fill = F(bg); cl.border = BD; cl.alignment = { vertical: "middle" };
+        const cv = ws.getRow(r).getCell(3);
+        cv.value = value || "—"; cv.font = { size: 11, color: { argb: TEXT }, name: "Arial", bold: !!value };
+        cv.fill = F(bg); cv.border = BD; cv.alignment = { vertical: "middle", wrapText: true };
+        r++;
+      };
+
+      const xlSpacer = () => { ws.getRow(r).height = 10; r++; };
+
+      const xlTable = (headers: string[], rows: string[][], headerColor: string) => {
+        const hRow = ws.getRow(r);
+        hRow.height = 26;
+        headers.forEach((hdr, i) => {
+          const c = hRow.getCell(i + 2);
+          c.value = hdr; c.font = { bold: true, size: 9, color: { argb: WHITE }, name: "Arial" };
+          c.fill = F(headerColor); c.border = BD; c.alignment = { vertical: "middle", horizontal: "center" };
+        });
+        r++;
+        rows.forEach((row, i) => {
+          const xlRow = ws.getRow(r);
+          xlRow.height = 24;
+          const bg = i % 2 === 0 ? STRIPE : WHITE;
+          row.forEach((v, ci) => {
+            const c = xlRow.getCell(ci + 2);
+            c.value = v; c.font = { size: 10, color: { argb: TEXT }, name: "Arial" };
+            c.fill = F(bg); c.border = BD; c.alignment = { vertical: "middle" };
+          });
+          r++;
+        });
+      };
+
+      // ======= SECAO 01: IDENTIFICACAO =======
+      secTitle("01", "IDENTIFICACAO DA EMPRESA", NAVY);
+      [
+        ["Razao Social", data.cnpj.razaoSocial], ["Nome Fantasia", data.cnpj.nomeFantasia],
+        ["CNPJ", data.cnpj.cnpj], ["Data de Abertura", data.cnpj.dataAbertura],
+        ["Situacao Cadastral", data.cnpj.situacaoCadastral], ["Data da Situacao", data.cnpj.dataSituacaoCadastral],
+        ["Motivo da Situacao", data.cnpj.motivoSituacao], ["Natureza Juridica", data.cnpj.naturezaJuridica],
+        ["CNAE Principal", data.cnpj.cnaePrincipal], ["CNAEs Secundarios", data.cnpj.cnaeSecundarios],
+        ["Porte", data.cnpj.porte], ["Capital Social (CNPJ)", data.cnpj.capitalSocialCNPJ],
+        ["Endereco Completo", data.cnpj.endereco],
+        ["Telefone", data.cnpj.telefone], ["E-mail", data.cnpj.email],
+      ].forEach(([l, v], i) => field2(l, v, i));
+
+      xlSpacer(); xlSpacer();
+
+      // ======= SECAO 02: QSA =======
+      secTitle("02", "QUADRO SOCIETARIO (QSA)", GREEN);
+      if (data.qsa.capitalSocial) field2("Capital Social", data.qsa.capitalSocial, 0);
+      xlSpacer();
+
+      const validQSAXl = data.qsa.quadroSocietario.filter(s => s.nome);
+      if (validQSAXl.length > 0) {
+        xlTable(
+          ["NOME", "CPF/CNPJ", "QUALIFICACAO", "PART."],
+          validQSAXl.map(s => [s.nome, s.cpfCnpj || "—", s.qualificacao || "—", s.participacao || "—"]),
+          GREEN,
+        );
+      } else {
+        ws.mergeCells(r, 2, r, 5);
+        ws.getRow(r).getCell(2).value = "Nenhum socio encontrado no QSA";
+        ws.getRow(r).getCell(2).font = { size: 10, italic: true, color: { argb: MUTED }, name: "Arial" };
+        r++;
+      }
+
+      xlSpacer(); xlSpacer();
+
+      // ======= SECAO 03: CONTRATO SOCIAL =======
+      secTitle("03", "CONTRATO SOCIAL", NAVY);
+
+      const validSociosXl = data.contrato.socios.filter(s => s.nome);
+      if (validSociosXl.length > 0) {
+        xlTable(
+          ["NOME DO SOCIO", "CPF", "QUALIFICACAO", "PART."],
+          validSociosXl.map(s => [s.nome, s.cpf || "—", s.qualificacao || "—", s.participacao || "—"]),
+          NAVY,
+        );
+      } else {
+        ws.mergeCells(r, 2, r, 5);
+        ws.getRow(r).getCell(2).value = "Nenhum socio encontrado";
+        ws.getRow(r).getCell(2).font = { size: 10, italic: true, color: { argb: MUTED }, name: "Arial" };
+        r++;
+      }
+
+      xlSpacer();
+      [
+        ["Capital Social", data.contrato.capitalSocial], ["Data de Constituicao", data.contrato.dataConstituicao],
+        ["Prazo de Duracao", data.contrato.prazoDuracao], ["Foro", data.contrato.foro],
+        ["Objeto Social", data.contrato.objetoSocial], ["Administracao e Poderes", data.contrato.administracao],
+        ["Alteracoes Societarias", data.contrato.temAlteracoes ? "SIM — Alteracoes recentes" : "Nao identificadas"],
+      ].forEach(([l, v], i) => field2(l, v as string, i));
+
+      xlSpacer(); xlSpacer();
+
+      // ======= SECAO 04: FATURAMENTO =======
+      secTitle("04", "FATURAMENTO", GREEN);
+
+      if (data.faturamento.faturamentoZerado) {
+        field2("[ALTA] ALERTA", "Faturamento zerado no periodo", 0);
+      }
+      if (!data.faturamento.dadosAtualizados) {
+        field2("[MODERADA] ATENCAO", `Dados desatualizados — ultimo mes: ${data.faturamento.ultimoMesComDados || "N/A"}`, 1);
+      }
+
+      [
+        ["Somatoria Anual (R$)", data.faturamento.somatoriaAno],
+        ["Media Mensal (R$)", data.faturamento.mediaAno],
+        ["Ultimo Mes com Dados", data.faturamento.ultimoMesComDados],
+      ].forEach(([l, v], i) => field2(l, v, i));
+
+      xlSpacer();
+      const validMesesXl = data.faturamento.meses.filter(m => m.mes);
+      if (validMesesXl.length > 0) {
+        xlTable(
+          ["MES", "VALOR (R$)", "", ""],
+          validMesesXl.map(m => [m.mes, m.valor || "0,00", "", ""]),
+          GREEN,
+        );
+      }
+
+      xlSpacer(); xlSpacer();
+
+      // ======= SECAO 05: SCR / BACEN =======
+      secTitle("05", "PERFIL DE CREDITO — SCR / BACEN", WARNING);
+      [
+        ["Carteira a Vencer (R$)", data.scr.carteiraAVencer],
+        ["Vencidos (R$)", data.scr.vencidos],
+        ["Prejuizos (R$)", data.scr.prejuizos],
+        ["Limite de Credito (R$)", data.scr.limiteCredito],
+        ["Qtde Instituicoes", data.scr.qtdeInstituicoes],
+        ["Qtde Operacoes", data.scr.qtdeOperacoes],
+        ["Total de Dividas Ativas (R$)", data.scr.totalDividasAtivas],
+        ["Classificacao de Risco (A-H)", data.scr.classificacaoRisco],
+        ["Operacoes a Vencer (R$)", data.scr.operacoesAVencer],
+        ["Operacoes em Atraso", data.scr.operacoesEmAtraso],
+        ["Operacoes Vencidas (R$)", data.scr.operacoesVencidas],
+        ["Tempo Medio de Atraso", data.scr.tempoAtraso],
+        ["Coobrigacoes / Garantias (R$)", data.scr.coobrigacoes],
+        ["Carteira Curto Prazo (R$)", data.scr.carteiraCurtoPrazo],
+        ["Carteira Longo Prazo (R$)", data.scr.carteiraLongoPrazo],
+        ["Valores Moeda Estrangeira", data.scr.valoresMoedaEstrangeira],
+        ["Historico de Inadimplencia", data.scr.historicoInadimplencia],
+      ].forEach(([l, v], i) => field2(l, v, i));
+
+      // SCR Comparison
+      if (data.scrAnterior) {
+        xlSpacer();
+        ws.mergeCells(r, 2, r, 5);
+        ws.getRow(r).getCell(2).value = "COMPARATIVO SCR (ANTERIOR vs ATUAL)";
+        ws.getRow(r).getCell(2).font = { bold: true, size: 10, color: { argb: MUTED }, name: "Arial" };
+        r++;
+        const compMetrics = [
+          { label: "Carteira a Vencer", ant: data.scrAnterior.carteiraAVencer, at: data.scr.carteiraAVencer },
+          { label: "Vencidos", ant: data.scrAnterior.vencidos, at: data.scr.vencidos },
+          { label: "Prejuizos", ant: data.scrAnterior.prejuizos, at: data.scr.prejuizos },
+          { label: "Total Dividas", ant: data.scrAnterior.totalDividasAtivas, at: data.scr.totalDividasAtivas },
+          { label: "Limite Credito", ant: data.scrAnterior.limiteCredito, at: data.scr.limiteCredito },
+        ];
+        xlTable(
+          ["METRICA", "ANTERIOR", "ATUAL", "VARIACAO"],
+          compMetrics.map(m => {
+            const d1 = parseMoneyToNumber(m.ant); const d2 = parseMoneyToNumber(m.at);
+            const diff = d2 - d1;
+            return [m.label, m.ant || "—", m.at || "—", diff === 0 ? "=" : diff > 0 ? `+${diff.toLocaleString("pt-BR")}` : diff.toLocaleString("pt-BR")];
+          }),
+          WARNING,
+        );
+      }
+
+      // Modalidades
+      if (data.scr.modalidades.length > 0) {
+        xlSpacer();
+        ws.mergeCells(r, 2, r, 5);
+        ws.getRow(r).getCell(2).value = "MODALIDADES DE CREDITO";
+        ws.getRow(r).getCell(2).font = { bold: true, size: 10, color: { argb: MUTED }, name: "Arial" };
+        r++;
+        xlTable(
+          ["MODALIDADE", "TOTAL", "A VENCER", "VENCIDO"],
+          data.scr.modalidades.map(m => [m.nome, m.total, m.aVencer, m.vencido]),
+          WARNING,
+        );
+      }
+
+      // Instituicoes
+      if (data.scr.instituicoes.length > 0) {
+        xlSpacer();
+        ws.mergeCells(r, 2, r, 5);
+        ws.getRow(r).getCell(2).value = "INSTITUICOES CREDORAS";
+        ws.getRow(r).getCell(2).font = { bold: true, size: 10, color: { argb: MUTED }, name: "Arial" };
+        r++;
+        xlTable(
+          ["INSTITUICAO", "VALOR (R$)", "", ""],
+          data.scr.instituicoes.map(i => [i.nome, i.valor, "", ""]),
+          WARNING,
+        );
+      }
+
+      xlSpacer(); xlSpacer();
+
+      // ======= SECAO 06: PROTESTOS =======
+      secTitle("06", "PROTESTOS", DANGER);
+      [
+        ["Vigentes (Qtd)", data.protestos?.vigentesQtd || "0"],
+        ["Vigentes (R$)", data.protestos?.vigentesValor || "0,00"],
+        ["Regularizados (Qtd)", data.protestos?.regularizadosQtd || "0"],
+        ["Regularizados (R$)", data.protestos?.regularizadosValor || "0,00"],
+      ].forEach(([l, v], i) => field2(l, v, i));
+
+      const protestoDetXl = data.protestos?.detalhes || [];
+      if (protestoDetXl.length > 0) {
+        xlSpacer();
+        xlTable(
+          ["DATA", "CREDOR", "VALOR (R$)", "STATUS"],
+          protestoDetXl.map(p => [p.data || "—", p.credor || "—", p.valor || "—", p.regularizado ? "Regularizado" : "Vigente"]),
+          DANGER,
+        );
+      }
+
+      xlSpacer(); xlSpacer();
+
+      // ======= SECAO 07: PROCESSOS =======
+      secTitle("07", "PROCESSOS JUDICIAIS", WARNING);
+      [
+        ["Passivos (Total)", data.processos?.passivosTotal || "0"],
+        ["Ativos (Total)", data.processos?.ativosTotal || "0"],
+        ["Valor Estimado (R$)", data.processos?.valorTotalEstimado || "0,00"],
+        ["Recuperacao Judicial", data.processos?.temRJ ? "SIM" : "NAO"],
+      ].forEach(([l, v], i) => field2(l, v, i));
+
+      const distXl = data.processos?.distribuicao || [];
+      if (distXl.length > 0) {
+        xlSpacer();
+        ws.mergeCells(r, 2, r, 5);
+        ws.getRow(r).getCell(2).value = "DISTRIBUICAO POR TIPO";
+        ws.getRow(r).getCell(2).font = { bold: true, size: 10, color: { argb: MUTED }, name: "Arial" };
+        r++;
+        xlTable(
+          ["TIPO", "QUANTIDADE", "PERCENTUAL", ""],
+          distXl.map(d => [d.tipo, d.qtd, d.pct ? `${d.pct}%` : "—", ""]),
+          WARNING,
+        );
+      }
+
+      const bancXl = data.processos?.bancarios || [];
+      if (bancXl.length > 0) {
+        xlSpacer();
+        ws.mergeCells(r, 2, r, 5);
+        ws.getRow(r).getCell(2).value = "PROCESSOS BANCARIOS";
+        ws.getRow(r).getCell(2).font = { bold: true, size: 10, color: { argb: MUTED }, name: "Arial" };
+        r++;
+        xlTable(
+          ["BANCO", "ASSUNTO", "STATUS", "DATA"],
+          bancXl.map(b => [b.banco || "—", b.assunto || "—", b.status || "—", b.data || "—"]),
+          WARNING,
+        );
+      }
+
+      xlSpacer(); xlSpacer();
+
+      // ======= SECAO 08: GRUPO ECONOMICO =======
+      secTitle("08", "GRUPO ECONOMICO", NAVY);
+      const geXl = data.grupoEconomico?.empresas || [];
+      if (geXl.length > 0) {
+        xlTable(
+          ["RAZAO SOCIAL", "CNPJ", "RELACAO", "SCR (R$)"],
+          geXl.map(e => [e.razaoSocial, e.cnpj, e.relacao, e.scrTotal || "—"]),
+          NAVY,
+        );
+      } else {
+        ws.mergeCells(r, 2, r, 5);
+        ws.getRow(r).getCell(2).value = "Nenhuma empresa identificada no grupo economico";
+        ws.getRow(r).getCell(2).font = { size: 10, italic: true, color: { argb: MUTED }, name: "Arial" };
+        r++;
+      }
+
+      xlSpacer(); xlSpacer();
+
+      // ======= SECAO 09: PARECER =======
+      secTitle("09", "PARECER FINAL", NAVY);
+      field2("Decisao", decision, 0);
+      field2("Rating", `${finalRating}/10`, 1);
+      field2("Parecer", data.resumoRisco || "Parecer nao preenchido.", 2);
+
+      xlSpacer(); xlSpacer();
+
+      // -- Rodape de dados --
+      field2("Data de Geracao", genDate, 0);
+      field2("Empresa Analisada", data.cnpj.razaoSocial, 1);
+      field2("CNPJ", data.cnpj.cnpj, 2);
+
+      xlSpacer(); xlSpacer();
+
+      // -- FOOTER --
+      ws.mergeCells(r, 2, r, 5);
+      ws.getRow(r).getCell(2).value = `Capital Financas — Consolidador | ${footerDate} | Confidencial`;
+      ws.getRow(r).getCell(2).font = { size: 8, italic: true, color: { argb: "FF9CA3AF" }, name: "Arial" };
+      ws.getRow(r).getCell(2).alignment = { horizontal: "center" };
+
+      const buffer = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+
+  return blob;
+}

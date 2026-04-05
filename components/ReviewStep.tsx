@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, ArrowLeft, Plus, Trash2, AlertTriangle, ChevronDown, ChevronUp, AlertCircle, GitCompareArrows } from "lucide-react";
-import { ExtractedData, Socio, QSASocio, FaturamentoMensal, SCRModalidade, SCRInstituicao } from "@/types";
+import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, ArrowLeft, Plus, Trash2, AlertTriangle, ChevronDown, ChevronUp, AlertCircle } from "lucide-react";
+import { ExtractedData, Socio, QSASocio, FaturamentoMensal, SCRModalidade, SCRInstituicao, SCRData } from "@/types";
 
 interface ReviewStepProps {
   data: ExtractedData;
@@ -38,15 +38,133 @@ function SectionCard({
   );
 }
 
+// ── Quality assessment ──
+interface QualityResult {
+  score: "good" | "warning" | "error";
+  filledFields: number;
+  totalFields: number;
+  pct: number;
+  issues: string[];
+}
+
+function avaliarQualidade(type: string, data: Record<string, unknown>): QualityResult {
+  const issues: string[] = [];
+  let filled = 0;
+  let total = 0;
+
+  const check = (field: unknown, label: string, required = false) => {
+    total++;
+    const isEmpty = !field || field === "" || field === "0" || field === "0,00" || (Array.isArray(field) && field.length === 0);
+    if (!isEmpty) { filled++; }
+    else if (required) { issues.push(`${label} nao encontrado`); }
+  };
+
+  switch (type) {
+    case "cnpj":
+      check(data.razaoSocial, "Razao Social", true);
+      check(data.cnpj, "CNPJ", true);
+      check(data.situacaoCadastral, "Situacao Cadastral", true);
+      check(data.dataAbertura, "Data de Abertura");
+      check(data.cnaePrincipal, "CNAE Principal");
+      check(data.porte, "Porte");
+      check(data.endereco, "Endereco");
+      check(data.capitalSocialCNPJ, "Capital Social");
+      break;
+    case "qsa": {
+      check(data.quadroSocietario, "Quadro Societario", true);
+      const socios = (data.quadroSocietario || []) as Record<string, unknown>[];
+      if (socios.filter(s => s.nome).length === 0) issues.push("Nenhum socio identificado");
+      else socios.forEach((s, i) => { if (!s.cpfCnpj) issues.push(`Socio ${i + 1}: CPF/CNPJ ausente`); });
+      break;
+    }
+    case "contrato":
+      check(data.capitalSocial, "Capital Social", true);
+      check(data.dataConstituicao, "Data de Constituicao");
+      check(data.administracao, "Administracao");
+      check(data.objetoSocial, "Objeto Social");
+      { const sc = (data.socios || []) as Record<string, unknown>[]; total++; if (sc.filter(s => s.nome).length > 0) filled++; else issues.push("Nenhum socio no contrato"); }
+      break;
+    case "faturamento":
+      check(data.mediaAno || data.mediaMensal, "Media Mensal", true);
+      { const m = (data.meses || []) as unknown[]; total++;
+        if (m.length === 0) issues.push("Nenhum mes de faturamento extraido");
+        else if (m.length < 6) { issues.push(`Apenas ${m.length} meses — ideal 12+`); filled += 0.5; }
+        else filled++;
+      }
+      if (data.faturamentoZerado) issues.push("Faturamento zerado no periodo");
+      break;
+    case "scr":
+      check(data.periodoReferencia, "Periodo de Referencia", true);
+      check(data.totalDividasAtivas, "Total de Dividas");
+      check(data.carteiraAVencer, "Carteira a Vencer");
+      check(data.qtdeInstituicoes, "N de Instituicoes");
+      break;
+    default:
+      total = 1; filled = data && Object.keys(data).length > 0 ? 1 : 0;
+  }
+
+  const pct = total > 0 ? Math.round((filled / total) * 100) : 0;
+  const score: QualityResult["score"] = issues.some(i => i.includes("nao encontrado") || i.includes("Nenhum")) ? "error" : pct >= 70 ? "good" : "warning";
+  return { score, filledFields: Math.round(filled), totalFields: total, pct, issues };
+}
+
+function podeAvancar(qm: Record<string, QualityResult>): { pode: boolean; motivos: string[] } {
+  const motivos: string[] = [];
+  if (qm.cnpj?.score === "error") motivos.push("Cartao CNPJ com dados criticos faltando");
+  if (qm.faturamento?.score === "error") motivos.push("Faturamento sem dados de media mensal");
+  const total = Object.keys(qm).length;
+  const errs = Object.values(qm).filter(q => q.score === "error").length;
+  if (total > 0 && errs === total) motivos.push("Nenhum documento foi extraido com sucesso");
+  return { pode: motivos.length === 0, motivos };
+}
+
+function getAvisos(qm: Record<string, QualityResult>): string[] {
+  const labels: Record<string, string> = { cnpj: "Cartao CNPJ", qsa: "QSA", contrato: "Contrato Social", faturamento: "Faturamento", scr: "SCR" };
+  return Object.entries(qm)
+    .filter(([, q]) => q.score === "warning")
+    .map(([type, q]) => `${labels[type] || type}: ${q.issues[0] || "dados incompletos"}`);
+}
+
+function QualityBadge({ quality }: { quality: QualityResult }) {
+  const cfg = {
+    good: { bg: "bg-green-50", border: "border-green-200", text: "text-green-700", icon: "✓", label: "Boa qualidade" },
+    warning: { bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-700", icon: "⚠", label: "Revisar campos" },
+    error: { bg: "bg-red-50", border: "border-red-200", text: "text-red-700", icon: "✕", label: "Dados incompletos" },
+  };
+  const c = cfg[quality.score];
+  return (
+    <div className={`${c.bg} ${c.border} border rounded-lg p-3 mt-2`}>
+      <div className="flex items-center justify-between mb-1.5">
+        <span className={`text-[11px] font-semibold ${c.text} flex items-center gap-1`}>
+          <span>{c.icon}</span> {c.label} — {quality.pct}% extraido
+        </span>
+      </div>
+      <div className="w-full bg-gray-200 rounded-full h-1.5 mb-2">
+        <div className={`h-1.5 rounded-full transition-all ${quality.score === "good" ? "bg-green-500" : quality.score === "warning" ? "bg-amber-500" : "bg-red-500"}`} style={{ width: `${quality.pct}%` }} />
+      </div>
+      {quality.issues.length > 0 && (
+        <ul className="space-y-0.5">
+          {quality.issues.map((issue, i) => (
+            <li key={i} className={`text-[10px] ${c.text} opacity-80 flex items-start gap-1`}>
+              <span className="mt-0.5 flex-shrink-0">→</span>{issue}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function Field({ label, value, onChange, multiline = false, span2 = false }: {
   label: string; value: string; onChange: (v: string) => void; multiline?: boolean; span2?: boolean;
 }) {
+  const isEmpty = !value || value === "" || value === "0" || value === "0,00";
   return (
     <div className={span2 ? "col-span-2" : ""}>
       <label className="section-label block mb-1.5">{label}</label>
       {multiline
-        ? <textarea value={value} onChange={e => onChange(e.target.value)} rows={4} className="input-field resize-none" />
-        : <input type="text" value={value} onChange={e => onChange(e.target.value)} className="input-field" />
+        ? <textarea value={value} onChange={e => onChange(e.target.value)} rows={4} className={`input-field resize-none ${isEmpty ? "border-amber-200 bg-amber-50/30" : ""}`} />
+        : <input type="text" value={value} onChange={e => onChange(e.target.value)} className={`input-field ${isEmpty ? "border-amber-200 bg-amber-50/30" : ""}`} />
       }
     </div>
   );
@@ -55,6 +173,7 @@ function Field({ label, value, onChange, multiline = false, span2 = false }: {
 export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps) {
   const [form, setForm] = useState<ExtractedData>(() => JSON.parse(JSON.stringify(data)));
   const [open, setOpen] = useState({ cnpj: true, qsa: true, contrato: false, faturamento: true, scr: true });
+  const [showSCRDetails, setShowSCRDetails] = useState(false);
 
   const toggle = (k: keyof typeof open) => setOpen(p => ({ ...p, [k]: !p[k] }));
 
@@ -86,12 +205,12 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
     setForm(p => { const m = [...p.faturamento.meses]; m[i] = { ...m[i], [k]: v }; return { ...p, faturamento: { ...p.faturamento, meses: m } }; });
   const addFatMes = () => setForm(p => ({ ...p, faturamento: { ...p.faturamento, meses: [...p.faturamento.meses, { mes: "", valor: "" }] } }));
   const removeFatMes = (i: number) => setForm(p => ({ ...p, faturamento: { ...p.faturamento, meses: p.faturamento.meses.filter((_, idx) => idx !== i) } }));
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const setFatField = (k: 'somatoriaAno' | 'mediaAno' | 'ultimoMesComDados', v: string) =>
     setForm(p => ({ ...p, faturamento: { ...p.faturamento, [k]: v } }));
 
   // ── SCR setters ──
-  type SCRStringKey = { [K in keyof typeof form.scr]: (typeof form.scr)[K] extends string ? K : never }[keyof typeof form.scr];
-  const setSCR = (k: SCRStringKey, v: string) => setForm(p => ({ ...p, scr: { ...p.scr, [k]: v } }));
+  const setSCR = (k: keyof SCRData, v: string) => setForm(p => ({ ...p, scr: { ...p.scr, [k]: v } }));
   const setSCRMod = (i: number, k: keyof SCRModalidade, v: string) =>
     setForm(p => { const m = [...p.scr.modalidades]; m[i] = { ...m[i], [k]: v }; return { ...p, scr: { ...p.scr, modalidades: m } }; });
   const addSCRMod = () => setForm(p => ({ ...p, scr: { ...p.scr, modalidades: [...p.scr.modalidades, { nome: "", total: "", aVencer: "", vencido: "", participacao: "" }] } }));
@@ -101,12 +220,69 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
   const addSCRInst = () => setForm(p => ({ ...p, scr: { ...p.scr, instituicoes: [...p.scr.instituicoes, { nome: "", valor: "" }] } }));
   const removeSCRInst = (i: number) => setForm(p => ({ ...p, scr: { ...p.scr, instituicoes: p.scr.instituicoes.filter((_, idx) => idx !== i) } }));
 
+  // ── Quality assessment ──
+  const qualityMap = {
+    cnpj: avaliarQualidade("cnpj", form.cnpj as unknown as Record<string, unknown>),
+    qsa: avaliarQualidade("qsa", form.qsa as unknown as Record<string, unknown>),
+    contrato: avaliarQualidade("contrato", form.contrato as unknown as Record<string, unknown>),
+    faturamento: avaliarQualidade("faturamento", form.faturamento as unknown as Record<string, unknown>),
+    scr: avaliarQualidade("scr", form.scr as unknown as Record<string, unknown>),
+  };
+  const goodCount = Object.values(qualityMap).filter(q => q.score === "good").length;
+  const warningCount = Object.values(qualityMap).filter(q => q.score === "warning").length;
+  const errorCount = Object.values(qualityMap).filter(q => q.score === "error").length;
+  const { pode, motivos } = podeAvancar(qualityMap);
+  const avisos = getAvisos(qualityMap);
+  const [forcarAvancar, setForcarAvancar] = useState(false);
+
   return (
     <div className="animate-slide-up space-y-4">
 
+      {/* Quality summary banner */}
+      {!pode && !forcarAvancar ? (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-red-700 mb-1">Nao e possivel prosseguir</p>
+              <ul className="space-y-1">
+                {motivos.map((m, i) => (
+                  <li key={i} className="text-xs text-red-600 flex items-start gap-1"><span className="mt-0.5">→</span>{m}</li>
+                ))}
+              </ul>
+              <p className="text-[10px] text-red-400 mt-2">Corrija os campos destacados em vermelho ou reenvie os documentos com problema.</p>
+            </div>
+          </div>
+        </div>
+      ) : pode && avisos.length > 0 ? (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-amber-700 mb-1">Dados incompletos — revise antes de prosseguir</p>
+              <ul className="space-y-1">
+                {avisos.map((a, i) => (
+                  <li key={i} className="text-xs text-amber-600 flex items-start gap-1"><span className="mt-0.5">→</span>{a}</li>
+                ))}
+              </ul>
+              <p className="text-[10px] text-amber-400 mt-2">Voce pode prosseguir, mas o relatorio pode ficar incompleto.</p>
+            </div>
+          </div>
+        </div>
+      ) : errorCount === 0 && warningCount === 0 ? (
+        <div className="flex items-start gap-3 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+          <AlertCircle size={15} className="text-green-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-semibold text-green-700">Todos os {goodCount} documentos foram extraidos com boa qualidade</p>
+            <p className="text-[10px] text-green-500 mt-0.5">Revise os dados e prossiga para gerar o relatorio</p>
+          </div>
+        </div>
+      ) : null}
+
       {/* ═══ 01 — CNPJ ═══ */}
       <SectionCard number="01" icon={<Building2 size={16} className="text-cf-navy" />} title="Identificação da Empresa — Cartão CNPJ"
-        iconColor="bg-cf-navy/10" expanded={open.cnpj} onToggle={() => toggle("cnpj")}>
+        iconColor="bg-cf-navy/10" expanded={open.cnpj} onToggle={() => toggle("cnpj")}
+        badge={<span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${qualityMap.cnpj.score === "good" ? "bg-green-100 text-green-700" : qualityMap.cnpj.score === "warning" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>{qualityMap.cnpj.pct}%</span>}>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Razão Social" value={form.cnpj.razaoSocial} onChange={v => setCNPJ("razaoSocial", v)} span2 />
           <Field label="Nome Fantasia" value={form.cnpj.nomeFantasia} onChange={v => setCNPJ("nomeFantasia", v)} />
@@ -124,11 +300,13 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
           <Field label="Telefone" value={form.cnpj.telefone} onChange={v => setCNPJ("telefone", v)} />
           <Field label="E-mail" value={form.cnpj.email} onChange={v => setCNPJ("email", v)} />
         </div>
+        <QualityBadge quality={qualityMap.cnpj} />
       </SectionCard>
 
       {/* ═══ 02 — QSA ═══ */}
       <SectionCard number="02" icon={<Users size={16} className="text-indigo-600" />} title="Quadro de Sócios e Administradores — QSA"
-        iconColor="bg-indigo-100" expanded={open.qsa} onToggle={() => toggle("qsa")}>
+        iconColor="bg-indigo-100" expanded={open.qsa} onToggle={() => toggle("qsa")}
+        badge={<span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${qualityMap.qsa.score === "good" ? "bg-green-100 text-green-700" : qualityMap.qsa.score === "warning" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>{qualityMap.qsa.pct}%</span>}>
         <div className="space-y-4">
           <Field label="Capital Social" value={form.qsa.capitalSocial} onChange={v => setQSAField("capitalSocial", v)} />
 
@@ -175,6 +353,7 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
             </div>
           </div>
         </div>
+        <QualityBadge quality={qualityMap.qsa} />
       </SectionCard>
 
       {/* ═══ 03 — Contrato Social ═══ */}
@@ -240,25 +419,56 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
             </span>
           </label>
         </div>
+        <QualityBadge quality={qualityMap.contrato} />
       </SectionCard>
 
       {/* ═══ 04 — Faturamento ═══ */}
       <SectionCard number="04" icon={<TrendingUp size={16} className="text-emerald-600" />} title="Faturamento"
         iconColor="bg-emerald-100" expanded={open.faturamento} onToggle={() => toggle("faturamento")}
-        badge={
-          form.faturamento.faturamentoZerado
+        badge={<>
+          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${qualityMap.faturamento.score === "good" ? "bg-green-100 text-green-700" : qualityMap.faturamento.score === "warning" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>{qualityMap.faturamento.pct}%</span>
+          {form.faturamento.faturamentoZerado
             ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded-full border border-red-200"><AlertCircle size={10} /> Zerado</span>
             : !form.faturamento.dadosAtualizados
               ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-cf-warning bg-cf-warning-bg px-2 py-0.5 rounded-full border border-cf-warning/20"><AlertTriangle size={10} /> Desatualizado</span>
-              : undefined
-        }>
+              : null}
+        </>}>
         <div className="space-y-4">
-          {/* Resumo */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Field label="Somatória do Ano (R$)" value={form.faturamento.somatoriaAno} onChange={v => setFatField("somatoriaAno", v)} />
-            <Field label="Média Mensal (R$)" value={form.faturamento.mediaAno} onChange={v => setFatField("mediaAno", v)} />
-            <Field label="Último Mês com Dados" value={form.faturamento.ultimoMesComDados} onChange={v => setFatField("ultimoMesComDados", v)} />
+          {/* Métricas FMM */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-cf-surface rounded-xl p-3 border border-cf-border">
+              <p className="text-[10px] font-semibold text-cf-text-3 uppercase tracking-wide">FMM 12M (R$)</p>
+              <p className="text-[15px] font-bold text-cf-navy mt-1">{form.faturamento.fmm12m ? `R$ ${form.faturamento.fmm12m}` : form.faturamento.mediaAno ? `R$ ${form.faturamento.mediaAno}` : "—"}</p>
+              <p className="text-[10px] text-cf-text-4 mt-0.5">Base de crédito</p>
+            </div>
+            <div className="bg-cf-surface rounded-xl p-3 border border-cf-border">
+              <p className="text-[10px] font-semibold text-cf-text-3 uppercase tracking-wide">FMM Médio (R$)</p>
+              <p className="text-[15px] font-bold text-cf-navy mt-1">{form.faturamento.fmmMedio ? `R$ ${form.faturamento.fmmMedio}` : "—"}</p>
+              <p className="text-[10px] text-cf-text-4 mt-0.5">Média anos completos</p>
+            </div>
+            <div className="bg-cf-surface rounded-xl p-3 border border-cf-border">
+              <p className="text-[10px] font-semibold text-cf-text-3 uppercase tracking-wide">Tendência</p>
+              <p className={`text-[15px] font-bold mt-1 ${form.faturamento.tendencia === "crescimento" ? "text-green-600" : form.faturamento.tendencia === "queda" ? "text-red-600" : "text-cf-text-2"}`}>
+                {form.faturamento.tendencia === "crescimento" ? "↑ Crescimento" : form.faturamento.tendencia === "queda" ? "↓ Queda" : form.faturamento.tendencia === "estavel" ? "→ Estável" : "—"}
+              </p>
+              <p className="text-[10px] text-cf-text-4 mt-0.5">vs. FMM 12M</p>
+            </div>
+            <div className="bg-cf-surface rounded-xl p-3 border border-cf-border">
+              <p className="text-[10px] font-semibold text-cf-text-3 uppercase tracking-wide">Último Mês</p>
+              <p className="text-[15px] font-bold text-cf-navy mt-1">{form.faturamento.ultimoMesComDados || "—"}</p>
+              <p className="text-[10px] text-cf-text-4 mt-0.5">Com dados</p>
+            </div>
           </div>
+          {/* FMM por ano */}
+          {form.faturamento.fmmAnual && Object.keys(form.faturamento.fmmAnual).length > 0 && (
+            <div className="bg-cf-surface/60 rounded-lg px-3 py-2 border border-cf-border text-xs text-cf-text-2 flex flex-wrap gap-x-4 gap-y-1">
+              {Object.entries(form.faturamento.fmmAnual).sort(([a], [b]) => Number(a) - Number(b)).map(([ano, val]) => {
+                const qtd = (form.faturamento.meses || []).filter(m => (m.mes || "").endsWith(`/${ano}`)).length;
+                return <span key={ano}><span className="font-semibold text-cf-navy">FMM {ano}:</span> R$ {val} <span className="text-cf-text-4">({qtd} {qtd === 1 ? "mês" : "meses"})</span></span>;
+              })}
+            </div>
+          )}
+
 
           {/* Tabela de meses */}
           <div>
@@ -290,44 +500,114 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
             )}
           </div>
         </div>
+        <QualityBadge quality={qualityMap.faturamento} />
       </SectionCard>
 
       {/* ═══ 05 — SCR Detalhado ═══ */}
       <SectionCard number="05" icon={<BarChart3 size={16} className="text-cf-warning" />} title="SCR / Bacen — Perfil de Crédito"
-        iconColor="bg-cf-warning/10" expanded={open.scr} onToggle={() => toggle("scr")}>
+        iconColor="bg-cf-warning/10" expanded={open.scr} onToggle={() => toggle("scr")}
+        badge={<span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${qualityMap.scr.score === "good" ? "bg-green-100 text-green-700" : qualityMap.scr.score === "warning" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>{qualityMap.scr.pct}%</span>}>
         <div className="space-y-5">
+          {/* Sem histórico bancário */}
+          {form.scr.semHistorico && (
+            <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
+              <span className="text-blue-500 mt-0.5">ℹ</span>
+              <div>
+                <p className="text-sm font-semibold text-blue-700">Sem operações registradas no SCR</p>
+                <p className="text-xs text-blue-500 mt-0.5">Empresa sem dívida bancária ativa — campos zerados abaixo para confirmação</p>
+              </div>
+            </div>
+          )}
+
           {/* Período */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Field label="Período de Referência" value={form.scr.periodoReferencia} onChange={v => setSCR("periodoReferencia", v)} />
           </div>
 
-          {/* Comparativo (se SCR anterior disponível) */}
+          {/* Toggle detalhes SCR */}
+          <button onClick={() => setShowSCRDetails(prev => !prev)} className="text-xs text-cf-navy hover:text-cf-navy/70 flex items-center gap-1 transition-colors" style={{ minHeight: "auto" }}>
+            {showSCRDetails ? "▲ Ocultar" : "▼ Ver"} detalhes (vencimentos, evolucao, modalidades)
+          </button>
+
+          {showSCRDetails && (
+          <div className="space-y-4 animate-fade-in">
+
+          {/* Comparativo expandido */}
           {form.scrAnterior && (
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <GitCompareArrows size={14} className="text-blue-600" />
-                <span className="text-xs font-bold text-blue-700 uppercase tracking-wide">
-                  Comparativo: {form.scrAnterior.periodoReferencia || "Anterior"} x {form.scr.periodoReferencia || "Atual"}
-                </span>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                {([
-                  ["A Vencer", form.scrAnterior.carteiraAVencer, form.scr.carteiraAVencer],
-                  ["Vencidos", form.scrAnterior.vencidos, form.scr.vencidos],
-                  ["Prejuízos", form.scrAnterior.prejuizos, form.scr.prejuizos],
-                  ["Limite", form.scrAnterior.limiteCredito, form.scr.limiteCredito],
-                ] as [string, string, string][]).map(([label, ant, atual]) => (
-                  <div key={label} className="bg-white rounded-lg p-2 border border-blue-100">
-                    <span className="text-[10px] text-cf-text-3 font-semibold uppercase block">{label}</span>
-                    <div className="text-cf-text-2 mt-0.5">{ant || "-"} → {atual || "-"}</div>
-                  </div>
-                ))}
+            <div>
+              <p className="text-[11px] font-medium text-cf-text-4 uppercase tracking-wider mb-2">Evolucao SCR — {form.scrAnterior.periodoReferencia || "Anterior"} x {form.scr.periodoReferencia || "Atual"}</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead><tr className="bg-cf-bg"><th className="text-left py-2 px-3 text-cf-text-3 font-medium">Metrica</th><th className="text-right py-2 px-3 text-cf-text-3 font-medium">Anterior</th><th className="text-right py-2 px-3 text-cf-text-3 font-medium">Atual</th><th className="text-right py-2 px-3 text-cf-text-3 font-medium">Var.</th></tr></thead>
+                  <tbody>{([
+                    { label: "Em Dia", ant: form.scrAnterior.carteiraAVencer, at: form.scr.carteiraAVencer, positiveIsGood: true, bold: false },
+                    { label: "CP", ant: form.scrAnterior.carteiraCurtoPrazo, at: form.scr.carteiraCurtoPrazo, positiveIsGood: false, bold: false },
+                    { label: "LP", ant: form.scrAnterior.carteiraLongoPrazo, at: form.scr.carteiraLongoPrazo, positiveIsGood: false, bold: false },
+                    { label: "Total Divida", ant: form.scrAnterior.totalDividasAtivas, at: form.scr.totalDividasAtivas, positiveIsGood: false, bold: true },
+                    { label: "Vencida", ant: form.scrAnterior.vencidos, at: form.scr.vencidos, positiveIsGood: false, bold: false },
+                    { label: "Prejuizo", ant: form.scrAnterior.prejuizos, at: form.scr.prejuizos, positiveIsGood: false, bold: false },
+                    { label: "Limite", ant: form.scrAnterior.limiteCredito, at: form.scr.limiteCredito, positiveIsGood: true, bold: false },
+                    { label: "IFs", ant: form.scrAnterior.qtdeInstituicoes, at: form.scr.qtdeInstituicoes, positiveIsGood: true, bold: false },
+                  ] as { label: string; ant: string; at: string; positiveIsGood: boolean; bold: boolean }[]).map((m, i) => {
+                    const parse = (v: string) => parseFloat((v || "0").replace(/\./g, "").replace(",", ".")) || 0;
+                    const d1 = parse(m.ant); const d2 = parse(m.at); const diff = d2 - d1;
+                    const pct = d1 > 0 ? ((diff / d1) * 100).toFixed(1) : null;
+                    const varStr = diff === 0 ? "=" : pct ? `${diff > 0 ? "+" : ""}${pct}%` : "—";
+                    const isGood = diff === 0 ? null : (diff > 0 && m.positiveIsGood) || (diff < 0 && !m.positiveIsGood);
+                    const varColor = diff === 0 ? "text-cf-text-4" : isGood ? "text-green-600" : "text-red-600";
+                    return (<tr key={i} className={`border-b border-cf-border/30 ${m.bold ? "font-semibold bg-cf-bg" : ""}`}><td className="py-1.5 px-3 text-cf-text-2">{m.label}</td><td className="py-1.5 px-3 text-right text-cf-text-3" style={{ fontVariantNumeric: "tabular-nums" }}>{m.ant || "—"}</td><td className="py-1.5 px-3 text-right text-cf-text-1 font-medium" style={{ fontVariantNumeric: "tabular-nums" }}>{m.at || "—"}</td><td className={`py-1.5 px-3 text-right font-medium ${varColor}`} style={{ fontVariantNumeric: "tabular-nums" }}>{varStr}</td></tr>);
+                  })}</tbody>
+                </table>
               </div>
             </div>
           )}
 
+          {/* Vencimentos por prazo */}
+          {form.scr.faixasAVencer && (
+            <div>
+              <p className="text-[11px] font-medium text-cf-text-4 uppercase tracking-wider mb-2">Vencimentos por Prazo</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead><tr className="bg-cf-bg"><th className="text-left py-2 px-3 text-cf-text-3 font-medium">Faixa</th><th className="text-right py-2 px-3 text-cf-text-3 font-medium">Valor (R$)</th></tr></thead>
+                  <tbody>
+                    {[
+                      { label: "Ate 30 dias", value: form.scr.faixasAVencer.ate30d },
+                      { label: "31 a 60 dias", value: form.scr.faixasAVencer.d31_60 },
+                      { label: "61 a 90 dias", value: form.scr.faixasAVencer.d61_90 },
+                      { label: "91 a 180 dias", value: form.scr.faixasAVencer.d91_180 },
+                      { label: "181 a 360 dias", value: form.scr.faixasAVencer.d181_360 },
+                      { label: "Acima de 360 dias", value: form.scr.faixasAVencer.acima360d },
+                    ].filter(r => r.value && r.value !== "0" && r.value !== "0,00").map((r, i) => (
+                      <tr key={i} className="border-b border-cf-border/30"><td className="py-2 px-3 text-cf-text-2">{r.label}</td><td className="py-2 px-3 text-right font-medium text-cf-text-1" style={{ fontVariantNumeric: "tabular-nums" }}>{r.value}</td></tr>
+                    ))}
+                    <tr className="bg-cf-bg font-semibold"><td className="py-2 px-3 text-cf-text-1">Total</td><td className="py-2 px-3 text-right text-cf-text-1" style={{ fontVariantNumeric: "tabular-nums" }}>{form.scr.faixasAVencer.total || form.scr.carteiraAVencer || "—"}</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Modalidades read-only */}
+          {form.scr.modalidades.length > 0 && (
+            <div>
+              <p className="text-[11px] font-medium text-cf-text-4 uppercase tracking-wider mb-2">Modalidades de Credito</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead><tr className="bg-cf-bg"><th className="text-left py-2 px-3 text-cf-text-3 font-medium">Modalidade</th><th className="text-right py-2 px-3 text-cf-text-3 font-medium">Total</th><th className="text-right py-2 px-3 text-cf-text-3 font-medium">A Vencer</th><th className="text-right py-2 px-3 text-cf-text-3 font-medium">Vencido</th><th className="text-right py-2 px-3 text-cf-text-3 font-medium">Part.</th></tr></thead>
+                  <tbody>{form.scr.modalidades.map((m, i) => {
+                    const vencidoNum = parseFloat((m.vencido || "0").replace(/\./g, "").replace(",", ".")) || 0;
+                    return (<tr key={i} className="border-b border-cf-border/30 hover:bg-cf-bg/50 transition-colors"><td className="py-2 px-3 text-cf-text-1">{m.nome}</td><td className="py-2 px-3 text-right text-cf-text-1" style={{ fontVariantNumeric: "tabular-nums" }}>{m.total || "—"}</td><td className="py-2 px-3 text-right text-cf-text-2" style={{ fontVariantNumeric: "tabular-nums" }}>{m.aVencer || "—"}</td><td className={`py-2 px-3 text-right font-medium ${vencidoNum > 0 ? "text-red-600" : "text-cf-text-2"}`} style={{ fontVariantNumeric: "tabular-nums" }}>{m.vencido || "—"}</td><td className="py-2 px-3 text-right text-cf-text-3 font-medium">{m.participacao || "—"}</td></tr>);
+                  })}</tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          </div>
+          )}
+
           {/* Resumo principal */}
-          <div>
+          <div className={form.scr.semHistorico ? "opacity-50" : ""}>
             <span className="section-label block mb-2">Resumo</span>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <Field label="Carteira a Vencer (R$)" value={form.scr.carteiraAVencer} onChange={v => setSCR("carteiraAVencer", v)} />
@@ -340,7 +620,7 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
           </div>
 
           {/* Detalhamento */}
-          <div>
+          <div className={form.scr.semHistorico ? "opacity-50" : ""}>
             <span className="section-label block mb-2">Detalhamento</span>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Total Dívidas Ativas (R$)" value={form.scr.totalDividasAtivas} onChange={v => setSCR("totalDividasAtivas", v)} />
@@ -432,6 +712,7 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
             )}
           </div>
         </div>
+        <QualityBadge quality={qualityMap.scr} />
       </SectionCard>
 
       {/* Navigation */}
@@ -439,9 +720,21 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
         <button onClick={onBack} className="btn-secondary">
           <ArrowLeft size={15} /> Voltar
         </button>
-        <button onClick={() => onComplete(form)} className="btn-primary">
-          Gerar Relatório <ArrowRight size={15} />
-        </button>
+        <div className="flex flex-col items-end gap-1">
+          <button
+            onClick={() => onComplete(form)}
+            disabled={!pode && !forcarAvancar}
+            title={!pode && !forcarAvancar ? "Corrija os erros criticos antes de prosseguir" : undefined}
+            className={`btn-primary ${!pode && !forcarAvancar ? "opacity-50 cursor-not-allowed" : ""}`}
+          >
+            {pode || forcarAvancar ? "Gerar Relatorio" : "Corrija os erros primeiro"} <ArrowRight size={15} />
+          </button>
+          {!pode && !forcarAvancar && (
+            <button onClick={() => setForcarAvancar(true)} className="text-[10px] text-cf-text-4 hover:text-cf-text-2 underline transition-colors" style={{ minHeight: "auto" }}>
+              Prosseguir mesmo assim
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

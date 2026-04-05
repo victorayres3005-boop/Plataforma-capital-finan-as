@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
-import { Loader2, Mail, Lock, ArrowRight, UserPlus, Shield, BarChart3, FileText } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { Loader2, Mail, Lock, ArrowRight, UserPlus, Shield, BarChart3, FileText, CheckCircle2 } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 function Logo({ size = "lg" }: { size?: "lg" | "sm" }) {
   const w = size === "lg" ? 260 : 180;
@@ -21,59 +21,109 @@ function Logo({ size = "lg" }: { size?: "lg" | "sm" }) {
   );
 }
 
+// ── Error mapping ──
+const errorMap: Record<string, string> = {
+  "invalid login credentials": "Email ou senha incorretos.",
+  "email not confirmed": "Confirme seu email antes de entrar. Verifique sua caixa de entrada.",
+  "user already registered": "Este email já está cadastrado. Tente fazer login.",
+  "password should be at least 6 characters": "A senha deve ter pelo menos 6 caracteres.",
+  "unable to validate email address: invalid format": "Formato de email inválido.",
+  "email rate limit exceeded": "Muitas tentativas. Aguarde alguns minutos.",
+  "invalid email or password": "Email ou senha incorretos.",
+  "user not found": "Email ou senha incorretos.",
+  "signup_disabled": "Cadastro temporariamente desabilitado.",
+  "email_address_not_authorized": "Este email não está autorizado.",
+};
+
+function mapAuthError(error: Error): string {
+  const msg = (error.message || "").toLowerCase();
+  for (const [key, value] of Object.entries(errorMap)) {
+    if (msg.includes(key)) return value;
+  }
+  return "Ocorreu um erro. Tente novamente.";
+}
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+async function withMinDelay(fn: () => Promise<void>, setLoading: (v: boolean) => void) {
+  setLoading(true);
+  const [result] = await Promise.allSettled([fn(), new Promise(r => setTimeout(r, 500))]);
+  setLoading(false);
+  if (result.status === "rejected") throw result.reason;
+}
+
 export default function LoginPage() {
+  return <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-cf-bg"><Loader2 size={24} className="animate-spin text-cf-navy" /></div>}><LoginContent /></Suspense>;
+}
+
+function LoginContent() {
   const [mode, setMode] = useState<"login" | "signup" | "reset">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loadingLogin, setLoadingLogin] = useState(false);
+  const [loadingSignup, setLoadingSignup] = useState(false);
+  const [loadingReset, setLoadingReset] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const confirmMessage = searchParams.get("message");
+
+  const validateEmail = (): boolean => {
+    if (!email.trim()) { toast.error("Digite seu email."); return false; }
+    if (!EMAIL_REGEX.test(email)) { toast.error("Formato de email inválido."); return false; }
+    return true;
+  };
 
   const handleReset = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email) { toast.error("Digite seu e-mail"); return; }
-    setLoading(true);
-    try {
+    if (!validateEmail()) return;
+    await withMinDelay(async () => {
       const supabase = createClient();
-      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/login` });
-      if (error) throw error;
-      toast.success("E-mail de recuperação enviado! Verifique sua caixa de entrada.");
+      await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/auth/confirm?next=/perfil` });
+      // Mensagem genérica — nunca confirma se o email existe
+      toast.success("Se este email estiver cadastrado, você receberá as instruções em breve.");
       setMode("login");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erro ao enviar e-mail");
-    } finally { setLoading(false); }
+    }, setLoadingReset);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (mode === "reset") { handleReset(e); return; }
-    if (!email || !password) { toast.error("Preencha todos os campos"); return; }
-    if (mode === "signup" && password.length < 6) { toast.error("A senha deve ter no mínimo 6 caracteres"); return; }
+    if (!validateEmail()) return;
 
-    setLoading(true);
-    try {
-      const supabase = createClient();
-      if (mode === "login") {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-        toast.success("Login realizado!");
-        router.push("/");
-      } else {
-        const { error } = await supabase.auth.signUp({
-          email, password,
-          options: { data: { full_name: name } },
-        });
-        if (error) throw error;
-        toast.success("Conta criada! Verifique seu e-mail para confirmar.");
-        setMode("login");
+    if (mode === "login") {
+      if (!password) { toast.error("Digite sua senha."); return; }
+      try {
+        await withMinDelay(async () => {
+          const supabase = createClient();
+          const { error } = await supabase.auth.signInWithPassword({ email, password });
+          if (error) throw error;
+          toast.success("Login realizado!");
+          router.push("/");
+        }, setLoadingLogin);
+      } catch (err) {
+        toast.error(mapAuthError(err instanceof Error ? err : new Error(String(err))));
       }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Erro desconhecido";
-      if (msg.includes("Invalid login")) toast.error("E-mail ou senha incorretos");
-      else if (msg.includes("already registered")) toast.error("E-mail já cadastrado");
-      else toast.error(msg);
-    } finally {
-      setLoading(false);
+    } else {
+      if (!name.trim()) { toast.error("Digite seu nome."); return; }
+      if (password.length < 6) { toast.error("A senha deve ter no mínimo 6 caracteres."); return; }
+      try {
+        await withMinDelay(async () => {
+          const supabase = createClient();
+          const { error } = await supabase.auth.signUp({
+            email, password,
+            options: {
+              data: { full_name: name },
+              emailRedirectTo: `${window.location.origin}/auth/confirm`,
+            },
+          });
+          if (error) throw error;
+          toast.success("Conta criada! Verifique seu email para confirmar.");
+          setMode("login");
+        }, setLoadingSignup);
+      } catch (err) {
+        toast.error(mapAuthError(err instanceof Error ? err : new Error(String(err))));
+      }
     }
   };
 
@@ -149,6 +199,14 @@ export default function LoginPage() {
         <div className="flex-1 flex items-center justify-center px-6 py-10">
           <div className="w-full max-w-sm space-y-6">
 
+            {/* Confirmation banner */}
+            {confirmMessage && (
+              <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl p-3">
+                <CheckCircle2 size={16} className="text-green-600 flex-shrink-0" />
+                <p className="text-sm font-medium text-green-700">{confirmMessage}</p>
+              </div>
+            )}
+
             {/* Header */}
             <div>
               <h2 className="text-2xl font-bold text-cf-text-1">
@@ -195,6 +253,7 @@ export default function LoginPage() {
                 </div>
               </div>
 
+              {mode !== "reset" && (
               <div>
                 <label className="text-xs font-semibold text-cf-text-2 block mb-1.5">Senha</label>
                 <div className="relative">
@@ -204,10 +263,14 @@ export default function LoginPage() {
                     className="input-field pl-10 h-11" autoComplete={mode === "login" ? "current-password" : "new-password"} />
                 </div>
               </div>
+              )}
 
-              <button type="submit" disabled={loading} className="btn-primary w-full h-11 text-sm">
-                {loading ? <Loader2 size={17} className="animate-spin" />
+              <button type="submit" disabled={loadingLogin || loadingSignup || loadingReset} className="btn-primary w-full h-11 text-sm">
+                {mode === "login" && loadingLogin ? <Loader2 size={17} className="animate-spin" />
+                  : mode === "signup" && loadingSignup ? <Loader2 size={17} className="animate-spin" />
+                  : mode === "reset" && loadingReset ? <Loader2 size={17} className="animate-spin" />
                   : mode === "login" ? <><ArrowRight size={17} /> Entrar na plataforma</>
+                  : mode === "reset" ? <><ArrowRight size={17} /> Enviar email de recuperacao</>
                   : <><UserPlus size={17} /> Criar minha conta</>}
               </button>
             </form>
@@ -220,17 +283,24 @@ export default function LoginPage() {
             </div>
 
             {/* Switch mode */}
-            <div className="text-center">
+            <div className="text-center space-y-2">
               {mode === "login" ? (
-                <p className="text-sm text-cf-text-3">
-                  Ainda não tem conta?{" "}
-                  <button onClick={() => setMode("signup")} className="text-cf-navy font-semibold hover:underline">
-                    Cadastre-se grátis
-                  </button>
-                </p>
+                <>
+                  <p className="text-sm text-cf-text-3">
+                    Ainda não tem conta?{" "}
+                    <button onClick={() => setMode("signup")} className="text-cf-navy font-semibold hover:underline">
+                      Cadastre-se grátis
+                    </button>
+                  </p>
+                  <p>
+                    <button onClick={() => setMode("reset")} className="text-xs text-cf-text-4 hover:text-cf-navy hover:underline transition-colors">
+                      Esqueci minha senha
+                    </button>
+                  </p>
+                </>
               ) : (
                 <p className="text-sm text-cf-text-3">
-                  Já possui uma conta?{" "}
+                  {mode === "reset" ? "Lembrou a senha?" : "Já possui uma conta?"}{" "}
                   <button onClick={() => setMode("login")} className="text-cf-navy font-semibold hover:underline">
                     Fazer login
                   </button>

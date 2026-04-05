@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { useAuth } from "@/lib/useAuth";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
@@ -41,7 +42,11 @@ export default function PerfilPage() {
   const [savingPassword, setSavingPassword] = useState(false);
 
   // Avatar upload
-  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
+  const [avatarLoading, setAvatarLoading] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [avatarSuccess, setAvatarSuccess] = useState(false);
 
   // Load user data once
   if (user && !profileLoaded) {
@@ -91,23 +96,58 @@ export default function PerfilPage() {
     }
   };
 
-  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !user) return;
-    if (file.size > 2 * 1024 * 1024) { toast.error("Imagem deve ter no máximo 2MB"); return; }
+  const ALLOWED_AVATAR_TYPES = ["image/jpeg", "image/png", "image/webp"];
+  const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 
-    setUploadingAvatar(true);
+  function validateAvatarFile(file: File): string | null {
+    if (!ALLOWED_AVATAR_TYPES.includes(file.type)) return "Formato invalido. Use JPG, PNG ou WebP.";
+    if (file.size > MAX_AVATAR_BYTES) return "Arquivo muito grande. Maximo 2MB.";
+    return null;
+  }
+
+  function mapStorageError(error: Error): string {
+    const msg = error.message.toLowerCase();
+    if (msg.includes("mime type")) return "Formato de arquivo nao suportado.";
+    if (msg.includes("size") || msg.includes("too large")) return "Arquivo muito grande. Maximo 2MB.";
+    if (msg.includes("unauthorized") || msg.includes("policy")) return "Sem permissao para fazer upload.";
+    return "Erro ao salvar foto. Tente novamente.";
+  }
+
+  const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (fileRef.current) fileRef.current.value = "";
+
+    const validationError = validateAvatarFile(file);
+    if (validationError) {
+      setAvatarError(validationError);
+      return;
+    }
+
+    // Clean previous preview
+    if (avatarPreview?.startsWith("blob:")) URL.revokeObjectURL(avatarPreview);
+
+    setAvatarError(null);
+    setAvatarSuccess(false);
+    setPendingAvatarFile(file);
+    setAvatarPreview(URL.createObjectURL(file));
+  };
+
+  const handleAvatarSave = async () => {
+    if (!pendingAvatarFile || !user) return;
+    setAvatarLoading(true);
+    setAvatarError(null);
     try {
       const supabase = createClient();
-      const ext = file.name.split(".").pop() || "jpg";
-      const path = `avatars/${user.id}.${ext}`;
+      const ext = pendingAvatarFile.name.split(".").pop() || "jpg";
+      const path = `${user.id}.${ext}`;
 
       const { error: uploadError } = await supabase.storage
-        .from("documents")
-        .upload(path, file, { upsert: true });
+        .from("avatars")
+        .upload(path, pendingAvatarFile, { upsert: true });
       if (uploadError) throw uploadError;
 
-      const { data: urlData } = supabase.storage.from("documents").getPublicUrl(path);
+      const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
 
       const { error: updateError } = await supabase.auth.updateUser({
         data: { avatar_url: urlData.publicUrl },
@@ -115,12 +155,21 @@ export default function PerfilPage() {
       if (updateError) throw updateError;
 
       setAvatarUrl(urlData.publicUrl + "?t=" + Date.now());
-      toast.success("Foto atualizada!");
+      handleAvatarCancel();
+      setAvatarSuccess(true);
+      setTimeout(() => setAvatarSuccess(false), 3000);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erro ao enviar foto");
+      setAvatarError(mapStorageError(err instanceof Error ? err : new Error(String(err))));
     } finally {
-      setUploadingAvatar(false);
+      setAvatarLoading(false);
     }
+  };
+
+  const handleAvatarCancel = () => {
+    if (avatarPreview?.startsWith("blob:")) URL.revokeObjectURL(avatarPreview);
+    setAvatarPreview(null);
+    setPendingAvatarFile(null);
+    setAvatarError(null);
   };
 
   if (authLoading) {
@@ -158,23 +207,54 @@ export default function PerfilPage() {
         <div className="card p-6">
           <div className="flex items-start gap-6">
             {/* Avatar */}
-            <div className="relative flex-shrink-0">
-              <div className="w-20 h-20 rounded-2xl bg-cf-navy/10 flex items-center justify-center overflow-hidden border-2 border-cf-border">
-                {avatarUrl ? (
-                  <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-                ) : (
-                  <User size={32} className="text-cf-navy/40" />
+            <div className="flex-shrink-0 space-y-2">
+              <div className="relative">
+                <div className="w-20 h-20 rounded-2xl bg-cf-navy/10 flex items-center justify-center overflow-hidden border-2 border-cf-border">
+                  {(avatarPreview || avatarUrl) ? (
+                    <Image src={avatarPreview || avatarUrl!} alt="Avatar" width={80} height={80} className="w-full h-full object-cover" unoptimized />
+                  ) : (
+                    <User size={32} className="text-cf-navy/40" />
+                  )}
+                </div>
+                {!pendingAvatarFile && (
+                  <button
+                    onClick={() => fileRef.current?.click()}
+                    className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-cf-navy text-white flex items-center justify-center shadow-md hover:bg-cf-navy-dark transition-colors"
+                    style={{ minHeight: "auto" }}
+                  >
+                    <Camera size={13} />
+                  </button>
                 )}
+                <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleAvatarSelect} className="hidden" />
               </div>
-              <button
-                onClick={() => fileRef.current?.click()}
-                disabled={uploadingAvatar}
-                className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-cf-navy text-white flex items-center justify-center shadow-md hover:bg-cf-navy-dark transition-colors"
-                style={{ minHeight: "auto" }}
-              >
-                {uploadingAvatar ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} />}
-              </button>
-              <input ref={fileRef} type="file" accept="image/*" onChange={handleAvatarUpload} className="hidden" />
+
+              {/* Preview actions */}
+              {pendingAvatarFile && (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={handleAvatarSave}
+                    disabled={avatarLoading}
+                    className="flex items-center gap-1 text-[11px] font-semibold text-white bg-cf-green hover:bg-green-600 rounded-lg px-2.5 py-1.5 transition-colors"
+                    style={{ minHeight: "auto" }}
+                  >
+                    {avatarLoading ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                    Salvar
+                  </button>
+                  <button
+                    onClick={handleAvatarCancel}
+                    disabled={avatarLoading}
+                    className="text-[11px] font-semibold text-cf-text-3 hover:text-cf-danger px-2 py-1.5 transition-colors"
+                    style={{ minHeight: "auto" }}
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              )}
+
+              {/* Feedback */}
+              {avatarLoading && <p className="text-[11px] text-cf-navy font-medium">Salvando foto...</p>}
+              {avatarError && <p className="text-[11px] text-red-500 font-medium">{avatarError}</p>}
+              {avatarSuccess && <p className="text-[11px] text-cf-green font-medium">Foto atualizada!</p>}
             </div>
 
             {/* Info */}

@@ -1,8 +1,18 @@
 "use client";
 
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
 import { Upload, X, FileText, FileSpreadsheet, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
+
+const EXTRACTION_MESSAGES: Record<string, string[]> = {
+  cnpj:        ["Lendo documento...", "Extraindo dados societários...", "Validando CNPJ..."],
+  qsa:         ["Lendo documento...", "Extraindo dados societários...", "Validando CNPJ..."],
+  contrato:    ["Lendo documento...", "Extraindo dados societários...", "Validando CNPJ..."],
+  faturamento: ["Lendo planilha...", "Calculando FMM...", "Validando meses..."],
+  scr:         ["Lendo SCR...", "Extraindo modalidades...", "Calculando alavancagem..."],
+  scrAnterior: ["Lendo SCR...", "Extraindo modalidades...", "Calculando alavancagem..."],
+};
+const DEFAULT_MESSAGES = ["Processando...", "Interpretando documento...", "Quase pronto..."];
 
 interface UploadAreaProps {
   title: string;
@@ -15,6 +25,7 @@ interface UploadAreaProps {
   errorCount: number;
   icon: React.ReactNode;
   stepNumber: string;
+  docKey: string;
 }
 
 const ACCEPTED_EXTS = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".png", ".jpg", ".jpeg"];
@@ -62,9 +73,24 @@ export default function UploadArea({
   errorCount,
   icon,
   stepNumber,
+  docKey,
 }: UploadAreaProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [msgIndex, setMsgIndex] = useState(0);
+
+  useEffect(() => {
+    if (!processing) { setMsgIndex(0); return; }
+    const id = setInterval(() => {
+      setMsgIndex(i => {
+        const msgs = EXTRACTION_MESSAGES[docKey] ?? DEFAULT_MESSAGES;
+        return (i + 1) % msgs.length;
+      });
+    }, 3000);
+    return () => clearInterval(id);
+  }, [processing, docKey]);
+
+  const extractionMsg = (EXTRACTION_MESSAGES[docKey] ?? DEFAULT_MESSAGES)[msgIndex];
 
   const hasFiles = files.length > 0;
 
@@ -147,8 +173,12 @@ export default function UploadArea({
               </span>
             )}
             {processing && (
-              <span className="text-[11px] font-semibold text-cf-navy bg-cf-navy/10 px-2 py-0.5 rounded-full">
-                Extraindo...
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-cf-navy bg-cf-navy/10 px-2 py-0.5 rounded-full">
+                <svg className="animate-spin flex-shrink-0" width="11" height="11" viewBox="0 0 11 11" fill="none">
+                  <circle cx="5.5" cy="5.5" r="4.5" stroke="currentColor" strokeWidth="2" strokeOpacity="0.25" />
+                  <path d="M10 5.5A4.5 4.5 0 0 0 5.5 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+                {extractionMsg}
               </span>
             )}
             {doneCount > 0 && (

@@ -13,10 +13,7 @@ const GEMINI_API_KEYS = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_K
   .map(k => k.trim())
   .filter(Boolean);
 
-const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
-
 const GEMINI_MODELS = ["gemini-2.0-flash", "gemini-2.5-flash"];
-const GROQ_MODEL = "llama-3.3-70b-versatile";
 
 function geminiUrl(model: string, key: string) {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
@@ -43,6 +40,38 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 function hasReadableContent(text: string): boolean {
   const sample = text.substring(2000, Math.min(text.length, 8000));
   if (sample.length < 100) return text.trim().length >= 20;
+
+  // Check 1: ratio de caracteres estranhos (fora ASCII 32-126 + acentuados PT-BR)
+  const validChars = /[\x20-\x7EÀ-ÿçÇãÃõÕáéíóúâêîôûàèìòùäëïöü\n\r\t]/;
+  let strangeCount = 0;
+  for (let i = 0; i < sample.length; i++) {
+    if (!validChars.test(sample[i])) strangeCount++;
+  }
+  if (strangeCount / sample.length > 0.3) {
+    console.log(`[hasReadableContent] Failed: ${(strangeCount / sample.length * 100).toFixed(1)}% strange chars`);
+    return false;
+  }
+
+  // Check 2: sequências longas sem espaço (encoding quebrado)
+  const longSequences = sample.match(/\S{50,}/g);
+  if (longSequences && longSequences.length >= 3) {
+    console.log(`[hasReadableContent] Failed: ${longSequences.length} sequences with 50+ chars without spaces`);
+    return false;
+  }
+
+  // Check 3: ratio de palavras reconhecíveis (PT-BR)
+  const words = sample.split(/\s+/).filter(w => w.length >= 2);
+  if (words.length > 0) {
+    const recognizable = /^[a-zA-ZÀ-ÿçÇ0-9.,;:!?()\-/]+$/;
+    const recognizedCount = words.filter(w => recognizable.test(w)).length;
+    const ratio = recognizedCount / words.length;
+    if (ratio < 0.4) {
+      console.log(`[hasReadableContent] Failed: only ${(ratio * 100).toFixed(1)}% recognizable words (${recognizedCount}/${words.length})`);
+      return false;
+    }
+  }
+
+  // Check 4: palavras comuns em português (check original)
   const commonWords = /\b(de|do|da|dos|das|que|para|com|por|uma|não|são|será|social|capital|sócio|contrato|empresa|sociedade|cnpj|cpf|quotas|artigo|cláusula|objeto|prazo|foro|comarca|administra|faturamento|receita|valor|total|mês|janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/gi;
   const matches = sample.match(commonWords);
   return (matches?.length || 0) >= 5;
@@ -147,18 +176,33 @@ async function extractExcel(buffer: Buffer): Promise<FaturamentoData> {
     }
   });
 
-  // Calcular soma e média
-  const valores = meses.map(m => {
-    const num = parseFloat(m.valor.replace(/\./g, "").replace(",", "."));
-    return isNaN(num) ? 0 : num;
+  // Ordenar meses por data crescente (mais antigo primeiro)
+  const mesesOrdenados = [...meses].sort((a, b) => {
+    const [ma, ya] = a.mes.split("/").map(Number);
+    const [mb, yb] = b.mes.split("/").map(Number);
+    return (ya - yb) || (ma - mb);
   });
+  // Últimos 12 meses (independente de valor)
+  const mesesFMM = mesesOrdenados.slice(-12);
 
+  const parseBRVal = (v: string) => parseFloat((v || "0").replace(/\./g, "").replace(",", ".")) || 0;
+
+  // somatoriaAno usa TODOS os meses
+  const valores = meses.map(m => parseBRVal(m.valor));
   const soma = valores.reduce((a, b) => a + b, 0);
-  const media = valores.length > 0 ? soma / valores.length : 0;
+
+  // FMM = soma dos 12 / 12 (incluindo zeros na divisão)
+  const valoresFMM = mesesFMM.map(m => parseBRVal(m.valor));
+  const media = mesesFMM.length > 0 ? valoresFMM.reduce((a, b) => a + b, 0) / 12 : 0;
+
+  // Meses zerados nos últimos 12
+  const mesesZeradosExcel = mesesFMM
+    .filter((_, i) => valoresFMM[i] === 0)
+    .map(m => ({ mes: m.mes, motivo: "Valor zero ou ausente" }));
 
   // Verificar alertas
   const faturamentoZerado = valores.length === 0 || valores.every(v => v === 0);
-  const ultimoMes = meses.length > 0 ? meses[meses.length - 1].mes : "";
+  const ultimoMes = mesesOrdenados.length > 0 ? mesesOrdenados[mesesOrdenados.length - 1].mes : "";
 
   // Verificar se dados estão atualizados (últimos 60 dias)
   let dadosAtualizados = true;
@@ -177,6 +221,9 @@ async function extractExcel(buffer: Buffer): Promise<FaturamentoData> {
     faturamentoZerado,
     dadosAtualizados,
     ultimoMesComDados: ultimoMes,
+    mesesZerados: mesesZeradosExcel,
+    quantidadeMesesZerados: mesesZeradosExcel.length,
+    temMesesZerados: mesesZeradosExcel.length > 0,
   };
 }
 
@@ -240,39 +287,79 @@ Regras:
 - NÃO invente dados`;
 
 const PROMPT_FATURAMENTO = `Você é um especialista em análise financeira.
-Analise o documento de faturamento recebido e extraia os valores mensais.
-Retorne APENAS JSON válido, sem texto adicional:
+Analise O DOCUMENTO INTEIRO de faturamento recebido e extraia os valores mensais.
 
+ATENÇÃO — REGRAS CRÍTICAS DE EXTRAÇÃO:
+- Varra TODO o documento: tabelas, gráficos, resumos, rodapés, cabeçalhos
+- Extraia TODOS os meses encontrados, independente do ano
+- NÃO se limite ao ano mais recente ou aos dados em destaque
+- Se o documento tiver dados de 2023, 2024, 2025 e 2026 — extraia todos
+- Se um mês aparecer em mais de um lugar com valores diferentes, use o maior valor
+- NÃO invente dados — se um mês não estiver no documento, não inclua
+
+Retorne APENAS JSON válido, sem texto adicional, sem markdown:
 {
   "meses": [
-    { "mes": "01/2025", "valor": "1.234.567,89" }
+    { "mes": "01/2024", "valor": "1.234.567,89" },
+    { "mes": "02/2024", "valor": "1.234.567,89" }
   ],
-  "somatoriaAno": "",
-  "mediaAno": "",
+  "somatoriaTotal": "",
+  "totalMesesExtraidos": 0,
   "faturamentoZerado": false,
   "dadosAtualizados": true,
-  "ultimoMesComDados": ""
+  "ultimoMesComDados": "",
+  "anoMaisAntigo": "",
+  "anoMaisRecente": ""
 }
 
-Regras:
-- meses: listar TODOS os meses com faturamento encontrado, em ordem cronológica
+Regras de formatação:
+- meses: TODOS os meses encontrados no documento inteiro, ordem cronológica crescente
 - mes: formato MM/YYYY
-- valor: formatação brasileira (1.234.567,89)
-- somatoriaAno: soma de todos os meses
-- mediaAno: média aritmética dos meses
+- valor: formatação brasileira (1.234.567,89) — se for zero, use "0,00"
+- somatoriaTotal: soma de todos os meses extraídos
+- totalMesesExtraidos: contagem total de meses no array
 - faturamentoZerado: true se todos os valores são zero ou ausentes
-- dadosAtualizados: false se o último mês com dados é anterior a 60 dias
-- ultimoMesComDados: último mês que tem valor de faturamento
-- NÃO invente dados`;
+- dadosAtualizados: false se o último mês com dados é anterior a 60 dias da data atual
+- ultimoMesComDados: último mês que tem valor maior que zero (formato MM/YYYY)
+- anoMaisAntigo: ano mais antigo encontrado no documento (formato YYYY)
+- anoMaisRecente: ano mais recente encontrado no documento (formato YYYY)`;
 
-const PROMPT_SCR = `Você é um especialista em análise de crédito e documentos do Sistema de Informações de Crédito (SCR) do Banco Central do Brasil.
+const PROMPT_SCR = `Você é um extrator de dados estruturados especializado em documentos do Sistema de Informações de Crédito (SCR) do Banco Central do Brasil.
+Retorne APENAS JSON válido, sem markdown, sem explicações.
 
-Analise VISUALMENTE o documento SCR recebido. O documento pode conter tabelas, gráficos e dados em formato de relatório do Bacen. Leia CADA página, CADA tabela, CADA linha com atenção máxima.
+O documento SCR contém estas seções — extraia cada uma:
 
-Retorne APENAS JSON válido, sem texto adicional:
+1. CABEÇALHO: CNPJ do cliente, período de referência (MM/AAAA), % documentos processados, % volume processado
 
+2. CARTEIRA A VENCER (seção "Carteira a Vencer" ou "A Vencer"): valores em R$ por faixa — 14-30d, 31-60d, 61-90d, 91-180d, 181-360d, acima 360d, prazo indeterminado, total
+
+3. VENCIDOS (seção "Vencidos"): valores em R$ por faixa — 15-30d, 31-60d, 61-90d, 91-180d, 181-360d, acima 360d, total
+
+4. PREJUÍZOS: até 12 meses, acima de 12 meses, total
+
+5. LIMITE DE CRÉDITO: até 360 dias, acima de 360 dias, total
+
+6. OUTROS VALORES: Carteira de Crédito total, Responsabilidade Total, Risco Total, Coobrigação Assumida, Coobrigação Recebida, Créditos a Liberar
+
+7. MODALIDADES (tabela se presente): para cada linha extraia tipo, domínio, subdomínio, valor
+
+8. INSTITUIÇÕES FINANCEIRAS: listar todas com nome e valor
+
+9. CAMPOS DERIVADOS (calcule você mesmo):
+- totalDividasAtivas = carteira_a_vencer.total + vencidos.total
+- operacoesAVencer = carteira_a_vencer.total (em dia = a vencer)
+- operacoesVencidas = vencidos.total
+- carteiraCurtoPrazo = soma das faixas até 360d da carteira a vencer
+- carteiraLongoPrazo = faixa acima 360d da carteira a vencer
+- semHistorico = true se totalDividasAtivas === 0 E limite.total === 0 E modalidades vazia
+- classificacaoRisco = letra de classificação (AA, A, B, C, D, E, F, G, H) se presente no documento
+
+Schema JSON de saída (RESPEITE EXATAMENTE estes nomes de campos):
 {
-  "periodoReferencia": "",
+  "periodoReferencia": "MM/AAAA",
+  "cnpjSCR": "",
+  "pctDocumentosProcessados": "",
+  "pctVolumeProcessado": "",
   "carteiraAVencer": "",
   "vencidos": "",
   "prejuizos": "",
@@ -288,6 +375,25 @@ Retorne APENAS JSON válido, sem texto adicional:
   "classificacaoRisco": "",
   "carteiraCurtoPrazo": "",
   "carteiraLongoPrazo": "",
+  "emDia": "",
+  "semHistorico": false,
+  "numeroIfs": "",
+  "faixasAVencer": {
+    "ate30d": "", "d31_60": "", "d61_90": "",
+    "d91_180": "", "d181_360": "", "acima360d": "",
+    "prazoIndeterminado": "", "total": ""
+  },
+  "faixasVencidos": {
+    "ate30d": "", "d31_60": "", "d61_90": "",
+    "d91_180": "", "d181_360": "", "acima360d": "", "total": ""
+  },
+  "faixasPrejuizos": { "ate12m": "", "acima12m": "", "total": "" },
+  "faixasLimite": { "ate360d": "", "acima360d": "", "total": "" },
+  "outrosValores": {
+    "carteiraCredito": "", "responsabilidadeTotal": "",
+    "riscoTotal": "", "coobrigacaoAssumida": "",
+    "coobrigacaoRecebida": "", "creditosALiberar": ""
+  },
   "modalidades": [
     { "nome": "", "total": "", "aVencer": "", "vencido": "", "participacao": "" }
   ],
@@ -295,31 +401,31 @@ Retorne APENAS JSON válido, sem texto adicional:
     { "nome": "", "valor": "" }
   ],
   "valoresMoedaEstrangeira": "",
-  "historicoInadimplencia": ""
+  "historicoInadimplencia": "",
+  "periodoAnterior": {
+    "periodoReferencia": "", "carteiraAVencer": "", "vencidos": "", "prejuizos": "",
+    "limiteCredito": "", "totalDividasAtivas": "", "operacoesAVencer": "", "operacoesEmAtraso": "",
+    "operacoesVencidas": "", "carteiraCurtoPrazo": "", "carteiraLongoPrazo": "",
+    "classificacaoRisco": "", "qtdeInstituicoes": "", "numeroIfs": "", "emDia": "",
+    "semHistorico": false
+  },
+  "variacoes": {
+    "emDia": "", "carteiraCurtoPrazo": "", "carteiraLongoPrazo": "",
+    "totalDividasAtivas": "", "vencidos": "", "prejuizos": "", "limiteCredito": "", "numeroIfs": ""
+  }
 }
 
-ONDE ENCONTRAR OS DADOS NO DOCUMENTO:
-- periodoReferencia: geralmente aparece como "Data-base", "Referência" ou "MM/AAAA" no cabeçalho
-- carteiraAVencer / totalDividasAtivas: seção "Resumo" ou "Responsabilidade Total", "A vencer", "Em dia"
-- vencidos: "Vencido", "Operações vencidas" (separado de "a vencer")
-- prejuizos: "Prejuízo", "Créditos baixados como prejuízo"
-- limiteCredito: "Limite de crédito", "Créditos a liberar"
-- qtdeInstituicoes: "Quantidade de IFs", "Instituições", contar linhas da tabela de instituições
-- carteiraCurtoPrazo: operações com vencimento até 360 dias, ou "CP"
-- carteiraLongoPrazo: operações com vencimento acima de 360 dias, ou "LP"
-- classificacaoRisco: "Classificação de risco", letras AA, A, B, C, D, E, F, G, H
-- modalidades: tabela "Modalidades", "Tipo de operação" com valores e percentuais
-- instituicoes: tabela de "Instituições financeiras", "IFs credoras"
-- coobrigacoes: "Coobrigações", "Responsabilidades indiretas"
-
-Regras:
+REGRAS:
+- Campos de valor: use os valores TOTAIS da seção nos campos flat (carteiraAVencer, vencidos, prejuizos, limiteCredito) E os detalhes por faixa nos objetos (faixasAVencer, faixasVencidos, etc.)
 - Valores monetários: formatação brasileira com vírgula decimal (ex: "23.785,80")
 - Se o valor estiver em "mil R$" ou "R$ mil", multiplique por 1000 e formate
 - Procure em TODAS as páginas do documento — dados podem estar espalhados
 - modalidades: listar TODAS encontradas com total, a vencer, vencido e % participação
 - instituicoes: listar TODAS com nome e valor
-- Campos ausentes → "" ou arrays vazios []
-- NÃO invente dados — extraia apenas o que está visível no documento`;
+- Campos ausentes → "" para strings, false para booleanos, arrays vazios []
+- NÃO invente dados — extraia apenas o que está visível no documento
+- Se o documento contiver dados de dois períodos distintos (ex: tabela comparativa com colunas como "02/2025" e "02/2026"), extraia: o período MAIS RECENTE nos campos principais e o período ANTERIOR em "periodoAnterior" com o mesmo schema flat. Calcule "variacoes" para os campos: emDia, carteiraCurtoPrazo, carteiraLongoPrazo, totalDividasAtivas, vencidos, prejuizos, limiteCredito, numeroIfs. Formato da variação: "+7,6%", "-6,5%", "0" ou "-" se ausente. Se o documento tiver apenas um período, deixe "periodoAnterior" com campos vazios e "variacoes" com campos "-"`;
+
 
 const PROMPT_PROTESTOS = `Você é um especialista em análise de crédito.
 Analise o documento de certidão de protestos e extraia os dados.
@@ -356,7 +462,16 @@ Retorne APENAS JSON válido:
     { "tipo": "", "qtd": "", "pct": "" }
   ],
   "bancarios": [
-    { "banco": "", "assunto": "", "status": "", "data": "" }
+    { "banco": "", "assunto": "", "status": "", "data": "", "valor": "" }
+  ],
+  "fiscais": [
+    { "contraparte": "", "valor": "", "status": "", "data": "" }
+  ],
+  "fornecedores": [
+    { "contraparte": "", "assunto": "", "valor": "", "status": "", "data": "" }
+  ],
+  "outros": [
+    { "contraparte": "", "assunto": "", "valor": "", "status": "", "data": "" }
   ]
 }
 
@@ -365,8 +480,13 @@ Regras:
 - ativosTotal: número total de processos como autor
 - temRJ: true se houver Recuperação Judicial
 - distribuicao: agrupar por tipo (TRABALHISTA, BANCO, FISCAL, FORNECEDOR, OUTROS) com qtd e %
-- bancarios: listar processos contra bancos/instituições financeiras com detalhes
+- bancarios: listar processos contra bancos/instituições financeiras com detalhes; incluir valor individual se disponível
+- fiscais: extraia todos os processos fiscais/tributários individuais encontrados no documento
+- fornecedores: extraia todos os processos com fornecedores individuais encontrados
+- outros: extraia processos que não se enquadrem em bancário, trabalhista, fiscal ou fornecedor
+- Para trabalhistas: NÃO listar individualmente — apenas manter no array distribuicao com qtd e %
 - status: ARQUIVADO, EM ANDAMENTO, DISTRIBUIDO, JULGADO, EM GRAU DE RECURSO
+- Campos ausentes em processos individuais: usar "" para strings
 - NÃO invente dados`;
 
 const PROMPT_GRUPO_ECONOMICO = `Você é um especialista em análise de crédito.
@@ -410,7 +530,10 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
 
   for (const apiKey of GEMINI_API_KEYS) {
     for (const model of GEMINI_MODELS) {
-      for (let attempt = 0; attempt < 2; attempt++) {
+      let rateLimitRetries = 0;
+      const MAX_RATE_RETRIES = 2;
+
+      for (let attempt = 0; attempt < 2 + MAX_RATE_RETRIES; attempt++) {
         try {
           console.log(`[Gemini] key=${apiKey.substring(0, 8)}... model=${model} attempt=${attempt + 1}`);
           const response = await fetch(geminiUrl(model, apiKey), {
@@ -427,9 +550,32 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
           });
 
           if (response.status === 429) {
-            console.log(`[Gemini] Rate limited on key=${apiKey.substring(0, 8)} model=${model}, trying next...`);
-            await sleep(2000);
-            break; // Próximo modelo ou key
+            if (rateLimitRetries < MAX_RATE_RETRIES) {
+              rateLimitRetries++;
+              // Extract wait time from response
+              let waitMs = 3000;
+              const retryAfterMs = response.headers.get("retry-after-ms");
+              const retryAfter = response.headers.get("retry-after");
+              if (retryAfterMs) {
+                waitMs = parseInt(retryAfterMs);
+              } else if (retryAfter) {
+                waitMs = parseInt(retryAfter) * 1000;
+              } else {
+                try {
+                  const errBody = await response.clone().json();
+                  const msg = errBody?.error?.message || "";
+                  const match = msg.match(/retry\s+(?:in|after)\s+(\d+(?:\.\d+)?)\s*s/i);
+                  if (match) waitMs = Math.ceil(parseFloat(match[1]) * 1000);
+                } catch { /* ignore */ }
+              }
+              waitMs = Math.min(Math.max(waitMs, 2000), 60000);
+              console.log(`[Gemini] Rate limited on key=${apiKey.substring(0, 8)} model=${model}, waiting ${waitMs}ms (retry ${rateLimitRetries}/${MAX_RATE_RETRIES})...`);
+              await sleep(waitMs);
+              continue;
+            } else {
+              console.log(`[Gemini] Max rate-limit retries on key=${apiKey.substring(0, 8)} model=${model}, moving on`);
+              break;
+            }
           }
 
           if (!response.ok) {
@@ -456,79 +602,20 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
 }
 
 // ─────────────────────────────────────────
-// PROVEDOR 2: Groq (fallback)
-// ─────────────────────────────────────────
-async function callGroq(prompt: string, content: string): Promise<string> {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      console.log(`[Groq] Attempt ${attempt + 1}...`);
-      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${GROQ_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: GROQ_MODEL,
-          messages: [
-            { role: "system", content: "Você é um extrator de dados de documentos brasileiros. Responda SOMENTE com JSON válido. NUNCA repita o documento. Sua resposta deve começar com { e terminar com }." },
-            {
-              role: "user",
-              content: JSON.stringify({ tarefa: prompt, documento: content }),
-            },
-          ],
-          temperature: 0.0,
-          max_tokens: 4096,
-        }),
-      });
-
-      if (response.status === 429) {
-        await sleep(3000 * Math.pow(2, attempt));
-        continue;
-      }
-
-      if (!response.ok) {
-        const body = await response.text();
-        console.error(`[Groq] HTTP ${response.status}:`, body.substring(0, 300));
-        throw new Error(`Groq ${response.status}`);
-      }
-
-      const result = await response.json();
-      const text = result?.choices?.[0]?.message?.content;
-      if (!text) throw new Error("Resposta vazia");
-      return text;
-    } catch (err) {
-      if (attempt === 2) throw err;
-    }
-  }
-  throw new Error("GROQ_EXHAUSTED");
-}
-
-// ─────────────────────────────────────────
-// Chamada com fallback: Gemini → Groq
+// Chamada Gemini (único provedor)
 // ─────────────────────────────────────────
 async function callAI(
   prompt: string,
   textContent: string,
-  imageContent?: { mimeType: string; base64: string }
+  imageContent?: { mimeType: string; base64: string },
 ): Promise<string> {
-  if (GEMINI_API_KEYS.length > 0) {
-    try {
-      return await callGemini(prompt, imageContent || textContent);
-    } catch (err) {
-      console.log(`[AI] Gemini failed: ${err instanceof Error ? err.message : err}`);
-    }
+  if (GEMINI_API_KEYS.length === 0) {
+    throw new Error("Nenhuma GEMINI_API_KEY configurada.");
   }
 
-  if (GROQ_API_KEY && textContent) {
-    try {
-      return await callGroq(prompt, textContent.substring(0, 10000));
-    } catch (err) {
-      console.log(`[AI] Groq failed: ${err instanceof Error ? err.message : err}`);
-    }
-  }
-
-  throw new Error("Serviço de IA temporariamente indisponível. Aguarde 1 minuto e tente novamente.");
+  // callGemini aceita string (texto) ou objeto (binário) como segundo parâmetro
+  const content: string | { mimeType: string; base64: string } = imageContent ?? textContent;
+  return await callGemini(prompt, content);
 }
 
 // ─────────────────────────────────────────
@@ -583,17 +670,76 @@ function fillContratoDefaults(data: Partial<ContratoSocialData>): ContratoSocial
 }
 
 function fillFaturamentoDefaults(data: Partial<FaturamentoData>): FaturamentoData {
+  const meses = Array.isArray(data.meses) ? data.meses : [];
+  const parseBR = (v: string) => parseFloat((v || "0").replace(/\./g, "").replace(",", ".")) || 0;
+  const fmtBR = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const ordenados = [...meses].sort((a, b) => {
+    const [mesA, anoA] = (a.mes || "").split("/").map(Number);
+    const [mesB, anoB] = (b.mes || "").split("/").map(Number);
+    return (anoA - anoB) || (mesA - mesB);
+  });
+
+  const meses12 = ordenados.slice(-12);
+  const soma12 = meses12.reduce((s, m) => s + parseBR(m.valor), 0);
+  const fmm12m = meses12.length > 0 ? soma12 / 12 : 0;
+
+  const porAno: Record<string, number[]> = {};
+  for (const m of ordenados) {
+    const [, ano] = (m.mes || "").split("/");
+    if (!ano) continue;
+    if (!porAno[ano]) porAno[ano] = [];
+    porAno[ano].push(parseBR(m.valor));
+  }
+
+  const fmmAnual: Record<string, number> = {};
+  for (const [ano, valores] of Object.entries(porAno)) {
+    const somaAno = valores.reduce((s, v) => s + v, 0);
+    fmmAnual[ano] = somaAno / valores.length;
+  }
+
+  const anosCompletos = Object.entries(porAno).filter(([, v]) => v.length === 12);
+  const fmmMedio = anosCompletos.length > 0
+    ? anosCompletos.reduce((s, [ano]) => s + fmmAnual[ano], 0) / anosCompletos.length
+    : fmm12m;
+
+  const anoAtual = String(new Date().getFullYear());
+  const fmmAnoAtual = fmmAnual[anoAtual];
+  let tendencia: "crescimento" | "estavel" | "queda" | "indefinido" = "indefinido";
+  if (fmmAnoAtual && fmm12m > 0) {
+    const delta = (fmmAnoAtual - fmm12m) / fmm12m;
+    if (delta > 0.05) tendencia = "crescimento";
+    else if (delta < -0.05) tendencia = "queda";
+    else tendencia = "estavel";
+  }
+
+  const somaTotal = meses.reduce((s, m) => s + parseBR(m.valor), 0);
+
+  const mesesZerados = meses12
+    .filter(m => parseBR(m.valor) === 0)
+    .map(m => ({ mes: m.mes, motivo: "Valor zero ou ausente" }));
+
   return {
-    meses: Array.isArray(data.meses) ? data.meses : [],
-    somatoriaAno: data.somatoriaAno || "0,00",
-    mediaAno: data.mediaAno || "0,00",
-    faturamentoZerado: data.faturamentoZerado ?? true,
+    meses,
+    somatoriaAno: fmtBR(somaTotal),
+    mediaAno: fmtBR(fmm12m),
+    fmm12m: fmtBR(fmm12m),
+    fmmAnual: Object.fromEntries(
+      Object.entries(fmmAnual).map(([ano, v]) => [ano, fmtBR(v)])
+    ),
+    fmmMedio: fmtBR(fmmMedio),
+    tendencia,
+    faturamentoZerado: meses.length === 0 || meses.every(m => parseBR(m.valor) === 0),
     dadosAtualizados: data.dadosAtualizados ?? false,
-    ultimoMesComDados: data.ultimoMesComDados || "",
+    ultimoMesComDados: data.ultimoMesComDados || (ordenados.length > 0 ? ordenados[ordenados.length - 1].mes : ""),
+    mesesZerados,
+    quantidadeMesesZerados: mesesZerados.length,
+    temMesesZerados: mesesZerados.length > 0,
   };
 }
 
 function fillSCRDefaults(data: Partial<SCRData>): SCRData {
+  const emptyFaixas = { ate30d: "", d31_60: "", d61_90: "", d91_180: "", d181_360: "", acima360d: "", total: "" };
   return {
     periodoReferencia: data.periodoReferencia || "",
     carteiraAVencer: data.carteiraAVencer || "", vencidos: data.vencidos || "",
@@ -608,6 +754,21 @@ function fillSCRDefaults(data: Partial<SCRData>): SCRData {
     instituicoes: Array.isArray(data.instituicoes) ? data.instituicoes : [],
     valoresMoedaEstrangeira: data.valoresMoedaEstrangeira || "",
     historicoInadimplencia: data.historicoInadimplencia || "",
+    // Campos detalhados (novo prompt)
+    cnpjSCR: data.cnpjSCR || "",
+    pctDocumentosProcessados: data.pctDocumentosProcessados || "",
+    pctVolumeProcessado: data.pctVolumeProcessado || "",
+    faixasAVencer: data.faixasAVencer || { ...emptyFaixas, prazoIndeterminado: "" },
+    faixasVencidos: data.faixasVencidos || { ...emptyFaixas },
+    faixasPrejuizos: data.faixasPrejuizos || { ate12m: "", acima12m: "", total: "" },
+    faixasLimite: data.faixasLimite || { ate360d: "", acima360d: "", total: "" },
+    outrosValores: data.outrosValores || {
+      carteiraCredito: "", responsabilidadeTotal: "", riscoTotal: "",
+      coobrigacaoAssumida: "", coobrigacaoRecebida: "", creditosALiberar: "",
+    },
+    emDia: data.emDia || "",
+    semHistorico: data.semHistorico ?? (!data.totalDividasAtivas && !data.carteiraAVencer && !data.vencidos && !data.prejuizos && !data.limiteCredito),
+    numeroIfs: data.numeroIfs || "",
   };
 }
 
@@ -625,6 +786,9 @@ function fillProcessosDefaults(data: Partial<ProcessosData>): ProcessosData {
     valorTotalEstimado: data.valorTotalEstimado || "", temRJ: data.temRJ || false,
     distribuicao: Array.isArray(data.distribuicao) ? data.distribuicao : [],
     bancarios: Array.isArray(data.bancarios) ? data.bancarios : [],
+    fiscais: Array.isArray(data.fiscais) ? data.fiscais : [],
+    fornecedores: Array.isArray(data.fornecedores) ? data.fornecedores : [],
+    outros: Array.isArray(data.outros) ? data.outros : [],
   };
 }
 
@@ -648,7 +812,26 @@ function countFilledFields(data: AnyExtracted): number {
 // ─────────────────────────────────────────
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData();
+    // Validar Content-Type antes de tentar parsear FormData
+    const contentType = request.headers.get("content-type") || "";
+    if (!contentType.includes("multipart/form-data") && !contentType.includes("application/x-www-form-urlencoded")) {
+      return NextResponse.json(
+        { error: "Request deve ser multipart/form-data com o arquivo anexado.", success: false },
+        { status: 400 },
+      );
+    }
+
+    let formData: FormData;
+    try {
+      formData = await request.formData();
+    } catch (formErr) {
+      console.error("[extract] FormData parse failed:", formErr instanceof Error ? formErr.message : formErr);
+      return NextResponse.json(
+        { error: "Falha ao processar o upload. Verifique o arquivo e tente novamente.", success: false },
+        { status: 400 },
+      );
+    }
+
     const file = formData.get("file") as File | null;
     const docType = formData.get("type") as string | null;
 
@@ -656,8 +839,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Arquivo ou tipo não informado." }, { status: 400 });
     }
 
-    if (GEMINI_API_KEYS.length === 0 && !GROQ_API_KEY) {
-      return NextResponse.json({ error: "Nenhuma API key configurada." }, { status: 500 });
+    if (GEMINI_API_KEYS.length === 0) {
+      return NextResponse.json({ error: "Nenhuma GEMINI_API_KEY configurada." }, { status: 500 });
     }
 
     const MAX_SIZE = 20 * 1024 * 1024;
@@ -744,10 +927,12 @@ export async function POST(request: NextRequest) {
 
     // ──── Chamar IA ────
     let data: AnyExtracted;
+    const inputMode = imageContent ? "binary" : "text";
 
     try {
       const aiResponse = await callAI(prompt, textContent, imageContent);
       console.log(`[extract] AI response length: ${aiResponse.length}`);
+      console.log(`[extract] AI raw response (first 1000 chars):`, aiResponse.substring(0, 1000));
       const parsed = parseJSON<Record<string, unknown>>(aiResponse);
 
       switch (docType) {
@@ -755,14 +940,29 @@ export async function POST(request: NextRequest) {
         case "qsa":            data = fillQSADefaults(parsed as Partial<QSAData>); break;
         case "contrato":       data = fillContratoDefaults(parsed as Partial<ContratoSocialData>); break;
         case "faturamento":    data = fillFaturamentoDefaults(parsed as Partial<FaturamentoData>); break;
-        case "scr":            data = fillSCRDefaults(parsed as Partial<SCRData>); break;
+        case "scr": {
+          data = fillSCRDefaults(parsed as Partial<SCRData>);
+          const periodoAnterior = (parsed as Record<string, unknown>).periodoAnterior as Partial<SCRData> | undefined;
+          if (periodoAnterior && periodoAnterior.periodoReferencia) {
+            (data as SCRData & { _scrAnterior?: SCRData })._scrAnterior = fillSCRDefaults(periodoAnterior);
+            (data as SCRData & { _variacoes?: Record<string, string> })._variacoes =
+              ((parsed as Record<string, unknown>).variacoes as Record<string, string>) || {};
+          }
+          break;
+        }
         case "protestos":      data = fillProtestosDefaults(parsed as Partial<ProtestosData>); break;
         case "processos":      data = fillProcessosDefaults(parsed as Partial<ProcessosData>); break;
         case "grupoEconomico": data = fillGrupoEconomicoDefaults(parsed as Partial<GrupoEconomicoData>); break;
         default:               data = fillCNPJDefaults(parsed as Partial<CNPJData>);
       }
     } catch (aiError) {
-      console.error("[extract] AI failed:", aiError);
+      const errMsg = aiError instanceof Error ? aiError.message : String(aiError);
+      console.error(`[extract] AI (Gemini) failed:`, errMsg);
+      console.error(`[extract] Context: inputMode=${inputMode} | docType=${docType}`);
+      console.error(`[extract] Input preview (first 200 chars):`, inputMode === "text"
+        ? textContent.substring(0, 200)
+        : `[binary ${imageContent?.mimeType}, base64 length: ${imageContent?.base64.length}]`
+      );
 
       switch (docType) {
         case "cnpj":           data = fillCNPJDefaults({}); break;
@@ -775,15 +975,31 @@ export async function POST(request: NextRequest) {
         case "grupoEconomico": data = fillGrupoEconomicoDefaults({}); break;
         default:               data = fillCNPJDefaults({});
       }
+      let errorType: "quota" | "parse" | "empty" | "unknown" = "unknown";
+      if (errMsg.includes("429") || errMsg.includes("EXHAUSTED") || errMsg.includes("quota") || errMsg.includes("rate")) {
+        errorType = "quota";
+      } else if (errMsg.includes("JSON") || errMsg.includes("parse") || errMsg.includes("SyntaxError")) {
+        errorType = "parse";
+      } else if (errMsg.includes("empty") || errMsg.includes("length: 0") || errMsg.includes("Empty")) {
+        errorType = "empty";
+      }
+
       return NextResponse.json({
         success: true, data,
-        meta: { rawTextLength: textContent.length, filledFields: 0, isScanned: isImage, aiError: true },
+        meta: { rawTextLength: textContent.length, filledFields: 0, isScanned: isImage, aiError: true, errorType, errorMessage: errMsg.substring(0, 200) },
       });
     }
 
     const filled = countFilledFields(data);
+    const scrAnteriorExtra = (data as SCRData & { _scrAnterior?: SCRData })._scrAnterior;
+    const variacoesExtra = (data as SCRData & { _variacoes?: Record<string, string> })._variacoes;
+    if (scrAnteriorExtra) {
+      delete (data as SCRData & { _scrAnterior?: SCRData })._scrAnterior;
+      delete (data as SCRData & { _variacoes?: Record<string, string> })._variacoes;
+    }
     return NextResponse.json({
       success: true, data,
+      ...(scrAnteriorExtra ? { scrAnterior: scrAnteriorExtra, variacoes: variacoesExtra } : {}),
       meta: { rawTextLength: textContent.length, filledFields: filled, isScanned: isImage, aiPowered: true },
     });
   } catch (err) {

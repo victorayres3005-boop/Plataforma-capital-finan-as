@@ -14,6 +14,39 @@ interface SectionState {
   processing: boolean;
   processedCount: number;
   errorCount: number;
+  errorType?: "quota" | "parse" | "empty" | "unknown";
+  errorMessage?: string;
+  retrying?: boolean;
+  lastFailedFile?: File;
+}
+
+function getErrorFeedback(errorType?: string, docLabel?: string): { title: string; detail: string; action: string } {
+  switch (errorType) {
+    case "quota":
+      return {
+        title: `${docLabel}: falha na extracao`,
+        detail: "API temporariamente indisponivel (limite de uso atingido).",
+        action: "Tente novamente em alguns minutos.",
+      };
+    case "parse":
+      return {
+        title: `${docLabel}: falha na leitura`,
+        detail: "Nao foi possivel interpretar o conteudo do documento.",
+        action: "Verifique se o arquivo nao esta corrompido e tente novamente.",
+      };
+    case "empty":
+      return {
+        title: `${docLabel}: documento sem conteudo`,
+        detail: "O arquivo parece estar vazio ou ilegivel.",
+        action: "Envie um arquivo com conteudo valido.",
+      };
+    default:
+      return {
+        title: `${docLabel}: erro na extracao`,
+        detail: "Ocorreu um erro inesperado ao processar o documento.",
+        action: "Tente novamente ou envie um formato diferente (PDF, DOCX).",
+      };
+  }
 }
 
 export interface OriginalFiles {
@@ -33,7 +66,7 @@ const defaultContrato: ContratoSocialData = { socios:[{nome:"",cpf:"",participac
 const defaultFaturamento: FaturamentoData = { meses:[],somatoriaAno:"0,00",mediaAno:"0,00",faturamentoZerado:true,dadosAtualizados:false,ultimoMesComDados:"" };
 const defaultSCR: SCRData = { periodoReferencia:"",carteiraAVencer:"",vencidos:"",prejuizos:"",limiteCredito:"",qtdeInstituicoes:"",qtdeOperacoes:"",totalDividasAtivas:"",operacoesAVencer:"",operacoesEmAtraso:"",operacoesVencidas:"",tempoAtraso:"",coobrigacoes:"",classificacaoRisco:"",carteiraCurtoPrazo:"",carteiraLongoPrazo:"",modalidades:[],instituicoes:[],valoresMoedaEstrangeira:"",historicoInadimplencia:"" };
 const defaultProtestos: ProtestosData = { vigentesQtd:"",vigentesValor:"",regularizadosQtd:"",regularizadosValor:"",detalhes:[] };
-const defaultProcessos: ProcessosData = { passivosTotal:"",ativosTotal:"",valorTotalEstimado:"",temRJ:false,distribuicao:[],bancarios:[] };
+const defaultProcessos: ProcessosData = { passivosTotal:"",ativosTotal:"",valorTotalEstimado:"",temRJ:false,distribuicao:[],bancarios:[],fiscais:[],fornecedores:[],outros:[] };
 const defaultGrupoEconomico: GrupoEconomicoData = { empresas:[] };
 
 // ─── Merge logic ───
@@ -131,7 +164,13 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
         if (!res.ok || !json.success || json.meta?.aiError) {
           setSections(prev => ({
             ...prev,
-            [type]: { ...prev[type], errorCount: prev[type].errorCount + 1 },
+            [type]: {
+              ...prev[type],
+              errorCount: prev[type].errorCount + 1,
+              errorType: json.meta?.errorType || (res.ok ? "unknown" : "quota"),
+              errorMessage: json.meta?.errorMessage || json.error || "",
+              lastFailedFile: file,
+            },
           }));
           continue;
         }
@@ -161,7 +200,7 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
       } catch {
         setSections(prev => ({
           ...prev,
-          [type]: { ...prev[type], errorCount: prev[type].errorCount + 1 },
+          [type]: { ...prev[type], errorCount: prev[type].errorCount + 1, lastFailedFile: file },
         }));
       }
     }
@@ -172,6 +211,56 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
       [type]: { ...prev[type], processing: false },
     }));
   }, []);
+
+  const handleRetry = useCallback(async (type: DocKey) => {
+    const section = sections[type];
+    if (!section?.lastFailedFile) return;
+
+    setSections(prev => ({
+      ...prev,
+      [type]: { ...prev[type], retrying: true, errorCount: 0, errorType: undefined, errorMessage: undefined },
+    }));
+
+    const apiType = type === "scrAnterior" ? "scr" : type;
+    const fd = new FormData();
+    fd.append("file", section.lastFailedFile);
+    fd.append("type", apiType);
+
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 120000);
+      const res = await fetch("/api/extract", { method: "POST", body: fd, signal: controller.signal });
+      clearTimeout(timeout);
+      const json = await res.json();
+
+      if (!res.ok || !json.success || json.meta?.aiError) {
+        setSections(prev => ({
+          ...prev,
+          [type]: { ...prev[type], retrying: false, errorCount: 1, errorType: json.meta?.errorType || "unknown", errorMessage: json.meta?.errorMessage || "" },
+        }));
+        return;
+      }
+
+      // Success — merge data
+      setExtracted(prev => {
+        const field = type === "scrAnterior" ? "scrAnterior" : type;
+        if (type === "scrAnterior") {
+          return { ...prev, scrAnterior: json.data };
+        }
+        return { ...prev, [field]: mergeData(prev[field] as unknown as Record<string, unknown>, json.data) };
+      });
+
+      setSections(prev => ({
+        ...prev,
+        [type]: { ...prev[type], retrying: false, errorCount: 0, processedCount: prev[type].processedCount + 1, lastFailedFile: undefined },
+      }));
+    } catch {
+      setSections(prev => ({
+        ...prev,
+        [type]: { ...prev[type], retrying: false, errorCount: 1, errorType: "unknown" },
+      }));
+    }
+  }, [sections]);
 
   const handleAddFiles = useCallback((type: DocKey) => (files: File[]) => {
     processFiles(type, files);
@@ -218,13 +307,17 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
 
   // Derived state
   const anyProcessing = Object.values(sections).some(s => s.processing);
+  const anyRetrying = Object.values(sections).some(s => s.retrying);
   const requiredDoneCount = REQUIRED_KEYS.filter(k => sections[k].processedCount > 0).length;
   const allRequiredDone = REQUIRED_KEYS.every(k => sections[k].processedCount > 0);
   const scrAnteriorDone = sections.scrAnterior.processedCount > 0;
   const totalRequired = 5;
+  const [forcarAvancar, setForcarAvancar] = useState(false);
+
+  const canProceed = (allRequiredDone || forcarAvancar) && !anyProcessing && !anyRetrying;
 
   const handleSubmit = () => {
-    if (!allRequiredDone || anyProcessing) return;
+    if (!canProceed) return;
     const files: OriginalFiles = {
       cnpj: sections.cnpj.files,
       qsa: sections.qsa.files,
@@ -266,6 +359,7 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
               doneCount={sections[section.key].processedCount}
               errorCount={sections[section.key].errorCount}
               icon={section.icon}
+              docKey={section.key}
             />
           </div>
         ))}
@@ -273,15 +367,33 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
 
       {/* Errors summary */}
       {Object.entries(sections).some(([, s]) => s.errorCount > 0) && (
-        <div className="bg-cf-danger-bg border border-cf-danger/20 rounded-xl p-3 space-y-1">
+        <div className="space-y-2">
           {Object.entries(sections)
             .filter(([, s]) => s.errorCount > 0)
-            .map(([k, s]) => (
-              <p key={k} className="text-xs text-cf-danger flex items-center gap-2 font-medium">
-                <AlertCircle size={13} />
-                {k === "scrAnterior" ? "SCR ANTERIOR" : k.toUpperCase()}: {s.errorCount} arquivo{s.errorCount !== 1 ? "s" : ""} com erro
-              </p>
-            ))}
+            .map(([k, s]) => {
+              const label = k === "scrAnterior" ? "SCR Anterior" : SECTIONS.find(sec => sec.key === k)?.title || k.toUpperCase();
+              const feedback = getErrorFeedback(s.errorType, label);
+              return (
+                <div key={k} className="bg-cf-danger-bg border border-cf-danger/20 rounded-xl p-3">
+                  <p className="text-sm font-medium text-cf-danger flex items-center gap-2">
+                    <AlertCircle size={14} />
+                    {feedback.title}
+                  </p>
+                  <p className="text-xs text-cf-danger/80 mt-1 ml-[22px]">{feedback.detail}</p>
+                  <p className="text-xs text-cf-danger/60 mt-0.5 ml-[22px]">{feedback.action}</p>
+                  {s.lastFailedFile && s.errorType !== "empty" && (
+                    <button
+                      onClick={() => handleRetry(k as DocKey)}
+                      disabled={s.retrying}
+                      className="mt-2 ml-[22px] flex items-center gap-1.5 text-xs font-semibold text-cf-danger border border-cf-danger/30 rounded-lg px-3 py-1.5 hover:bg-cf-danger/5 transition-colors disabled:opacity-50"
+                      style={{ minHeight: "auto" }}
+                    >
+                      {s.retrying ? <><span className="animate-spin inline-block">↻</span> Tentando novamente...</> : <><span>↻</span> Tentar novamente</>}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
         </div>
       )}
 
@@ -310,14 +422,37 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
           </span>
         </div>
 
-        <button
-          onClick={handleSubmit}
-          disabled={!allRequiredDone || anyProcessing}
-          className="btn-primary"
-        >
-          Prosseguir para Revisão
-          <ArrowRight size={15} />
-        </button>
+        <div className="flex flex-col items-end gap-1">
+          <button
+            onClick={handleSubmit}
+            disabled={!canProceed}
+            title={!canProceed && !forcarAvancar ? "Aguarde a extracao ou corrija os erros" : undefined}
+            className={`btn-primary ${!canProceed ? "opacity-50 cursor-not-allowed" : ""}`}
+          >
+            {canProceed ? "Prosseguir para Revisao" : anyProcessing || anyRetrying ? "Extraindo..." : "Corrija os erros primeiro"}
+            <ArrowRight size={15} />
+          </button>
+          {(anyProcessing || anyRetrying) && (() => {
+            const processingCount = Object.values(sections).filter(s => s.processing || s.retrying).length;
+            const totalWithFiles = Object.values(sections).filter(s => s.files.length > 0).length;
+            const estSec = processingCount * 15;
+            return (
+              <p className="text-[10px] text-cf-text-4">
+                Processando {processingCount} de {totalWithFiles} documento{totalWithFiles !== 1 ? "s" : ""} • ~{estSec} seg restantes
+              </p>
+            );
+          })()}
+          {!allRequiredDone && !anyProcessing && !anyRetrying && !forcarAvancar && (
+            <button
+              onClick={() => setForcarAvancar(true)}
+              className="flex items-center gap-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-300 rounded-lg px-3 py-1.5 hover:bg-amber-100 transition-colors"
+              style={{ minHeight: "auto" }}
+            >
+              <AlertCircle size={13} />
+              Prosseguir com dados incompletos
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
