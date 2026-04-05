@@ -829,6 +829,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       }
 
       // ── SCR (stacked below chart) ──
+      let currentSCRPage = doc.getCurrentPageInfo().pageNumber;
       let yRight = yLeft + 6;
 
       const fmmVal = parseMoneyToNumber(data.faturamento.mediaAno || "0");
@@ -908,6 +909,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         if (alturaTabela > 275 - yRight) {
           doc.addPage();
           yRight = 20;
+          currentSCRPage = doc.getCurrentPageInfo().pageNumber;
         }
         yRight += 3;
         doc.setFillColor(...colors.primary);
@@ -1103,6 +1105,9 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       }
 
       // Advance y past SCR
+      if (doc.getCurrentPageInfo().pageNumber < currentSCRPage) {
+        doc.setPage(currentSCRPage);
+      }
       y = yRight + 6;
 
       // Modalidades and Instituicoes — overflow naturally via checkPageBreak
