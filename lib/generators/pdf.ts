@@ -644,7 +644,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         const chartMax = Math.max(...chartVals, 1);
         const fmmChart = parseMoneyToNumber(data.faturamento.fmm12m || "0");
         const barAreaH = 48;
-        const labelAreaH = mesesFMM.length > 12 ? 12 : 6;
+        const labelAreaH = mesesFMM.length > 6 ? 14 : 6;
         const n = chartMeses.length;
         const bW = Math.max(2, (leftW / n) - 1.5);
         const chartTopY = yLeft;
@@ -692,12 +692,8 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
           doc.setTextColor(100, 100, 100);
           const mLabel = parseMesLabel(m.mes);
           const labelX = bX + bW / 2;
-          const labelY = chartTopY + barAreaH + 4.5;
-          if (mesesFMM.length > 12) {
-            doc.text(mLabel, labelX, labelY, { align: "right", angle: 45 });
-          } else {
-            doc.text(mLabel, labelX, labelY, { align: "center" });
-          }
+          const labelY = chartTopY + barAreaH + 3;
+          doc.text(mLabel, labelX, labelY, { align: "left", angle: 90 });
           // Value above bar in K (no decimals)
           if (bH > 6) {
             doc.setFontSize(4);
@@ -710,7 +706,20 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
         // Summary line below chart
         const fmmK = fmmNum > 0 ? (fmmNum / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) : "—";
-        const fmmMedioNum = data.faturamento?.fmmMedio ? parseMoneyToNumber(data.faturamento.fmmMedio) : 0;
+        const fmmMedioNum = data.faturamento?.fmmMedio
+          ? parseMoneyToNumber(data.faturamento.fmmMedio)
+          : (() => {
+              const porAno: Record<string, number[]> = {};
+              for (const m of validMeses) {
+                const ano = (m.mes || "").split("/")[1];
+                if (!ano) continue;
+                if (!porAno[ano]) porAno[ano] = [];
+                porAno[ano].push(parseMoneyToNumber(m.valor));
+              }
+              const anosValidos = Object.values(porAno).filter(v => v.length >= 10);
+              if (anosValidos.length === 0) return fmmNum;
+              return anosValidos.reduce((s, v) => s + v.reduce((a, b) => a + b, 0) / v.length, 0) / anosValidos.length;
+            })();
         const fmmMedioK = fmmMedioNum > 0 ? (fmmMedioNum / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) : "—";
         const totalFat = chartVals.reduce((a, b) => a + b, 0);
         const totalK = (totalFat / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 });
@@ -719,6 +728,53 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         doc.setTextColor(...colors.textMuted);
         doc.text(`FMM 12M (mil R$): ${fmmK}   |   FMM Médio (mil R$): ${fmmMedioK}   |   Total (mil R$): ${totalK}`, leftX, yLeft);
         yLeft += 6;
+
+        // Tabela faturamento mensal detalhado
+        yLeft += 4;
+        const tblMesW = 30;
+        const tblValW = 60;
+        const tblRowH = 5;
+        const ultimos12 = new Set(validMeses.slice(-12).map(m => m.mes));
+
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.navy);
+        doc.text("FATURAMENTO MENSAL DETALHADO", leftX, yLeft);
+        yLeft += 5;
+
+        // Cabeçalho
+        doc.setFillColor(...colors.navy);
+        doc.rect(leftX, yLeft, tblMesW + tblValW, tblRowH, "F");
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(255, 255, 255);
+        doc.text("MÊS", leftX + 2, yLeft + 3.5);
+        doc.text("FATURAMENTO (R$)", leftX + tblMesW + tblValW - 2, yLeft + 3.5, { align: "right" });
+        yLeft += tblRowH;
+
+        // Linhas
+        validMeses.forEach((mes, idx) => {
+          if (yLeft + tblRowH > 275) {
+            doc.addPage();
+            yLeft = 20;
+          }
+          const isUltimos12 = ultimos12.has(mes.mes);
+          if (isUltimos12) {
+            doc.setFillColor(232, 240, 254);
+          } else {
+            doc.setFillColor(...(idx % 2 === 0 ? colors.surface : [245, 245, 245] as [number, number, number]));
+          }
+          doc.rect(leftX, yLeft, tblMesW + tblValW, tblRowH, "F");
+          doc.setFontSize(7);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(...colors.text);
+          doc.text(parseMesLabel(mes.mes), leftX + 2, yLeft + 3.5);
+          doc.text(mes.valor || "—", leftX + tblMesW + tblValW - 2, yLeft + 3.5, { align: "right" });
+          doc.setDrawColor(230, 230, 230);
+          doc.line(leftX, yLeft + tblRowH, leftX + tblMesW + tblValW, yLeft + tblRowH);
+          yLeft += tblRowH;
+        });
+        yLeft += 4;
 
         // FMM por ano
         const fmmAnual = data.faturamento?.fmmAnual || {};
@@ -779,16 +835,16 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         doc.setFontSize(6);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(255, 255, 255);
-        doc.text("\u2713 PERFIL SCR \u2014 SEM OPERACOES BANCARIAS", rightX + 3, yRight + 4.8);
+        doc.text("\u2713 PERFIL SCR \u2014 SEM OPERAÇÕES BANCÁRIAS", rightX + 3, yRight + 4.8);
         yRight += 9;
 
         // ── 4 linhas de confirmação ──
         const pctConsulta = data.scr.pctDocumentosProcessados || "99%+";
         const confirmacoes = [
-          `\u2713 Consulta realizada: ${pctConsulta} das instituicoes consultadas`,
-          "\u2713 Sem divida bancaria ativa em nenhuma IF",
-          "\u2713 Sem coobrigacoes (nao figura como avalista)",
-          "\u2713 Sem operacoes em discordancia ou sub judice",
+          `\u2713 Consulta realizada: ${pctConsulta} das instituições consultadas`,
+          "\u2713 Sem dívida bancária ativa em nenhuma IF",
+          "\u2713 Sem coobrigações (não figura como avalista)",
+          "\u2713 Sem operações em discordância ou sub judice",
         ];
         doc.setFontSize(6.5);
         confirmacoes.forEach(linha => {
@@ -808,7 +864,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
         // ── Interpretação em itálico ──
         const interpretacaoLines = doc.splitTextToSize(
-          "Empresa opera sem alavancagem bancaria \u2014 indica autofinanciamento ou uso exclusivo de capital proprio. Ausencia confirmada pelo Bacen, nao presumida.",
+          "Empresa opera sem alavancagem bancária \u2014 indica autofinanciamento ou uso exclusivo de capital próprio. Ausência confirmada pelo Bacen, não presumida.",
           rightW - 4
         );
         doc.setFont("helvetica", "italic");
@@ -968,7 +1024,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         y += 8;
         const instColW = [contentW * 0.60, contentW * 0.40];
         drawTable(
-          ["INSTITUICAO", "VALOR (R$)"],
+          ["INSTITUIÇÃO", "VALOR (R$)"],
           data.scr.instituicoes.map(i => [i.nome, i.valor]),
           instColW,
         );
