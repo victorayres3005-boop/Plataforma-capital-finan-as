@@ -52,18 +52,17 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         return year * 100 + month;
       };
 
-      // Todos os meses válidos ordenados cronologicamente
       const validMeses = [...(data.faturamento?.meses || [])]
         .filter(m => m?.mes && m?.valor)
         .sort((a, b) => parseDateKey(a.mes) - parseDateKey(b.mes));
 
-      // FMM = média dos últimos 12 meses com valor > 0
-      const mesesFMM = validMeses
-        .filter(m => parseMoneyToNumber(m.valor) > 0)
-        .slice(-12);
-      const fmmNum = mesesFMM.length > 0
-        ? mesesFMM.reduce((s, m) => s + parseMoneyToNumber(m.valor), 0) / mesesFMM.length
-        : 0;
+      // Usa fmm12m já calculado pelo fillFaturamentoDefaults — não recalcula
+      const fmmNum = data.faturamento?.fmm12m
+        ? parseMoneyToNumber(data.faturamento.fmm12m)
+        : validMeses.slice(-12).reduce((s, m) => s + parseMoneyToNumber(m.valor), 0) / 12;
+
+      // Últimos 12 meses incluindo zeros (não filtra por valor > 0)
+      const mesesFMM = validMeses.slice(-12);
 
       const scrNum = parseMoneyToNumber(data.scr?.totalDividasAtivas || "0");
       const alavancagem = p.alavancagem ?? (fmmNum > 0 ? scrNum / fmmNum : 0);
@@ -644,7 +643,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       if (chartMeses.length > 0) {
         const chartVals = chartMeses.map(m => parseMoneyToNumber(m.valor));
         const chartMax = Math.max(...chartVals, 1);
-        const fmmChart = parseMoneyToNumber(data.faturamento.mediaAno || "0");
+        const fmmChart = parseMoneyToNumber(data.faturamento.fmm12m || "0");
         const barAreaH = 48;
         const labelH = 8;
         const n = chartMeses.length;
@@ -694,14 +693,34 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         yLeft = chartTopY + barAreaH + labelH + 1;
 
         // Summary line below chart
-        const fmmK = fmmChart > 0 ? (fmmChart / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) : "—";
+        const fmmK = fmmNum > 0 ? (fmmNum / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) : "—";
+        const fmmMedioNum = data.faturamento?.fmmMedio ? parseMoneyToNumber(data.faturamento.fmmMedio) : 0;
+        const fmmMedioK = fmmMedioNum > 0 ? (fmmMedioNum / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) : "—";
         const totalFat = chartVals.reduce((a, b) => a + b, 0);
         const totalK = (totalFat / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 });
         doc.setFontSize(6.5);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(...colors.textMuted);
-        doc.text(`FMM (mil R$): ${fmmK}   |   Total (mil R$): ${totalK}`, leftX, yLeft);
+        doc.text(`FMM 12M (mil R$): ${fmmK}   |   FMM Médio (mil R$): ${fmmMedioK}   |   Total (mil R$): ${totalK}`, leftX, yLeft);
         yLeft += 6;
+
+        // FMM por ano
+        const fmmAnual = data.faturamento?.fmmAnual || {};
+        const fmmAnualTexto = Object.entries(fmmAnual)
+          .sort(([a], [b]) => Number(a) - Number(b))
+          .map(([ano, valor]) => {
+            const qtdMeses = (data.faturamento?.meses || [])
+              .filter(m => m.mes?.endsWith(ano)).length;
+            return `FMM ${ano}: R$ ${valor} (${qtdMeses} meses)`;
+          })
+          .join("   |   ");
+        if (fmmAnualTexto) {
+          doc.setFontSize(6);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(130, 130, 130);
+          doc.text(fmmAnualTexto, leftX, yLeft);
+          yLeft += 5;
+        }
 
         // Aviso de meses zerados
         const mesesZeradosPDF = data.faturamento.mesesZerados;
