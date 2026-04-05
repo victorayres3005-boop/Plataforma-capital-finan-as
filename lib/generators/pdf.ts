@@ -643,11 +643,12 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         const chartVals = chartMeses.map(m => parseMoneyToNumber(m.valor));
         const chartMax = Math.max(...chartVals, 1);
         const fmmChart = parseMoneyToNumber(data.faturamento.fmm12m || "0");
-        const barAreaH = 48;
+        const barAreaH = 40;
+        const barTopPadding = 10; // espaço reservado acima da barra mais alta para o label
         const labelAreaH = mesesFMM.length > 6 ? 14 : 6;
         const n = chartMeses.length;
         const bW = Math.max(2, (leftW / n) - 1.5);
-        const chartTopY = yLeft;
+        const chartTopY = yLeft + barTopPadding;
         const mesLabels = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
 
         const parseMesLabel = (mesStr: string): string => {
@@ -694,11 +695,22 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
           const labelX = bX + bW / 2;
           const labelY = chartTopY + barAreaH + 3;
           doc.text(mLabel, labelX, labelY, { align: "left", angle: 90 });
-          // Value above bar in K (no decimals)
+          const vLabel = v >= 1000
+            ? (v / 1000).toFixed(0) + "k"
+            : v > 0
+              ? (v / 1000).toFixed(1) + "k"
+              : "0";
+
+          doc.setFontSize(4);
+          doc.setTextColor(70, 70, 70);
+
           if (bH > 6) {
-            doc.setFontSize(4);
-            doc.setTextColor(70, 70, 70);
-            doc.text((v / 1000).toFixed(0), bX + bW / 2, bY - 1, { align: "center" });
+            // valor acima da barra
+            doc.text(vLabel, bX + bW / 2, bY - 1, { align: "center" });
+          } else if (v > 0) {
+            // barra pequena — valor logo acima com fundo branco
+            doc.setTextColor(30, 30, 30);
+            doc.text(vLabel, bX + bW / 2, chartTopY + barAreaH - bH - 1.5, { align: "center" });
           }
         });
 
