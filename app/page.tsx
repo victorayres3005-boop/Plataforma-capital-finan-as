@@ -44,21 +44,36 @@ function hydrateFromCollection(docs: { type: string; extracted_data: Record<stri
   };
 
   for (const doc of docs) {
+    if (doc.type === "scr_bacen") continue; // handled separately below
     const field = typeMap[doc.type];
     if (!field || !doc.extracted_data) continue;
     // Remove internal flags before hydrating
     const { _editedManually, ...data } = doc.extracted_data;
     void _editedManually;
+    (result as unknown as Record<string, unknown>)[field] = {
+      ...(result as unknown as Record<string, unknown>)[field] as object,
+      ...data,
+    };
+  }
 
-    if (field === "scr" && docs.filter(d => d.type === "scr_bacen").indexOf(doc) === 1) {
-      // Second SCR doc = scrAnterior
-      result.scrAnterior = { ...JSON.parse(JSON.stringify(defaultData.scr)), ...data } as ExtractedData["scr"];
-    } else {
-      (result as unknown as Record<string, unknown>)[field] = {
-        ...(result as unknown as Record<string, unknown>)[field] as object,
-        ...data,
-      };
-    }
+  // SCR: ordena por periodoReferencia — mais recente = atual, mais antigo = anterior
+  const scrDocs = docs.filter(d => d.type === "scr_bacen" && d.extracted_data);
+  if (scrDocs.length === 1) {
+    const { _editedManually: _em1, ...data1 } = scrDocs[0].extracted_data!;
+    void _em1;
+    result.scr = { ...result.scr, ...data1 } as ExtractedData["scr"];
+  } else if (scrDocs.length >= 2) {
+    const sorted = [...scrDocs].sort((a, b) => {
+      const [mA, yA] = (String(a.extracted_data?.periodoReferencia || "")).split("/").map(Number);
+      const [mB, yB] = (String(b.extracted_data?.periodoReferencia || "")).split("/").map(Number);
+      return (yB - yA) || (mB - mA); // decrescente — mais recente primeiro
+    });
+    const { _editedManually: _em1, ...data1 } = sorted[0].extracted_data!;
+    void _em1;
+    const { _editedManually: _em2, ...data2 } = sorted[1].extracted_data!;
+    void _em2;
+    result.scr = { ...result.scr, ...data1 } as ExtractedData["scr"];
+    result.scrAnterior = { ...result.scrAnterior, ...data2 } as ExtractedData["scr"];
   }
 
   return result;
