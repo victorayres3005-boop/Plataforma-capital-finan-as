@@ -68,11 +68,18 @@ function hydrateFromCollection(docs: { type: string; extracted_data: Record<stri
       periodo: d.extracted_data?.periodoReferencia,
     })));
     const sorted = [...scrDocs].sort((a, b) => {
-      const [mA, yA] = (String(a.extracted_data?.periodoReferencia || "")).split("/").map(Number);
-      const [mB, yB] = (String(b.extracted_data?.periodoReferencia || "")).split("/").map(Number);
-      return (yB - yA) || (mB - mA); // decrescente — mais recente primeiro
+      const periodoA = String(a.extracted_data?.periodoReferencia || "00/0000");
+      const periodoB = String(b.extracted_data?.periodoReferencia || "00/0000");
+
+      const [mA, yA] = periodoA.split("/").map(s => parseInt(s, 10) || 0);
+      const [mB, yB] = periodoB.split("/").map(s => parseInt(s, 10) || 0);
+
+      // decrescente — mais recente primeiro
+      if (yB !== yA) return yB - yA;
+      return mB - mA;
     });
-    console.log("[SCR sort] resultado:", sorted.map(d => ({
+
+    console.log("[SCR sort debug]", sorted.map(d => ({
       filename: (d as Record<string, unknown>).filename,
       periodo: d.extracted_data?.periodoReferencia,
     })));
