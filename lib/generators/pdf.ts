@@ -904,6 +904,11 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         yRight += 4;
 
         // ── Tabela comparativa de métricas ──
+        const alturaTabela = 6 + (9 * 5.5) + 10; // header + 9 linhas + padding
+        if (alturaTabela > 275 - yRight) {
+          doc.addPage();
+          yRight = 20;
+        }
         yRight += 3;
         doc.setFillColor(...colors.primary);
         doc.roundedRect(rightX, yRight, rightW, 6, 1, 1, "F");
