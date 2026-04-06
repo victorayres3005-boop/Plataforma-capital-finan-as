@@ -1172,7 +1172,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         doc.setFont("helvetica", "bold");
         doc.setTextColor(255, 255, 255);
         doc.text("METRICA", margin + 2, y + 4.8);
-        dreAnos.forEach((ano: { ano: string; [key: string]: string }, i: number) => {
+        dreAnos.forEach((ano, i) => {
           doc.text(ano.ano, margin + colLabel + i * colAno + 2, y + 4.8);
         });
         y += 7;
@@ -1197,8 +1197,8 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
           doc.setFont("helvetica", linha.bold ? "bold" : "normal");
           doc.setTextColor(...colors.text);
           doc.text(linha.label, margin + 2, y + 4.2);
-          dreAnos.forEach((ano: { [key: string]: string }, i: number) => {
-            const val = ano[linha.campo] || "0,00";
+          dreAnos.forEach((ano, i) => {
+            const val = (ano as unknown as Record<string, string>)[linha.campo] || "0,00";
             const display = linha.isPct ? `${val}%` : `R$ ${val}`;
             doc.text(display, margin + colLabel + i * colAno + 2, y + 4.2);
           });
@@ -1248,7 +1248,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         doc.setFont("helvetica", "bold");
         doc.setTextColor(255, 255, 255);
         doc.text("METRICA", margin + 2, y + 4.8);
-        balAnos.forEach((ano: { ano: string; [key: string]: string }, i: number) => {
+        balAnos.forEach((ano, i) => {
           doc.text(ano.ano, margin + colLabelB + i * colAnoB + 2, y + 4.8);
         });
         y += 7;
@@ -1274,8 +1274,8 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
           doc.setFont("helvetica", linha.bold ? "bold" : "normal");
           doc.setTextColor(...colors.text);
           doc.text(linha.label, margin + 2, y + 4.2);
-          balAnos.forEach((ano: { [key: string]: string }, i: number) => {
-            const val = ano[linha.campo] || "0,00";
+          balAnos.forEach((ano, i) => {
+            const val = (ano as unknown as Record<string, string>)[linha.campo] || "0,00";
             const display = linha.isIndice ? val : linha.isPct ? `${val}%` : `R$ ${val}`;
             doc.text(display, margin + colLabelB + i * colAnoB + 2, y + 4.2);
           });
