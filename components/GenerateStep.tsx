@@ -10,6 +10,7 @@ import { buildPDFReport } from "@/lib/generators/pdf";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { uploadFile } from "@/lib/storage";
+import GoalfyButton from "@/components/GoalfyButton";
 import { ExtractedData, CollectionDocument, DocumentCollection, FundSettings, DEFAULT_FUND_SETTINGS, AIAnalysis } from "@/types";
 import type { OriginalFiles } from "@/components/UploadStep";
 
@@ -288,13 +289,36 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         if (hasCached) return;
       }
 
-      // 2. Call API
+      // 2. Enriquecer com Credit Hub (protestos + processos) se CNPJ disponível
+      let dataToAnalyze = data;
+      if (data.cnpj?.cnpj) {
+        try {
+          const chRes = await fetch("/api/credithub", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ cnpj: data.cnpj.cnpj }),
+          });
+          const chJson = await chRes.json();
+          if (chJson.success && !chJson.mock) {
+            const { toProtestosData, toProcessosData } = await import("@/lib/credithub/parser");
+            dataToAnalyze = {
+              ...data,
+              protestos: toProtestosData(chJson.protestos),
+              processos: toProcessosData(chJson.processos),
+            };
+          }
+        } catch (err) {
+          console.warn("[generate] Credit Hub fetch failed, continuing without it:", err);
+        }
+      }
+
+      // 3. Call API
       setAnalyzingAI(true);
       try {
         const res = await fetch("/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ data, settings: fundSettings }),
+          body: JSON.stringify({ data: dataToAnalyze, settings: fundSettings }),
         });
         const json = await res.json();
         if (json.success && json.analysis) {
@@ -515,6 +539,14 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
   // ── Rating local (0-10) — usado como fallback se IA não disponível ──
   const ratingScore = (() => {
+    // Sem dados mínimos → rating 0 (ausência de documento não é mérito)
+    const temDadosMinimos = !!(
+      data.cnpj.razaoSocial ||
+      (data.faturamento.meses?.length ?? 0) > 0 ||
+      data.scr.totalDividasAtivas
+    );
+    if (!temDadosMinimos) return 0;
+
     let s = 0;
     // Situação ATIVA (+1)
     if (data.cnpj.situacaoCadastral?.toUpperCase().includes("ATIVA")) s += 1;
@@ -1326,6 +1358,12 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
                 <Download size={15} /> Baixar todos
               </button>
             )}
+            <GoalfyButton
+              data={data}
+              aiAnalysis={aiAnalysis}
+              settings={fundSettings}
+              disabled={!aiAnalysis}
+            />
           </div>
         </div>
       </div>

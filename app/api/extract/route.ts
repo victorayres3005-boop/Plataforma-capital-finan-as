@@ -527,6 +527,278 @@ Regras:
 - Campos ausentes → ""
 - NÃO invente dados`;
 
+const PROMPT_CURVA_ABC = `
+Você é um especialista em análise financeira.
+Analise o documento de Curva ABC / Carteira de Clientes recebido e extraia os dados dos principais clientes.
+
+ATENÇÃO — REGRAS CRÍTICAS DE EXTRAÇÃO:
+- Extraia TODOS os clientes listados no documento, até o máximo de 20
+- Priorize os maiores em valor faturado
+- Se o documento tiver apenas % sem valor absoluto, extraia o % e deixe valor como "0,00"
+- Se o nome do cliente estiver omitido ou como "Cliente X", extraia assim mesmo
+- NÃO invente dados — se um campo não existir, deixe vazio
+
+Retorne APENAS JSON válido, sem texto adicional, sem markdown:
+{
+  "clientes": [
+    {
+      "posicao": 1,
+      "nome": "Nome do Cliente",
+      "cnpjCpf": "",
+      "valorFaturado": "1.234.567,89",
+      "percentualReceita": "35,50",
+      "segmento": ""
+    }
+  ],
+  "totalClientesNaBase": 0,
+  "totalClientesExtraidos": 0,
+  "periodoReferencia": "",
+  "receitaTotalBase": "0,00",
+  "concentracaoTop3": "0,00",
+  "concentracaoTop5": "0,00",
+  "maiorCliente": "",
+  "maiorClientePct": "0,00",
+  "alertaConcentracao": false
+}
+
+Regras:
+- posicao: ordem decrescente por valor (1 = maior cliente)
+- nome: nome ou razão social — se omitido use "Cliente [posicao]"
+- cnpjCpf: formato com pontuação se disponível, senão vazio
+- valorFaturado: formatação brasileira — se não disponível use "0,00"
+- percentualReceita: apenas o número sem % (ex: "35,50")
+- segmento: setor do cliente se disponível, senão vazio
+- concentracaoTop3: soma dos % dos 3 maiores
+- concentracaoTop5: soma dos % dos 5 maiores
+- alertaConcentracao: true se qualquer cliente tiver percentualReceita > 30
+- NÃO invente dados
+`;
+
+const PROMPT_DRE = `
+Você é um especialista em análise financeira.
+Analise o documento de DRE (Demonstração de Resultado do Exercício) recebido.
+
+ATENÇÃO — REGRAS CRÍTICAS DE EXTRAÇÃO:
+- Extraia dados de TODOS os anos presentes no documento
+- DREs podem ter layouts variados por contador — varra o documento inteiro
+- Se um campo não existir no documento, retorne "0,00"
+- NÃO invente dados
+
+Retorne APENAS JSON válido, sem texto adicional, sem markdown:
+{
+  "anos": [
+    {
+      "ano": "2024",
+      "receitaBruta": "0,00",
+      "deducoes": "0,00",
+      "receitaLiquida": "0,00",
+      "custoProdutosServicos": "0,00",
+      "lucroBruto": "0,00",
+      "margemBruta": "0,00",
+      "despesasOperacionais": "0,00",
+      "ebitda": "0,00",
+      "margemEbitda": "0,00",
+      "depreciacaoAmortizacao": "0,00",
+      "resultadoFinanceiro": "0,00",
+      "lucroAntesIR": "0,00",
+      "impostoRenda": "0,00",
+      "lucroLiquido": "0,00",
+      "margemLiquida": "0,00"
+    }
+  ],
+  "crescimentoReceita": "0,00",
+  "tendenciaLucro": "crescimento",
+  "periodoMaisRecente": "2024",
+  "observacoes": ""
+}
+
+Regras:
+- anos: array com todos os anos encontrados, ordem crescente
+- ano: formato YYYY
+- todos os valores monetários: formatação brasileira (1.234.567,89)
+- margemBruta: percentual sem % (ex: "35,50")
+- margemEbitda: percentual sem %
+- margemLiquida: percentual sem %
+- crescimentoReceita: variação % da receita bruta do ano mais antigo para o mais recente
+- tendenciaLucro: "crescimento", "estavel" ou "queda" baseado nos últimos 2 anos
+- observacoes: qualquer informação relevante não capturada nos campos acima
+- NÃO invente dados
+`;
+
+const PROMPT_BALANCO = `
+Você é um especialista em análise financeira.
+Analise o documento de Balanço Patrimonial recebido.
+
+ATENÇÃO — REGRAS CRÍTICAS DE EXTRAÇÃO:
+- Extraia dados de TODOS os anos presentes no documento
+- Balanços podem ter layouts variados por contador — varra o documento inteiro
+- Se um campo não existir no documento, retorne "0,00"
+- NÃO invente dados
+
+Retorne APENAS JSON válido, sem texto adicional, sem markdown:
+{
+  "anos": [
+    {
+      "ano": "2024",
+      "ativoTotal": "0,00",
+      "ativoCirculante": "0,00",
+      "caixaEquivalentes": "0,00",
+      "contasAReceber": "0,00",
+      "estoques": "0,00",
+      "outrosAtivosCirculantes": "0,00",
+      "ativoNaoCirculante": "0,00",
+      "imobilizado": "0,00",
+      "intangivel": "0,00",
+      "outrosAtivosNaoCirculantes": "0,00",
+      "passivoTotal": "0,00",
+      "passivoCirculante": "0,00",
+      "fornecedores": "0,00",
+      "emprestimosCP": "0,00",
+      "outrosPassivosCirculantes": "0,00",
+      "passivoNaoCirculante": "0,00",
+      "emprestimosLP": "0,00",
+      "outrosPassivosNaoCirculantes": "0,00",
+      "patrimonioLiquido": "0,00",
+      "capitalSocial": "0,00",
+      "reservas": "0,00",
+      "lucrosAcumulados": "0,00",
+      "liquidezCorrente": "0,00",
+      "liquidezGeral": "0,00",
+      "endividamentoTotal": "0,00",
+      "capitalDeGiroLiquido": "0,00"
+    }
+  ],
+  "periodoMaisRecente": "2024",
+  "tendenciaPatrimonio": "crescimento",
+  "observacoes": ""
+}
+
+Regras:
+- anos: array com todos os anos encontrados, ordem crescente
+- ano: formato YYYY
+- todos os valores monetários: formatação brasileira (1.234.567,89)
+- liquidezCorrente: Ativo Circulante ÷ Passivo Circulante (ex: "1,85")
+- liquidezGeral: (Ativo Circulante + Realizável LP) ÷ (Passivo Circulante + Exigível LP)
+- endividamentoTotal: Passivo Total ÷ Ativo Total em % (ex: "45,30")
+- capitalDeGiroLiquido: Ativo Circulante - Passivo Circulante
+- tendenciaPatrimonio: "crescimento", "estavel" ou "queda" baseado nos últimos 2 anos
+- observacoes: qualquer informação relevante não capturada acima
+- NÃO invente dados
+`;
+
+const PROMPT_IR_SOCIOS = `
+Você é um especialista em análise financeira.
+Analise o documento de Imposto de Renda (IRPF) do sócio recebido.
+
+ATENÇÃO — REGRAS CRÍTICAS DE EXTRAÇÃO:
+- Este documento contém dados sensíveis — extraia apenas o necessário para análise de crédito
+- O documento pode ser a declaração completa ou apenas o recibo/resumo
+- NÃO invente dados — se um campo não existir, deixe vazio ou "0,00"
+
+Retorne APENAS JSON válido, sem texto adicional, sem markdown:
+{
+  "nomeSocio": "",
+  "cpf": "",
+  "anoBase": "2024",
+  "rendimentosTributaveis": "0,00",
+  "rendimentosIsentos": "0,00",
+  "rendimentoTotal": "0,00",
+  "bensImoveis": "0,00",
+  "bensVeiculos": "0,00",
+  "aplicacoesFinanceiras": "0,00",
+  "outrosBens": "0,00",
+  "totalBensDireitos": "0,00",
+  "dividasOnus": "0,00",
+  "patrimonioLiquido": "0,00",
+  "impostoPago": "0,00",
+  "impostoRestituir": "0,00",
+  "temSociedades": false,
+  "sociedades": [
+    {
+      "razaoSocial": "",
+      "cnpj": "",
+      "participacao": ""
+    }
+  ],
+  "coerenciaComEmpresa": true,
+  "observacoes": ""
+}
+
+Regras:
+- nomeSocio: nome completo do declarante
+- cpf: formato 000.000.000-00 se disponível
+- anoBase: ano a que se refere a declaração (não o ano de entrega)
+- rendimentosTributaveis: soma de salários, pró-labore, aluguéis tributáveis
+- rendimentosIsentos: dividendos, lucros distribuídos, heranças
+- rendimentoTotal: soma de todos os rendimentos
+- bensImoveis: valor total de imóveis declarados
+- bensVeiculos: valor total de veículos declarados
+- aplicacoesFinanceiras: valor total de investimentos declarados
+- totalBensDireitos: total geral de bens e direitos
+- dividasOnus: total de dívidas declaradas
+- patrimonioLiquido: totalBensDireitos - dividasOnus
+- temSociedades: true se declarar participação em outras empresas
+- sociedades: lista de empresas onde o sócio tem participação declarada
+- coerenciaComEmpresa: true se renda declarada é compatível com o porte da empresa
+- observacoes: inconsistências ou informações relevantes encontradas
+- NÃO invente dados
+`;
+
+const PROMPT_RELATORIO_VISITA = `
+Você é um especialista em análise de crédito.
+Analise o documento de Relatório de Visita recebido e extraia as informações relevantes.
+
+ATENÇÃO — REGRAS CRÍTICAS DE EXTRAÇÃO:
+- O documento pode ser texto livre, formulário ou template — adapte a extração ao formato
+- Extraia informações qualitativas com fidelidade ao documento
+- NÃO invente dados — se um campo não existir, deixe vazio ou false
+
+Retorne APENAS JSON válido, sem texto adicional, sem markdown:
+{
+  "dataVisita": "",
+  "responsavelVisita": "",
+  "localVisita": "",
+  "duracaoVisita": "",
+  "estruturaFisicaConfirmada": true,
+  "funcionariosObservados": 0,
+  "estoqueVisivel": false,
+  "estimativaEstoque": "",
+  "operacaoCompativelFaturamento": true,
+  "maquinasEquipamentos": false,
+  "descricaoEstrutura": "",
+  "pontosPositivos": [],
+  "pontosAtencao": [],
+  "recomendacaoVisitante": "aprovado",
+  "nivelConfiancaVisita": "alto",
+  "presencaSocios": false,
+  "sociosPresentes": [],
+  "documentosVerificados": [],
+  "observacoesLivres": ""
+}
+
+Regras:
+- dataVisita: formato DD/MM/YYYY se disponível
+- responsavelVisita: nome de quem realizou a visita
+- localVisita: endereço ou descrição do local visitado
+- duracaoVisita: ex "2 horas", "30 minutos"
+- estruturaFisicaConfirmada: true se a empresa existe fisicamente no endereço declarado
+- funcionariosObservados: número aproximado de funcionários vistos
+- estoqueVisivel: true se havia estoque visível no local
+- estimativaEstoque: descrição qualitativa do estoque (ex: "alto", "médio", "baixo")
+- operacaoCompativelFaturamento: true se a operação observada é compatível com o faturamento declarado
+- maquinasEquipamentos: true se havia máquinas ou equipamentos relevantes
+- descricaoEstrutura: descrição livre da estrutura física observada
+- pontosPositivos: array de strings com pontos positivos observados
+- pontosAtencao: array de strings com pontos de atenção ou riscos observados
+- recomendacaoVisitante: "aprovado", "condicional" ou "reprovado"
+- nivelConfiancaVisita: "alto", "medio" ou "baixo" — confiança do visitante na operação
+- presencaSocios: true se sócios estavam presentes durante a visita
+- sociosPresentes: array com nomes dos sócios presentes
+- documentosVerificados: array com documentos físicos verificados durante a visita
+- observacoesLivres: texto livre com qualquer observação adicional relevante
+- NÃO invente dados
+`;
+
 // ─────────────────────────────────────────
 // PROVEDOR 1: Gemini (primário — melhor qualidade)
 // ─────────────────────────────────────────
@@ -899,6 +1171,11 @@ export async function POST(request: NextRequest) {
       case "protestos":      prompt = PROMPT_PROTESTOS; break;
       case "processos":      prompt = PROMPT_PROCESSOS; break;
       case "grupoEconomico": prompt = PROMPT_GRUPO_ECONOMICO; break;
+      case "curva_abc":      prompt = PROMPT_CURVA_ABC; break;
+      case "dre":            prompt = PROMPT_DRE; break;
+      case "balanco":        prompt = PROMPT_BALANCO; break;
+      case "ir_socio":       prompt = PROMPT_IR_SOCIOS; break;
+      case "relatorio_visita": prompt = PROMPT_RELATORIO_VISITA; break;
       default:
         return NextResponse.json({ error: "Tipo de documento inválido." }, { status: 400 });
     }

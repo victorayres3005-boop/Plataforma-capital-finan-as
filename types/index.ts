@@ -205,6 +205,147 @@ export interface ProcessosData {
   outros: ProcessoOutro[];
 }
 
+// ─── Relatório de Visita ───
+export interface RelatorioVisitaData {
+  dataVisita: string;
+  responsavelVisita: string;
+  localVisita: string;
+  duracaoVisita: string;
+  estruturaFisicaConfirmada: boolean;
+  funcionariosObservados: number;
+  estoqueVisivel: boolean;
+  estimativaEstoque: string;
+  operacaoCompativelFaturamento: boolean;
+  maquinasEquipamentos: boolean;
+  descricaoEstrutura: string;
+  pontosPositivos: string[];
+  pontosAtencao: string[];
+  recomendacaoVisitante: "aprovado" | "condicional" | "reprovado";
+  nivelConfiancaVisita: "alto" | "medio" | "baixo";
+  presencaSocios: boolean;
+  sociosPresentes: string[];
+  documentosVerificados: string[];
+  observacoesLivres: string;
+}
+
+// ─── IR dos Sócios ───
+export interface SociedadeIR {
+  razaoSocial: string;
+  cnpj: string;
+  participacao: string;
+}
+
+export interface IRSocioData {
+  nomeSocio: string;
+  cpf: string;
+  anoBase: string;
+  rendimentosTributaveis: string;
+  rendimentosIsentos: string;
+  rendimentoTotal: string;
+  bensImoveis: string;
+  bensVeiculos: string;
+  aplicacoesFinanceiras: string;
+  outrosBens: string;
+  totalBensDireitos: string;
+  dividasOnus: string;
+  patrimonioLiquido: string;
+  impostoPago: string;
+  impostoRestituir: string;
+  temSociedades: boolean;
+  sociedades: SociedadeIR[];
+  coerenciaComEmpresa: boolean;
+  observacoes: string;
+}
+
+// ─── Balanço Patrimonial ───
+export interface BalancoAno {
+  ano: string;
+  ativoTotal: string;
+  ativoCirculante: string;
+  caixaEquivalentes: string;
+  contasAReceber: string;
+  estoques: string;
+  outrosAtivosCirculantes: string;
+  ativoNaoCirculante: string;
+  imobilizado: string;
+  intangivel: string;
+  outrosAtivosNaoCirculantes: string;
+  passivoTotal: string;
+  passivoCirculante: string;
+  fornecedores: string;
+  emprestimosCP: string;
+  outrosPassivosCirculantes: string;
+  passivoNaoCirculante: string;
+  emprestimosLP: string;
+  outrosPassivosNaoCirculantes: string;
+  patrimonioLiquido: string;
+  capitalSocial: string;
+  reservas: string;
+  lucrosAcumulados: string;
+  liquidezCorrente: string;
+  liquidezGeral: string;
+  endividamentoTotal: string;
+  capitalDeGiroLiquido: string;
+}
+
+export interface BalancoData {
+  anos: BalancoAno[];
+  periodoMaisRecente: string;
+  tendenciaPatrimonio: "crescimento" | "estavel" | "queda";
+  observacoes: string;
+}
+
+// ─── DRE (Demonstração de Resultado do Exercício) ───
+export interface DREAno {
+  ano: string;
+  receitaBruta: string;
+  deducoes: string;
+  receitaLiquida: string;
+  custoProdutosServicos: string;
+  lucroBruto: string;
+  margemBruta: string;
+  despesasOperacionais: string;
+  ebitda: string;
+  margemEbitda: string;
+  depreciacaoAmortizacao: string;
+  resultadoFinanceiro: string;
+  lucroAntesIR: string;
+  impostoRenda: string;
+  lucroLiquido: string;
+  margemLiquida: string;
+}
+
+export interface DREData {
+  anos: DREAno[];
+  crescimentoReceita: string;
+  tendenciaLucro: "crescimento" | "estavel" | "queda";
+  periodoMaisRecente: string;
+  observacoes: string;
+}
+
+// ─── Curva ABC / Carteira de Clientes ───
+export interface ClienteCurvaABC {
+  posicao: number;
+  nome: string;
+  cnpjCpf: string;
+  valorFaturado: string;
+  percentualReceita: string;
+  segmento: string;
+}
+
+export interface CurvaABCData {
+  clientes: ClienteCurvaABC[];
+  totalClientesNaBase: number;
+  totalClientesExtraidos: number;
+  periodoReferencia: string;
+  receitaTotalBase: string;
+  concentracaoTop3: string;
+  concentracaoTop5: string;
+  maiorCliente: string;
+  maiorClientePct: string;
+  alertaConcentracao: boolean;
+}
+
 // ─── Grupo Econômico ───
 export interface EmpresaGrupo {
   razaoSocial: string;
@@ -230,6 +371,11 @@ export interface ExtractedData {
   protestos: ProtestosData;
   processos: ProcessosData;
   grupoEconomico: GrupoEconomicoData;
+  curvaABC?: CurvaABCData;
+  dre?: DREData;
+  balanco?: BalancoData;
+  irSocios?: IRSocioData[];
+  relatorioVisita?: RelatorioVisitaData;
   resumoRisco: string;
 }
 

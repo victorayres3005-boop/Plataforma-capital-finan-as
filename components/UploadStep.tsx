@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, AlertCircle, Info, GitCompareArrows } from "lucide-react";
+import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, AlertCircle, Info, GitCompareArrows, Receipt, Scale, PieChart, FileKey, ClipboardList } from "lucide-react";
 import UploadArea from "./UploadArea";
-import { CNPJData, QSAData, ContratoSocialData, FaturamentoData, SCRData, ProtestosData, ProcessosData, GrupoEconomicoData, ExtractedData } from "@/types";
+import { CNPJData, QSAData, ContratoSocialData, FaturamentoData, SCRData, ProtestosData, ProcessosData, GrupoEconomicoData, ExtractedData, IRSocioData } from "@/types";
 
 // ─── Types ───
 
-type DocKey = 'cnpj' | 'qsa' | 'contrato' | 'faturamento' | 'scr' | 'scrAnterior';
+type DocKey = 'cnpj' | 'qsa' | 'contrato' | 'faturamento' | 'scr' | 'scrAnterior' | 'dre' | 'balanco' | 'curva_abc' | 'ir_socio' | 'relatorio_visita';
 
 interface SectionState {
   files: File[];
@@ -56,6 +56,11 @@ export interface OriginalFiles {
   faturamento: File[];
   scr: File[];
   scrAnterior: File[];
+  dre: File[];
+  balanco: File[];
+  curva_abc: File[];
+  ir_socio: File[];
+  relatorio_visita: File[];
 }
 
 // ─── Defaults ───
@@ -102,7 +107,12 @@ const SECTIONS: SectionConfig[] = [
   { key: 'contrato',    title: 'Contrato Social',                   description: 'Contrato ou Estatuto Social — consolidado ou última alteração',   icon: <ScrollText size={19} />,       stepNumber: '3', required: true },
   { key: 'faturamento', title: 'Faturamento',                       description: 'Relatório de faturamento mensal — PDF ou planilha Excel (.xlsx)', icon: <TrendingUp size={19} />,       stepNumber: '4', required: true },
   { key: 'scr',         title: 'SCR / Bacen — Atual',               description: 'Relatório SCR do período mais recente',                           icon: <BarChart3 size={19} />,        stepNumber: '5', required: true },
-  { key: 'scrAnterior', title: 'SCR / Bacen — Anterior (opcional)', description: 'Relatório SCR do período anterior para comparativo',              icon: <GitCompareArrows size={19} />, stepNumber: '▿', required: false },
+  { key: 'scrAnterior',      title: 'SCR / Bacen — Anterior (opcional)', description: 'Relatório SCR do período anterior para comparativo',              icon: <GitCompareArrows size={19} />, stepNumber: '▿', required: false },
+  { key: 'dre',              title: 'DRE — Demonstração de Resultado',   description: 'Demonstração de resultado dos últimos 2-3 anos',                 icon: <Receipt size={19} />,          stepNumber: '▿', required: false },
+  { key: 'balanco',          title: 'Balanço Patrimonial',               description: 'Balanço dos últimos 2-3 anos',                                   icon: <Scale size={19} />,            stepNumber: '▿', required: false },
+  { key: 'curva_abc',        title: 'Curva ABC — Top Clientes',          description: 'Carteira de clientes com concentração de receita',               icon: <PieChart size={19} />,         stepNumber: '▿', required: false },
+  { key: 'ir_socio',         title: 'IR dos Sócios (opcional)',          description: 'Declaração de imposto de renda dos sócios',                      icon: <FileKey size={19} />,          stepNumber: '▿', required: false },
+  { key: 'relatorio_visita', title: 'Relatório de Visita',               description: 'Relatório da visita presencial à empresa',                       icon: <ClipboardList size={19} />,    stepNumber: '▿', required: false },
 ];
 
 const REQUIRED_KEYS: DocKey[] = ['cnpj', 'qsa', 'contrato', 'faturamento', 'scr'];
@@ -115,8 +125,13 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
     qsa:         { files: [], processing: false, processedCount: 0, errorCount: 0 },
     contrato:    { files: [], processing: false, processedCount: 0, errorCount: 0 },
     faturamento: { files: [], processing: false, processedCount: 0, errorCount: 0 },
-    scr:         { files: [], processing: false, processedCount: 0, errorCount: 0 },
-    scrAnterior: { files: [], processing: false, processedCount: 0, errorCount: 0 },
+    scr:              { files: [], processing: false, processedCount: 0, errorCount: 0 },
+    scrAnterior:      { files: [], processing: false, processedCount: 0, errorCount: 0 },
+    dre:              { files: [], processing: false, processedCount: 0, errorCount: 0 },
+    balanco:          { files: [], processing: false, processedCount: 0, errorCount: 0 },
+    curva_abc:        { files: [], processing: false, processedCount: 0, errorCount: 0 },
+    ir_socio:         { files: [], processing: false, processedCount: 0, errorCount: 0 },
+    relatorio_visita: { files: [], processing: false, processedCount: 0, errorCount: 0 },
   });
 
   const [extracted, setExtracted] = useState<ExtractedData>({
@@ -177,19 +192,25 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
 
         // Merge the incoming data
         setExtracted(prev => {
-          const field = type === 'scrAnterior' ? 'scrAnterior' : type;
-          const currentData = prev[field];
-
           if (type === 'scrAnterior') {
-            if (currentData === null) {
-              return { ...prev, scrAnterior: json.data };
-            }
+            const currentData = prev.scrAnterior;
+            if (currentData === null) return { ...prev, scrAnterior: json.data };
             return { ...prev, scrAnterior: mergeData(currentData as unknown as Record<string, unknown>, json.data) as unknown as SCRData };
           }
-
+          if (type === 'ir_socio') {
+            return { ...prev, irSocios: [...(prev.irSocios || []), json.data as IRSocioData] };
+          }
+          const fieldMap: Partial<Record<DocKey, keyof ExtractedData>> = {
+            curva_abc: 'curvaABC',
+            relatorio_visita: 'relatorioVisita',
+          };
+          const field = (fieldMap[type] ?? type) as keyof ExtractedData;
+          const currentData = prev[field];
           return {
             ...prev,
-            [field]: mergeData(currentData as unknown as Record<string, unknown>, json.data),
+            [field]: currentData
+              ? mergeData(currentData as unknown as Record<string, unknown>, json.data)
+              : json.data,
           };
         });
 
@@ -243,11 +264,24 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
 
       // Success — merge data
       setExtracted(prev => {
-        const field = type === "scrAnterior" ? "scrAnterior" : type;
         if (type === "scrAnterior") {
           return { ...prev, scrAnterior: json.data };
         }
-        return { ...prev, [field]: mergeData(prev[field] as unknown as Record<string, unknown>, json.data) };
+        if (type === "ir_socio") {
+          return { ...prev, irSocios: [...(prev.irSocios || []), json.data as IRSocioData] };
+        }
+        const fieldMap: Partial<Record<DocKey, keyof ExtractedData>> = {
+          curva_abc: 'curvaABC',
+          relatorio_visita: 'relatorioVisita',
+        };
+        const field = (fieldMap[type] ?? type) as keyof ExtractedData;
+        const currentData = prev[field];
+        return {
+          ...prev,
+          [field]: currentData
+            ? mergeData(currentData as unknown as Record<string, unknown>, json.data)
+            : json.data,
+        };
       });
 
       setSections(prev => ({
@@ -325,6 +359,11 @@ export default function UploadStep({ onComplete }: { onComplete: (data: Extracte
       faturamento: sections.faturamento.files,
       scr: sections.scr.files,
       scrAnterior: sections.scrAnterior.files,
+      dre: sections.dre.files,
+      balanco: sections.balanco.files,
+      curva_abc: sections.curva_abc.files,
+      ir_socio: sections.ir_socio.files,
+      relatorio_visita: sections.relatorio_visita.files,
     };
     onComplete(extracted, files);
   };

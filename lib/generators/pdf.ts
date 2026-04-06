@@ -1146,6 +1146,207 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
       if (data.scr.historicoInadimplencia) drawMultilineField("Historico de Inadimplencia", data.scr.historicoInadimplencia, 5);
 
+      // ── Página DRE ──
+      if (data.dre && data.dre.anos && data.dre.anos.length > 0) {
+        newPage();
+        drawHeader();
+
+        // Header da seção
+        doc.setFillColor(...colors.primary);
+        doc.rect(margin, y, contentW, 8, "F");
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(255, 255, 255);
+        doc.text("07   DEMONSTRACAO DE RESULTADO (DRE)", margin + 4, y + 5.5);
+        y += 12;
+
+        // Tabela comparativa por ano
+        const dreAnos = data.dre.anos;
+        const colLabel = 55;
+        const colAno = (contentW - colLabel) / dreAnos.length;
+
+        // Cabeçalho da tabela
+        doc.setFillColor(...colors.primary);
+        doc.rect(margin, y, contentW, 7, "F");
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(255, 255, 255);
+        doc.text("METRICA", margin + 2, y + 4.8);
+        dreAnos.forEach((ano: { ano: string; [key: string]: string }, i: number) => {
+          doc.text(ano.ano, margin + colLabel + i * colAno + 2, y + 4.8);
+        });
+        y += 7;
+
+        // Linhas da tabela
+        const linhasDRE: { label: string; campo: string; bold: boolean; isPct?: boolean }[] = [
+          { label: "Receita Bruta", campo: "receitaBruta", bold: false },
+          { label: "Receita Liquida", campo: "receitaLiquida", bold: false },
+          { label: "Lucro Bruto", campo: "lucroBruto", bold: false },
+          { label: "Margem Bruta (%)", campo: "margemBruta", bold: false, isPct: true },
+          { label: "EBITDA", campo: "ebitda", bold: true },
+          { label: "Margem EBITDA (%)", campo: "margemEbitda", bold: false, isPct: true },
+          { label: "Lucro Liquido", campo: "lucroLiquido", bold: true },
+          { label: "Margem Liquida (%)", campo: "margemLiquida", bold: false, isPct: true },
+        ];
+
+        linhasDRE.forEach((linha, idx) => {
+          const bg: [number,number,number] = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+          doc.setFillColor(...bg);
+          doc.rect(margin, y, contentW, 6, "F");
+          doc.setFontSize(7);
+          doc.setFont("helvetica", linha.bold ? "bold" : "normal");
+          doc.setTextColor(...colors.text);
+          doc.text(linha.label, margin + 2, y + 4.2);
+          dreAnos.forEach((ano: { [key: string]: string }, i: number) => {
+            const val = ano[linha.campo] || "0,00";
+            const display = linha.isPct ? `${val}%` : `R$ ${val}`;
+            doc.text(display, margin + colLabel + i * colAno + 2, y + 4.2);
+          });
+          y += 6;
+        });
+
+        // Tendência
+        y += 4;
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.primary);
+        const tendenciaDRE = data.dre.tendenciaLucro === "crescimento" ? "↑ Crescimento" :
+          data.dre.tendenciaLucro === "queda" ? "↓ Queda" : "→ Estavel";
+        doc.text(`Tendencia: ${tendenciaDRE} | Crescimento de Receita: ${data.dre.crescimentoReceita}%`, margin + 2, y);
+        y += 6;
+
+        if (data.dre.observacoes) {
+          doc.setFont("helvetica", "italic");
+          doc.setFontSize(6.5);
+          doc.setTextColor(...colors.textMuted);
+          const obsLines = doc.splitTextToSize(data.dre.observacoes, contentW - 4);
+          obsLines.forEach((l: string) => { doc.text(l, margin + 2, y); y += 4; });
+        }
+      }
+
+      // ── Página Balanço ──
+      if (data.balanco && data.balanco.anos && data.balanco.anos.length > 0) {
+        newPage();
+        drawHeader();
+
+        doc.setFillColor(...colors.primary);
+        doc.rect(margin, y, contentW, 8, "F");
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(255, 255, 255);
+        doc.text("08   BALANCO PATRIMONIAL", margin + 4, y + 5.5);
+        y += 12;
+
+        const balAnos = data.balanco.anos;
+        const colLabelB = 60;
+        const colAnoB = (contentW - colLabelB) / balAnos.length;
+
+        // Cabeçalho
+        doc.setFillColor(...colors.primary);
+        doc.rect(margin, y, contentW, 7, "F");
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(255, 255, 255);
+        doc.text("METRICA", margin + 2, y + 4.8);
+        balAnos.forEach((ano: { ano: string; [key: string]: string }, i: number) => {
+          doc.text(ano.ano, margin + colLabelB + i * colAnoB + 2, y + 4.8);
+        });
+        y += 7;
+
+        const linhasBalanco: { label: string; campo: string; bold: boolean; isIndice?: boolean; isPct?: boolean }[] = [
+          { label: "Ativo Total", campo: "ativoTotal", bold: true },
+          { label: "Ativo Circulante", campo: "ativoCirculante", bold: false },
+          { label: "Ativo Nao Circulante", campo: "ativoNaoCirculante", bold: false },
+          { label: "Passivo Total", campo: "passivoTotal", bold: true },
+          { label: "Passivo Circulante", campo: "passivoCirculante", bold: false },
+          { label: "Passivo Nao Circulante", campo: "passivoNaoCirculante", bold: false },
+          { label: "Patrimonio Liquido", campo: "patrimonioLiquido", bold: true },
+          { label: "Liquidez Corrente", campo: "liquidezCorrente", bold: false, isIndice: true },
+          { label: "Endividamento (%)", campo: "endividamentoTotal", bold: false, isPct: true },
+          { label: "Capital de Giro Liq.", campo: "capitalDeGiroLiquido", bold: false },
+        ];
+
+        linhasBalanco.forEach((linha, idx) => {
+          const bg: [number,number,number] = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+          doc.setFillColor(...bg);
+          doc.rect(margin, y, contentW, 6, "F");
+          doc.setFontSize(7);
+          doc.setFont("helvetica", linha.bold ? "bold" : "normal");
+          doc.setTextColor(...colors.text);
+          doc.text(linha.label, margin + 2, y + 4.2);
+          balAnos.forEach((ano: { [key: string]: string }, i: number) => {
+            const val = ano[linha.campo] || "0,00";
+            const display = linha.isIndice ? val : linha.isPct ? `${val}%` : `R$ ${val}`;
+            doc.text(display, margin + colLabelB + i * colAnoB + 2, y + 4.2);
+          });
+          y += 6;
+        });
+      }
+
+      // ── Página Curva ABC ──
+      if (data.curvaABC && data.curvaABC.clientes && data.curvaABC.clientes.length > 0) {
+        newPage();
+        drawHeader();
+
+        doc.setFillColor(...colors.primary);
+        doc.rect(margin, y, contentW, 8, "F");
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(255, 255, 255);
+        doc.text("09   CURVA ABC — CONCENTRACAO DE CLIENTES", margin + 4, y + 5.5);
+        y += 12;
+
+        // Alerta de concentração
+        if (data.curvaABC.alertaConcentracao) {
+          doc.setFillColor(254, 242, 242);
+          doc.rect(margin, y, contentW, 8, "F");
+          doc.setFontSize(7.5);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(220, 38, 38);
+          doc.text(`ALERTA: Cliente "${data.curvaABC.maiorCliente}" concentra ${data.curvaABC.maiorClientePct}% da receita — acima do limite de 30%`, margin + 3, y + 5.2);
+          y += 10;
+        }
+
+        // Resumo de concentração
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...colors.text);
+        doc.text(`Periodo: ${data.curvaABC.periodoReferencia || "—"}   |   Top 3: ${data.curvaABC.concentracaoTop3}%   |   Top 5: ${data.curvaABC.concentracaoTop5}%   |   Total clientes: ${data.curvaABC.totalClientesNaBase || "—"}`, margin + 2, y);
+        y += 8;
+
+        // Tabela de clientes
+        doc.setFillColor(...colors.primary);
+        doc.rect(margin, y, contentW, 7, "F");
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(255, 255, 255);
+        const cW1 = 10, cW2 = 70, cW3 = 45, cW4 = 30;
+        doc.text("#", margin + 2, y + 4.8);
+        doc.text("CLIENTE", margin + cW1 + 2, y + 4.8);
+        doc.text("FATURAMENTO (R$)", margin + cW1 + cW2 + 2, y + 4.8);
+        doc.text("% RECEITA", margin + cW1 + cW2 + cW3 + 2, y + 4.8);
+        doc.text("SEGMENTO", margin + cW1 + cW2 + cW3 + cW4 + 2, y + 4.8);
+        y += 7;
+
+        data.curvaABC.clientes.slice(0, 10).forEach((cliente, idx) => {
+          const bg: [number,number,number] = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+          doc.setFillColor(...bg);
+          doc.rect(margin, y, contentW, 6, "F");
+          doc.setFontSize(7);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(...colors.text);
+          doc.text(String(cliente.posicao), margin + 2, y + 4.2);
+          doc.text(cliente.nome || "—", margin + cW1 + 2, y + 4.2);
+          doc.text(cliente.valorFaturado || "—", margin + cW1 + cW2 + 2, y + 4.2);
+          const pct = parseFloat(cliente.percentualReceita || "0");
+          doc.setTextColor(pct > 30 ? 220 : colors.text[0], pct > 30 ? 38 : colors.text[1], pct > 30 ? 38 : colors.text[2]);
+          doc.text(`${cliente.percentualReceita}%`, margin + cW1 + cW2 + cW3 + 2, y + 4.2);
+          doc.setTextColor(...colors.text);
+          doc.text(cliente.segmento || "—", margin + cW1 + cW2 + cW3 + cW4 + 2, y + 4.2);
+          y += 6;
+        });
+      }
+
       // ===== PAGE 5 — PROTESTOS =====
       newPage();
       drawHeader();
@@ -1576,29 +1777,163 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         }
       }
 
-      // ===== PAGE 7 — GRUPO ECONOMICO =====
-      newPage();
-      drawHeader();
-      drawSectionTitle("07", "GRUPO ECONOMICO", colors.primary);
+      // ── Página IR dos Sócios ──
+      if (data.irSocios && data.irSocios.length > 0) {
+        newPage();
+        drawHeader();
 
-      const empresasGrupo = data.grupoEconomico?.empresas || [];
-      if (empresasGrupo.length > 0) {
-        const geColW = [contentW * 0.25, contentW * 0.18, contentW * 0.15, contentW * 0.14, contentW * 0.14, contentW * 0.14];
-        drawTable(
-          ["RAZAO SOCIAL", "CNPJ", "RELACAO", "SCR (R$)", "PROTESTOS", "PROCESSOS"],
-          empresasGrupo.map(e => [e.razaoSocial || "—", e.cnpj || "—", e.relacao || "—", e.scrTotal || "—", e.protestos || "0", e.processos || "0"]),
-          geColW,
-        );
-      } else {
-        drawSpacer(4);
-        checkPageBreak(12);
-        doc.setFillColor(...colors.surface2);
-        doc.roundedRect(margin, y, contentW, 10, 1, 1, "F");
+        doc.setFillColor(...colors.primary);
+        doc.rect(margin, y, contentW, 8, "F");
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(255, 255, 255);
+        doc.text("12   IR DOS SOCIOS", margin + 4, y + 5.5);
+        y += 12;
+
+        data.irSocios.forEach((ir, idx) => {
+          if (idx > 0) y += 6;
+
+          doc.setFontSize(8);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(...colors.primary);
+          doc.text(`${ir.nomeSocio || "Socio " + (idx + 1)} — Ano Base: ${ir.anoBase}`, margin + 2, y);
+          y += 6;
+
+          const linhasIR = [
+            { label: "Renda Total", valor: `R$ ${ir.rendimentoTotal || "0,00"}` },
+            { label: "Rendimentos Tributaveis", valor: `R$ ${ir.rendimentosTributaveis || "0,00"}` },
+            { label: "Rendimentos Isentos", valor: `R$ ${ir.rendimentosIsentos || "0,00"}` },
+            { label: "Total Bens e Direitos", valor: `R$ ${ir.totalBensDireitos || "0,00"}` },
+            { label: "Dividas e Onus", valor: `R$ ${ir.dividasOnus || "0,00"}` },
+            { label: "Patrimonio Liquido", valor: `R$ ${ir.patrimonioLiquido || "0,00"}` },
+          ];
+
+          linhasIR.forEach((linha, i) => {
+            const bg: [number,number,number] = i % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+            doc.setFillColor(...bg);
+            doc.rect(margin, y, contentW, 6, "F");
+            doc.setFontSize(7);
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(...colors.text);
+            doc.text(linha.label, margin + 2, y + 4.2);
+            doc.text(linha.valor, margin + 80, y + 4.2);
+            y += 6;
+          });
+
+          // Coerência
+          y += 3;
+          doc.setFontSize(7);
+          doc.setFont("helvetica", "bold");
+          const coerColor: [number,number,number] = ir.coerenciaComEmpresa ? [22, 163, 74] : [220, 38, 38];
+          doc.setTextColor(...coerColor);
+          doc.text(ir.coerenciaComEmpresa ? "Renda compativel com o porte da empresa" : "Renda incompativel com o porte da empresa", margin + 2, y);
+          y += 6;
+        });
+      }
+
+      // ── Página Relatório de Visita ──
+      if (data.relatorioVisita && data.relatorioVisita.dataVisita) {
+        newPage();
+        drawHeader();
+
+        doc.setFillColor(...colors.primary);
+        doc.rect(margin, y, contentW, 8, "F");
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(255, 255, 255);
+        doc.text("13   RELATORIO DE VISITA", margin + 4, y + 5.5);
+        y += 12;
+
+        // Cabeçalho da visita
         doc.setFontSize(7.5);
         doc.setFont("helvetica", "normal");
-        doc.setTextColor(...colors.textMuted);
-        doc.text("Nenhuma empresa identificada no grupo economico", margin + 8, y + 6.5);
-        y += 14;
+        doc.setTextColor(...colors.text);
+        doc.text(`Data: ${data.relatorioVisita.dataVisita || "—"}   |   Responsavel: ${data.relatorioVisita.responsavelVisita || "—"}   |   Duracao: ${data.relatorioVisita.duracaoVisita || "—"}`, margin + 2, y);
+        y += 6;
+        doc.text(`Local: ${data.relatorioVisita.localVisita || "—"}`, margin + 2, y);
+        y += 8;
+
+        // Checklist
+        const checklist = [
+          { label: "Estrutura fisica confirmada no endereco", ok: data.relatorioVisita.estruturaFisicaConfirmada },
+          { label: "Operacao compativel com faturamento declarado", ok: data.relatorioVisita.operacaoCompativelFaturamento },
+          { label: "Estoque visivel no local", ok: data.relatorioVisita.estoqueVisivel },
+          { label: "Maquinas e equipamentos observados", ok: data.relatorioVisita.maquinasEquipamentos },
+          { label: "Socios presentes durante a visita", ok: data.relatorioVisita.presencaSocios },
+        ];
+
+        checklist.forEach((item, i) => {
+          const bg: [number,number,number] = i % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+          doc.setFillColor(...bg);
+          doc.rect(margin, y, contentW, 6, "F");
+          doc.setFontSize(7);
+          const itemColor: [number,number,number] = item.ok ? [22, 163, 74] : [220, 38, 38];
+          doc.setTextColor(...itemColor);
+          doc.text(item.ok ? "+" : "x", margin + 3, y + 4.2);
+          doc.setTextColor(...colors.text);
+          doc.text(item.label, margin + 10, y + 4.2);
+          y += 6;
+        });
+
+        y += 4;
+
+        // Pontos positivos
+        if (data.relatorioVisita.pontosPositivos?.length > 0) {
+          doc.setFontSize(7.5);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(...colors.primary);
+          doc.text("Pontos Positivos:", margin + 2, y);
+          y += 5;
+          data.relatorioVisita.pontosPositivos.forEach((p: string) => {
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(7);
+            doc.setTextColor(22, 163, 74);
+            doc.text(`+ ${p}`, margin + 4, y);
+            y += 4.5;
+          });
+          y += 2;
+        }
+
+        // Pontos de atenção
+        if (data.relatorioVisita.pontosAtencao?.length > 0) {
+          doc.setFontSize(7.5);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(...colors.primary);
+          doc.text("Pontos de Atencao:", margin + 2, y);
+          y += 5;
+          data.relatorioVisita.pontosAtencao.forEach((p: string) => {
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(7);
+            doc.setTextColor(220, 38, 38);
+            doc.text(`! ${p}`, margin + 4, y);
+            y += 4.5;
+          });
+          y += 2;
+        }
+
+        // Recomendação
+        y += 2;
+        const recCor: [number,number,number] = data.relatorioVisita.recomendacaoVisitante === "aprovado" ? [22, 163, 74] :
+          data.relatorioVisita.recomendacaoVisitante === "condicional" ? [234, 179, 8] : [220, 38, 38];
+        doc.setFillColor(...recCor);
+        doc.roundedRect(margin, y, contentW, 8, 1, 1, "F");
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(255, 255, 255);
+        const recTexto = data.relatorioVisita.recomendacaoVisitante === "aprovado" ? "RECOMENDACAO DO VISITANTE: APROVADO" :
+          data.relatorioVisita.recomendacaoVisitante === "condicional" ? "RECOMENDACAO DO VISITANTE: CONDICIONAL" :
+          "RECOMENDACAO DO VISITANTE: REPROVADO";
+        doc.text(recTexto, margin + 4, y + 5.5);
+        y += 10;
+
+        // Observações livres
+        if (data.relatorioVisita.observacoesLivres) {
+          doc.setFont("helvetica", "italic");
+          doc.setFontSize(6.5);
+          doc.setTextColor(...colors.textMuted);
+          const obsLines = doc.splitTextToSize(data.relatorioVisita.observacoesLivres, contentW - 4);
+          obsLines.forEach((l: string) => { doc.text(l, margin + 2, y); y += 4; });
+        }
       }
 
       // ===== PAGE 8 — PARECER =====

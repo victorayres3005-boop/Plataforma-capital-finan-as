@@ -41,6 +41,11 @@ function hydrateFromCollection(docs: { type: string; extracted_data: Record<stri
     protestos: "protestos",
     processos: "processos",
     grupo_economico: "grupoEconomico",
+    curva_abc: "curvaABC",
+    dre: "dre",
+    balanco: "balanco",
+    ir_socio: "irSocios",
+    relatorio_visita: "relatorioVisita",
   };
 
   for (const doc of docs) {
