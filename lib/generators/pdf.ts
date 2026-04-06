@@ -1996,11 +1996,11 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
           ];
 
           linhasIR.forEach((linha, i) => {
-            const bg = i % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+            const bg: [number,number,number] = i % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
             doc.setFillColor(...bg);
             doc.rect(margin, y, contentW, 6, "F");
             doc.setFontSize(7);
-            doc.setFont("helvetica", (linha as any).bold ? "bold" : "normal");
+            doc.setFont("helvetica", (linha as { label: string; valor: string; bold?: boolean }).bold ? "bold" : "normal");
             doc.setTextColor(...colors.text);
             doc.text(linha.label, margin + 3, y + 4.2);
             doc.text(linha.valor, margin + contentW - 3, y + 4.2, { align: "right" });
@@ -2016,7 +2016,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
             doc.setTextColor(...colors.primary);
             doc.text("Participação em outras sociedades:", margin + 3, y);
             y += 5;
-            ir.sociedades.forEach((soc: any) => {
+            ir.sociedades.forEach((soc: { razaoSocial?: string; cnpj?: string; participacao?: string }) => {
               doc.setFont("helvetica", "normal");
               doc.setTextColor(...colors.text);
               doc.setFontSize(6.5);
