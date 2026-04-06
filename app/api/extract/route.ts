@@ -553,14 +553,17 @@ Regras:
 
 const PROMPT_CURVA_ABC = `
 Você é um especialista em análise financeira.
-Analise o documento de Curva ABC / Carteira de Clientes recebido e extraia os dados dos principais clientes.
+Analise o documento de Curva ABC / Carteira de Clientes recebido.
 
-ATENÇÃO — REGRAS CRÍTICAS DE EXTRAÇÃO:
-- Extraia TODOS os clientes listados no documento, até o máximo de 20
-- Priorize os maiores em valor faturado
-- Se o documento tiver apenas % sem valor absoluto, extraia o % e deixe valor como "0,00"
-- Se o nome do cliente estiver omitido ou como "Cliente X", extraia assim mesmo
+FOCO: Leia APENAS os primeiros 20 clientes por valor faturado.
+Ignore clientes com participação abaixo de 0,5% — não são relevantes para análise de crédito.
+O objetivo é identificar concentração de receita, não listar todos os clientes.
+
+ATENÇÃO:
+- Extraia APENAS os top 20 clientes por valor faturado ou % de participação
+- Se o documento tiver coluna de % acumulado, use para identificar os mais relevantes
 - NÃO invente dados — se um campo não existir, deixe vazio
+- Calcule concentracaoTop3 e concentracaoTop5 somando os % dos maiores clientes
 
 Retorne APENAS JSON válido, sem texto adicional, sem markdown:
 {
@@ -586,16 +589,19 @@ Retorne APENAS JSON válido, sem texto adicional, sem markdown:
 }
 
 Regras:
-- posicao: ordem decrescente por valor (1 = maior cliente)
-- nome: nome ou razão social — se omitido use "Cliente [posicao]"
-- cnpjCpf: formato com pontuação se disponível, senão vazio
-- valorFaturado: formatação brasileira — se não disponível use "0,00"
+- clientes: APENAS os top 20 por valor — ordem decrescente
+- posicao: 1 = maior cliente
+- nome: razão social ou nome do cliente
+- cnpjCpf: se disponível, senão vazio
+- valorFaturado: formatação brasileira (1.234.567,89)
 - percentualReceita: apenas o número sem % (ex: "35,50")
-- segmento: setor do cliente se disponível, senão vazio
+- segmento: setor se disponível, senão vazio
+- totalClientesNaBase: total real de clientes no documento
+- totalClientesExtraidos: quantos foram extraídos (máx 20)
 - concentracaoTop3: soma dos % dos 3 maiores
 - concentracaoTop5: soma dos % dos 5 maiores
 - alertaConcentracao: true se qualquer cliente tiver percentualReceita > 30
-- NÃO invente dados
+- NÃO processe mais de 20 clientes — pare ao atingir o 20º
 `;
 
 const PROMPT_DRE = `
