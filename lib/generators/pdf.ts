@@ -1919,53 +1919,144 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         newPage();
         drawHeader();
 
+        // Header da seção
         doc.setFillColor(...colors.primary);
         doc.rect(margin, y, contentW, 8, "F");
         doc.setFontSize(9);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(255, 255, 255);
-        doc.text("12   IR DOS SOCIOS", margin + 4, y + 5.5);
+        doc.text("12   IR DOS SÓCIOS", margin + 4, y + 5.5);
         y += 12;
 
-        data.irSocios.forEach((ir, idx) => {
-          if (idx > 0) y += 6;
+        for (let idx = 0; idx < data.irSocios.length; idx++) {
+          const ir = data.irSocios[idx];
+          if (!ir.nomeSocio && !ir.anoBase) continue;
 
+          // Separador entre sócios
+          if (idx > 0) {
+            doc.setDrawColor(...colors.border);
+            doc.setLineWidth(0.3);
+            doc.line(margin, y, margin + contentW, y);
+            y += 6;
+          }
+
+          // Header do sócio
+          doc.setFillColor(240, 246, 255);
+          doc.rect(margin, y, contentW, 8, "F");
           doc.setFontSize(8);
           doc.setFont("helvetica", "bold");
           doc.setTextColor(...colors.primary);
-          doc.text(`${ir.nomeSocio || "Socio " + (idx + 1)} — Ano Base: ${ir.anoBase}`, margin + 2, y);
+          doc.text(
+            `Sócio ${idx + 1} — ${ir.nomeSocio || "Nome não informado"}`,
+            margin + 3,
+            y + 5.2
+          );
+          // CPF e ano base no lado direito
+          doc.setFontSize(7);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(...colors.textMuted);
+          const cpfAno = [ir.cpf && `CPF: ${ir.cpf}`, ir.anoBase && `Ano-base: ${ir.anoBase}`]
+            .filter(Boolean).join("   |   ");
+          if (cpfAno) {
+            doc.text(cpfAno, margin + contentW - 3, y + 5.2, { align: "right" });
+          }
+          y += 10;
+
+          // Tipo do documento
+          const tipoLabel = ir.tipoDocumento === "declaracao" ? "Declaração Completa" : "Recibo de Entrega";
+          doc.setFontSize(6.5);
+          doc.setFont("helvetica", "italic");
+          doc.setTextColor(...colors.textMuted);
+          doc.text(`Documento: ${tipoLabel}`, margin + 3, y);
           y += 6;
 
+          // Alertas de malhas e débitos
+          if (ir.situacaoMalhas || ir.debitosEmAberto) {
+            doc.setFillColor(254, 242, 242);
+            doc.rect(margin, y, contentW, 7, "F");
+            doc.setFontSize(7);
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(220, 38, 38);
+            const alertaTexto = [
+              ir.situacaoMalhas && "Pendência de malhas fiscais",
+              ir.debitosEmAberto && `Débitos em aberto: ${ir.descricaoDebitos || "Sim"}`
+            ].filter(Boolean).join("   |   ");
+            doc.text(`⚠ ${alertaTexto}`, margin + 3, y + 4.8);
+            y += 9;
+          }
+
+          // Tabela de dados patrimoniais
           const linhasIR = [
             { label: "Renda Total", valor: `R$ ${ir.rendimentoTotal || "0,00"}` },
-            { label: "Rendimentos Tributaveis", valor: `R$ ${ir.rendimentosTributaveis || "0,00"}` },
+            { label: "Rendimentos Tributáveis", valor: `R$ ${ir.rendimentosTributaveis || "0,00"}` },
             { label: "Rendimentos Isentos", valor: `R$ ${ir.rendimentosIsentos || "0,00"}` },
-            { label: "Total Bens e Direitos", valor: `R$ ${ir.totalBensDireitos || "0,00"}` },
-            { label: "Dividas e Onus", valor: `R$ ${ir.dividasOnus || "0,00"}` },
-            { label: "Patrimonio Liquido", valor: `R$ ${ir.patrimonioLiquido || "0,00"}` },
+            { label: "Total Bens e Direitos", valor: `R$ ${ir.totalBensDireitos || "0,00"}`, bold: true },
+            { label: "Dívidas e Ônus", valor: `R$ ${ir.dividasOnus || "0,00"}` },
+            { label: "Patrimônio Líquido", valor: `R$ ${ir.patrimonioLiquido || "0,00"}`, bold: true },
           ];
 
           linhasIR.forEach((linha, i) => {
-            const bg: [number,number,number] = i % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+            const bg = i % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
             doc.setFillColor(...bg);
             doc.rect(margin, y, contentW, 6, "F");
             doc.setFontSize(7);
-            doc.setFont("helvetica", "normal");
+            doc.setFont("helvetica", (linha as any).bold ? "bold" : "normal");
             doc.setTextColor(...colors.text);
-            doc.text(linha.label, margin + 2, y + 4.2);
-            doc.text(linha.valor, margin + 80, y + 4.2);
+            doc.text(linha.label, margin + 3, y + 4.2);
+            doc.text(linha.valor, margin + contentW - 3, y + 4.2, { align: "right" });
             y += 6;
           });
 
-          // Coerência
-          y += 3;
+          y += 4;
+
+          // Participação em outras sociedades
+          if (ir.temSociedades && ir.sociedades && ir.sociedades.length > 0) {
+            doc.setFontSize(7);
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(...colors.primary);
+            doc.text("Participação em outras sociedades:", margin + 3, y);
+            y += 5;
+            ir.sociedades.forEach((soc: any) => {
+              doc.setFont("helvetica", "normal");
+              doc.setTextColor(...colors.text);
+              doc.setFontSize(6.5);
+              doc.text(
+                `• ${soc.razaoSocial || "N/D"}${soc.cnpj ? ` — CNPJ: ${soc.cnpj}` : ""}${soc.participacao ? ` (${soc.participacao})` : ""}`,
+                margin + 5,
+                y
+              );
+              y += 4.5;
+            });
+            y += 3;
+          }
+
+          // Indicador de coerência
           doc.setFontSize(7);
           doc.setFont("helvetica", "bold");
-          const coerColor: [number,number,number] = ir.coerenciaComEmpresa ? [22, 163, 74] : [220, 38, 38];
-          doc.setTextColor(...coerColor);
-          doc.text(ir.coerenciaComEmpresa ? "Renda compativel com o porte da empresa" : "Renda incompativel com o porte da empresa", margin + 2, y);
+          if (ir.coerenciaComEmpresa) {
+            doc.setTextColor(22, 163, 74);
+            doc.text("✓ Renda compatível com o porte da empresa", margin + 3, y);
+          } else {
+            doc.setTextColor(220, 38, 38);
+            doc.text("⚠ Renda incompatível com o porte da empresa", margin + 3, y);
+          }
           y += 6;
-        });
+
+          // Observações
+          if (ir.observacoes) {
+            doc.setFont("helvetica", "italic");
+            doc.setFontSize(6.5);
+            doc.setTextColor(...colors.textMuted);
+            const obsLines = doc.splitTextToSize(ir.observacoes, contentW - 6);
+            obsLines.forEach((l: string) => {
+              doc.text(l, margin + 3, y);
+              y += 4;
+            });
+            y += 2;
+          }
+        }
+
+        y += 6;
       }
 
       // ── Página Relatório de Visita ──
