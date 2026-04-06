@@ -175,7 +175,7 @@ const stepDescriptions: Record<AppStep, string> = {
 export default function HomePage() {
   const [step, setStep] = useState<AppStep>("upload");
   const [extractedData, setExtractedData] = useState<ExtractedData>(defaultData);
-  const [originalFiles, setOriginalFiles] = useState<OriginalFiles>({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [] });
+  const [originalFiles, setOriginalFiles] = useState<OriginalFiles>({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] });
   const { user, loading: authLoading, signOut } = useAuth();
   const { welcomeSeen, firstCollectionDone, loaded: onboardingLoaded, markWelcomeSeen, markTooltipSeen, markFirstCollectionDone, isTooltipSeen } = useOnboarding(user?.id);
   const [scrolled, setScrolled] = useState(false);
