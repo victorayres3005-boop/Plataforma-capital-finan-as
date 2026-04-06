@@ -327,6 +327,12 @@ Regras de formatação:
 const PROMPT_SCR = `Você é um extrator de dados estruturados especializado em documentos do Sistema de Informações de Crédito (SCR) do Banco Central do Brasil.
 Retorne APENAS JSON válido, sem markdown, sem explicações.
 
+TIPO DE CLIENTE:
+- Verifique se o documento é de Pessoa Física (CPF) ou Pessoa Jurídica (CNPJ)
+- Para Pessoa Física: o campo cnpjSCR deve conter o CPF sem formatação
+- Modalidades comuns PF: financiamento habitacional (SFH/não-SFH), financiamento rural (custeio), cartão de crédito, cheque especial
+- Para Pessoa Jurídica: modalidades incluem capital de giro, desconto de duplicatas, veículos, outros financiamentos
+
 O documento SCR contém estas seções — extraia cada uma:
 
 1. CABEÇALHO: CNPJ do cliente, período de referência (MM/AAAA), % documentos processados, % volume processado
@@ -357,6 +363,7 @@ O documento SCR contém estas seções — extraia cada uma:
 Schema JSON de saída (RESPEITE EXATAMENTE estes nomes de campos):
 {
   "periodoReferencia": "MM/AAAA",
+  "tipoPessoa": "PJ",
   "cnpjSCR": "",
   "pctDocumentosProcessados": "",
   "pctVolumeProcessado": "",
@@ -426,6 +433,7 @@ REGRAS CRÍTICAS DE EXTRAÇÃO:
 - Sempre extraia outrosValores com os campos: carteiraCredito, repasses, coobrigacoes, responsabilidadeTotal, creditosALiberar, riscoTotal
 - Se um campo não existir no documento, retorne "0,00" — NUNCA omita o campo
 - pctDocumentosProcessados e pctVolumeProcessado são campos numéricos — extraia o valor sem o símbolo %
+- tipoPessoa: "PF" se for pessoa física (CPF), "PJ" se for pessoa jurídica (CNPJ)
 
 REGRAS:
 - Campos de valor: use os valores TOTAIS da seção nos campos flat (carteiraAVencer, vencidos, prejuizos, limiteCredito) E os detalhes por faixa nos objetos (faixasAVencer, faixasVencidos, etc.)
@@ -688,18 +696,26 @@ Regras:
 
 const PROMPT_IR_SOCIOS = `
 Você é um especialista em análise financeira.
-Analise o documento de Imposto de Renda (IRPF) do sócio recebido.
+Analise o documento de Imposto de Renda recebido — pode ser um recibo de entrega
+ou uma declaração completa. Extraia o máximo de informações disponíveis.
 
-ATENÇÃO — REGRAS CRÍTICAS DE EXTRAÇÃO:
-- Este documento contém dados sensíveis — extraia apenas o necessário para análise de crédito
-- O documento pode ser a declaração completa ou apenas o recibo/resumo
-- NÃO invente dados — se um campo não existir, deixe vazio ou "0,00"
+ATENÇÃO:
+- Se for apenas o RECIBO DE ENTREGA, extraia: nome, CPF, ano-base, número do recibo,
+  situação de malhas e débitos em aberto
+- Se for a DECLARAÇÃO COMPLETA, extraia todos os dados patrimoniais
+- NÃO invente dados — se um campo não existir no documento, deixe vazio ou "0,00"
 
 Retorne APENAS JSON válido, sem texto adicional, sem markdown:
 {
   "nomeSocio": "",
   "cpf": "",
   "anoBase": "2024",
+  "tipoDocumento": "recibo",
+  "numeroRecibo": "",
+  "dataEntrega": "",
+  "situacaoMalhas": false,
+  "debitosEmAberto": false,
+  "descricaoDebitos": "",
   "rendimentosTributaveis": "0,00",
   "rendimentosIsentos": "0,00",
   "rendimentoTotal": "0,00",
@@ -713,34 +729,21 @@ Retorne APENAS JSON válido, sem texto adicional, sem markdown:
   "impostoPago": "0,00",
   "impostoRestituir": "0,00",
   "temSociedades": false,
-  "sociedades": [
-    {
-      "razaoSocial": "",
-      "cnpj": "",
-      "participacao": ""
-    }
-  ],
+  "sociedades": [],
   "coerenciaComEmpresa": true,
   "observacoes": ""
 }
 
 Regras:
-- nomeSocio: nome completo do declarante
-- cpf: formato 000.000.000-00 se disponível
-- anoBase: ano a que se refere a declaração (não o ano de entrega)
-- rendimentosTributaveis: soma de salários, pró-labore, aluguéis tributáveis
-- rendimentosIsentos: dividendos, lucros distribuídos, heranças
-- rendimentoTotal: soma de todos os rendimentos
-- bensImoveis: valor total de imóveis declarados
-- bensVeiculos: valor total de veículos declarados
-- aplicacoesFinanceiras: valor total de investimentos declarados
-- totalBensDireitos: total geral de bens e direitos
-- dividasOnus: total de dívidas declaradas
-- patrimonioLiquido: totalBensDireitos - dividasOnus
-- temSociedades: true se declarar participação em outras empresas
-- sociedades: lista de empresas onde o sócio tem participação declarada
-- coerenciaComEmpresa: true se renda declarada é compatível com o porte da empresa
-- observacoes: inconsistências ou informações relevantes encontradas
+- tipoDocumento: "recibo" se for só o recibo de entrega, "declaracao" se for declaração completa
+- numeroRecibo: número do recibo de entrega (ex: "18,48,06,49,54 - 24")
+- dataEntrega: data em que a declaração foi entregue (DD/MM/AAAA)
+- situacaoMalhas: true se o documento indicar pendências de malhas
+- debitosEmAberto: true se houver débitos em aberto mencionados
+- descricaoDebitos: descrição dos débitos se houver
+- Para recibo simples, deixe todos os campos monetários como "0,00"
+- coerenciaComEmpresa: true se não houver inconsistências visíveis
+- observacoes: qualquer informação relevante do documento
 - NÃO invente dados
 `;
 

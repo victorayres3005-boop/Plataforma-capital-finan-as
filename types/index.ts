@@ -137,6 +137,7 @@ export interface SCRData {
   emDia?: string;
   semHistorico?: boolean;
   numeroIfs?: string;
+  tipoPessoa?: "PF" | "PJ";
 }
 
 // ─── Protestos ───
@@ -239,6 +240,12 @@ export interface IRSocioData {
   nomeSocio: string;
   cpf: string;
   anoBase: string;
+  tipoDocumento?: "recibo" | "declaracao";
+  numeroRecibo?: string;
+  dataEntrega?: string;
+  situacaoMalhas?: boolean;
+  debitosEmAberto?: boolean;
+  descricaoDebitos?: string;
   rendimentosTributaveis: string;
   rendimentosIsentos: string;
   rendimentoTotal: string;
