@@ -55,6 +55,12 @@ function hydrateFromCollection(docs: { type: string; extracted_data: Record<stri
     // Remove internal flags before hydrating
     const { _editedManually, ...data } = doc.extracted_data;
     void _editedManually;
+    // irSocios is an array — push each doc as a new entry instead of object spread
+    if (field === "irSocios") {
+      const arr = ((result as unknown as Record<string, unknown>)[field] as unknown[]) || [];
+      (result as unknown as Record<string, unknown>)[field] = [...arr, data];
+      continue;
+    }
     (result as unknown as Record<string, unknown>)[field] = {
       ...(result as unknown as Record<string, unknown>)[field] as object,
       ...data,

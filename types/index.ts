@@ -404,7 +404,7 @@ export type AppStep = 'upload' | 'review' | 'generate';
 
 // ─── Supabase — Histórico de coletas ───
 export interface CollectionDocument {
-  type: 'cnpj' | 'qsa' | 'contrato_social' | 'faturamento' | 'scr_bacen' | 'protestos' | 'processos' | 'grupo_economico' | 'outro';
+  type: 'cnpj' | 'qsa' | 'contrato_social' | 'faturamento' | 'scr_bacen' | 'protestos' | 'processos' | 'grupo_economico' | 'dre' | 'balanco' | 'curva_abc' | 'ir_socio' | 'relatorio_visita' | 'outro';
   filename: string;
   extracted_data: Record<string, unknown>;
   uploaded_at: string;
