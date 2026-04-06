@@ -903,7 +903,7 @@ export default function HomePage() {
             <ReviewStep data={extractedData} onComplete={(d) => { setExtractedData(d); setStep("generate"); }} onBack={() => setStep("upload")} />
           )}
           {step === "generate" && (
-            <GenerateStep data={extractedData} originalFiles={originalFiles} onBack={() => setStep("review")} onReset={() => { setShowDashboard(true); setStep("upload"); setExtractedData(defaultData); setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [] }); }} onNotify={handleNotify} onFirstCollection={markFirstCollectionDone} />
+            <GenerateStep data={extractedData} originalFiles={originalFiles} onBack={() => setStep("review")} onReset={() => { setShowDashboard(true); setStep("upload"); setExtractedData(defaultData); setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] }); }} onNotify={handleNotify} onFirstCollection={markFirstCollectionDone} />
           )}
         </div>
         )}
