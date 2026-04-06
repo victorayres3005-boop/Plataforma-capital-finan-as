@@ -12,7 +12,7 @@ import GenerateStep from "@/components/GenerateStep";
 import { useAuth } from "@/lib/useAuth";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
-import { AppStep, ExtractedData, DocumentCollection, Notification } from "@/types";
+import { AppStep, ExtractedData, DocumentCollection, Notification, SCRData } from "@/types";
 import Link from "next/link";
 import { LogOut, User, Menu, X, Clock, Shield, Plus, Building2, ArrowRight, ArrowLeft, Calendar, Home, Bell, Search, Loader2, Settings, HelpCircle } from "lucide-react";
 
@@ -61,31 +61,67 @@ function hydrateFromCollection(docs: { type: string; extracted_data: Record<stri
     };
   }
 
-  // SCR: ordena por periodoReferencia — mais recente = atual, mais antigo = anterior
   const scrDocs = docs.filter(d => d.type === "scr_bacen");
-  if (scrDocs.length === 1) {
-    const { _editedManually: _em1, ...data1 } = scrDocs[0].extracted_data!;
+
+  // Separa PJ (empresa) de PF (sócios)
+  const scrEmpresa = scrDocs.filter(d =>
+    (d.extracted_data?.tipoPessoa as string) === "PJ" ||
+    !(d.extracted_data?.tipoPessoa) // fallback para docs antigos sem tipoPessoa
+  );
+  const scrSociosDocs = scrDocs.filter(d =>
+    (d.extracted_data?.tipoPessoa as string) === "PF"
+  );
+
+  // SCR da empresa — lógica existente de sort por período
+  if (scrEmpresa.length === 1) {
+    const { _editedManually: _em1, ...data1 } = scrEmpresa[0].extracted_data!;
     void _em1;
     result.scr = { ...result.scr, ...data1 } as ExtractedData["scr"];
-  } else if (scrDocs.length >= 2) {
-    const sorted = [...scrDocs].sort((a, b) => {
+  } else if (scrEmpresa.length >= 2) {
+    const sorted = [...scrEmpresa].sort((a, b) => {
       const periodoA = String(a.extracted_data?.periodoReferencia || "00/0000");
       const periodoB = String(b.extracted_data?.periodoReferencia || "00/0000");
-
       const [mA, yA] = periodoA.split("/").map(s => parseInt(s, 10) || 0);
       const [mB, yB] = periodoB.split("/").map(s => parseInt(s, 10) || 0);
-
-      // decrescente — mais recente primeiro
       if (yB !== yA) return yB - yA;
       return mB - mA;
     });
-
     const { _editedManually: _em1, ...data1 } = sorted[0].extracted_data!;
     void _em1;
     const { _editedManually: _em2, ...data2 } = sorted[1].extracted_data!;
     void _em2;
     result.scr = { ...result.scr, ...data1 } as ExtractedData["scr"];
     result.scrAnterior = { ...result.scrAnterior, ...data2 } as ExtractedData["scr"];
+  }
+
+  // SCR dos sócios PF — agrupa por CPF e ordena períodos
+  if (scrSociosDocs.length > 0) {
+    const porCpf: Record<string, typeof scrSociosDocs> = {};
+    for (const doc of scrSociosDocs) {
+      const cpf = String(doc.extracted_data?.cnpjSCR || doc.extracted_data?.cpfSCR || "desconhecido");
+      if (!porCpf[cpf]) porCpf[cpf] = [];
+      porCpf[cpf].push(doc);
+    }
+
+    result.scrSocios = Object.entries(porCpf).map(([cpf, docs]) => {
+      const sorted = [...docs].sort((a, b) => {
+        const periodoA = String(a.extracted_data?.periodoReferencia || "00/0000");
+        const periodoB = String(b.extracted_data?.periodoReferencia || "00/0000");
+        const [mA, yA] = periodoA.split("/").map(s => parseInt(s, 10) || 0);
+        const [mB, yB] = periodoB.split("/").map(s => parseInt(s, 10) || 0);
+        if (yB !== yA) return yB - yA;
+        return mB - mA;
+      });
+      const atual = sorted[0].extracted_data as unknown as SCRData;
+      const anterior = sorted[1]?.extracted_data as unknown as SCRData | undefined;
+      return {
+        nomeSocio: String(atual?.nomeCliente || cpf),
+        cpfSocio: cpf,
+        tipoPessoa: "PF" as const,
+        periodoAtual: atual,
+        periodoAnterior: anterior,
+      };
+    });
   }
 
   return result;

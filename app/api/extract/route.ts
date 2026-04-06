@@ -19,6 +19,14 @@ function geminiUrl(model: string, key: string) {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
 }
 
+const OPENROUTER_API_KEYS = (process.env.OPENROUTER_API_KEYS || process.env.OPENROUTER_API_KEY || "")
+  .split(",").map(k => k.trim()).filter(Boolean);
+const OPENROUTER_MODELS = [
+  "google/gemini-2.0-flash-exp:free",
+  "google/gemini-2.5-pro-exp-03-25:free",
+  "meta-llama/llama-3.2-90b-vision-instruct:free",
+];
+
 // ─────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────
@@ -295,6 +303,9 @@ ATENÇÃO — REGRAS CRÍTICAS DE EXTRAÇÃO:
 - NÃO se limite ao ano mais recente ou aos dados em destaque
 - Se o documento tiver dados de 2023, 2024, 2025 e 2026 — extraia todos
 - Se um mês aparecer em mais de um lugar com valores diferentes, use o maior valor
+- NÃO inclua meses futuros sem dados — se o mês ainda não ocorreu ou o valor é zero porque não há movimento, OMITA o mês do array
+- NÃO inclua meses com valor "0,00" a menos que seja comprovadamente um mês sem faturamento dentro do histórico real da empresa
+- O array meses[] deve conter APENAS meses com faturamento efetivamente realizado
 - NÃO invente dados — se um mês não estiver no documento, não inclua
 
 Retorne APENAS JSON válido, sem texto adicional, sem markdown:
@@ -365,6 +376,8 @@ Schema JSON de saída (RESPEITE EXATAMENTE estes nomes de campos):
   "periodoReferencia": "MM/AAAA",
   "tipoPessoa": "PJ",
   "cnpjSCR": "",
+  "nomeCliente": "",
+  "cpfSCR": "",
   "pctDocumentosProcessados": "",
   "pctVolumeProcessado": "",
   "carteiraAVencer": "",
@@ -434,6 +447,8 @@ REGRAS CRÍTICAS DE EXTRAÇÃO:
 - Se um campo não existir no documento, retorne "0,00" — NUNCA omita o campo
 - pctDocumentosProcessados e pctVolumeProcessado são campos numéricos — extraia o valor sem o símbolo %
 - tipoPessoa: "PF" se for pessoa física (CPF), "PJ" se for pessoa jurídica (CNPJ)
+- nomeCliente: nome completo do titular extraído do cabeçalho do documento
+- cpfSCR: CPF do titular se Pessoa Física (formato 000.000.000-00), sem pontuação se CNPJ
 
 REGRAS:
 - Campos de valor: use os valores TOTAIS da seção nos campos flat (carteiraAVencer, vencidos, prejuizos, limiteCredito) E os detalhes por faixa nos objetos (faixasAVencer, faixasVencidos, etc.)
@@ -696,20 +711,24 @@ Regras:
 
 const PROMPT_IR_SOCIOS = `
 Você é um especialista em análise financeira.
-Analise o documento de Imposto de Renda recebido — pode ser um recibo de entrega
-ou uma declaração completa. Extraia o máximo de informações disponíveis.
+Analise o documento de Imposto de Renda recebido — pode ser um RECIBO DE ENTREGA
+ou uma DECLARAÇÃO COMPLETA. Extraia o máximo de informações disponíveis.
 
-ATENÇÃO:
-- Se for apenas o RECIBO DE ENTREGA, extraia: nome, CPF, ano-base, número do recibo,
-  situação de malhas e débitos em aberto
-- Se for a DECLARAÇÃO COMPLETA, extraia todos os dados patrimoniais
-- NÃO invente dados — se um campo não existir no documento, deixe vazio ou "0,00"
+ATENÇÃO — REGRAS CRÍTICAS:
+- Se for RECIBO DE ENTREGA: o cabeçalho contém "EXERCÍCIO AAAA — ANO-CALENDÁRIO AAAA"
+  O anoBase é o ANO-CALENDÁRIO (não o exercício)
+  Exemplo: "EXERCÍCIO 2025 — ANO-CALENDÁRIO 2024" → anoBase = "2024"
+- O nome do declarante está na primeira linha após o cabeçalho do Ministério da Fazenda
+- O CPF está na mesma linha do nome, formato 000.000.000-00
+- situacaoMalhas: true se o documento mencionar pendências de malhas
+- debitosEmAberto: true se mencionar débitos em aberto no âmbito da Receita Federal
+- NÃO invente dados — se um campo não existir, deixe vazio ou false
 
 Retorne APENAS JSON válido, sem texto adicional, sem markdown:
 {
   "nomeSocio": "",
   "cpf": "",
-  "anoBase": "2024",
+  "anoBase": "",
   "tipoDocumento": "recibo",
   "numeroRecibo": "",
   "dataEntrega": "",
@@ -734,16 +753,19 @@ Retorne APENAS JSON válido, sem texto adicional, sem markdown:
   "observacoes": ""
 }
 
-Regras:
+Regras de formatação:
 - tipoDocumento: "recibo" se for só o recibo de entrega, "declaracao" se for declaração completa
-- numeroRecibo: número do recibo de entrega (ex: "18,48,06,49,54 - 24")
-- dataEntrega: data em que a declaração foi entregue (DD/MM/AAAA)
-- situacaoMalhas: true se o documento indicar pendências de malhas
-- debitosEmAberto: true se houver débitos em aberto mencionados
+- anoBase: ANO-CALENDÁRIO da declaração (ex: "2024") — campo OBRIGATÓRIO
+- nomeSocio: nome completo do declarante — campo OBRIGATÓRIO
+- cpf: formato 000.000.000-00
+- numeroRecibo: número completo do recibo (ex: "18,48,06,49,54 - 24")
+- dataEntrega: data de entrega no formato DD/MM/AAAA
+- situacaoMalhas: true se houver pendências de malhas em qualquer exercício
+- debitosEmAberto: true se mencionar débitos em aberto
 - descricaoDebitos: descrição dos débitos se houver
-- Para recibo simples, deixe todos os campos monetários como "0,00"
-- coerenciaComEmpresa: true se não houver inconsistências visíveis
-- observacoes: qualquer informação relevante do documento
+- coerenciaComEmpresa: true por padrão para recibos simples sem dados patrimoniais
+- observacoes: informações adicionais relevantes como débitos ou malhas encontradas
+- Para recibo simples, mantenha todos os campos monetários como "0,00"
 - NÃO invente dados
 `;
 
@@ -889,20 +911,100 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
 }
 
 // ─────────────────────────────────────────
-// Chamada Gemini (único provedor)
+// Chamada OpenRouter (fallback)
+// ─────────────────────────────────────────
+async function callOpenRouter(prompt: string, content: string | { mimeType: string; base64: string }): Promise<string> {
+  if (OPENROUTER_API_KEYS.length === 0) throw new Error("OPENROUTER_API_KEYS não configurada");
+
+  for (const apiKey of OPENROUTER_API_KEYS) {
+    for (const model of OPENROUTER_MODELS) {
+      try {
+        console.log(`[OpenRouter] key=${apiKey.substring(0, 16)}... model=${model}`);
+
+        let messageContent: unknown;
+        if (typeof content === "string") {
+          messageContent = prompt + "\n\n--- DOCUMENTO ---\n\n" + content;
+        } else {
+          const dataUrl = `data:${content.mimeType};base64,${content.base64}`;
+          messageContent = [
+            { type: "image_url", image_url: { url: dataUrl } },
+            { type: "text", text: prompt },
+          ];
+        }
+
+        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`,
+            "HTTP-Referer": "https://plataformacapital.vercel.app",
+            "X-Title": "Capital Financas",
+          },
+          body: JSON.stringify({
+            model,
+            messages: [{ role: "user", content: messageContent }],
+            temperature: 0.1,
+            max_tokens: 8192,
+          }),
+        });
+
+        if (response.status === 429 || response.status === 503) {
+          console.log(`[OpenRouter] ${response.status} on key=${apiKey.substring(0, 16)} model=${model}, trying next...`);
+          continue;
+        }
+
+        if (!response.ok) {
+          const body = await response.text();
+          console.error(`[OpenRouter] HTTP ${response.status}:`, body.substring(0, 300));
+          continue;
+        }
+
+        const result = await response.json();
+        const text = result?.choices?.[0]?.message?.content;
+        if (!text) {
+          console.error(`[OpenRouter] Empty response from model=${model}`);
+          continue;
+        }
+        console.log(`[OpenRouter] Success with key=${apiKey.substring(0, 16)} model=${model}`);
+        return text;
+      } catch (err) {
+        console.error(`[OpenRouter] Error on model=${model}:`, err instanceof Error ? err.message : err);
+      }
+    }
+  }
+  throw new Error("OPENROUTER_EXHAUSTED");
+}
+
+// ─────────────────────────────────────────
+// Chamada AI (Gemini → OpenRouter fallback)
 // ─────────────────────────────────────────
 async function callAI(
   prompt: string,
   textContent: string,
   imageContent?: { mimeType: string; base64: string },
 ): Promise<string> {
-  if (GEMINI_API_KEYS.length === 0) {
-    throw new Error("Nenhuma GEMINI_API_KEY configurada.");
+  const content: string | { mimeType: string; base64: string } = imageContent ?? textContent;
+
+  // Tentar Gemini primeiro
+  if (GEMINI_API_KEYS.length > 0) {
+    try {
+      return await callGemini(prompt, content);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg === "GEMINI_EXHAUSTED") {
+        console.log("[callAI] Gemini esgotado — tentando OpenRouter...");
+      } else {
+        throw err;
+      }
+    }
   }
 
-  // callGemini aceita string (texto) ou objeto (binário) como segundo parâmetro
-  const content: string | { mimeType: string; base64: string } = imageContent ?? textContent;
-  return await callGemini(prompt, content);
+  // Fallback: OpenRouter
+  if (OPENROUTER_API_KEYS.length > 0) {
+    return await callOpenRouter(prompt, content);
+  }
+
+  throw new Error("Nenhum provedor de IA disponível. Configure GEMINI_API_KEYS ou OPENROUTER_API_KEY.");
 }
 
 // ─────────────────────────────────────────
@@ -957,7 +1059,21 @@ function fillContratoDefaults(data: Partial<ContratoSocialData>): ContratoSocial
 }
 
 function fillFaturamentoDefaults(data: Partial<FaturamentoData>): FaturamentoData {
-  const meses = Array.isArray(data.meses) ? data.meses : [];
+  const _mesAtualFiltro = new Date().getMonth() + 1;
+  const _anoAtualFiltro = new Date().getFullYear();
+
+  const meses = (Array.isArray(data.meses) ? data.meses : [])
+    .filter(m => {
+      if (!m.mes) return false;
+      const [mesNum, anoNum] = m.mes.split("/").map(Number);
+      if (!mesNum || !anoNum) return false;
+
+      // Remove meses futuros — ano futuro, ou mesmo ano mas mês futuro
+      if (anoNum > _anoAtualFiltro) return false;
+      if (anoNum === _anoAtualFiltro && mesNum > _mesAtualFiltro) return false;
+
+      return true; // mantém todos os meses passados, incluindo zeros sazonais
+    });
   const parseBR = (v: string) => parseFloat((v || "0").replace(/\./g, "").replace(",", ".")) || 0;
   const fmtBR = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 

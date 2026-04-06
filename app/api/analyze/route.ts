@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { FundSettings } from "@/types";
+import type { FundSettings, ExtractedData } from "@/types";
 import { DEFAULT_FUND_SETTINGS } from "@/types";
 
 export const runtime = "nodejs";
@@ -14,10 +14,14 @@ function geminiUrl(model: string, key: string) {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
 }
 
+const OPENROUTER_API_KEYS = (process.env.OPENROUTER_API_KEYS || process.env.OPENROUTER_API_KEY || "")
+  .split(",").map(k => k.trim()).filter(Boolean);
+const OPENROUTER_MODELS = ["google/gemini-2.0-flash-exp:free", "google/gemini-2.5-pro-exp-03-25:free"];
+
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // ─────────────────────────────────────────
-// Chamada Gemini (único provedor)
+// Chamada Gemini
 // ─────────────────────────────────────────
 async function callGemini(prompt: string, data: string): Promise<string> {
   const parts = [{ text: prompt + "\n\n--- DADOS EXTRAÍDOS ---\n\n" + data }];
@@ -82,6 +86,44 @@ async function callGemini(prompt: string, data: string): Promise<string> {
     }
   }
   throw new Error("GEMINI_EXHAUSTED");
+}
+
+// ─────────────────────────────────────────
+// Chamada OpenRouter (fallback text-only)
+// ─────────────────────────────────────────
+async function callOpenRouter(prompt: string, data: string): Promise<string> {
+  if (OPENROUTER_API_KEYS.length === 0) throw new Error("OPENROUTER_API_KEYS não configurada");
+  for (const apiKey of OPENROUTER_API_KEYS) {
+    for (const model of OPENROUTER_MODELS) {
+      try {
+        console.log(`[OpenRouter/analyze] key=${apiKey.substring(0, 16)}... model=${model}`);
+        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`,
+            "HTTP-Referer": "https://plataformacapital.vercel.app",
+            "X-Title": "Capital Financas",
+          },
+          body: JSON.stringify({
+            model,
+            messages: [{ role: "user", content: prompt + "\n\n--- DADOS EXTRAÍDOS ---\n\n" + data }],
+            temperature: 0.1,
+            max_tokens: 8192,
+          }),
+        });
+        if (!response.ok) { console.error(`[OpenRouter/analyze] HTTP ${response.status}`); continue; }
+        const result = await response.json();
+        const text = result?.choices?.[0]?.message?.content;
+        if (!text) { console.error(`[OpenRouter/analyze] Empty response`); continue; }
+        console.log(`[OpenRouter/analyze] Success with key=${apiKey.substring(0, 16)} model=${model}`);
+        return text;
+      } catch (err) {
+        console.error(`[OpenRouter/analyze] Error:`, err instanceof Error ? err.message : err);
+      }
+    }
+  }
+  throw new Error("OPENROUTER_EXHAUSTED");
 }
 
 // ─────────────────────────────────────────
@@ -293,6 +335,72 @@ function countEmptyFieldRatio(obj: Record<string, unknown>): number {
   return total > 0 ? empty / total : 1;
 }
 
+const PROMPT_SINTESE = (data: ExtractedData, settings: FundSettings, preReq: ReturnType<typeof calcularPreRequisitos>) => `
+Você é um analista de crédito sênior especializado em FIDCs (Fundos de Investimento em Direitos Creditórios).
+Escreva uma síntese executiva completa sobre o cedente abaixo para embasar a decisão de crédito do fundo.
+
+DADOS DA EMPRESA:
+- Razão Social: ${data.cnpj?.razaoSocial || "N/D"}
+- CNPJ: ${data.cnpj?.cnpj || "N/D"}
+- Setor: ${data.cnpj?.cnaePrincipal || "N/D"}
+- Data de Abertura: ${data.cnpj?.dataAbertura || "N/D"}
+- Situação: ${data.cnpj?.situacaoCadastral || "N/D"}
+- Sócios: ${(data.qsa?.quadroSocietario || data.contrato?.socios || []).map((s: { nome?: string; participacao?: string; qualificacao?: string }) => `${s.nome} (${s.participacao || s.qualificacao || ""})`).join(", ")}
+
+FATURAMENTO:
+- FMM 12M: R$ ${data.faturamento?.fmm12m || data.faturamento?.mediaAno || "N/D"}
+- FMM Médio: R$ ${data.faturamento?.fmmMedio || "N/D"}
+- Tendência: ${data.faturamento?.tendencia || "N/D"}
+- Mínimo exigido pelo fundo: R$ ${settings.fmm_minimo?.toLocaleString("pt-BR") || "N/D"}
+- Pré-requisito FMM: ${preReq.reprovadoPorPreRequisito ? "REPROVADO" : "APROVADO"}
+
+SCR DA EMPRESA (período mais recente: ${data.scr?.periodoReferencia || "N/D"}):
+- Total dívidas ativas: R$ ${data.scr?.totalDividasAtivas || "0,00"}
+- Vencidos: R$ ${data.scr?.vencidos || "0,00"}
+- Prejuízos: R$ ${data.scr?.prejuizos || "0,00"}
+- Qtde IFs: ${data.scr?.qtdeInstituicoes || "0"}
+- Qtde Operações: ${data.scr?.qtdeOperacoes || "0"}
+
+${(data.scrSocios && data.scrSocios.length > 0) ? `SCR DOS SÓCIOS:
+${data.scrSocios.map((s) => `- ${s.nomeSocio}: Total dívidas R$ ${s.periodoAtual?.totalDividasAtivas || "0,00"}, Vencidos R$ ${s.periodoAtual?.vencidos || "0,00"}, Prejuízos R$ ${s.periodoAtual?.prejuizos || "0,00"}`).join("\n")}` : "SCR DOS SÓCIOS: Não informado"}
+
+${data.dre ? `DRE (ano mais recente: ${data.dre.periodoMaisRecente}):
+- Receita Bruta: R$ ${data.dre.anos?.[data.dre.anos.length-1]?.receitaBruta || "N/D"}
+- Lucro Líquido: R$ ${data.dre.anos?.[data.dre.anos.length-1]?.lucroLiquido || "N/D"}
+- Margem Líquida: ${data.dre.anos?.[data.dre.anos.length-1]?.margemLiquida || "N/D"}%
+- Tendência: ${data.dre.tendenciaLucro || "N/D"}` : "DRE: Não informado"}
+
+${data.balanco ? `BALANÇO (ano mais recente: ${data.balanco.periodoMaisRecente}):
+- Ativo Total: R$ ${data.balanco.anos?.[data.balanco.anos.length-1]?.ativoTotal || "N/D"}
+- Patrimônio Líquido: R$ ${data.balanco.anos?.[data.balanco.anos.length-1]?.patrimonioLiquido || "N/D"}
+- Liquidez Corrente: ${data.balanco.anos?.[data.balanco.anos.length-1]?.liquidezCorrente || "N/D"}
+- Endividamento: ${data.balanco.anos?.[data.balanco.anos.length-1]?.endividamentoTotal || "N/D"}%` : "BALANÇO: Não informado"}
+
+${data.curvaABC ? `CONCENTRAÇÃO DE CLIENTES:
+- Maior cliente: ${data.curvaABC.maiorCliente} (${data.curvaABC.maiorClientePct}%)
+- Concentração Top 3: ${data.curvaABC.concentracaoTop3}%
+- Concentração Top 5: ${data.curvaABC.concentracaoTop5}%
+- Alerta de concentração: ${data.curvaABC.alertaConcentracao ? "SIM" : "NÃO"}` : "CURVA ABC: Não informada"}
+
+PARÂMETROS DO FUNDO:
+- FMM mínimo: R$ ${settings.fmm_minimo?.toLocaleString("pt-BR")}
+- Idade mínima: ${settings.idade_minima_anos} anos
+- Alavancagem saudável: até ${settings.alavancagem_saudavel}x
+- Alavancagem máxima: até ${settings.alavancagem_maxima}x
+- Concentração máxima por sacado: ${settings.concentracao_max_sacado}%
+- Fator limite base: ${settings.fator_limite_base}x o FMM
+
+Escreva a síntese executiva em 5 parágrafos, em português brasileiro formal:
+
+1. PERFIL DA EMPRESA — quem é, setor, tempo de operação, estrutura societária
+2. SAÚDE FINANCEIRA — FMM, tendência de faturamento, DRE e balanço se disponíveis, comparação com mínimo do fundo
+3. PERFIL DE CRÉDITO — SCR da empresa e dos sócios, alavancagem, histórico de inadimplência
+4. RISCOS IDENTIFICADOS — alertas críticos, concentração de clientes, processos, protestos
+5. CONCLUSÃO E RECOMENDAÇÃO — decisão justificada, limite de crédito sugerido, prazo de revisão, condições se condicional
+
+Seja direto, objetivo e técnico. Use linguagem de analista de crédito. Não use bullet points — escreva em parágrafos corridos.
+`;
+
 // ─────────────────────────────────────────
 // HANDLER
 // ─────────────────────────────────────────
@@ -307,8 +415,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Dados não informados." }, { status: 400 });
     }
 
-    if (GEMINI_API_KEYS.length === 0) {
-      return NextResponse.json({ error: "Nenhuma GEMINI_API_KEY configurada." }, { status: 500 });
+    if (GEMINI_API_KEYS.length === 0 && OPENROUTER_API_KEYS.length === 0) {
+      return NextResponse.json({ error: "Nenhum provedor de IA configurado." }, { status: 500 });
     }
 
     // ──── Settings do fundo (defaults se não enviados) ────
@@ -460,12 +568,31 @@ export async function POST(request: NextRequest) {
     // ──── Serializar dados + injetar cálculos ────
     dataStr = JSON.stringify(body.data, null, 2);
 
+    // ── Extrair indicadores de DRE / Balanço / Curva ABC se disponíveis ──
+    const d = body.data as Record<string, unknown>;
+    const dre = d.dre as { anos?: Array<Record<string, string>>; crescimentoReceita?: string; tendenciaLucro?: string } | undefined;
+    const balanco = d.balanco as { anos?: Array<Record<string, string>>; tendenciaPatrimonio?: string } | undefined;
+    const curvaABC = d.curvaABC as { concentracaoTop3?: string; concentracaoTop5?: string; maiorClientePct?: string; alertaConcentracao?: boolean; totalClientesNaBase?: number } | undefined;
+
+    let extras = "";
+    if (dre?.anos && dre.anos.length > 0) {
+      const anoRecente = dre.anos[dre.anos.length - 1];
+      extras += `\nDRE (ano mais recente: ${anoRecente.ano ?? ""}): Receita Bruta R$ ${anoRecente.receitaBruta ?? "—"}, Lucro Líquido R$ ${anoRecente.lucroLiquido ?? "—"}, Margem Líquida ${anoRecente.margemLiquida ?? "—"}, EBITDA R$ ${anoRecente.ebitda ?? "—"}, Margem EBITDA ${anoRecente.margemEbitda ?? "—"}. Tendência lucro: ${dre.tendenciaLucro ?? "—"}. Crescimento receita: ${dre.crescimentoReceita ?? "—"}.`;
+    }
+    if (balanco?.anos && balanco.anos.length > 0) {
+      const anoRecente = balanco.anos[balanco.anos.length - 1];
+      extras += `\nBalanço (ano mais recente: ${anoRecente.ano ?? ""}): Ativo Total R$ ${anoRecente.ativoTotal ?? "—"}, Patrimônio Líquido R$ ${anoRecente.patrimonioLiquido ?? "—"}, Liquidez Corrente ${anoRecente.liquidezCorrente ?? "—"}, Endividamento Total ${anoRecente.endividamentoTotal ?? "—"}. Tendência patrimônio: ${balanco.tendenciaPatrimonio ?? "—"}.`;
+    }
+    if (curvaABC) {
+      extras += `\nCurva ABC: Concentração Top 3 clientes ${curvaABC.concentracaoTop3 ?? "—"}, Top 5 ${curvaABC.concentracaoTop5 ?? "—"}, Maior cliente ${curvaABC.maiorClientePct ?? "—"}. Total clientes na base: ${curvaABC.totalClientesNaBase ?? "—"}. Alerta de concentração: ${curvaABC.alertaConcentracao ? "SIM" : "NÃO"}.`;
+    }
+
     const calculosInjetados = `
 --- CALCULOS PRE-PROCESSADOS (use estes valores, nao recalcule) ---
 FMM (Faturamento Medio Mensal): R$ ${preReq.fmm.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
 Idade da empresa: ${preReq.idadeAnos} anos
 Alavancagem (divida total / FMM): ${alav.label}
-Total divida SCR: R$ ${alav.totalDivida.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+Total divida SCR: R$ ${alav.totalDivida.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}${extras}
 `;
 
     console.log(`[analyze] Sending ${dataStr.length} chars + calculos to Gemini`);
@@ -478,7 +605,17 @@ Total divida SCR: R$ ${alav.totalDivida.toLocaleString("pt-BR", { minimumFractio
       .replace(/`ALAV_SAUDAVEL`/g, String(settings.alavancagem_saudavel))
       .replace(/`ALAV_MAXIMA`/g, String(settings.alavancagem_maxima));
 
-    analysisText = await callGemini(dynamicPrompt, calculosInjetados + "\n" + dataStr);
+    try {
+      analysisText = await callGemini(dynamicPrompt, calculosInjetados + "\n" + dataStr);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg === "GEMINI_EXHAUSTED" && OPENROUTER_API_KEYS.length > 0) {
+        console.log("[analyze] Gemini esgotado — tentando OpenRouter...");
+        analysisText = await callOpenRouter(dynamicPrompt, calculosInjetados + "\n" + dataStr);
+      } else {
+        throw err;
+      }
+    }
 
     // ──── Parse do JSON retornado ────
     console.log(`[analyze] Gemini raw response (first 1000 chars):`, analysisText.substring(0, 1000));
@@ -545,6 +682,18 @@ Total divida SCR: R$ ${alav.totalDivida.toLocaleString("pt-BR", { minimumFractio
     analysis.indicadores.alavancagem = alav.label;
     analysis.indicadores.idadeEmpresa = `${preReq.idadeAnos} anos`;
     analysis.indicadores.fmm = `R$ ${preReq.fmm.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
+
+    // Gerar síntese executiva
+    let sinteseExecutiva = "";
+    try {
+      const sintesePrompt = PROMPT_SINTESE(body.data as ExtractedData, settings, preReq);
+      const sinteseResult = await callGemini(sintesePrompt, "");
+      sinteseExecutiva = sinteseResult?.trim() || "";
+    } catch (err) {
+      console.warn("[analyze] Erro ao gerar síntese:", err);
+      sinteseExecutiva = "";
+    }
+    analysis.sinteseExecutiva = sinteseExecutiva;
 
     return NextResponse.json({ success: true, analysis });
   } catch (err) {

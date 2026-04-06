@@ -119,6 +119,8 @@ export interface SCRData {
   valoresMoedaEstrangeira: string;
   historicoInadimplencia: string;
   // Campos detalhados (novo prompt SCR)
+  nomeCliente?: string;
+  cpfSCR?: string;
   cnpjSCR?: string;
   pctDocumentosProcessados?: string;
   pctVolumeProcessado?: string;
@@ -367,6 +369,14 @@ export interface GrupoEconomicoData {
   empresas: EmpresaGrupo[];
 }
 
+export interface SCRSocioData {
+  nomeSocio: string;
+  cpfSocio: string;
+  tipoPessoa: "PF";
+  periodoAtual: SCRData;
+  periodoAnterior?: SCRData;
+}
+
 // ─── Dados extraídos consolidados ───
 export interface ExtractedData {
   cnpj: CNPJData;
@@ -383,6 +393,7 @@ export interface ExtractedData {
   balanco?: BalancoData;
   irSocios?: IRSocioData[];
   relatorioVisita?: RelatorioVisitaData;
+  scrSocios?: SCRSocioData[];
   resumoRisco: string;
 }
 
@@ -463,6 +474,7 @@ export interface AIAnalysis {
   pontosFracos?: string[];
   perguntasVisita?: Array<{ pergunta: string; contexto: string }>;
   motivoPreRequisito?: string[];
+  sinteseExecutiva?: string;
 }
 
 // ─── Notificações ───

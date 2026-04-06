@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, ArrowLeft, Plus, Trash2, AlertTriangle, ChevronDown, ChevronUp, AlertCircle } from "lucide-react";
-import { ExtractedData, Socio, QSASocio, FaturamentoMensal, SCRModalidade, SCRInstituicao, SCRData } from "@/types";
+import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, ArrowLeft, Plus, Trash2, AlertTriangle, ChevronDown, ChevronUp, AlertCircle, LineChart, Scale, PieChart, FileKey, ClipboardList } from "lucide-react";
+import { ExtractedData, Socio, QSASocio, FaturamentoMensal, SCRModalidade, SCRInstituicao, SCRData, IRSocioData } from "@/types";
 
 interface ReviewStepProps {
   data: ExtractedData;
@@ -171,8 +171,16 @@ function Field({ label, value, onChange, multiline = false, span2 = false }: {
 }
 
 export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps) {
-  const [form, setForm] = useState<ExtractedData>(() => JSON.parse(JSON.stringify(data)));
-  const [open, setOpen] = useState({ cnpj: true, qsa: true, contrato: false, faturamento: true, scr: true });
+  const [form, setForm] = useState<ExtractedData>(() => {
+    const d: ExtractedData = JSON.parse(JSON.stringify(data));
+    if (!d.dre) d.dre = { anos: [], crescimentoReceita: "", tendenciaLucro: "estavel", periodoMaisRecente: "", observacoes: "" };
+    if (!d.balanco) d.balanco = { anos: [], periodoMaisRecente: "", tendenciaPatrimonio: "estavel", observacoes: "" };
+    if (!d.curvaABC) d.curvaABC = { clientes: [], totalClientesNaBase: 0, totalClientesExtraidos: 0, periodoReferencia: "", receitaTotalBase: "", concentracaoTop3: "", concentracaoTop5: "", maiorCliente: "", maiorClientePct: "", alertaConcentracao: false };
+    if (!d.irSocios) d.irSocios = [];
+    if (!d.relatorioVisita) d.relatorioVisita = { dataVisita: "", responsavelVisita: "", localVisita: "", duracaoVisita: "", estruturaFisicaConfirmada: false, funcionariosObservados: 0, estoqueVisivel: false, estimativaEstoque: "", operacaoCompativelFaturamento: false, maquinasEquipamentos: false, descricaoEstrutura: "", pontosPositivos: [], pontosAtencao: [], recomendacaoVisitante: "aprovado", nivelConfiancaVisita: "medio", presencaSocios: false, sociosPresentes: [], documentosVerificados: [], observacoesLivres: "" };
+    return d;
+  });
+  const [open, setOpen] = useState({ cnpj: true, qsa: true, contrato: false, faturamento: true, scr: true, dre: false, balanco: false, curvaABC: false, irSocios: false, relatorioVisita: false });
   const [showSCRDetails, setShowSCRDetails] = useState(false);
 
   const toggle = (k: keyof typeof open) => setOpen(p => ({ ...p, [k]: !p[k] }));
@@ -219,6 +227,90 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
     setForm(p => { const inst = [...p.scr.instituicoes]; inst[i] = { ...inst[i], [k]: v }; return { ...p, scr: { ...p.scr, instituicoes: inst } }; });
   const addSCRInst = () => setForm(p => ({ ...p, scr: { ...p.scr, instituicoes: [...p.scr.instituicoes, { nome: "", valor: "" }] } }));
   const removeSCRInst = (i: number) => setForm(p => ({ ...p, scr: { ...p.scr, instituicoes: p.scr.instituicoes.filter((_, idx) => idx !== i) } }));
+
+  // ── DRE setters ──
+  const setDRE = (k: string, v: string) => setForm(p => ({ ...p, dre: p.dre ? { ...p.dre, [k]: v } : p.dre }));
+
+  // ── Balanço setters ──
+  const setBalanco = (k: string, v: string) => setForm(p => ({ ...p, balanco: p.balanco ? { ...p.balanco, [k]: v } : p.balanco }));
+
+  // ── IR Sócios setters ──
+  const setIRSocio = (idx: number, k: keyof IRSocioData, v: string | boolean) =>
+    setForm(p => {
+      if (!p.irSocios) return p;
+      const arr = [...p.irSocios];
+      arr[idx] = { ...arr[idx], [k]: v };
+      return { ...p, irSocios: arr };
+    });
+
+  // ── Relatório de Visita setters ──
+  const setVisita = (k: string, v: string | boolean) => setForm(p => ({ ...p, relatorioVisita: p.relatorioVisita ? { ...p.relatorioVisita, [k]: v } : p.relatorioVisita }));
+
+  // ── DRE ano setters ──
+  const setDREAno = (anoIdx: number, k: string, v: string) =>
+    setForm(p => {
+      if (!p.dre) return p;
+      const anos = [...p.dre.anos];
+      anos[anoIdx] = { ...anos[anoIdx], [k]: v } as typeof anos[0];
+      return { ...p, dre: { ...p.dre, anos } };
+    });
+
+  // ── Balanço ano setters ──
+  const setBalancoAno = (anoIdx: number, k: string, v: string) =>
+    setForm(p => {
+      if (!p.balanco) return p;
+      const anos = [...p.balanco.anos];
+      anos[anoIdx] = { ...anos[anoIdx], [k]: v } as typeof anos[0];
+      return { ...p, balanco: { ...p.balanco, anos } };
+    });
+
+  // ── Curva ABC setters ──
+  const setCurvaABCField = (k: string, v: string | number | boolean) =>
+    setForm(p => ({ ...p, curvaABC: p.curvaABC ? { ...p.curvaABC, [k]: v } : p.curvaABC }));
+  const setCurvaABCCliente = (idx: number, k: string, v: string) =>
+    setForm(p => {
+      if (!p.curvaABC) return p;
+      const clientes = [...p.curvaABC.clientes];
+      clientes[idx] = { ...clientes[idx], [k]: v } as typeof clientes[0];
+      return { ...p, curvaABC: { ...p.curvaABC, clientes } };
+    });
+  const addCurvaABCCliente = () =>
+    setForm(p => ({
+      ...p,
+      curvaABC: p.curvaABC
+        ? { ...p.curvaABC, clientes: [...p.curvaABC.clientes, { posicao: p.curvaABC.clientes.length + 1, nome: "", cnpjCpf: "", valorFaturado: "", percentualReceita: "", segmento: "" }] }
+        : p.curvaABC,
+    }));
+  const removeCurvaABCCliente = (idx: number) =>
+    setForm(p => ({
+      ...p,
+      curvaABC: p.curvaABC
+        ? { ...p.curvaABC, clientes: p.curvaABC.clientes.filter((_, i) => i !== idx) }
+        : p.curvaABC,
+    }));
+
+  // ── Relatório de Visita lista setters ──
+  const setVisitaLista = (k: "pontosPositivos" | "pontosAtencao", idx: number, v: string) =>
+    setForm(p => {
+      if (!p.relatorioVisita) return p;
+      const arr = [...p.relatorioVisita[k]];
+      arr[idx] = v;
+      return { ...p, relatorioVisita: { ...p.relatorioVisita, [k]: arr } };
+    });
+  const addVisitaLista = (k: "pontosPositivos" | "pontosAtencao") =>
+    setForm(p => ({
+      ...p,
+      relatorioVisita: p.relatorioVisita
+        ? { ...p.relatorioVisita, [k]: [...p.relatorioVisita[k], ""] }
+        : p.relatorioVisita,
+    }));
+  const removeVisitaLista = (k: "pontosPositivos" | "pontosAtencao", idx: number) =>
+    setForm(p => ({
+      ...p,
+      relatorioVisita: p.relatorioVisita
+        ? { ...p.relatorioVisita, [k]: p.relatorioVisita[k].filter((_, i) => i !== idx) }
+        : p.relatorioVisita,
+    }));
 
   // ── Quality assessment ──
   const qualityMap = {
@@ -714,6 +806,382 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
         </div>
         <QualityBadge quality={qualityMap.scr} />
       </SectionCard>
+
+      {/* ═══ 06 — DRE ═══ */}
+      {form.dre && (
+        <SectionCard number="06" icon={<LineChart size={16} className="text-violet-600" />} title="DRE — Demonstração de Resultado"
+          iconColor="bg-violet-100" expanded={open.dre} onToggle={() => toggle("dre")}>
+          <div className="space-y-4">
+            {form.dre.anos.length > 0 && (
+              <div>
+                <span className="section-label block mb-2">Dados por Ano</span>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-cf-bg">
+                        <th className="text-left py-2 px-3 text-cf-text-3 font-medium">Indicador</th>
+                        {form.dre.anos.map(a => <th key={a.ano} className="text-right py-2 px-3 text-cf-text-3 font-medium">{a.ano}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        { label: "Receita Bruta", campo: "receitaBruta" },
+                        { label: "Receita Líquida", campo: "receitaLiquida" },
+                        { label: "Lucro Bruto", campo: "lucroBruto" },
+                        { label: "Margem Bruta (%)", campo: "margemBruta" },
+                        { label: "EBITDA", campo: "ebitda" },
+                        { label: "Margem EBITDA (%)", campo: "margemEbitda" },
+                        { label: "Lucro Líquido", campo: "lucroLiquido" },
+                        { label: "Margem Líquida (%)", campo: "margemLiquida" },
+                      ].map((linha, i) => (
+                        <tr key={i} className="border-b border-cf-border/30 hover:bg-cf-bg/50">
+                          <td className="py-1.5 px-3 text-cf-text-2 font-medium">{linha.label}</td>
+                          {form.dre!.anos.map((a, anoIdx) => (
+                            <td key={a.ano} className="py-1 px-2">
+                              <input
+                                value={(a as unknown as Record<string, string>)[linha.campo] || ""}
+                                onChange={e => setDREAno(anoIdx, linha.campo, e.target.value)}
+                                className="input-field py-1 text-xs text-right w-full"
+                                style={{ fontVariantNumeric: "tabular-nums" }}
+                              />
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <Field label="Crescimento da Receita (%)" value={form.dre.crescimentoReceita} onChange={v => setDRE("crescimentoReceita", v)} />
+              <div>
+                <label className="section-label block mb-1.5">Tendência do Lucro</label>
+                <select value={form.dre.tendenciaLucro} onChange={e => setDRE("tendenciaLucro", e.target.value)} className="input-field">
+                  <option value="">—</option>
+                  <option value="crescimento">Crescimento</option>
+                  <option value="estavel">Estável</option>
+                  <option value="queda">Queda</option>
+                </select>
+              </div>
+              <Field label="Período Mais Recente" value={form.dre.periodoMaisRecente} onChange={v => setDRE("periodoMaisRecente", v)} />
+            </div>
+            <Field label="Observações" value={form.dre.observacoes} onChange={v => setDRE("observacoes", v)} multiline span2 />
+          </div>
+        </SectionCard>
+      )}
+
+      {/* ═══ 07 — Balanço Patrimonial ═══ */}
+      {form.balanco && (
+        <SectionCard number="07" icon={<Scale size={16} className="text-cyan-600" />} title="Balanço Patrimonial"
+          iconColor="bg-cyan-100" expanded={open.balanco} onToggle={() => toggle("balanco")}>
+          <div className="space-y-4">
+            {form.balanco.anos.length > 0 && (
+              <div>
+                <span className="section-label block mb-2">Dados por Ano</span>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-cf-bg">
+                        <th className="text-left py-2 px-3 text-cf-text-3 font-medium">Indicador</th>
+                        {form.balanco.anos.map(a => <th key={a.ano} className="text-right py-2 px-3 text-cf-text-3 font-medium">{a.ano}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        { label: "Ativo Total", campo: "ativoTotal" },
+                        { label: "Ativo Circulante", campo: "ativoCirculante" },
+                        { label: "Ativo Não Circulante", campo: "ativoNaoCirculante" },
+                        { label: "Passivo Total", campo: "passivoTotal" },
+                        { label: "Passivo Circulante", campo: "passivoCirculante" },
+                        { label: "Passivo Não Circulante", campo: "passivoNaoCirculante" },
+                        { label: "Patrimônio Líquido", campo: "patrimonioLiquido" },
+                        { label: "Liquidez Corrente", campo: "liquidezCorrente" },
+                        { label: "Endividamento (%)", campo: "endividamentoTotal" },
+                        { label: "Capital de Giro Líq.", campo: "capitalDeGiroLiquido" },
+                      ].map((linha, i) => (
+                        <tr key={i} className="border-b border-cf-border/30 hover:bg-cf-bg/50">
+                          <td className="py-1.5 px-3 text-cf-text-2 font-medium">{linha.label}</td>
+                          {form.balanco!.anos.map((a, anoIdx) => (
+                            <td key={a.ano} className="py-1 px-2">
+                              <input
+                                value={(a as unknown as Record<string, string>)[linha.campo] || ""}
+                                onChange={e => setBalancoAno(anoIdx, linha.campo, e.target.value)}
+                                className="input-field py-1 text-xs text-right w-full"
+                                style={{ fontVariantNumeric: "tabular-nums" }}
+                              />
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="section-label block mb-1.5">Tendência do Patrimônio</label>
+                <select value={form.balanco.tendenciaPatrimonio} onChange={e => setBalanco("tendenciaPatrimonio", e.target.value)} className="input-field">
+                  <option value="">—</option>
+                  <option value="crescimento">Crescimento</option>
+                  <option value="estavel">Estável</option>
+                  <option value="queda">Queda</option>
+                </select>
+              </div>
+              <Field label="Período Mais Recente" value={form.balanco.periodoMaisRecente} onChange={v => setBalanco("periodoMaisRecente", v)} />
+            </div>
+            <Field label="Observações" value={form.balanco.observacoes} onChange={v => setBalanco("observacoes", v)} multiline span2 />
+          </div>
+        </SectionCard>
+      )}
+
+      {/* ═══ 08 — Curva ABC ═══ */}
+      {form.curvaABC && (
+        <SectionCard number="08" icon={<PieChart size={16} className="text-orange-600" />} title="Curva ABC — Carteira de Clientes"
+          iconColor="bg-orange-100" expanded={open.curvaABC} onToggle={() => toggle("curvaABC")}
+          badge={form.curvaABC.alertaConcentracao ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded-full border border-red-200"><AlertTriangle size={10} /> Concentração</span> : undefined}>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <Field label="Período de Referência" value={form.curvaABC.periodoReferencia} onChange={v => setCurvaABCField("periodoReferencia", v)} />
+              <Field label="Total Clientes na Base" value={String(form.curvaABC.totalClientesNaBase || "")} onChange={v => setCurvaABCField("totalClientesNaBase", Number(v) || v)} />
+              <Field label="Concentração Top 3 (%)" value={form.curvaABC.concentracaoTop3} onChange={v => setCurvaABCField("concentracaoTop3", v)} />
+              <Field label="Concentração Top 5 (%)" value={form.curvaABC.concentracaoTop5} onChange={v => setCurvaABCField("concentracaoTop5", v)} />
+              <Field label="Maior Cliente" value={form.curvaABC.maiorCliente} onChange={v => setCurvaABCField("maiorCliente", v)} />
+              <Field label="Maior Cliente (%)" value={form.curvaABC.maiorClientePct} onChange={v => setCurvaABCField("maiorClientePct", v)} />
+            </div>
+            <label className="flex items-center gap-2.5 cursor-pointer select-none group">
+              <input type="checkbox" checked={form.curvaABC.alertaConcentracao} onChange={e => setCurvaABCField("alertaConcentracao", e.target.checked)} className="w-4 h-4 rounded accent-red-500 cursor-pointer" />
+              <span className="text-sm text-cf-text-2 group-hover:text-cf-text-1 transition-colors flex items-center gap-1.5">
+                <AlertTriangle size={13} className="text-red-500" /> Alerta de concentração
+              </span>
+            </label>
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="section-label">Clientes</span>
+                <button onClick={addCurvaABCCliente} className="inline-flex items-center gap-1.5 text-xs font-semibold text-cf-navy hover:bg-cf-surface border border-cf-border hover:border-cf-navy rounded-lg px-2.5 py-1.5 transition-colors">
+                  <Plus size={12} /> Adicionar cliente
+                </button>
+              </div>
+              {form.curvaABC.clientes.length > 0 ? (
+                <div className="rounded-xl border border-cf-border overflow-hidden">
+                  <div className="hidden sm:grid grid-cols-[40px_1fr_100px_100px_80px_36px] bg-cf-surface px-3 py-2 gap-2">
+                    {["#","Nome","Faturado","% Receita","Segmento",""].map((h, i) => (
+                      <span key={i} className="text-[11px] font-semibold text-cf-text-3 uppercase tracking-wide">{h}</span>
+                    ))}
+                  </div>
+                  {form.curvaABC.clientes.map((c, i) => (
+                    <div key={i} className={`hidden sm:grid grid-cols-[40px_1fr_100px_100px_80px_36px] px-3 py-2 gap-2 items-center ${i > 0 ? "border-t border-cf-border" : ""}`}>
+                      <span className="text-xs font-bold text-cf-text-3 text-center">{c.posicao || i + 1}</span>
+                      <input value={c.nome} onChange={e => setCurvaABCCliente(i, "nome", e.target.value)} placeholder="Nome do cliente" className="input-field py-1.5 text-xs" />
+                      <input value={c.valorFaturado} onChange={e => setCurvaABCCliente(i, "valorFaturado", e.target.value)} placeholder="0,00" className="input-field py-1.5 text-xs" />
+                      <input value={c.percentualReceita} onChange={e => setCurvaABCCliente(i, "percentualReceita", e.target.value)} placeholder="0%" className="input-field py-1.5 text-xs" />
+                      <input value={c.segmento} onChange={e => setCurvaABCCliente(i, "segmento", e.target.value)} placeholder="Segmento" className="input-field py-1.5 text-xs" />
+                      <button onClick={() => removeCurvaABCCliente(i)} className="w-8 h-8 flex items-center justify-center text-cf-text-3 hover:text-cf-danger hover:bg-cf-danger-bg rounded-lg transition-colors"><Trash2 size={13} /></button>
+                    </div>
+                  ))}
+                  <div className="sm:hidden divide-y divide-cf-border">
+                    {form.curvaABC.clientes.map((c, i) => (
+                      <div key={i} className="p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-bold text-cf-text-3 uppercase">#{c.posicao || i + 1}</span>
+                          <button onClick={() => removeCurvaABCCliente(i)} className="w-7 h-7 flex items-center justify-center text-cf-text-3 hover:text-cf-danger rounded-lg"><Trash2 size={12} /></button>
+                        </div>
+                        <input value={c.nome} onChange={e => setCurvaABCCliente(i, "nome", e.target.value)} placeholder="Nome" className="input-field py-2 text-sm" />
+                        <div className="grid grid-cols-2 gap-2">
+                          <input value={c.valorFaturado} onChange={e => setCurvaABCCliente(i, "valorFaturado", e.target.value)} placeholder="Faturado" className="input-field py-2 text-sm" />
+                          <input value={c.percentualReceita} onChange={e => setCurvaABCCliente(i, "percentualReceita", e.target.value)} placeholder="% Receita" className="input-field py-2 text-sm" />
+                        </div>
+                        <input value={c.segmento} onChange={e => setCurvaABCCliente(i, "segmento", e.target.value)} placeholder="Segmento" className="input-field py-2 text-sm" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-4 text-xs text-cf-text-3 bg-cf-surface rounded-xl border border-cf-border">Nenhum cliente extraído. Clique em &ldquo;Adicionar cliente&rdquo; para inserir manualmente.</div>
+              )}
+            </div>
+          </div>
+        </SectionCard>
+      )}
+
+      {/* ═══ 09 — IR dos Sócios ═══ */}
+      {form.irSocios !== undefined && (
+        <SectionCard number="09" icon={<FileKey size={16} className="text-teal-600" />} title="IR dos Sócios"
+          iconColor="bg-teal-100" expanded={open.irSocios} onToggle={() => toggle("irSocios")}>
+          <div className="space-y-6">
+            {form.irSocios!.length === 0 && (
+              <p className="text-xs text-cf-text-3 text-center py-3">Nenhum IR de sócio carregado. Adicione manualmente abaixo.</p>
+            )}
+            <button onClick={() => setForm(p => ({ ...p, irSocios: [...(p.irSocios || []), { nomeSocio: "", cpf: "", anoBase: "", rendimentosTributaveis: "", rendimentosIsentos: "", rendimentoTotal: "", bensImoveis: "", bensVeiculos: "", aplicacoesFinanceiras: "", outrosBens: "", totalBensDireitos: "", dividasOnus: "", patrimonioLiquido: "", impostoPago: "", impostoRestituir: "", temSociedades: false, sociedades: [], coerenciaComEmpresa: true, observacoes: "" }] }))} className="btn-secondary w-full flex items-center justify-center gap-2 text-xs py-2">
+              <Plus size={13} /> Adicionar Sócio
+            </button>
+            {form.irSocios!.map((socio, idx) => (
+              <div key={idx} className="border border-cf-border rounded-xl overflow-hidden">
+                <div className="bg-cf-surface px-4 py-2.5 flex items-center justify-between">
+                  <span className="text-xs font-bold text-cf-text-1 uppercase tracking-wide">{socio.nomeSocio || `Sócio ${idx + 1}`}</span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[10px] text-cf-text-3">Ano-base: {socio.anoBase || "—"}</span>
+                    <button onClick={() => setForm(p => ({ ...p, irSocios: p.irSocios!.filter((_, i) => i !== idx) }))} className="text-red-400 hover:text-red-600 transition-colors"><Trash2 size={13} /></button>
+                  </div>
+                </div>
+                <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Field label="Nome do Sócio" value={socio.nomeSocio} onChange={v => setIRSocio(idx, "nomeSocio", v)} />
+                  <Field label="CPF" value={socio.cpf} onChange={v => setIRSocio(idx, "cpf", v)} />
+                  <Field label="Ano-Base" value={socio.anoBase} onChange={v => setIRSocio(idx, "anoBase", v)} />
+                  <div>
+                    <label className="section-label block mb-1.5">Tipo de Documento</label>
+                    <select value={socio.tipoDocumento || ""} onChange={e => setIRSocio(idx, "tipoDocumento", e.target.value)} className="input-field">
+                      <option value="">—</option>
+                      <option value="recibo">Recibo de Entrega</option>
+                      <option value="declaracao">Declaração Completa</option>
+                    </select>
+                  </div>
+                  {socio.tipoDocumento === "recibo" && (
+                    <Field label="Número do Recibo" value={socio.numeroRecibo || ""} onChange={v => setIRSocio(idx, "numeroRecibo", v)} />
+                  )}
+                  <Field label="Rendimento Total (R$)" value={socio.rendimentoTotal} onChange={v => setIRSocio(idx, "rendimentoTotal", v)} />
+                  <Field label="Total Bens e Direitos (R$)" value={socio.totalBensDireitos} onChange={v => setIRSocio(idx, "totalBensDireitos", v)} />
+                  <Field label="Dívidas e Ônus (R$)" value={socio.dividasOnus} onChange={v => setIRSocio(idx, "dividasOnus", v)} />
+                  <Field label="Patrimônio Líquido (R$)" value={socio.patrimonioLiquido} onChange={v => setIRSocio(idx, "patrimonioLiquido", v)} />
+                  <div className="col-span-2 flex flex-wrap gap-4">
+                    <label className="flex items-center gap-2.5 cursor-pointer select-none group">
+                      <input type="checkbox" checked={!!socio.situacaoMalhas} onChange={e => setIRSocio(idx, "situacaoMalhas", e.target.checked)} className="w-4 h-4 rounded accent-red-500 cursor-pointer" />
+                      <span className="text-sm text-cf-text-2 group-hover:text-cf-text-1 transition-colors">Em malha fina</span>
+                    </label>
+                    <label className="flex items-center gap-2.5 cursor-pointer select-none group">
+                      <input type="checkbox" checked={!!socio.debitosEmAberto} onChange={e => setIRSocio(idx, "debitosEmAberto", e.target.checked)} className="w-4 h-4 rounded accent-red-500 cursor-pointer" />
+                      <span className="text-sm text-cf-text-2 group-hover:text-cf-text-1 transition-colors">Débitos em aberto</span>
+                    </label>
+                  </div>
+                  {socio.debitosEmAberto && (
+                    <Field label="Descrição dos Débitos" value={socio.descricaoDebitos || ""} onChange={v => setIRSocio(idx, "descricaoDebitos", v)} multiline span2 />
+                  )}
+                  <Field label="Observações" value={socio.observacoes} onChange={v => setIRSocio(idx, "observacoes", v)} multiline span2 />
+                </div>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      )}
+
+      {/* ═══ 10 — Relatório de Visita ═══ */}
+      {form.relatorioVisita && (
+        <SectionCard number="10" icon={<ClipboardList size={16} className="text-pink-600" />} title="Relatório de Visita"
+          iconColor="bg-pink-100" expanded={open.relatorioVisita} onToggle={() => toggle("relatorioVisita")}
+          badge={
+            form.relatorioVisita.recomendacaoVisitante === "aprovado"
+              ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-green-700 bg-green-50 px-2 py-0.5 rounded-full border border-green-200">✓ Aprovado</span>
+              : form.relatorioVisita.recomendacaoVisitante === "condicional"
+                ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">⚠ Condicional</span>
+                : form.relatorioVisita.recomendacaoVisitante === "reprovado"
+                  ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-700 bg-red-50 px-2 py-0.5 rounded-full border border-red-200">✕ Reprovado</span>
+                  : undefined
+          }>
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="Data da Visita" value={form.relatorioVisita.dataVisita} onChange={v => setVisita("dataVisita", v)} />
+              <Field label="Responsável pela Visita" value={form.relatorioVisita.responsavelVisita} onChange={v => setVisita("responsavelVisita", v)} />
+              <Field label="Local da Visita" value={form.relatorioVisita.localVisita} onChange={v => setVisita("localVisita", v)} />
+              <Field label="Duração" value={form.relatorioVisita.duracaoVisita} onChange={v => setVisita("duracaoVisita", v)} />
+              <Field label="Estimativa de Estoque (R$)" value={form.relatorioVisita.estimativaEstoque} onChange={v => setVisita("estimativaEstoque", v)} />
+              <Field label="Funcionários Observados" value={String(form.relatorioVisita.funcionariosObservados ?? "")} onChange={v => setVisita("funcionariosObservados", v)} />
+            </div>
+
+            {/* Checklist editável */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {([
+                { label: "Estrutura Física Confirmada", k: "estruturaFisicaConfirmada" as const },
+                { label: "Estoque Visível", k: "estoqueVisivel" as const },
+                { label: "Operação Compatível com Faturamento", k: "operacaoCompativelFaturamento" as const },
+                { label: "Máquinas e Equipamentos", k: "maquinasEquipamentos" as const },
+                { label: "Presença dos Sócios", k: "presencaSocios" as const },
+              ] as { label: string; k: keyof typeof form.relatorioVisita }[]).map((item, i) => (
+                <label key={i} className="flex items-center gap-2.5 cursor-pointer select-none group px-3 py-2 rounded-lg border border-cf-border bg-cf-surface hover:bg-cf-bg transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={!!(form.relatorioVisita![item.k as "estruturaFisicaConfirmada"])}
+                    onChange={e => setVisita(item.k, e.target.checked)}
+                    className="w-4 h-4 rounded accent-green-600 cursor-pointer"
+                  />
+                  <span className="text-xs text-cf-text-2 group-hover:text-cf-text-1 transition-colors">{item.label}</span>
+                </label>
+              ))}
+            </div>
+
+            <Field label="Descrição da Estrutura" value={form.relatorioVisita.descricaoEstrutura} onChange={v => setVisita("descricaoEstrutura", v)} multiline span2 />
+
+            {/* Pontos positivos e atenção — editáveis */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="section-label">Pontos Positivos</p>
+                  <button onClick={() => addVisitaLista("pontosPositivos")} className="inline-flex items-center gap-1 text-xs font-semibold text-cf-navy hover:bg-cf-surface border border-cf-border hover:border-cf-navy rounded-lg px-2 py-1 transition-colors" style={{ minHeight: "auto" }}>
+                    <Plus size={11} /> Adicionar
+                  </button>
+                </div>
+                <div className="space-y-1.5">
+                  {form.relatorioVisita.pontosPositivos.map((p, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <input value={p} onChange={e => setVisitaLista("pontosPositivos", i, e.target.value)} placeholder="Ponto positivo..." className="input-field py-1.5 text-xs flex-1" />
+                      <button onClick={() => removeVisitaLista("pontosPositivos", i)} className="w-7 h-7 flex items-center justify-center text-cf-text-3 hover:text-cf-danger hover:bg-cf-danger-bg rounded-lg transition-colors flex-shrink-0"><Trash2 size={12} /></button>
+                    </div>
+                  ))}
+                  {form.relatorioVisita.pontosPositivos.length === 0 && (
+                    <p className="text-xs text-cf-text-4 italic">Nenhum ponto positivo.</p>
+                  )}
+                </div>
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="section-label">Pontos de Atenção</p>
+                  <button onClick={() => addVisitaLista("pontosAtencao")} className="inline-flex items-center gap-1 text-xs font-semibold text-cf-navy hover:bg-cf-surface border border-cf-border hover:border-cf-navy rounded-lg px-2 py-1 transition-colors" style={{ minHeight: "auto" }}>
+                    <Plus size={11} /> Adicionar
+                  </button>
+                </div>
+                <div className="space-y-1.5">
+                  {form.relatorioVisita.pontosAtencao.map((p, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <input value={p} onChange={e => setVisitaLista("pontosAtencao", i, e.target.value)} placeholder="Ponto de atenção..." className="input-field py-1.5 text-xs flex-1" />
+                      <button onClick={() => removeVisitaLista("pontosAtencao", i)} className="w-7 h-7 flex items-center justify-center text-cf-text-3 hover:text-cf-danger hover:bg-cf-danger-bg rounded-lg transition-colors flex-shrink-0"><Trash2 size={12} /></button>
+                    </div>
+                  ))}
+                  {form.relatorioVisita.pontosAtencao.length === 0 && (
+                    <p className="text-xs text-cf-text-4 italic">Nenhum ponto de atenção.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <p className="section-label mb-1.5">Recomendação</p>
+                <div className="flex gap-2">
+                  {(["aprovado", "condicional", "reprovado"] as const).map(op => (
+                    <button key={op} onClick={() => setVisita("recomendacaoVisitante", op)}
+                      className={`flex-1 text-xs font-semibold py-2 rounded-lg border transition-colors capitalize ${form.relatorioVisita!.recomendacaoVisitante === op ? op === "aprovado" ? "bg-green-100 border-green-400 text-green-700" : op === "condicional" ? "bg-amber-100 border-amber-400 text-amber-700" : "bg-red-100 border-red-400 text-red-700" : "bg-cf-surface border-cf-border text-cf-text-3 hover:bg-cf-bg"}`}>
+                      {op}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="section-label mb-1.5">Nível de Confiança</p>
+                <div className="flex gap-2">
+                  {(["alto", "medio", "baixo"] as const).map(op => (
+                    <button key={op} onClick={() => setVisita("nivelConfiancaVisita", op)}
+                      className={`flex-1 text-xs font-semibold py-2 rounded-lg border transition-colors capitalize ${form.relatorioVisita!.nivelConfiancaVisita === op ? op === "alto" ? "bg-green-100 border-green-400 text-green-700" : op === "medio" ? "bg-amber-100 border-amber-400 text-amber-700" : "bg-red-100 border-red-400 text-red-700" : "bg-cf-surface border-cf-border text-cf-text-3 hover:bg-cf-bg"}`}>
+                      {op}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <Field label="Observações Livres" value={form.relatorioVisita.observacoesLivres} onChange={v => setVisita("observacoesLivres", v)} multiline span2 />
+          </div>
+        </SectionCard>
+      )}
 
       {/* Navigation */}
       <div className="flex items-center justify-between pt-1">
