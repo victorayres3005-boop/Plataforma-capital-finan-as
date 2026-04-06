@@ -1,8 +1,9 @@
+export const maxDuration = 60;
+
 import { NextRequest, NextResponse } from "next/server";
 import type { CNPJData, ContratoSocialData, SCRData, QSAData, FaturamentoData, ProtestosData, ProcessosData, GrupoEconomicoData } from "@/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
 
 // ─────────────────────────────────────────
 // API Keys & Config
