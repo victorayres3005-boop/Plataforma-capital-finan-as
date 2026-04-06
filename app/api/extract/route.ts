@@ -607,12 +607,22 @@ Regras:
 const PROMPT_DRE = `
 Você é um especialista em análise financeira.
 Analise o documento de DRE (Demonstração de Resultado do Exercício) recebido.
+O documento pode estar no formato SPED (Sistema Público de Escrituração Digital)
+ou em formato livre de contador.
 
-ATENÇÃO — REGRAS CRÍTICAS DE EXTRAÇÃO:
-- Extraia dados de TODOS os anos presentes no documento
-- DREs podem ter layouts variados por contador — varra o documento inteiro
-- Se um campo não existir no documento, retorne "0,00"
-- NÃO invente dados
+FOCO: Extraia os dados consolidados anuais — não os trimestrais ou mensais.
+Se o documento tiver múltiplos períodos, extraia cada ano como um item separado.
+No formato SPED, os campos "Saldo anterior" e "Saldo atual" representam
+o ano anterior e o ano corrente respectivamente.
+
+ATENÇÃO:
+- No formato SPED: "LUCRO APURADO NO PERÍODO" ou "PREJUIZO APURADO NO PERÍODO" = Lucro/Prejuízo Líquido
+- "RECEITA OPERACIONAL BRUTA" = Receita Bruta
+- "(-) DEDUCOES DA RECEITA BRUTA" = Deduções
+- "(-) CUSTOS DOS PRODUTOS VENDIDOS" ou "(-) CUSTOS OPERACIONAIS" = CPV
+- "(-) DESPESAS OPERACIONAIS" = Despesas Operacionais
+- Se lucro for negativo (prejuízo), mantenha o valor negativo com sinal de menos
+- NÃO invente dados — se um campo não existir no documento, use "0,00"
 
 Retorne APENAS JSON válido, sem texto adicional, sem markdown:
 {
@@ -637,33 +647,43 @@ Retorne APENAS JSON válido, sem texto adicional, sem markdown:
     }
   ],
   "crescimentoReceita": "0,00",
-  "tendenciaLucro": "crescimento",
-  "periodoMaisRecente": "2024",
+  "tendenciaLucro": "estavel",
+  "periodoMaisRecente": "",
   "observacoes": ""
 }
 
 Regras:
 - anos: array com todos os anos encontrados, ordem crescente
-- ano: formato YYYY
-- todos os valores monetários: formatação brasileira (1.234.567,89)
-- margemBruta: percentual sem % (ex: "35,50")
-- margemEbitda: percentual sem %
-- margemLiquida: percentual sem %
-- crescimentoReceita: variação % da receita bruta do ano mais antigo para o mais recente
-- tendenciaLucro: "crescimento", "estavel" ou "queda" baseado nos últimos 2 anos
-- observacoes: qualquer informação relevante não capturada nos campos acima
+- ano: formato YYYY — extraia do cabeçalho "Período da Escrituração" ou "Período Selecionado"
+- todos os valores monetários: formatação brasileira sem R$ (ex: "1.234.567,89")
+- valores negativos: use sinal de menos (ex: "-336.325,65")
+- margemBruta, margemEbitda, margemLiquida: percentual calculado sobre receita bruta (ex: "15,30")
+- crescimentoReceita: variação % da receita bruta entre o ano mais antigo e o mais recente
+- tendenciaLucro: "crescimento" se lucro melhorou, "queda" se piorou, "estavel" se variação < 10%
+- periodoMaisRecente: ano mais recente no documento (YYYY)
+- observacoes: informações relevantes como prejuízos acumulados, mudanças de regime, etc.
 - NÃO invente dados
 `;
 
 const PROMPT_BALANCO = `
 Você é um especialista em análise financeira.
 Analise o documento de Balanço Patrimonial recebido.
+O documento pode estar no formato SPED ou em formato livre de contador.
 
-ATENÇÃO — REGRAS CRÍTICAS DE EXTRAÇÃO:
-- Extraia dados de TODOS os anos presentes no documento
-- Balanços podem ter layouts variados por contador — varra o documento inteiro
-- Se um campo não existir no documento, retorne "0,00"
-- NÃO invente dados
+FOCO: Extraia o Saldo Final de cada ano — não os saldos intermediários trimestrais.
+No formato SPED, cada seção tem "Saldo Inicial" e "Saldo Final" — use sempre o Saldo Final.
+Se houver múltiplos períodos no mesmo arquivo, extraia cada ano completo.
+
+ATENÇÃO:
+- No formato SPED: use o campo "Saldo Final" como valor do ano
+- "ATIVO" total = soma de Ativo Circulante + Ativo Não Circulante
+- "PASSIVO" total = soma de Passivo Circulante + Passivo Não Circulante
+- "(-) PATRIMÔNIO LÍQUIDO" — se negativo, é patrimônio líquido negativo (empresa endividada)
+- Patrimônio Líquido negativo é um alerta crítico — mantenha o valor negativo
+- Liquidez Corrente = Ativo Circulante ÷ Passivo Circulante
+- Endividamento = Passivo Total ÷ Ativo Total × 100
+- Capital de Giro = Ativo Circulante - Passivo Circulante
+- NÃO invente dados — se um campo não existir, use "0,00"
 
 Retorne APENAS JSON válido, sem texto adicional, sem markdown:
 {
@@ -698,21 +718,21 @@ Retorne APENAS JSON válido, sem texto adicional, sem markdown:
       "capitalDeGiroLiquido": "0,00"
     }
   ],
-  "periodoMaisRecente": "2024",
-  "tendenciaPatrimonio": "crescimento",
+  "periodoMaisRecente": "",
+  "tendenciaPatrimonio": "estavel",
   "observacoes": ""
 }
 
 Regras:
 - anos: array com todos os anos encontrados, ordem crescente
-- ano: formato YYYY
-- todos os valores monetários: formatação brasileira (1.234.567,89)
-- liquidezCorrente: Ativo Circulante ÷ Passivo Circulante (ex: "1,85")
-- liquidezGeral: (Ativo Circulante + Realizável LP) ÷ (Passivo Circulante + Exigível LP)
-- endividamentoTotal: Passivo Total ÷ Ativo Total em % (ex: "45,30")
-- capitalDeGiroLiquido: Ativo Circulante - Passivo Circulante
-- tendenciaPatrimonio: "crescimento", "estavel" ou "queda" baseado nos últimos 2 anos
-- observacoes: qualquer informação relevante não capturada acima
+- ano: formato YYYY — extraia do cabeçalho "Período da Escrituração"
+- todos os valores monetários: formatação brasileira sem R$ (ex: "1.234.567,89")
+- patrimonioLiquido negativo: use sinal de menos (ex: "-3.683.516,62")
+- liquidezCorrente: número decimal com vírgula (ex: "1,25") — se PC=0, use "0,00"
+- endividamentoTotal: percentual (ex: "85,30")
+- capitalDeGiroLiquido: pode ser negativo se PC > AC
+- tendenciaPatrimonio: "crescimento" se PL melhorou, "queda" se piorou, "estavel" se variação < 10%
+- observacoes: alertas como PL negativo, endividamento alto, etc.
 - NÃO invente dados
 `;
 

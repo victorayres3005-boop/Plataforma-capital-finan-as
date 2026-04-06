@@ -424,6 +424,104 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       });
       y += cardH2 * 2 + 12;
 
+      // ── Métricas DRE ──
+      if (data.dre && data.dre.anos && data.dre.anos.length > 0) {
+        const anoMaisRecente = data.dre.anos[data.dre.anos.length - 1];
+
+        y += 6;
+        doc.setFillColor(...colors.primary);
+        doc.rect(margin, y, contentW, 7, "F");
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(255, 255, 255);
+        doc.text("DEMONSTRAÇÃO DE RESULTADO", margin + 3, y + 4.8);
+        y += 9;
+
+        const metricasDRE = [
+          { label: "Receita Bruta", valor: `R$ ${anoMaisRecente.receitaBruta || "N/D"}`, ano: data.dre.periodoMaisRecente },
+          { label: "Lucro Líquido", valor: `R$ ${anoMaisRecente.lucroLiquido || "N/D"}`, destaque: true },
+          { label: "Margem Líquida", valor: `${anoMaisRecente.margemLiquida || "0"}%` },
+          { label: "EBITDA", valor: `R$ ${anoMaisRecente.ebitda || "N/D"}` },
+          { label: "Margem EBITDA", valor: `${anoMaisRecente.margemEbitda || "0"}%` },
+          { label: "Tendência", valor: data.dre.tendenciaLucro === "crescimento" ? "↑ Crescimento" : data.dre.tendenciaLucro === "queda" ? "↓ Queda" : "→ Estável" },
+          { label: "Crescimento Receita", valor: `${data.dre.crescimentoReceita || "0"}%` },
+        ];
+
+        const colW = contentW / 4;
+        let xDRE = margin;
+        let rowY = y;
+
+        metricasDRE.forEach((m, i) => {
+          if (i > 0 && i % 4 === 0) {
+            xDRE = margin;
+            rowY += 22;
+          }
+          doc.setFillColor(248, 250, 252);
+          doc.rect(xDRE, rowY, colW - 2, 20, "F");
+          doc.setFontSize(6);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(...colors.textMuted);
+          doc.text(m.label.toUpperCase(), xDRE + 3, rowY + 5);
+          doc.setFontSize(8);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(...colors.text);
+          doc.text(m.valor, xDRE + 3, rowY + 14);
+          xDRE += colW;
+        });
+
+        y = rowY + 24;
+      }
+
+      // ── Métricas Balanço ──
+      if (data.balanco && data.balanco.anos && data.balanco.anos.length > 0) {
+        const anoMaisRecente = data.balanco.anos[data.balanco.anos.length - 1];
+
+        y += 4;
+        doc.setFillColor(...colors.primary);
+        doc.rect(margin, y, contentW, 7, "F");
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(255, 255, 255);
+        doc.text("BALANÇO PATRIMONIAL", margin + 3, y + 4.8);
+        y += 9;
+
+        const metricasBalanco = [
+          { label: "Ativo Total", valor: `R$ ${anoMaisRecente.ativoTotal || "N/D"}` },
+          { label: "Passivo Total", valor: `R$ ${anoMaisRecente.passivoTotal || "N/D"}` },
+          { label: "Patrimônio Líquido", valor: `R$ ${anoMaisRecente.patrimonioLiquido || "N/D"}`, destaque: true },
+          { label: "Liquidez Corrente", valor: anoMaisRecente.liquidezCorrente || "N/D" },
+          { label: "Endividamento", valor: `${anoMaisRecente.endividamentoTotal || "0"}%` },
+          { label: "Capital de Giro", valor: `R$ ${anoMaisRecente.capitalDeGiroLiquido || "N/D"}` },
+          { label: "Tendência PL", valor: data.balanco.tendenciaPatrimonio === "crescimento" ? "↑ Crescimento" : data.balanco.tendenciaPatrimonio === "queda" ? "↓ Queda" : "→ Estável" },
+        ];
+
+        const colWB = contentW / 4;
+        let xBAL = margin;
+        let rowYB = y;
+
+        metricasBalanco.forEach((m, i) => {
+          if (i > 0 && i % 4 === 0) {
+            xBAL = margin;
+            rowYB += 22;
+          }
+
+          const isNegativo = m.valor.includes("-");
+          doc.setFillColor(isNegativo ? 254 : 248, isNegativo ? 242 : 250, isNegativo ? 242 : 252);
+          doc.rect(xBAL, rowYB, colWB - 2, 20, "F");
+          doc.setFontSize(6);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(...colors.textMuted);
+          doc.text(m.label.toUpperCase(), xBAL + 3, rowYB + 5);
+          doc.setFontSize(8);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(isNegativo ? 220 : colors.text[0], isNegativo ? 38 : colors.text[1], isNegativo ? 38 : colors.text[2]);
+          doc.text(m.valor, xBAL + 3, rowYB + 14);
+          xBAL += colWB;
+        });
+
+        y = rowYB + 24;
+      }
+
       // Alerts list
       if (alerts.length > 0) {
         alerts.forEach(alert => { drawAlertBox(alert.message, alert.severity); });

@@ -345,7 +345,7 @@ DADOS DA EMPRESA:
 - Setor: ${data.cnpj?.cnaePrincipal || "N/D"}
 - Data de Abertura: ${data.cnpj?.dataAbertura || "N/D"}
 - Situação: ${data.cnpj?.situacaoCadastral || "N/D"}
-- Sócios: ${(data.qsa?.quadroSocietario || data.contrato?.socios || []).map((s: { nome?: string; participacao?: string; qualificacao?: string }) => `${s.nome} (${s.participacao || s.qualificacao || ""})`).join(", ")}
+- Sócios: ${(data.qsa?.quadroSocietario || data.contrato?.socios || []).map((s: { nome?: string; participacao?: string; qualificacao?: string }) => `${s.nome} (${s.participacao || s.qualificacao || ""})`).join(", ") || "N/D"}
 
 FATURAMENTO:
 - FMM 12M: R$ ${data.faturamento?.fmm12m || data.faturamento?.mediaAno || "N/D"}
@@ -354,33 +354,40 @@ FATURAMENTO:
 - Mínimo exigido pelo fundo: R$ ${settings.fmm_minimo?.toLocaleString("pt-BR") || "N/D"}
 - Pré-requisito FMM: ${preReq.reprovadoPorPreRequisito ? "REPROVADO" : "APROVADO"}
 
-SCR DA EMPRESA (período mais recente: ${data.scr?.periodoReferencia || "N/D"}):
-- Total dívidas ativas: R$ ${data.scr?.totalDividasAtivas || "0,00"}
+SCR DA EMPRESA (${data.scr?.periodoReferencia || "N/D"}):
+- Total dívidas: R$ ${data.scr?.totalDividasAtivas || "0,00"}
 - Vencidos: R$ ${data.scr?.vencidos || "0,00"}
 - Prejuízos: R$ ${data.scr?.prejuizos || "0,00"}
 - Qtde IFs: ${data.scr?.qtdeInstituicoes || "0"}
-- Qtde Operações: ${data.scr?.qtdeOperacoes || "0"}
 
-${(data.scrSocios && data.scrSocios.length > 0) ? `SCR DOS SÓCIOS:
-${data.scrSocios.map((s) => `- ${s.nomeSocio}: Total dívidas R$ ${s.periodoAtual?.totalDividasAtivas || "0,00"}, Vencidos R$ ${s.periodoAtual?.vencidos || "0,00"}, Prejuízos R$ ${s.periodoAtual?.prejuizos || "0,00"}`).join("\n")}` : "SCR DOS SÓCIOS: Não informado"}
+${data.scrSocios && data.scrSocios.length > 0 ? `SCR DOS SÓCIOS:
+${data.scrSocios.map((s) => `- ${s.nomeSocio}: Dívidas R$ ${s.periodoAtual?.totalDividasAtivas || "0,00"}, Vencidos R$ ${s.periodoAtual?.vencidos || "0,00"}, Prejuízos R$ ${s.periodoAtual?.prejuizos || "0,00"}`).join("\n")}` : "SCR DOS SÓCIOS: Não informado"}
 
-${data.dre ? `DRE (ano mais recente: ${data.dre.periodoMaisRecente}):
-- Receita Bruta: R$ ${data.dre.anos?.[data.dre.anos.length-1]?.receitaBruta || "N/D"}
-- Lucro Líquido: R$ ${data.dre.anos?.[data.dre.anos.length-1]?.lucroLiquido || "N/D"}
-- Margem Líquida: ${data.dre.anos?.[data.dre.anos.length-1]?.margemLiquida || "N/D"}%
-- Tendência: ${data.dre.tendenciaLucro || "N/D"}` : "DRE: Não informado"}
+${(data.dre?.anos?.length ?? 0) > 0 ? `DRE — ÚLTIMOS ${data.dre!.anos.length} ANOS:
+${data.dre!.anos.map((a: { ano: string; receitaBruta: string; lucroLiquido: string; margemLiquida: string }) => `- ${a.ano}: Receita R$ ${a.receitaBruta}, Lucro R$ ${a.lucroLiquido}, Margem ${a.margemLiquida}%`).join("\n")}
+- Tendência: ${data.dre!.tendenciaLucro}
+- Crescimento receita: ${data.dre!.crescimentoReceita}%
+${data.dre!.observacoes ? `- Observações: ${data.dre!.observacoes}` : ""}` : "DRE: Não informado"}
 
-${data.balanco ? `BALANÇO (ano mais recente: ${data.balanco.periodoMaisRecente}):
-- Ativo Total: R$ ${data.balanco.anos?.[data.balanco.anos.length-1]?.ativoTotal || "N/D"}
-- Patrimônio Líquido: R$ ${data.balanco.anos?.[data.balanco.anos.length-1]?.patrimonioLiquido || "N/D"}
-- Liquidez Corrente: ${data.balanco.anos?.[data.balanco.anos.length-1]?.liquidezCorrente || "N/D"}
-- Endividamento: ${data.balanco.anos?.[data.balanco.anos.length-1]?.endividamentoTotal || "N/D"}%` : "BALANÇO: Não informado"}
+${(data.balanco?.anos?.length ?? 0) > 0 ? `BALANÇO — ÚLTIMOS ${data.balanco!.anos.length} ANOS:
+${data.balanco!.anos.map((a: { ano: string; ativoTotal: string; patrimonioLiquido: string; liquidezCorrente: string; endividamentoTotal: string }) => `- ${a.ano}: Ativo R$ ${a.ativoTotal}, PL R$ ${a.patrimonioLiquido}, Liquidez ${a.liquidezCorrente}, Endividamento ${a.endividamentoTotal}%`).join("\n")}
+- Tendência PL: ${data.balanco!.tendenciaPatrimonio}
+${data.balanco!.observacoes ? `- Observações: ${data.balanco!.observacoes}` : ""}` : "BALANÇO: Não informado"}
 
 ${data.curvaABC ? `CONCENTRAÇÃO DE CLIENTES:
 - Maior cliente: ${data.curvaABC.maiorCliente} (${data.curvaABC.maiorClientePct}%)
-- Concentração Top 3: ${data.curvaABC.concentracaoTop3}%
-- Concentração Top 5: ${data.curvaABC.concentracaoTop5}%
-- Alerta de concentração: ${data.curvaABC.alertaConcentracao ? "SIM" : "NÃO"}` : "CURVA ABC: Não informada"}
+- Top 3: ${data.curvaABC.concentracaoTop3}% | Top 5: ${data.curvaABC.concentracaoTop5}%
+- Total clientes: ${data.curvaABC.totalClientesNaBase || "N/D"}
+- Alerta concentração: ${data.curvaABC.alertaConcentracao ? "SIM — cliente acima de 30%" : "NÃO"}` : "CURVA ABC: Não informada"}
+
+${(data.irSocios?.length ?? 0) > 0 ? `IR DOS SÓCIOS:
+${data.irSocios!.map((s) => `- ${s.nomeSocio} (${s.anoBase}): Renda R$ ${s.rendimentoTotal}, PL R$ ${s.patrimonioLiquido}${s.situacaoMalhas ? " — MALHAS FISCAIS" : ""}${s.debitosEmAberto ? " — DÉBITOS EM ABERTO" : ""}`).join("\n")}` : "IR DOS SÓCIOS: Não informado"}
+
+${data.relatorioVisita?.dataVisita ? `RELATÓRIO DE VISITA (${data.relatorioVisita.dataVisita}):
+- Estrutura confirmada: ${data.relatorioVisita.estruturaFisicaConfirmada ? "Sim" : "Não"}
+- Operação compatível com faturamento: ${data.relatorioVisita.operacaoCompativelFaturamento ? "Sim" : "Não"}
+- Recomendação do visitante: ${data.relatorioVisita.recomendacaoVisitante?.toUpperCase() || "N/D"}
+${data.relatorioVisita.pontosAtencao?.length > 0 ? `- Pontos de atenção: ${data.relatorioVisita.pontosAtencao.join("; ")}` : ""}` : "RELATÓRIO DE VISITA: Não realizado"}
 
 PARÂMETROS DO FUNDO:
 - FMM mínimo: R$ ${settings.fmm_minimo?.toLocaleString("pt-BR")}
@@ -390,15 +397,41 @@ PARÂMETROS DO FUNDO:
 - Concentração máxima por sacado: ${settings.concentracao_max_sacado}%
 - Fator limite base: ${settings.fator_limite_base}x o FMM
 
-Escreva a síntese executiva em 5 parágrafos, em português brasileiro formal:
+INSTRUÇÃO:
+Escreva a síntese executiva em 5 parágrafos, em português brasileiro formal.
+Use linguagem de analista de crédito sênior. Seja direto, objetivo e técnico.
+Não use bullet points — escreva em parágrafos corridos.
+Cruze os dados entre si — por exemplo, compare o DRE com o faturamento, o SCR com a alavancagem, o IR dos sócios com o porte da empresa.
+Quando DRE ou Balanço não estiverem disponíveis, baseie a análise nos dados disponíveis e mencione a ausência como limitação.
 
-1. PERFIL DA EMPRESA — quem é, setor, tempo de operação, estrutura societária
-2. SAÚDE FINANCEIRA — FMM, tendência de faturamento, DRE e balanço se disponíveis, comparação com mínimo do fundo
-3. PERFIL DE CRÉDITO — SCR da empresa e dos sócios, alavancagem, histórico de inadimplência
-4. RISCOS IDENTIFICADOS — alertas críticos, concentração de clientes, processos, protestos
-5. CONCLUSÃO E RECOMENDAÇÃO — decisão justificada, limite de crédito sugerido, prazo de revisão, condições se condicional
+ESTRUTURA OBRIGATÓRIA:
 
-Seja direto, objetivo e técnico. Use linguagem de analista de crédito. Não use bullet points — escreva em parágrafos corridos.
+Parágrafo 1 — PERFIL DA EMPRESA
+Apresente a empresa: razão social, setor de atuação, tempo de operação, porte, estrutura societária e situação cadastral.
+
+Parágrafo 2 — SAÚDE FINANCEIRA
+Analise o faturamento (FMM 12M e tendência), compare com o mínimo do fundo.
+Se DRE disponível: comente receita, lucro, margens e tendência.
+Se Balanço disponível: comente patrimônio líquido, liquidez e endividamento.
+Identifique se a empresa é financeiramente saudável para operar com o fundo.
+
+Parágrafo 3 — PERFIL DE CRÉDITO
+Analise o SCR da empresa e dos sócios.
+Comente alavancagem, histórico de inadimplência, prejuízos e vencidos.
+Compare o endividamento bancário com o faturamento.
+Se IR dos sócios disponível, comente a coerência patrimonial.
+
+Parágrafo 4 — RISCOS IDENTIFICADOS
+Liste e analise os principais riscos: concentração de clientes (Curva ABC),
+processos judiciais, protestos, SCR adverso, PL negativo, margens baixas.
+Se relatório de visita disponível, inclua os pontos de atenção observados.
+
+Parágrafo 5 — CONCLUSÃO E RECOMENDAÇÃO
+Emita parecer claro: APROVADO, CONDICIONAL ou REPROVADO.
+Justifique com base nos dados analisados.
+Se aprovado: sugira limite de crédito (FMM × fator do fundo), prazo máximo e prazo de revisão.
+Se condicional: liste as condições específicas.
+Se reprovado: explique o motivo principal e sugira prazo para reanálise.
 `;
 
 // ─────────────────────────────────────────
