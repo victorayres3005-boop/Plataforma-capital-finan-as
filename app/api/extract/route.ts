@@ -710,6 +710,10 @@ Regras:
 `;
 
 const PROMPT_IR_SOCIOS = `
+FOCO: Leia APENAS o cabeçalho e as primeiras informações do documento.
+Ignore instruções sobre DARF, quotas, pagamentos e informações adicionais.
+O que importa está nas primeiras 10 linhas: nome, CPF, ano-calendário e número do recibo.
+
 Você é um especialista em análise financeira.
 Analise o documento de Imposto de Renda recebido — pode ser um RECIBO DE ENTREGA
 ou uma DECLARAÇÃO COMPLETA. Extraia o máximo de informações disponíveis.
