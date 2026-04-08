@@ -774,6 +774,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
   // helper local para cabeçalho de bloco
   const drawBlockHeader = (titulo: string) => {
+    checkPageBreak(20);
     y += 5;
     doc.setFillColor(...colors.primary);
     doc.rect(margin, y, contentW, 7, "F");
@@ -786,6 +787,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
   // helper para badge colorido inline
   const drawBadge = (texto: string, cor: [number, number, number], bgCor: [number, number, number], bx: number, by: number): number => {
+    checkPageBreak(12);
     doc.setFontSize(6.5);
     doc.setFont("helvetica", "bold");
     const bw = doc.getTextWidth(texto) + 6;
@@ -803,8 +805,11 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     const colW2 = contentW / cols;
     items.forEach((item, i) => {
       const col = i % cols;
+      if (col === 0) {
+        checkPageBreak(16);
+        if (i > 0) y += 16;
+      }
       const xI = margin + col * colW2;
-      if (col === 0 && i > 0) y += 16;
       doc.setFillColor(248, 250, 252);
       doc.rect(xI, y, colW2 - 2, 14, "F");
       doc.setFontSize(6);
@@ -854,6 +859,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
     // linha de sacados
     if (top3.length > 0) {
+      checkPageBreak(24);
       const colW3 = contentW / top3.length;
       top3.forEach((cl, i) => {
         const xS = margin + i * colW3;
@@ -982,12 +988,14 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     ]);
 
     if (pontos.length > 0) {
+      checkPageBreak(6 + pontos.length * 6);
       doc.setFontSize(6);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...colors.textMuted);
       doc.text("PONTOS DE ATENCAO", margin, y + 4);
       y += 6;
       pontos.forEach(pt => {
+        checkPageBreak(8);
         doc.setFontSize(7);
         doc.setFont("helvetica", "normal");
         doc.setTextColor(...colors.text);
