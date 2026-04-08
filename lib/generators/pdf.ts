@@ -513,41 +513,56 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     });
   };
 
-  // Helper: draw alert box in PDF
-  const drawAlertBox = (text: string, severity: AlertSeverity) => {
-    checkPageBreak(10);
-    const bgColor: [number, number, number] = severity === "ALTA" ? [254, 242, 242] : [255, 251, 235];
-    const barColor: [number, number, number] = severity === "ALTA" ? colors.danger : colors.warning;
-    const textColor: [number, number, number] = severity === "ALTA" ? colors.danger : colors.warning;
-    doc.setFillColor(...bgColor);
-    doc.roundedRect(margin, y, contentW, 8, 1, 1, "F");
-    doc.setFillColor(...barColor);
-    doc.roundedRect(margin, y, 2.5, 8, 0.5, 0.5, "F");
+  // Helper: draw alert box in PDF — card branco, borda sutil, acento esquerdo colorido
+  const drawAlertBox = (text: string, severity: AlertSeverity, subtitle?: string) => {
+    const lineH = subtitle ? 5 : 0;
+    const cardH = 11 + lineH;
+    checkPageBreak(cardH + 2);
+    const accentC: [number,number,number] = severity === "ALTA" ? [220,38,38] : severity === "MODERADA" ? [217,119,6] : [37,99,235];
+    const badgeC: [number,number,number] = severity === "ALTA" ? [220,38,38] : severity === "MODERADA" ? [217,119,6] : [37,99,235];
+    const badgeBg: [number,number,number] = severity === "ALTA" ? [254,226,226] : severity === "MODERADA" ? [254,243,199] : [219,234,254];
+    const badgeLabel = severity === "ALTA" ? "ALTA" : severity === "MODERADA" ? "MODERADO" : "INFO";
+    // Card fundo branco
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(margin, y, contentW, cardH, 1.5, 1.5, "F");
+    // Borda sutil
+    doc.setDrawColor(229, 231, 235);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(margin, y, contentW, cardH, 1.5, 1.5, "D");
+    doc.setLineWidth(0.1);
+    // Acento esquerdo
+    doc.setFillColor(...accentC);
+    doc.rect(margin, y + 1, 2, cardH - 2, "F");
+    // Badge de severidade
+    const badgeX = margin + 5;
+    doc.setFontSize(5.5);
+    doc.setFont("helvetica", "bold");
+    const bw = doc.getTextWidth(badgeLabel) + 4;
+    doc.setFillColor(...badgeBg);
+    doc.roundedRect(badgeX, y + 2.5, bw, 4.5, 1, 1, "F");
+    doc.setTextColor(...badgeC);
+    doc.text(badgeLabel, badgeX + 2, y + 5.8);
+    // Mensagem principal
     doc.setFontSize(7);
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(...textColor);
-    doc.text(`[${severity}] ${text}`, margin + 6, y + 5.5);
-    y += 10;
+    doc.setTextColor(17, 24, 39);
+    doc.text(text.substring(0, 80), badgeX + bw + 3, y + 5.8);
+    // Subtítulo opcional
+    if (subtitle) {
+      doc.setFontSize(6);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(107, 114, 128);
+      doc.text(subtitle.substring(0, 90), badgeX, y + 9.5);
+    }
+    y += cardH + 2;
   };
 
-  // Helper: draw deterministic section alert (alta=vermelho, media=âmbar, info=azul)
+  // Helper: draw deterministic section alert — mesmo design
   const drawDetAlerts = (alertas: AlertaDet[]) => {
     if (!alertas.length) return;
     alertas.forEach(al => {
-      checkPageBreak(10);
-      const bgColor: [number, number, number] = al.nivel === 'alta' ? [254, 242, 242] : al.nivel === 'media' ? [255, 251, 235] : [239, 246, 255];
-      const barColor: [number, number, number] = al.nivel === 'alta' ? colors.danger : al.nivel === 'media' ? colors.warning : [59, 130, 246];
-      const txColor: [number, number, number] = al.nivel === 'alta' ? colors.danger : al.nivel === 'media' ? colors.warning : [29, 78, 216];
-      const label = al.nivel === 'alta' ? 'ALTA' : al.nivel === 'media' ? 'MOD' : 'INFO';
-      doc.setFillColor(...bgColor);
-      doc.roundedRect(margin, y, contentW, 8, 1, 1, 'F');
-      doc.setFillColor(...barColor);
-      doc.roundedRect(margin, y, 2.5, 8, 0.5, 0.5, 'F');
-      doc.setFontSize(7);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(...txColor);
-      doc.text(`[${label}] ${al.mensagem}`, margin + 6, y + 5.5);
-      y += 10;
+      const sev: AlertSeverity = al.nivel === 'alta' ? 'ALTA' : al.nivel === 'media' ? 'MODERADA' : 'INFO';
+      drawAlertBox(al.mensagem, sev);
     });
   };
 

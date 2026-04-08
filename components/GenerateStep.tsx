@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { uploadFile } from "@/lib/storage";
 import GoalfyButton from "@/components/GoalfyButton";
+import AlertList from "@/components/AlertList";
 import { ExtractedData, CollectionDocument, DocumentCollection, FundSettings, DEFAULT_FUND_SETTINGS, AIAnalysis } from "@/types";
 import type { OriginalFiles } from "@/components/UploadStep";
 
@@ -903,30 +904,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
           {/* Alerts panel */}
           {alerts.length > 0 && (
-            <div className="space-y-2">
-              {alertsHigh.length > 0 && (
-                <div className="bg-[#FEF2F2] border border-[#FECACA] rounded-lg px-4 py-3">
-                  <p className="text-[10px] uppercase tracking-[0.08em] text-[#DC2626] font-bold mb-1">Alertas de Alta Severidade ({alertsHigh.length})</p>
-                  {alertsHigh.map((a, i) => (
-                    <div key={i} className="flex items-center gap-2 text-[12px] text-[#DC2626]">
-                      <AlertTriangle size={12} className="text-[#DC2626] flex-shrink-0" />
-                      <span>{a.message}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {alertsMod.length > 0 && (
-                <div className="bg-[#FFFBEB] border border-[#FDE68A] rounded-lg px-4 py-3">
-                  <p className="text-[10px] uppercase tracking-[0.08em] text-[#D97706] font-bold mb-1">Alertas Moderados ({alertsMod.length})</p>
-                  {alertsMod.map((a, i) => (
-                    <div key={i} className="flex items-center gap-2 text-[12px] text-[#92400E]">
-                      <AlertTriangle size={12} className="text-[#D97706] flex-shrink-0" />
-                      <span>{a.message}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <AlertList alerts={alerts} />
           )}
 
           {/* AI Analysis: Resumo + Pontos Fortes/Fracos */}
