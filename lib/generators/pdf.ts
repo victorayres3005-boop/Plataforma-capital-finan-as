@@ -652,389 +652,480 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   drawHeader();
   drawSectionTitle("00", "SINTESE PRELIMINAR", colors.primary);
 
-  // ── Paleta de severidade ──
-  const ratingColorPDF = finalRating >= 7 ? colors.green : finalRating >= 4 ? colors.amber : colors.red;
-  type SevKey = "ok" | "warning" | "danger" | "neutral";
-  const sev: Record<SevKey, { border: [number,number,number]; bg: [number,number,number]; label: [number,number,number] }> = {
-    ok:      { border: [22,163,74],   bg: [240,253,244], label: [21,128,61]   },
-    warning: { border: [217,119,6],   bg: [255,251,235], label: [180,83,9]    },
-    danger:  { border: [220,38,38],   bg: [254,242,242], label: [185,28,28]   },
-    neutral: { border: [32,59,136],   bg: [247,249,253], label: [32,59,136]   },
+  // ── Design tokens ──
+  const azulInst:   [number,number,number] = [27, 47, 78];
+  const cinzaLabel: [number,number,number] = [107, 114, 128];
+  const pretoValor: [number,number,number] = [17, 24, 39];
+  const vermelho:   [number,number,number] = [220, 38, 38];
+  const amarelo:    [number,number,number] = [217, 119, 6];
+  const verde:      [number,number,number] = [22, 163, 74];
+  const fundoPage:  [number,number,number] = [248, 249, 250];
+  const bordaCard:  [number,number,number] = [229, 231, 235];
+
+  // Cor dinâmica de score
+  const scoreColor: [number,number,number] = finalRating >= 7.5 ? verde : finalRating >= 6 ? amarelo : vermelho;
+
+  // ── Helper: drawSinteseCard ──
+  type SinteseField = { label: string; value: string; valueColor?: [number,number,number]; badge?: boolean; badgeText?: string; badgeBg?: [number,number,number]; badgeTextColor?: [number,number,number] };
+  const drawSinteseCard = (
+    cx: number, cy: number, cw: number, ch: number,
+    title: string, accentColor: [number,number,number],
+    fields: SinteseField[]
+  ) => {
+    // Card fundo branco, borda 0.3pt
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(cx, cy, cw, ch, 2, 2, "F");
+    doc.setDrawColor(...bordaCard);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(cx, cy, cw, ch, 2, 2, "D");
+    doc.setLineWidth(0.1);
+    // Acento esquerdo 2pt
+    doc.setFillColor(...accentColor);
+    doc.rect(cx, cy, 2, ch, "F");
+    // Header interno
+    doc.setFontSize(6.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...accentColor);
+    doc.text(title, cx + 5.5, cy + 5.5);
+    // Linha separadora
+    doc.setDrawColor(...bordaCard);
+    doc.setLineWidth(0.2);
+    doc.line(cx + 2, cy + 9, cx + cw, cy + 9);
+    doc.setLineWidth(0.1);
+    // Grid 2×N de campos
+    const gridX = cx + 4;
+    const colW2 = (cw - 6) / 2;
+    const fieldH = (ch - 11) / Math.max(1, Math.ceil(fields.length / 2));
+    fields.forEach((f, i) => {
+      const col = i % 2;
+      const row = Math.floor(i / 2);
+      const fx = gridX + col * colW2;
+      const fy = cy + 11 + row * fieldH;
+      doc.setFontSize(5.5);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...cinzaLabel);
+      doc.text(f.label.toUpperCase(), fx, fy + 4);
+      if (f.badge && f.badgeText) {
+        // Badge inline
+        doc.setFontSize(6);
+        doc.setFont("helvetica", "bold");
+        const bw = doc.getTextWidth(f.badgeText) + 6;
+        doc.setFillColor(...(f.badgeBg ?? [229, 231, 235]));
+        doc.roundedRect(fx, fy + 5.5, bw, 5.5, 1, 1, "F");
+        doc.setTextColor(...(f.badgeTextColor ?? pretoValor));
+        doc.text(f.badgeText, fx + 3, fy + 9.5);
+      } else {
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...(f.valueColor ?? pretoValor));
+        const maxC = Math.floor(colW2 / 2.0);
+        const disp = f.value.length > maxC ? f.value.substring(0, maxC) + "…" : f.value;
+        doc.text(disp, fx, fy + 11);
+      }
+    });
   };
 
-  // ── Arco de score (gauge semicircular) ──
+  // ── Helper: getSeveridadeBadge ──
+  const getSeveridadeBadge = (qtd: number): { text: string; bg: [number,number,number]; textColor: [number,number,number] } => {
+    if (qtd === 0) return { text: "SEM RESTRICAO", bg: [220, 252, 231], textColor: [21, 128, 61] };
+    if (qtd <= 3)  return { text: "MODERADO",      bg: [254, 243, 199], textColor: [180, 83, 9]  };
+    return             { text: "ALTA",             bg: [254, 226, 226], textColor: [220, 38, 38] };
+  };
+
+  // ═══════════════════════════════════════════════════
+  // BLOCO 1 — Score + Status (largura total, ~28mm)
+  // ═══════════════════════════════════════════════════
   {
-    const arcR = 20;
-    const cx = margin + contentW / 2;
-    const arcCY = y + arcR + 6;
-    const startDeg = 150;
-    const sweepDeg = 240;
+    checkPageBreak(32);
+    const bloco1H = 28;
+    const bloco1Y = y;
 
-    const drawArcSeg = (fromDeg: number, toDeg: number, color: [number,number,number], lw: number) => {
-      const steps = 80;
-      const fr = (fromDeg * Math.PI) / 180;
-      const tr = (toDeg * Math.PI) / 180;
-      doc.setDrawColor(...color);
-      doc.setLineWidth(lw);
-      for (let i = 0; i < steps; i++) {
-        const a1 = fr + (i / steps) * (tr - fr);
-        const a2 = fr + ((i + 1) / steps) * (tr - fr);
-        doc.line(cx + arcR * Math.cos(a1), arcCY + arcR * Math.sin(a1), cx + arcR * Math.cos(a2), arcCY + arcR * Math.sin(a2));
-      }
-      doc.setLineWidth(0.1);
-    };
-
-    // Fundo cinza
-    drawArcSeg(startDeg, startDeg + sweepDeg, [220, 220, 220], 3.5);
-    // Progresso colorido
-    if (finalRating > 0) drawArcSeg(startDeg, startDeg + (finalRating / 10) * sweepDeg, ratingColorPDF, 3.5);
-
-    // Score central
-    doc.setFontSize(20);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...ratingColorPDF);
-    doc.text(String(finalRating), cx - 2, arcCY + 1, { align: "right" });
-    doc.setFontSize(9);
-    doc.setTextColor(...colors.textMuted);
-    doc.text("/10", cx - 1, arcCY + 1);
-    doc.setFontSize(5.5);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(...colors.textMuted);
-    doc.text("SCORE DE RISCO", cx, arcCY + 7, { align: "center" });
-
-    // Badge decisão — à direita do arco
-    const decC = decision === "APROVADO" ? colors.green : decision === "REPROVADO" ? colors.red : colors.amber;
-    const decBg: [number,number,number] = decision === "APROVADO" ? [240,253,244] : decision === "REPROVADO" ? [254,242,242] : [255,251,235];
-    const decBorder: [number,number,number] = decision === "APROVADO" ? [187,247,208] : decision === "REPROVADO" ? [254,202,202] : [253,230,138];
-    const bW = 50; const bH = 18;
-    const bX = cx + arcR + 12; const bY = arcCY - bH / 2;
-    doc.setFillColor(...decBg);
-    doc.roundedRect(bX, bY, bW, bH, 3, 3, "F");
-    doc.setDrawColor(...decBorder);
-    doc.setLineWidth(0.5);
-    doc.roundedRect(bX, bY, bW, bH, 3, 3, "D");
+    // Fundo do bloco
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(margin, bloco1Y, contentW, bloco1H, 2, 2, "F");
+    doc.setDrawColor(...bordaCard);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(margin, bloco1Y, contentW, bloco1H, 2, 2, "D");
     doc.setLineWidth(0.1);
-    doc.setFontSize(9);
+
+    // — Score (lado esquerdo, 65mm) —
+    const scoreX = margin + 5;
+    // Número grande 28pt
+    doc.setFontSize(28);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...scoreColor);
+    const scoreStr = String(finalRating);
+    doc.text(scoreStr, scoreX, bloco1Y + 19);
+    const scoreNumW = doc.getTextWidth(scoreStr);
+    // Sufixo /10 em 11pt cinza
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...cinzaLabel);
+    doc.text("/10", scoreX + scoreNumW + 1, bloco1Y + 19);
+    // Label SCORE DE RISCO
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...cinzaLabel);
+    doc.text("SCORE DE RISCO", scoreX, bloco1Y + 24);
+    // Barra de progresso: 55mm × 2.5mm
+    const barX = scoreX;
+    const barY = bloco1Y + 25.5;
+    const barW = 55;
+    const barH = 2.5;
+    doc.setFillColor(...bordaCard);
+    doc.roundedRect(barX, barY, barW, barH, 1, 1, "F");
+    const fillW = Math.min(barW, (finalRating / 10) * barW);
+    if (fillW > 0) {
+      doc.setFillColor(...scoreColor);
+      doc.roundedRect(barX, barY, fillW, barH, 1, 1, "F");
+    }
+
+    // — Status (lado direito, badge grande) —
+    const decC: [number,number,number] = decision === "APROVADO" ? verde : decision === "REPROVADO" ? vermelho : amarelo;
+    // Mistura com branco para ~15% opacity
+    const decBgR = Math.round(decC[0] * 0.15 + 255 * 0.85);
+    const decBgG = Math.round(decC[1] * 0.15 + 255 * 0.85);
+    const decBgB = Math.round(decC[2] * 0.15 + 255 * 0.85);
+    const bW2 = 95;
+    const bH2 = 20;
+    const bX2 = margin + contentW - bW2 - 4;
+    const bY2 = bloco1Y + (bloco1H - bH2) / 2;
+    doc.setFillColor(decBgR, decBgG, decBgB);
+    doc.roundedRect(bX2, bY2, bW2, bH2, 3, 3, "F");
+    doc.setDrawColor(...decC);
+    doc.setLineWidth(0.5);
+    doc.roundedRect(bX2, bY2, bW2, bH2, 3, 3, "D");
+    doc.setLineWidth(0.1);
+    doc.setFontSize(11);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...decC);
-    doc.text(decision.replace(/_/g, " "), bX + bW / 2, bY + bH / 2 + 3, { align: "center" });
+    doc.text(decision.replace(/_/g, " "), bX2 + bW2 / 2, bY2 + bH2 / 2 + 3.5, { align: "center" });
 
-    y = arcCY + arcR + 8;
+    y = bloco1Y + bloco1H + 5;
   }
 
-  // ── 6 KPI cards — borda superior colorida por severidade ──
+  // ═══════════════════════════════════════════════════
+  // BLOCO 2 — 6 KPI Cards (2 linhas × 3 colunas)
+  // ═══════════════════════════════════════════════════
   {
-    const alertCardsData = [
-      { label: "PROTESTOS",    value: protestosNaoConsultados ? "N/C" : protestosVigentes > 0 ? "R$ " + (data.protestos?.vigentesValor || "0") : "—", isDanger: protestosVigentes > 0, isWarning: protestosNaoConsultados },
-      { label: "PROCESSOS",    value: processosNaoConsultados ? "N/C" : (data.processos?.passivosTotal || "—"), isDanger: parseInt(data.processos?.passivosTotal || "0") > 20, isWarning: processosNaoConsultados },
-      { label: "SCR VENCIDO",  value: vencidosSCR > 0 ? data.scr.vencidos : "—",   isDanger: vencidosSCR > 0,             isWarning: false },
-      { label: "SCR PREJUIZO", value: prejuizosVal > 0 ? data.scr.prejuizos : "—", isDanger: prejuizosVal > 0,            isWarning: false },
-      { label: "REC. JUDICIAL",value: data.processos?.temRJ ? "Sim" : "—",          isDanger: !!data.processos?.temRJ,     isWarning: false },
-      { label: "ALAVANCAGEM",  value: alavancagem > 0 ? fmtBR(alavancagem, 2) + "x" : "—", isDanger: alavancagem > 5, isWarning: alavancagem > 3.5 && alavancagem <= 5 },
+    checkPageBreak(42);
+    const kpiGap = 4;
+    const kpiW = (contentW - kpiGap * 2) / 3;
+    const kpiH = 16;
+
+    // Dados dos KPI
+    const vigQtdKpi = parseInt(data.protestos?.vigentesQtd || "0");
+    const passivosKpi = parseInt(data.processos?.passivosTotal || "0");
+    const temRJKpi = !!data.processos?.temRJ;
+    const alavKpi = alavancagem;
+
+    const kpiCards = [
+      {
+        label: "PROTESTOS",
+        value: protestosNaoConsultados ? "N/C" : vigQtdKpi > 0 ? `${vigQtdKpi} reg.` : "—",
+        critico: vigQtdKpi > 0,
+      },
+      {
+        label: "PROCESSOS",
+        value: processosNaoConsultados ? "N/C" : passivosKpi > 0 ? String(passivosKpi) : "—",
+        critico: passivosKpi > 5,
+      },
+      {
+        label: "SCR VENCIDO",
+        value: vencidosSCR > 0 ? (data.scr?.vencidos || "Sim") : "—",
+        critico: vencidosSCR > 0,
+      },
+      {
+        label: "SCR PREJUIZO",
+        value: prejuizosVal > 0 ? (data.scr?.prejuizos || "Sim") : "—",
+        critico: prejuizosVal > 0,
+      },
+      {
+        label: "REC. JUDICIAL",
+        value: temRJKpi ? "Sim" : "—",
+        critico: temRJKpi,
+      },
+      {
+        label: "ALAVANCAGEM",
+        value: alavKpi > 0 ? fmtBR(alavKpi, 2) + "x" : "—",
+        critico: alavKpi > 4,
+      },
     ];
-    const cW = (contentW - 10) / 3;
-    const cH = 20;
-    const topBarH = 3;
-    alertCardsData.forEach((card, i) => {
+
+    kpiCards.forEach((card, i) => {
       const col = i % 3;
       const row = Math.floor(i / 3);
-      const cx2 = margin + col * (cW + 5);
-      const cy2 = y + row * (cH + 4);
-      const topColor: [number,number,number] = card.isDanger ? colors.danger : card.isWarning ? colors.warning : colors.green;
-      const bg: [number,number,number] = card.isDanger ? [254,242,242] : card.isWarning ? [255,251,235] : [248,250,252];
-      // Card background
-      doc.setFillColor(...bg);
-      doc.roundedRect(cx2, cy2, cW, cH, 2, 2, "F");
-      // Borda superior colorida
-      doc.setFillColor(...topColor);
-      doc.roundedRect(cx2, cy2, cW, topBarH, 1, 1, "F");
-      doc.rect(cx2, cy2 + topBarH / 2, cW, topBarH / 2, "F"); // square bottom of top bar
-      // Valor
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(9.5);
-      doc.setTextColor(...(card.isDanger ? colors.danger : card.isWarning ? colors.warning : colors.text));
-      doc.text(String(card.value).substring(0, 16), cx2 + cW / 2, cy2 + topBarH + 8, { align: "center" });
+      const kx = margin + col * (kpiW + kpiGap);
+      const ky = y + row * (kpiH + kpiGap);
+      const accentC: [number,number,number] = card.critico ? vermelho : [209, 213, 219];
+      const valorC: [number,number,number] = card.critico ? vermelho : pretoValor;
+
+      // Card
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(kx, ky, kpiW, kpiH, 2, 2, "F");
+      doc.setDrawColor(...bordaCard);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(kx, ky, kpiW, kpiH, 2, 2, "D");
+      doc.setLineWidth(0.1);
+      // Acento esquerdo
+      doc.setFillColor(...accentC);
+      doc.rect(kx, ky, 2, kpiH, "F");
       // Label
+      doc.setFontSize(6);
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(5.5);
-      doc.setTextColor(...colors.textMuted);
-      doc.text(card.label, cx2 + cW / 2, cy2 + topBarH + 14, { align: "center" });
+      doc.setTextColor(...cinzaLabel);
+      doc.text(card.label, kx + 4, ky + 5);
+      // Valor
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...valorC);
+      const maxKpiC = Math.floor((kpiW - 6) / 2.5);
+      const kpiDisp = card.value.length > maxKpiC ? card.value.substring(0, maxKpiC) + "…" : card.value;
+      doc.text(kpiDisp, kx + 4, ky + 12.5);
     });
-    y += cH * 2 + 12;
+
+    y += kpiH * 2 + kpiGap + 5;
   }
 
-  // ── DRE Resumida — faixa fina escura ──
+  // ═══════════════════════════════════════════════════
+  // BLOCO 3 — DRE Resumo (largura total, ~24mm)
+  // ═══════════════════════════════════════════════════
   if (data.dre && data.dre.anos && data.dre.anos.length > 0) {
     const anoMaisRecente = data.dre.anos[data.dre.anos.length - 1];
-    checkPageBreak(32);
-    // Cabeçalho fino
-    doc.setFillColor(...colors.primary);
-    doc.roundedRect(margin, y, contentW, 6, 1, 1, "F");
-    doc.setFontSize(6.5);
+    checkPageBreak(30);
+    // Header fundo azul
+    doc.setFillColor(...azulInst);
+    doc.roundedRect(margin, y, contentW, 7, 1, 1, "F");
+    doc.setFontSize(7);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
-    doc.text("DEMONSTRACAO DE RESULTADO (RESUMO)", margin + 3, y + 4.2);
-    y += 8;
-    const metricasDRE = [
-      { label: "Receita Bruta",     valor: `R$ ${fmtMoney(anoMaisRecente.receitaBruta) || "N/D"}` },
-      { label: "Margem Liquida",    valor: `${anoMaisRecente.margemLiquida || "0"}%` },
-      { label: "Tendencia",         valor: normalizeTendencia(data.dre.tendenciaLucro) },
-      { label: "Crescimento Rec.",  valor: `${data.dre.crescimentoReceita || "0"}%` },
+    doc.text("DEMONSTRACAO DE RESULTADO (RESUMO)", margin + 4, y + 4.8);
+    y += 7;
+
+    const dreColW = contentW / 4;
+    const dreH = 17;
+    const tendRaw = normalizeTendencia(data.dre.tendenciaLucro);
+    const tendColor: [number,number,number] = tendRaw.startsWith("↑") ? verde : tendRaw.startsWith("↓") ? vermelho : cinzaLabel;
+    const dreMetricas = [
+      { label: "RECEITA BRUTA",       valor: `R$ ${fmtMoney(anoMaisRecente.receitaBruta) || "N/D"}`, color: pretoValor },
+      { label: "MARGEM LIQUIDA",      valor: `${anoMaisRecente.margemLiquida || "0"}%`,              color: pretoValor },
+      { label: "TENDENCIA",           valor: tendRaw,                                                color: tendColor  },
+      { label: "CRESCIMENTO RECEITA", valor: `${data.dre.crescimentoReceita || "0"}%`,               color: pretoValor },
     ];
-    const colWDRE = contentW / 4;
-    metricasDRE.forEach((m, i) => {
-      const xD = margin + i * colWDRE;
-      doc.setFillColor(247, 249, 253);
-      doc.rect(xD, y, colWDRE - 2, 18, "F");
-      // borda esquerda azul fina
-      doc.setFillColor(...colors.primary);
-      doc.rect(xD, y, 2, 18, "F");
-      doc.setFontSize(5.5);
+    dreMetricas.forEach((m, i) => {
+      const xD = margin + i * dreColW;
+      doc.setFillColor(...fundoPage);
+      doc.rect(xD, y, dreColW, dreH, "F");
+      doc.setFontSize(6);
       doc.setFont("helvetica", "normal");
-      doc.setTextColor(...colors.textMuted);
-      doc.text(m.label.toUpperCase(), xD + 4, y + 5);
-      doc.setFontSize(8.5);
+      doc.setTextColor(...cinzaLabel);
+      doc.text(m.label, xD + 4, y + 5.5);
+      doc.setFontSize(9);
       doc.setFont("helvetica", "bold");
-      doc.setTextColor(...colors.text);
-      doc.text(m.valor, xD + 4, y + 13);
+      doc.setTextColor(...m.color);
+      doc.text(m.valor, xD + 4, y + 13.5);
     });
-    y += 22;
+    y += dreH + 5;
   }
 
   // ═══════════════════════════════════════════════════
-  // BLOCOS 2 COLUNAS — helpers posicionais
+  // BLOCOS 4 & 5 — Cards operacionais 2×2 + 1×2
   // ═══════════════════════════════════════════════════
-  const COL_GAP = 5;
-  const colHalfW = (contentW - COL_GAP) / 2;
-  const colLX = margin;
-  const colRX = margin + colHalfW + COL_GAP;
+  const OP_GAP = 4;
+  const opColW = (contentW - OP_GAP) / 2;
+  const opCardH = 42;
+  const opColL = margin;
+  const opColR = margin + opColW + OP_GAP;
 
-  // Desenha um card com borda esquerda colorida em posição absoluta
-  // Retorna a altura total ocupada
-  const drawSevCard = (
-    titulo: string,
-    items: { label: string; valor: string }[],
-    severity: SevKey,
-    cx3: number,
-    cw3: number,
-    startY: number,
-    badge?: string
-  ): number => {
-    const sc = sev[severity];
-    const borderW = 3;
-    const itemH = 15;
-    const rows = Math.ceil(items.length / 2);
-    const badgeExtra = badge ? 10 : 0;
-    const totalH = 12 + rows * itemH + badgeExtra + 4;
+  // Pré-calcular dados dos cards operacionais
 
-    // Background
-    doc.setFillColor(...sc.bg);
-    doc.roundedRect(cx3, startY, cw3, totalH, 2, 2, "F");
-    // Borda esquerda
-    doc.setFillColor(...sc.border);
-    doc.rect(cx3, startY, borderW, totalH, "F");
-    doc.roundedRect(cx3, startY, borderW, 4, 1, 1, "F");
-
-    // Título
-    doc.setFontSize(6.5);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...sc.label);
-    doc.text(titulo, cx3 + borderW + 4, startY + 6);
-    // Linha divisória sutil
-    doc.setDrawColor(...sc.border);
-    doc.setLineWidth(0.2);
-    doc.line(cx3 + borderW, startY + 9, cx3 + cw3, startY + 9);
-    doc.setLineWidth(0.1);
-
-    // Items 2 por linha
-    const itemCW = (cw3 - borderW - 6) / 2;
-    let iy = startY + 12;
-    items.forEach((item, i) => {
-      const col = i % 2;
-      if (col === 0 && i > 0) iy += itemH;
-      const xI = cx3 + borderW + 3 + col * (itemCW + 2);
-      doc.setFontSize(5.5);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(...colors.textMuted);
-      doc.text(item.label.toUpperCase(), xI, iy + 4);
-      doc.setFontSize(7.5);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(...colors.text);
-      doc.text(String(item.valor).substring(0, 24), xI, iy + 10.5);
-    });
-    iy += itemH;
-
-    // Badge opcional
-    if (badge) {
-      doc.setFontSize(6);
-      doc.setFont("helvetica", "bold");
-      const bw2 = doc.getTextWidth(badge) + 8;
-      doc.setFillColor(...sc.border);
-      doc.roundedRect(cx3 + borderW + 3, iy, bw2, 7, 1.5, 1.5, "F");
-      doc.setTextColor(255, 255, 255);
-      doc.text(badge, cx3 + borderW + 7, iy + 5);
-      doc.setTextColor(...colors.text);
-      iy += 9;
-    }
-
-    return totalH + 4;
-  };
-
-  // ── Pré-calcular dados dos 6 blocos ──
-  // Bloco 1: Perfil
-  const anoAbertura = data.cnpj?.dataAbertura ? new Date(data.cnpj.dataAbertura).getFullYear() : null;
-  const idadeEmpresa = anoAbertura ? `${new Date().getFullYear() - anoAbertura} anos` : "—";
-  const fmm12mVal = data.faturamento?.fmm12m
+  // Card A — Perfil
+  const anoAberturaOp = data.cnpj?.dataAbertura ? new Date(data.cnpj.dataAbertura).getFullYear() : null;
+  const idadeEmpresaOp = anoAberturaOp && !isNaN(anoAberturaOp) ? `${new Date().getFullYear() - anoAberturaOp} anos` : "—";
+  const fmm12mValOp = data.faturamento?.fmm12m
     ? `R$ ${fmtMoney(data.faturamento.fmm12m)}`
     : data.faturamento?.mediaAno ? `R$ ${fmtMoney(data.faturamento.mediaAno)}` : "—";
-  const grupoQtd = data.grupoEconomico?.empresas?.length ?? 0;
-  const grupoTexto = grupoQtd > 0 ? `Sim — ${grupoQtd} empresa(s)` : "Nao identificado";
-  const pleitoVal = data.relatorioVisita?.pleito ? `R$ ${fmtMoney(data.relatorioVisita.pleito)}` : "Nao informado";
+  const grupoQtdOp = data.grupoEconomico?.empresas?.length ?? 0;
+  const grupoTextoOp = grupoQtdOp > 0 ? `Sim — ${grupoQtdOp} emp.` : "Nao identificado";
+  const pleitoValOp = data.relatorioVisita?.pleito ? `R$ ${fmtMoney(data.relatorioVisita.pleito)}` : "Nao informado";
 
-  // Bloco 2: Curva ABC
-  const top3Clientes = (data.curvaABC?.clientes || []).slice(0, 3);
-  const concTop3 = data.curvaABC?.concentracaoTop3 ? `${data.curvaABC.concentracaoTop3}%` : "—";
-  const segmentos = data.curvaABC?.segmentos?.join(", ") || "—";
-  const modalidadeTexto = data.relatorioVisita?.modalidade
-    ? { comissaria: "Comissária", convencional: "Convencional", hibrida: "Híbrida", outra: "Outra" }[data.relatorioVisita.modalidade] ?? "—"
+  // Card B — Curva ABC
+  const alertaConc = !!data.curvaABC?.alertaConcentracao;
+  const abcAccentColor: [number,number,number] = alertaConc ? vermelho : verde;
+  const clientesABC = data.curvaABC?.clientes || [];
+  const concTop3Op = data.curvaABC?.concentracaoTop3 ? `${data.curvaABC.concentracaoTop3}%` : "—";
+  const modalidadeOp = data.relatorioVisita?.modalidade
+    ? ({ comissaria: "Comissaria", convencional: "Convencional", hibrida: "Hibrida", outra: "Outra" }[data.relatorioVisita.modalidade] ?? "—")
     : "—";
-  const abcSev: SevKey = data.curvaABC?.alertaConcentracao ? "danger" : "neutral";
+  const top1Sacado = clientesABC[0]
+    ? `${clientesABC[0].nome.substring(0, 18)} (${clientesABC[0].percentualReceita || "—"}%)`
+    : "—";
+  const top2Sacado = clientesABC[1]
+    ? `${clientesABC[1].nome.substring(0, 18)} (${clientesABC[1].percentualReceita || "—"}%)`
+    : "—";
 
-  // Bloco 3: Protestos
-  const vigQtd2 = parseInt(data.protestos?.vigentesQtd || "0");
-  const vigVal2 = data.protestos?.vigentesValor || "0";
-  const detalhesOrd = [...(data.protestos?.detalhes || [])].sort((a, b) => (b.data || "").localeCompare(a.data || ""));
-  const maisRecenteProt = detalhesOrd[0]?.data || "—";
-  const hoje2 = new Date();
-  const h30b = new Date(hoje2.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const ult30 = detalhesOrd.filter(d => {
+  // Card C — Protestos
+  const vigQtdOp = parseInt(data.protestos?.vigentesQtd || "0");
+  const vigValOp = data.protestos?.vigentesValor || "0";
+  const protestosOrdenados = [...(data.protestos?.detalhes ?? [])]
+    .filter(d => d.data)
+    .sort((a, b) => (b.data ?? "").localeCompare(a.data ?? ""));
+  const maisRecenteOp = protestosOrdenados[0]?.data ?? "—";
+  const hojeOp = new Date();
+  const h30bOp = new Date(hojeOp.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const ult30Op = protestosOrdenados.filter(d => {
     if (!d.data) return false;
-    const pts = d.data.split("/"); if (pts.length !== 3) return false;
-    return new Date(parseInt(pts[2]), parseInt(pts[1]) - 1, parseInt(pts[0])) >= h30b;
+    const pts = d.data.split("/");
+    if (pts.length !== 3) return false;
+    return new Date(parseInt(pts[2]), parseInt(pts[1]) - 1, parseInt(pts[0])) >= h30bOp;
   }).length;
-  const protSev: SevKey = vigQtd2 === 0 ? "ok" : vigQtd2 <= 3 ? "warning" : "danger";
-  const protBadge = vigQtd2 === 0 ? "SEM PROTESTOS" : vigQtd2 <= 3 ? "ATENCAO" : "ALTA";
+  const protAccentOp: [number,number,number] = vigQtdOp > 0 ? vermelho : verde;
+  const protSevBadge = getSeveridadeBadge(vigQtdOp);
 
-  // Bloco 4: CCF
-  const totalOcorr2 = data.ccf?.qtdRegistros || 0;
-  const bancosReg = (data.ccf?.bancos || []).filter(b => b.quantidade > 0).sort((a, b) => b.quantidade - a.quantidade);
-  const maiorBanco2 = bancosReg[0];
-  const ccfSev: SevKey = totalOcorr2 > 10 ? "danger" : totalOcorr2 > 0 ? "warning" : "ok";
-  const ccfBadge = totalOcorr2 > 10 ? "ALTA" : undefined;
+  // Card D — CCF
+  const totalOcorrOp = data.ccf?.qtdRegistros || 0;
+  const bancosRegOp = (data.ccf?.bancos || []).filter(b => b.quantidade > 0).sort((a, b) => b.quantidade - a.quantidade);
+  const maiorBancoOp = bancosRegOp[0];
+  const ccfAccentOp: [number,number,number] = totalOcorrOp > 10 ? vermelho : totalOcorrOp > 0 ? amarelo : verde;
+  const ccfSeveridade = totalOcorrOp > 10 ? "ALTA" : totalOcorrOp > 0 ? "MODERADA" : "NENHUMA";
 
-  // Bloco 5: Processos
-  const passivos2 = data.processos?.passivosTotal || "0";
-  const ativos2 = data.processos?.ativosTotal || "0";
-  const valorEst2 = data.processos?.valorTotalEstimado || "—";
-  const dist2 = data.processos?.distribuicao || [];
-  const bancarios2 = dist2.filter(d => d.tipo?.toUpperCase().includes("BANCO")).reduce((s, d) => s + parseInt(d.qtd || "0"), 0);
-  const trabalhistas2 = dist2.filter(d => d.tipo?.toUpperCase().includes("TRABALH")).reduce((s, d) => s + parseInt(d.qtd || "0"), 0);
-  const outros2 = dist2.filter(d => !d.tipo?.toUpperCase().includes("BANCO") && !d.tipo?.toUpperCase().includes("TRABALH")).reduce((s, d) => s + parseInt(d.qtd || "0"), 0);
-  const procSev: SevKey = bancarios2 > 0 ? "danger" : parseInt(passivos2) > 10 ? "warning" : "ok";
-  const procBadge = bancarios2 > 0 ? "BANCARIO ATIVO" : undefined;
+  // Card E — Processos
+  const passivosOp = data.processos?.passivosTotal || "0";
+  const ativosOp = data.processos?.ativosTotal || "0";
+  const valorEstOp = data.processos?.valorTotalEstimado || "—";
+  const distOp = data.processos?.distribuicao || [];
+  const bancariosOp = distOp.filter(d => /banco|financ/i.test(d.tipo || "")).reduce((s, d) => s + parseInt(d.qtd || "0"), 0);
+  const trabalhistasOp = distOp.filter(d => /trabalh/i.test(d.tipo || "")).reduce((s, d) => s + parseInt(d.qtd || "0"), 0);
+  const outrosOp = parseInt(passivosOp) - bancariosOp - trabalhistasOp;
+  const procAccentOp: [number,number,number] = parseInt(passivosOp) > 0 ? amarelo : verde;
 
-  // Bloco 6: Visita
-  const visitaRec = data.relatorioVisita?.recomendacaoVisitante;
-  const visitaSev: SevKey = visitaRec === "reprovado" ? "danger" : visitaRec === "condicional" ? "warning" : data.relatorioVisita ? "ok" : "neutral";
-  const visitaRecTexto = visitaRec === "aprovado" ? "Aprovado" : visitaRec === "condicional" ? "Condicional" : visitaRec === "reprovado" ? "Reprovado" : "—";
-  const pontosVisita = (data.relatorioVisita?.pontosAtencao || []).slice(0, 2).map(p => p.substring(0, 28)).join(" / ") || "—";
+  // Card F — Visita
+  const visitaRecOp = data.relatorioVisita?.recomendacaoVisitante;
+  const visitaAccentOp: [number,number,number] = data.relatorioVisita ? verde : [156, 163, 175];
+  const visitaRecTextoOp = visitaRecOp === "aprovado" ? "Aprovado" : visitaRecOp === "condicional" ? "Condicional" : visitaRecOp === "reprovado" ? "Reprovado" : "—";
+  const pontosAtencaoOp = (data.relatorioVisita?.pontosAtencao || []);
+  const primeiroPA = pontosAtencaoOp[0]?.substring(0, 35) || "—";
+  const nivelConfOp = data.relatorioVisita?.nivelConfiancaVisita
+    ? data.relatorioVisita.nivelConfiancaVisita.charAt(0).toUpperCase() + data.relatorioVisita.nivelConfiancaVisita.slice(1)
+    : "—";
 
-  // ── Renderizar em 2 colunas ──
-  // Par 1: Perfil (esq) + Curva ABC (dir)
+  // ── Par 1: Card A (Perfil) + Card B (Curva ABC) ──
   {
-    checkPageBreak(60);
-    const yPar1 = y;
-    // Esquerda: Perfil
-    const hL1 = drawSevCard("PERFIL DA EMPRESA", [
-      { label: "Idade", valor: idadeEmpresa },
-      { label: "FMM 12M", valor: fmm12mVal },
-      { label: "Grupo economico", valor: grupoTexto },
-      { label: "Pleito sugerido", valor: pleitoVal },
-    ], "neutral", colLX, colHalfW, yPar1);
-    // Direita: Curva ABC
-    const abcItems: { label: string; valor: string }[] = [
-      { label: "Modalidade", valor: modalidadeTexto },
-      { label: "Conc. Top 3", valor: concTop3 },
-      { label: "Segmentos", valor: segmentos },
-      { label: "", valor: "" },
+    checkPageBreak(opCardH + 8);
+    const yPar1Op = y;
+
+    // Card A — Perfil
+    drawSinteseCard(opColL, yPar1Op, opColW, opCardH, "PERFIL DA EMPRESA", azulInst, [
+      { label: "IDADE",           value: idadeEmpresaOp },
+      { label: "FMM 12M",         value: fmm12mValOp    },
+      { label: "GRUPO ECONOMICO", value: grupoTextoOp   },
+      { label: "PLEITO",          value: pleitoValOp    },
+    ]);
+
+    // Card B — Curva ABC
+    const abcFields: SinteseField[] = [
+      { label: "MODALIDADE",   value: modalidadeOp },
+      { label: "CONC. TOP 3", value: concTop3Op   },
+      { label: "TOP 1 SACADO", value: top1Sacado  },
+      { label: "TOP 2 SACADO", value: top2Sacado  },
     ];
-    if (top3Clientes.length > 0) {
-      top3Clientes.forEach((cl, i) => {
-        abcItems.push({ label: `Top ${i+1} sacado`, valor: `${cl.nome.substring(0, 18)} (${cl.percentualReceita || "—"}%)` });
+    if (alertaConc) {
+      abcFields.push({
+        label: "",
+        value: "",
+        badge: true,
+        badgeText: "ALTA CONCENTRACAO",
+        badgeBg: [254, 226, 226],
+        badgeTextColor: vermelho,
       });
     }
-    const hR1 = data.curvaABC
-      ? drawSevCard("CURVA ABC / SACADOS", abcItems, abcSev, colRX, colHalfW, yPar1, data.curvaABC.alertaConcentracao ? "ALTA CONCENTRACAO" : undefined)
-      : 0;
-    y = yPar1 + Math.max(hL1, hR1);
+    if (data.curvaABC) {
+      drawSinteseCard(opColR, yPar1Op, opColW, opCardH, "CURVA ABC / SACADOS", abcAccentColor, abcFields);
+    }
+
+    y = yPar1Op + opCardH + OP_GAP;
   }
 
-  // Par 2: Protestos (esq) + CCF (dir)
+  // ── Par 2: Card C (Protestos) + Card D (CCF) ──
   {
-    checkPageBreak(60);
-    const yPar2 = y;
-    const hL2 = drawSevCard("PROTESTOS", [
-      { label: "Vigentes (qtd)", valor: vigQtd2 > 0 ? String(vigQtd2) : "0" },
-      { label: "Vigentes (valor)", valor: vigQtd2 > 0 ? `R$ ${fmtMoney(vigVal2)}` : "—" },
-      { label: "Mais recente", valor: maisRecenteProt },
-      { label: "Ultimos 30 dias", valor: String(ult30) },
-    ], protSev, colLX, colHalfW, yPar2, protBadge);
-    const hR2 = data.ccf
-      ? drawSevCard("CCF — CHEQUES SEM FUNDO", [
-          { label: "Total ocorrencias", valor: String(totalOcorr2) },
-          { label: "Bancos c/ registro", valor: String(bancosReg.length) },
-          { label: "Maior conc.", valor: maiorBanco2 ? `${maiorBanco2.banco} (${maiorBanco2.quantidade})` : "—" },
-          { label: "Severidade", valor: totalOcorr2 > 10 ? "ALTA" : totalOcorr2 > 0 ? "MODERADA" : "SEM REG." },
-        ], ccfSev, colRX, colHalfW, yPar2, ccfBadge)
-      : 0;
-    y = yPar2 + Math.max(hL2, hR2);
+    checkPageBreak(opCardH + 8);
+    const yPar2Op = y;
+
+    // Card C — Protestos
+    drawSinteseCard(opColL, yPar2Op, opColW, opCardH, "PROTESTOS", protAccentOp, [
+      { label: "VIGENTES (QTD)",   value: String(vigQtdOp),                                     valueColor: vigQtdOp > 0 ? vermelho : pretoValor },
+      { label: "VIGENTES (VALOR)", value: vigQtdOp > 0 ? `R$ ${fmtMoney(vigValOp)}` : "—",    valueColor: vigQtdOp > 0 ? vermelho : pretoValor },
+      { label: "MAIS RECENTE",     value: maisRecenteOp },
+      { label: "ULTIMOS 30 DIAS",  value: String(ult30Op), badge: true, badgeText: protSevBadge.text, badgeBg: protSevBadge.bg, badgeTextColor: protSevBadge.textColor },
+    ]);
+
+    // Card D — CCF
+    if (data.ccf) {
+      drawSinteseCard(opColR, yPar2Op, opColW, opCardH, "CCF — CHEQUES SEM FUNDO", ccfAccentOp, [
+        { label: "TOTAL OCORRENCIAS",  value: String(totalOcorrOp),                                                                        valueColor: totalOcorrOp > 0 ? vermelho : pretoValor },
+        { label: "BANCOS C/ REGISTRO", value: String(bancosRegOp.length)                                                                                                                       },
+        { label: "MAIOR CONC.",        value: maiorBancoOp ? `${maiorBancoOp.banco} (${maiorBancoOp.quantidade})` : "—"                                                                       },
+        { label: "SEVERIDADE",         value: ccfSeveridade,                                                                               valueColor: totalOcorrOp > 10 ? vermelho : totalOcorrOp > 0 ? amarelo : verde },
+      ]);
+    }
+
+    y = yPar2Op + opCardH + OP_GAP;
   }
 
-  // Par 3: Processos (esq) + Visita (dir)
+  // ── Par 3: Card E (Processos) + Card F (Visita) ──
   {
-    checkPageBreak(60);
-    const yPar3 = y;
-    const hL3 = drawSevCard("PROCESSOS JUDICIAIS", [
-      { label: "Passivos / Ativos", valor: `${passivos2} / ${ativos2}` },
-      { label: "Valor estimado", valor: valorEst2 !== "—" ? `R$ ${fmtMoney(valorEst2)}` : "—" },
-      { label: "Bancarios / Trabalhistas", valor: `${bancarios2} / ${trabalhistas2}` },
-      { label: "Outros", valor: String(outros2) },
-    ], procSev, colLX, colHalfW, yPar3, procBadge);
-    const hR3 = data.relatorioVisita
-      ? drawSevCard("VISITA COMERCIAL", [
-          { label: "Status", valor: "Realizada" },
-          { label: "Recomendacao", valor: visitaRecTexto },
-          { label: "Pontos de atencao", valor: pontosVisita },
-          { label: "Nivel de confianca", valor: data.relatorioVisita.nivelConfiancaVisita ?? "—" },
-        ], visitaSev, colRX, colHalfW, yPar3)
-      : 0;
-    y = yPar3 + Math.max(hL3, hR3);
+    checkPageBreak(opCardH + 8);
+    const yPar3Op = y;
+
+    // Card E — Processos
+    drawSinteseCard(opColL, yPar3Op, opColW, opCardH, "PROCESSOS JUDICIAIS", procAccentOp, [
+      { label: "PASSIVOS / ATIVOS",       value: `${passivosOp} / ${ativosOp}` },
+      { label: "VALOR ESTIMADO",          value: valorEstOp !== "—" ? `R$ ${fmtMoney(valorEstOp)}` : "—", valueColor: parseInt(passivosOp) > 0 ? amarelo : pretoValor },
+      { label: "BANCARIOS / TRABALHISTAS",value: `${bancariosOp} / ${trabalhistasOp}`,                    valueColor: bancariosOp > 0 ? vermelho : pretoValor },
+      { label: "OUTROS",                  value: String(Math.max(0, outrosOp)) },
+    ]);
+
+    // Card F — Visita
+    if (data.relatorioVisita) {
+      drawSinteseCard(opColR, yPar3Op, opColW, opCardH, "VISITA COMERCIAL", visitaAccentOp, [
+        { label: "STATUS",            value: "Realizada",       valueColor: verde  },
+        { label: "RECOMENDACAO",      value: visitaRecTextoOp  },
+        { label: "PONTO DE ATENCAO", value: primeiroPA        },
+        { label: "NIVEL CONFIANCA",  value: nivelConfOp       },
+      ]);
+    }
+
+    y = yPar3Op + opCardH + OP_GAP;
   }
 
-  // ── Street View (largura total) ──
+  // ═══════════════════════════════════════════════════
+  // BLOCO 6 — Street View (largura total)
+  // ═══════════════════════════════════════════════════
   {
     checkPageBreak(30);
-    y += 4;
-    doc.setFillColor(...colors.primary);
-    doc.roundedRect(margin, y, contentW, 6, 1, 1, "F");
-    doc.setFontSize(6.5);
+    y += 2;
+    doc.setFillColor(...azulInst);
+    doc.roundedRect(margin, y, contentW, 7, 1, 1, "F");
+    doc.setFontSize(7);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
-    doc.text("ESTABELECIMENTO — STREET VIEW", margin + 3, y + 4.2);
-    y += 8;
+    doc.text("ESTABELECIMENTO — STREET VIEW", margin + 4, y + 4.8);
+    y += 9;
     if (p.streetViewBase64) {
       checkPageBreak(52);
       doc.addImage(p.streetViewBase64, "JPEG", margin, y, contentW, 48);
       y += 52;
     } else {
-      doc.setFillColor(247, 249, 253);
+      doc.setFillColor(...fundoPage);
       doc.roundedRect(margin, y, contentW, 16, 2, 2, "F");
-      doc.setFillColor(...colors.primary);
-      doc.rect(margin, y, 3, 16, "F");
+      doc.setDrawColor(...bordaCard);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(margin, y, contentW, 16, 2, 2, "D");
+      doc.setLineWidth(0.1);
       doc.setFontSize(7);
       doc.setFont("helvetica", "normal");
-      doc.setTextColor(...colors.textMuted);
-      doc.text("Foto indisponivel — configure GOOGLE_MAPS_API_KEY", margin + contentW / 2, y + 10, { align: "center" });
+      doc.setTextColor(...cinzaLabel);
+      doc.text("Foto indisponivel — configure GOOGLE_MAPS_API_KEY", margin + contentW / 2, y + 9, { align: "center" });
       y += 20;
     }
   }
