@@ -652,377 +652,385 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   drawHeader();
   drawSectionTitle("00", "SINTESE PRELIMINAR", colors.primary);
 
-  // Rating + Decision — centralizados, lado a lado (score 28pt + badge alinhado ao centro)
+  // ── Paleta de severidade ──
   const ratingColorPDF = finalRating >= 7 ? colors.green : finalRating >= 4 ? colors.amber : colors.red;
-  const decisionPDFColor = decision === "APROVADO" ? colors.green : decision === "REPROVADO" ? colors.red : colors.amber;
-  const decisionPDFBg = decision === "APROVADO" ? [240, 253, 244] as [number, number, number] : decision === "REPROVADO" ? [254, 242, 242] as [number, number, number] : [255, 251, 235] as [number, number, number];
+  type SevKey = "ok" | "warning" | "danger" | "neutral";
+  const sev: Record<SevKey, { border: [number,number,number]; bg: [number,number,number]; label: [number,number,number] }> = {
+    ok:      { border: [22,163,74],   bg: [240,253,244], label: [21,128,61]   },
+    warning: { border: [217,119,6],   bg: [255,251,235], label: [180,83,9]    },
+    danger:  { border: [220,38,38],   bg: [254,242,242], label: [185,28,28]   },
+    neutral: { border: [32,59,136],   bg: [247,249,253], label: [32,59,136]   },
+  };
 
-  const ratingText = finalRating + "/10";
-  doc.setFontSize(28);
-  doc.setFont("helvetica", "bold");
-  const ratingW = doc.getTextWidth(ratingText);
-  const badgeW = 52;
-  const badgeH = 14;
-  const gap = 16;
-  const totalBlockW = ratingW + gap + badgeW;
-  // Bloco centralizado horizontalmente
-  const blockX = margin + (contentW - totalBlockW) / 2;
-  const scoreLineH = 18; // altura do score em 28pt
-
-  // Score em destaque (28pt bold)
-  doc.setFontSize(28);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(...ratingColorPDF);
-  doc.text(ratingText, blockX, y + scoreLineH - 4);
-
-  // Badge status ao lado direito, alinhado ao centro vertical do score
-  const badgeX = blockX + ratingW + gap;
-  const badgeY = y + (scoreLineH - badgeH) / 2;
-  doc.setFillColor(...decisionPDFBg);
-  doc.roundedRect(badgeX, badgeY, badgeW, badgeH, 2, 2, "F");
-  doc.setFontSize(8.5);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(...decisionPDFColor);
-  doc.text(decision.replace(/_/g, " "), badgeX + badgeW / 2, badgeY + badgeH / 2 + 3, { align: "center" });
-  y += scoreLineH + 4;
-
-  // Score gauge bar — barra colorida proporcional ao rating
+  // ── Arco de score (gauge semicircular) ──
   {
-    const gaugeW = 80;
-    const gaugeH = 4;
-    const gaugeX = margin + (contentW - gaugeW) / 2;
-    doc.setFillColor(220, 220, 220);
-    doc.roundedRect(gaugeX, y, gaugeW, gaugeH, 1.5, 1.5, "F");
-    doc.setFillColor(...ratingColorPDF);
-    doc.roundedRect(gaugeX, y, (finalRating / 10) * gaugeW, gaugeH, 1.5, 1.5, "F");
-    // divisores brancos a cada 10%
-    doc.setDrawColor(255, 255, 255);
-    doc.setLineWidth(0.4);
-    for (let tick = 1; tick <= 9; tick++) {
-      const tx = gaugeX + (tick / 10) * gaugeW;
-      doc.line(tx, y, tx, y + gaugeH);
-    }
+    const arcR = 20;
+    const cx = margin + contentW / 2;
+    const arcCY = y + arcR + 6;
+    const startDeg = 150;
+    const sweepDeg = 240;
+
+    const drawArcSeg = (fromDeg: number, toDeg: number, color: [number,number,number], lw: number) => {
+      const steps = 80;
+      const fr = (fromDeg * Math.PI) / 180;
+      const tr = (toDeg * Math.PI) / 180;
+      doc.setDrawColor(...color);
+      doc.setLineWidth(lw);
+      for (let i = 0; i < steps; i++) {
+        const a1 = fr + (i / steps) * (tr - fr);
+        const a2 = fr + ((i + 1) / steps) * (tr - fr);
+        doc.line(cx + arcR * Math.cos(a1), arcCY + arcR * Math.sin(a1), cx + arcR * Math.cos(a2), arcCY + arcR * Math.sin(a2));
+      }
+      doc.setLineWidth(0.1);
+    };
+
+    // Fundo cinza
+    drawArcSeg(startDeg, startDeg + sweepDeg, [220, 220, 220], 3.5);
+    // Progresso colorido
+    if (finalRating > 0) drawArcSeg(startDeg, startDeg + (finalRating / 10) * sweepDeg, ratingColorPDF, 3.5);
+
+    // Score central
+    doc.setFontSize(20);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...ratingColorPDF);
+    doc.text(String(finalRating), cx - 2, arcCY + 1, { align: "right" });
+    doc.setFontSize(9);
+    doc.setTextColor(...colors.textMuted);
+    doc.text("/10", cx - 1, arcCY + 1);
+    doc.setFontSize(5.5);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...colors.textMuted);
+    doc.text("SCORE DE RISCO", cx, arcCY + 7, { align: "center" });
+
+    // Badge decisão — à direita do arco
+    const decC = decision === "APROVADO" ? colors.green : decision === "REPROVADO" ? colors.red : colors.amber;
+    const decBg: [number,number,number] = decision === "APROVADO" ? [240,253,244] : decision === "REPROVADO" ? [254,242,242] : [255,251,235];
+    const decBorder: [number,number,number] = decision === "APROVADO" ? [187,247,208] : decision === "REPROVADO" ? [254,202,202] : [253,230,138];
+    const bW = 50; const bH = 18;
+    const bX = cx + arcR + 12; const bY = arcCY - bH / 2;
+    doc.setFillColor(...decBg);
+    doc.roundedRect(bX, bY, bW, bH, 3, 3, "F");
+    doc.setDrawColor(...decBorder);
+    doc.setLineWidth(0.5);
+    doc.roundedRect(bX, bY, bW, bH, 3, 3, "D");
     doc.setLineWidth(0.1);
-    y += gaugeH + 6;
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...decC);
+    doc.text(decision.replace(/_/g, " "), bX + bW / 2, bY + bH / 2 + 3, { align: "center" });
+
+    y = arcCY + arcR + 8;
   }
 
-  // 6 Alert Cards (3x2 grid)
-  const alertCardsData = [
-    { label: "PROTESTOS", value: protestosNaoConsultados ? "N/C" : protestosVigentes > 0 ? "R$ " + (data.protestos?.vigentesValor || "0") : "—", isDanger: protestosVigentes > 0, isWarning: protestosNaoConsultados },
-    { label: "PROCESSOS", value: processosNaoConsultados ? "N/C" : (data.processos?.passivosTotal || "—"), isDanger: parseInt(data.processos?.passivosTotal || "0") > 20, isWarning: processosNaoConsultados },
-    { label: "SCR VENCIDO", value: vencidosSCR > 0 ? data.scr.vencidos : "—", isDanger: vencidosSCR > 0, isWarning: false },
-    { label: "SCR PREJUIZO", value: prejuizosVal > 0 ? data.scr.prejuizos : "—", isDanger: prejuizosVal > 0, isWarning: false },
-    { label: "REC. JUDICIAL", value: data.processos?.temRJ ? "Sim" : "—", isDanger: !!data.processos?.temRJ, isWarning: false },
-    { label: "ALAVANCAGEM", value: alavancagem > 0 ? fmtBR(alavancagem, 2) + "x" : "—", isDanger: alavancagem > 5, isWarning: alavancagem > 3.5 && alavancagem <= 5 },
-  ];
-  const cardW2 = (contentW - 8) / 3;
-  const cardH2 = 16;
-  alertCardsData.forEach((card, i) => {
-    const col = i % 3;
-    const rowIdx = Math.floor(i / 3);
-    const cx = margin + col * (cardW2 + 4);
-    const cy = y + rowIdx * (cardH2 + 3);
-    const bg = card.isDanger ? [254, 242, 242] as [number, number, number] : card.isWarning ? [255, 251, 235] as [number, number, number] : [248, 250, 252] as [number, number, number];
-    doc.setFillColor(...bg);
-    doc.roundedRect(cx, cy, cardW2, cardH2, 2, 2, "F");
-    const tc = card.isDanger ? colors.danger : card.isWarning ? colors.warning : colors.text;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.setTextColor(...tc);
-    doc.text(String(card.value).substring(0, 18), cx + cardW2 / 2, cy + 7, { align: "center" });
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(6);
-    doc.setTextColor(...colors.textMuted);
-    doc.text(card.label, cx + cardW2 / 2, cy + 12.5, { align: "center" });
-  });
-  y += cardH2 * 2 + 12;
+  // ── 6 KPI cards — borda superior colorida por severidade ──
+  {
+    const alertCardsData = [
+      { label: "PROTESTOS",    value: protestosNaoConsultados ? "N/C" : protestosVigentes > 0 ? "R$ " + (data.protestos?.vigentesValor || "0") : "—", isDanger: protestosVigentes > 0, isWarning: protestosNaoConsultados },
+      { label: "PROCESSOS",    value: processosNaoConsultados ? "N/C" : (data.processos?.passivosTotal || "—"), isDanger: parseInt(data.processos?.passivosTotal || "0") > 20, isWarning: processosNaoConsultados },
+      { label: "SCR VENCIDO",  value: vencidosSCR > 0 ? data.scr.vencidos : "—",   isDanger: vencidosSCR > 0,             isWarning: false },
+      { label: "SCR PREJUIZO", value: prejuizosVal > 0 ? data.scr.prejuizos : "—", isDanger: prejuizosVal > 0,            isWarning: false },
+      { label: "REC. JUDICIAL",value: data.processos?.temRJ ? "Sim" : "—",          isDanger: !!data.processos?.temRJ,     isWarning: false },
+      { label: "ALAVANCAGEM",  value: alavancagem > 0 ? fmtBR(alavancagem, 2) + "x" : "—", isDanger: alavancagem > 5, isWarning: alavancagem > 3.5 && alavancagem <= 5 },
+    ];
+    const cW = (contentW - 10) / 3;
+    const cH = 20;
+    const topBarH = 3;
+    alertCardsData.forEach((card, i) => {
+      const col = i % 3;
+      const row = Math.floor(i / 3);
+      const cx2 = margin + col * (cW + 5);
+      const cy2 = y + row * (cH + 4);
+      const topColor: [number,number,number] = card.isDanger ? colors.danger : card.isWarning ? colors.warning : colors.green;
+      const bg: [number,number,number] = card.isDanger ? [254,242,242] : card.isWarning ? [255,251,235] : [248,250,252];
+      // Card background
+      doc.setFillColor(...bg);
+      doc.roundedRect(cx2, cy2, cW, cH, 2, 2, "F");
+      // Borda superior colorida
+      doc.setFillColor(...topColor);
+      doc.roundedRect(cx2, cy2, cW, topBarH, 1, 1, "F");
+      doc.rect(cx2, cy2 + topBarH / 2, cW, topBarH / 2, "F"); // square bottom of top bar
+      // Valor
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9.5);
+      doc.setTextColor(...(card.isDanger ? colors.danger : card.isWarning ? colors.warning : colors.text));
+      doc.text(String(card.value).substring(0, 16), cx2 + cW / 2, cy2 + topBarH + 8, { align: "center" });
+      // Label
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(5.5);
+      doc.setTextColor(...colors.textMuted);
+      doc.text(card.label, cx2 + cW / 2, cy2 + topBarH + 14, { align: "center" });
+    });
+    y += cH * 2 + 12;
+  }
 
-  // ── DRE Resumida (4 métricas) ──
+  // ── DRE Resumida — faixa fina escura ──
   if (data.dre && data.dre.anos && data.dre.anos.length > 0) {
     const anoMaisRecente = data.dre.anos[data.dre.anos.length - 1];
-    y += 6;
+    checkPageBreak(32);
+    // Cabeçalho fino
     doc.setFillColor(...colors.primary);
-    doc.rect(margin, y, contentW, 7, "F");
-    doc.setFontSize(7.5);
+    doc.roundedRect(margin, y, contentW, 6, 1, 1, "F");
+    doc.setFontSize(6.5);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
-    doc.text("DEMONSTRAÇÃO DE RESULTADO", margin + 3, y + 4.8);
-    y += 9;
-
+    doc.text("DEMONSTRACAO DE RESULTADO (RESUMO)", margin + 3, y + 4.2);
+    y += 8;
     const metricasDRE = [
-      { label: "Receita Bruta", valor: `R$ ${fmtMoney(anoMaisRecente.receitaBruta) || "N/D"}` },
-      { label: "Margem Líquida", valor: `${anoMaisRecente.margemLiquida || "0"}%` },
-      { label: "Tendência", valor: normalizeTendencia(data.dre.tendenciaLucro) },
-      { label: "Crescimento Receita", valor: `${data.dre.crescimentoReceita || "0"}%` },
+      { label: "Receita Bruta",     valor: `R$ ${fmtMoney(anoMaisRecente.receitaBruta) || "N/D"}` },
+      { label: "Margem Liquida",    valor: `${anoMaisRecente.margemLiquida || "0"}%` },
+      { label: "Tendencia",         valor: normalizeTendencia(data.dre.tendenciaLucro) },
+      { label: "Crescimento Rec.",  valor: `${data.dre.crescimentoReceita || "0"}%` },
     ];
     const colWDRE = contentW / 4;
     metricasDRE.forEach((m, i) => {
       const xD = margin + i * colWDRE;
-      doc.setFillColor(248, 250, 252);
-      doc.rect(xD, y, colWDRE - 2, 20, "F");
-      doc.setFontSize(6);
+      doc.setFillColor(247, 249, 253);
+      doc.rect(xD, y, colWDRE - 2, 18, "F");
+      // borda esquerda azul fina
+      doc.setFillColor(...colors.primary);
+      doc.rect(xD, y, 2, 18, "F");
+      doc.setFontSize(5.5);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...colors.textMuted);
-      doc.text(m.label.toUpperCase(), xD + 3, y + 5);
-      doc.setFontSize(8);
+      doc.text(m.label.toUpperCase(), xD + 4, y + 5);
+      doc.setFontSize(8.5);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...colors.text);
-      doc.text(m.valor, xD + 3, y + 14);
+      doc.text(m.valor, xD + 4, y + 13);
     });
-    y += 24;
+    y += 22;
   }
 
-  // helper local para cabeçalho de bloco
-  const drawBlockHeader = (titulo: string) => {
-    checkPageBreak(20);
-    y += 5;
-    doc.setFillColor(...colors.primary);
-    doc.rect(margin, y, contentW, 7, "F");
-    doc.setFontSize(7.5);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(255, 255, 255);
-    doc.text(titulo, margin + 3, y + 4.8);
-    y += 9;
-  };
+  // ═══════════════════════════════════════════════════
+  // BLOCOS 2 COLUNAS — helpers posicionais
+  // ═══════════════════════════════════════════════════
+  const COL_GAP = 5;
+  const colHalfW = (contentW - COL_GAP) / 2;
+  const colLX = margin;
+  const colRX = margin + colHalfW + COL_GAP;
 
-  // helper para badge colorido inline
-  const drawBadge = (texto: string, cor: [number, number, number], bgCor: [number, number, number], bx: number, by: number): number => {
-    checkPageBreak(12);
+  // Desenha um card com borda esquerda colorida em posição absoluta
+  // Retorna a altura total ocupada
+  const drawSevCard = (
+    titulo: string,
+    items: { label: string; valor: string }[],
+    severity: SevKey,
+    cx3: number,
+    cw3: number,
+    startY: number,
+    badge?: string
+  ): number => {
+    const sc = sev[severity];
+    const borderW = 3;
+    const itemH = 15;
+    const rows = Math.ceil(items.length / 2);
+    const badgeExtra = badge ? 10 : 0;
+    const totalH = 12 + rows * itemH + badgeExtra + 4;
+
+    // Background
+    doc.setFillColor(...sc.bg);
+    doc.roundedRect(cx3, startY, cw3, totalH, 2, 2, "F");
+    // Borda esquerda
+    doc.setFillColor(...sc.border);
+    doc.rect(cx3, startY, borderW, totalH, "F");
+    doc.roundedRect(cx3, startY, borderW, 4, 1, 1, "F");
+
+    // Título
     doc.setFontSize(6.5);
     doc.setFont("helvetica", "bold");
-    const bw = doc.getTextWidth(texto) + 6;
-    const bh = 7;
-    doc.setFillColor(...bgCor);
-    doc.roundedRect(bx, by - 5, bw, bh, 1.5, 1.5, "F");
-    doc.setTextColor(...cor);
-    doc.text(texto, bx + 3, by);
-    doc.setTextColor(...colors.text);
-    return bw;
-  };
+    doc.setTextColor(...sc.label);
+    doc.text(titulo, cx3 + borderW + 4, startY + 6);
+    // Linha divisória sutil
+    doc.setDrawColor(...sc.border);
+    doc.setLineWidth(0.2);
+    doc.line(cx3 + borderW, startY + 9, cx3 + cw3, startY + 9);
+    doc.setLineWidth(0.1);
 
-  // helper para linha label + valor em grid de 2 colunas
-  const drawInfoGrid = (items: { label: string; valor: string }[], cols = 2) => {
-    const colW2 = contentW / cols;
+    // Items 2 por linha
+    const itemCW = (cw3 - borderW - 6) / 2;
+    let iy = startY + 12;
     items.forEach((item, i) => {
-      const col = i % cols;
-      if (col === 0) {
-        checkPageBreak(16);
-        if (i > 0) y += 16;
-      }
-      const xI = margin + col * colW2;
-      doc.setFillColor(248, 250, 252);
-      doc.rect(xI, y, colW2 - 2, 14, "F");
-      doc.setFontSize(6);
+      const col = i % 2;
+      if (col === 0 && i > 0) iy += itemH;
+      const xI = cx3 + borderW + 3 + col * (itemCW + 2);
+      doc.setFontSize(5.5);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...colors.textMuted);
-      doc.text(item.label.toUpperCase(), xI + 3, y + 4.5);
+      doc.text(item.label.toUpperCase(), xI, iy + 4);
       doc.setFontSize(7.5);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...colors.text);
-      doc.text(String(item.valor).substring(0, 38), xI + 3, y + 11);
+      doc.text(String(item.valor).substring(0, 24), xI, iy + 10.5);
     });
-    const lastRow = Math.ceil(items.length / cols);
-    y += lastRow * 16 + 2;
+    iy += itemH;
+
+    // Badge opcional
+    if (badge) {
+      doc.setFontSize(6);
+      doc.setFont("helvetica", "bold");
+      const bw2 = doc.getTextWidth(badge) + 8;
+      doc.setFillColor(...sc.border);
+      doc.roundedRect(cx3 + borderW + 3, iy, bw2, 7, 1.5, 1.5, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.text(badge, cx3 + borderW + 7, iy + 5);
+      doc.setTextColor(...colors.text);
+      iy += 9;
+    }
+
+    return totalH + 4;
   };
 
-  // ── Bloco 1: Perfil da empresa ──
+  // ── Pré-calcular dados dos 6 blocos ──
+  // Bloco 1: Perfil
+  const anoAbertura = data.cnpj?.dataAbertura ? new Date(data.cnpj.dataAbertura).getFullYear() : null;
+  const idadeEmpresa = anoAbertura ? `${new Date().getFullYear() - anoAbertura} anos` : "—";
+  const fmm12mVal = data.faturamento?.fmm12m
+    ? `R$ ${fmtMoney(data.faturamento.fmm12m)}`
+    : data.faturamento?.mediaAno ? `R$ ${fmtMoney(data.faturamento.mediaAno)}` : "—";
+  const grupoQtd = data.grupoEconomico?.empresas?.length ?? 0;
+  const grupoTexto = grupoQtd > 0 ? `Sim — ${grupoQtd} empresa(s)` : "Nao identificado";
+  const pleitoVal = data.relatorioVisita?.pleito ? `R$ ${fmtMoney(data.relatorioVisita.pleito)}` : "Nao informado";
+
+  // Bloco 2: Curva ABC
+  const top3Clientes = (data.curvaABC?.clientes || []).slice(0, 3);
+  const concTop3 = data.curvaABC?.concentracaoTop3 ? `${data.curvaABC.concentracaoTop3}%` : "—";
+  const segmentos = data.curvaABC?.segmentos?.join(", ") || "—";
+  const abcSev: SevKey = data.curvaABC?.alertaConcentracao ? "danger" : "neutral";
+
+  // Bloco 3: Protestos
+  const vigQtd2 = parseInt(data.protestos?.vigentesQtd || "0");
+  const vigVal2 = data.protestos?.vigentesValor || "0";
+  const detalhesOrd = [...(data.protestos?.detalhes || [])].sort((a, b) => (b.data || "").localeCompare(a.data || ""));
+  const maisRecenteProt = detalhesOrd[0]?.data || "—";
+  const hoje2 = new Date();
+  const h30b = new Date(hoje2.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const ult30 = detalhesOrd.filter(d => {
+    if (!d.data) return false;
+    const pts = d.data.split("/"); if (pts.length !== 3) return false;
+    return new Date(parseInt(pts[2]), parseInt(pts[1]) - 1, parseInt(pts[0])) >= h30b;
+  }).length;
+  const protSev: SevKey = vigQtd2 === 0 ? "ok" : vigQtd2 <= 3 ? "warning" : "danger";
+  const protBadge = vigQtd2 === 0 ? "SEM PROTESTOS" : vigQtd2 <= 3 ? "ATENCAO" : "ALTA";
+
+  // Bloco 4: CCF
+  const totalOcorr2 = data.ccf?.qtdRegistros || 0;
+  const bancosReg = (data.ccf?.bancos || []).filter(b => b.quantidade > 0).sort((a, b) => b.quantidade - a.quantidade);
+  const maiorBanco2 = bancosReg[0];
+  const ccfSev: SevKey = totalOcorr2 > 10 ? "danger" : totalOcorr2 > 0 ? "warning" : "ok";
+  const ccfBadge = totalOcorr2 > 10 ? "ALTA" : undefined;
+
+  // Bloco 5: Processos
+  const passivos2 = data.processos?.passivosTotal || "0";
+  const ativos2 = data.processos?.ativosTotal || "0";
+  const valorEst2 = data.processos?.valorTotalEstimado || "—";
+  const dist2 = data.processos?.distribuicao || [];
+  const bancarios2 = dist2.filter(d => d.tipo?.toUpperCase().includes("BANCO")).reduce((s, d) => s + parseInt(d.qtd || "0"), 0);
+  const trabalhistas2 = dist2.filter(d => d.tipo?.toUpperCase().includes("TRABALH")).reduce((s, d) => s + parseInt(d.qtd || "0"), 0);
+  const outros2 = dist2.filter(d => !d.tipo?.toUpperCase().includes("BANCO") && !d.tipo?.toUpperCase().includes("TRABALH")).reduce((s, d) => s + parseInt(d.qtd || "0"), 0);
+  const procSev: SevKey = bancarios2 > 0 ? "danger" : parseInt(passivos2) > 10 ? "warning" : "ok";
+  const procBadge = bancarios2 > 0 ? "BANCARIO ATIVO" : undefined;
+
+  // Bloco 6: Visita
+  const visitaRec = data.relatorioVisita?.recomendacaoVisitante;
+  const visitaSev: SevKey = visitaRec === "reprovado" ? "danger" : visitaRec === "condicional" ? "warning" : data.relatorioVisita ? "ok" : "neutral";
+  const visitaRecTexto = visitaRec === "aprovado" ? "Aprovado" : visitaRec === "condicional" ? "Condicional" : visitaRec === "reprovado" ? "Reprovado" : "—";
+  const pontosVisita = (data.relatorioVisita?.pontosAtencao || []).slice(0, 2).map(p => p.substring(0, 28)).join(" / ") || "—";
+
+  // ── Renderizar em 2 colunas ──
+  // Par 1: Perfil (esq) + Curva ABC (dir)
   {
-    drawBlockHeader("PERFIL DA EMPRESA");
-    const anoAbertura = data.cnpj?.dataAbertura
-      ? new Date(data.cnpj.dataAbertura).getFullYear()
-      : null;
-    const idadeEmpresa = anoAbertura ? `${new Date().getFullYear() - anoAbertura} anos` : "—";
-    const fmm12mVal = data.faturamento?.fmm12m
-      ? `R$ ${fmtMoney(data.faturamento.fmm12m)}`
-      : data.faturamento?.mediaAno
-        ? `R$ ${fmtMoney(data.faturamento.mediaAno)}`
-        : "—";
-    const grupoQtd = data.grupoEconomico?.empresas?.length ?? 0;
-    const grupoTexto = grupoQtd > 0 ? `Sim — ${grupoQtd} empresa${grupoQtd > 1 ? "s" : ""} vinculada${grupoQtd > 1 ? "s" : ""}` : "Não identificado";
-    const pleitoVal = data.relatorioVisita?.pleito
-      ? `R$ ${fmtMoney(data.relatorioVisita.pleito)}`
-      : "Não informado";
-    drawInfoGrid([
-      { label: "Idade da empresa", valor: idadeEmpresa },
+    checkPageBreak(60);
+    const yPar1 = y;
+    // Esquerda: Perfil
+    const hL1 = drawSevCard("PERFIL DA EMPRESA", [
+      { label: "Idade", valor: idadeEmpresa },
       { label: "FMM 12M", valor: fmm12mVal },
-      { label: "Grupo econômico", valor: grupoTexto },
+      { label: "Grupo economico", valor: grupoTexto },
       { label: "Pleito sugerido", valor: pleitoVal },
-    ]);
-  }
-
-  // ── Bloco 2: Curva ABC / Sacados ──
-  if (data.curvaABC) {
-    drawBlockHeader("CURVA ABC / SACADOS");
-    const top3 = (data.curvaABC.clientes || []).slice(0, 3);
-    const concTop3 = data.curvaABC.concentracaoTop3 ? `${data.curvaABC.concentracaoTop3}%` : "—";
-    const segmentos = data.curvaABC.segmentos?.join(", ") || "—";
-
-    // linha de sacados
-    if (top3.length > 0) {
-      checkPageBreak(24);
-      const colW3 = contentW / top3.length;
-      top3.forEach((cl, i) => {
-        const xS = margin + i * colW3;
-        doc.setFillColor(248, 250, 252);
-        doc.rect(xS, y, colW3 - 2, 20, "F");
-        doc.setFontSize(6);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(...colors.textMuted);
-        doc.text(`TOP ${i + 1} SACADO`, xS + 3, y + 4.5);
-        doc.setFontSize(7.5);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors.text);
-        doc.text(cl.nome.substring(0, 20), xS + 3, y + 11);
-        doc.setFontSize(6.5);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(...colors.textMuted);
-        doc.text(cl.percentualReceita ? `${cl.percentualReceita}%` : "—", xS + 3, y + 16.5);
-      });
-      y += 22;
-    }
-
-    drawInfoGrid([
-      { label: "Concentracao Top 3", valor: concTop3 },
+    ], "neutral", colLX, colHalfW, yPar1);
+    // Direita: Curva ABC
+    let abcItems: { label: string; valor: string }[] = [
+      { label: "Conc. Top 3", valor: concTop3 },
       { label: "Segmentos", valor: segmentos },
-    ], 2);
-
-    if (data.curvaABC.alertaConcentracao) {
-      drawBadge("ALTA CONCENTRACAO", [220, 38, 38], [254, 226, 226], margin, y + 5);
-      y += 10;
-    }
-  }
-
-  // ── Bloco 3: Protestos ──
-  {
-    drawBlockHeader("PROTESTOS");
-    const vigQtd = parseInt(data.protestos?.vigentesQtd || "0");
-    const vigVal = data.protestos?.vigentesValor || "0";
-    const detalhes = [...(data.protestos?.detalhes || [])].sort((a, b) =>
-      (b.data || "").localeCompare(a.data || "")
-    );
-    const maisRecente = detalhes[0]?.data || "—";
-    const hoje = new Date();
-    const h30 = new Date(hoje.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const ultimos30 = detalhes.filter(d => {
-      if (!d.data) return false;
-      const parts = d.data.split("/");
-      if (parts.length !== 3) return false;
-      const dt = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
-      return dt >= h30;
-    }).length;
-
-    drawInfoGrid([
-      { label: "Vigentes (qtd)", valor: vigQtd > 0 ? String(vigQtd) : "0" },
-      { label: "Vigentes (valor)", valor: vigQtd > 0 ? `R$ ${fmtMoney(vigVal)}` : "—" },
-      { label: "Protesto mais recente", valor: maisRecente },
-      { label: "Ultimos 30 dias", valor: String(ultimos30) },
-    ]);
-
-    const badgeProt: [number, number, number][] = vigQtd === 0
-      ? [[22, 163, 74], [240, 253, 244]]
-      : vigQtd <= 3
-        ? [[180, 83, 9], [255, 251, 235]]
-        : [[220, 38, 38], [254, 226, 226]];
-    const labelProt = vigQtd === 0 ? "SEM PROTESTOS" : vigQtd <= 3 ? "ATENCAO" : "ALTA";
-    drawBadge(labelProt, badgeProt[0], badgeProt[1], margin, y + 5);
-    y += 10;
-  }
-
-  // ── Bloco 4: CCF ──
-  if (data.ccf) {
-    drawBlockHeader("CCF — CHEQUES SEM FUNDO");
-    const totalOcorr = data.ccf.qtdRegistros || 0;
-    const bancosComReg = (data.ccf.bancos || []).filter(b => b.quantidade > 0);
-    const maiorBanco = bancosComReg.sort((a, b) => b.quantidade - a.quantidade)[0];
-
-    drawInfoGrid([
-      { label: "Total de ocorrencias", valor: String(totalOcorr) },
-      { label: "Bancos com registro", valor: String(bancosComReg.length) },
-      { label: "Banco maior conc.", valor: maiorBanco ? `${maiorBanco.banco} (${maiorBanco.quantidade})` : "—" },
-      { label: "Severidade", valor: totalOcorr > 10 ? "ALTA" : totalOcorr > 0 ? "MODERADA" : "SEM REGISTRO" },
-    ]);
-
-    if (totalOcorr > 10) {
-      drawBadge("ALTA", [220, 38, 38], [254, 226, 226], margin, y + 5);
-      y += 10;
-    }
-  }
-
-  // ── Bloco 5: Processos ──
-  {
-    drawBlockHeader("PROCESSOS JUDICIAIS");
-    const passivos = data.processos?.passivosTotal || "0";
-    const ativos = data.processos?.ativosTotal || "0";
-    const valorEst = data.processos?.valorTotalEstimado || "—";
-    const dist = data.processos?.distribuicao || [];
-    const bancarios = dist.filter(d => d.tipo?.toUpperCase().includes("BANCO")).reduce((s, d) => s + parseInt(d.qtd || "0"), 0);
-    const trabalhistas = dist.filter(d => d.tipo?.toUpperCase().includes("TRABALH")).reduce((s, d) => s + parseInt(d.qtd || "0"), 0);
-    const outros = dist
-      .filter(d => !d.tipo?.toUpperCase().includes("BANCO") && !d.tipo?.toUpperCase().includes("TRABALH"))
-      .reduce((s, d) => s + parseInt(d.qtd || "0"), 0);
-
-    drawInfoGrid([
-      { label: "Passivos / Ativos", valor: `${passivos} / ${ativos}` },
-      { label: "Valor estimado", valor: valorEst !== "—" ? `R$ ${fmtMoney(valorEst)}` : "—" },
-      { label: "Bancarios / Trabalhistas", valor: `${bancarios} / ${trabalhistas}` },
-      { label: "Outros", valor: String(outros) },
-    ]);
-
-    if (bancarios > 0) {
-      drawBadge("ALTA — BANCARIO ATIVO", [220, 38, 38], [254, 226, 226], margin, y + 5);
-      y += 10;
-    }
-  }
-
-  // ── Bloco 6: Referência comercial / Visita ──
-  if (data.relatorioVisita) {
-    drawBlockHeader("VISITA / REFERENCIA COMERCIAL");
-    const rec = data.relatorioVisita.recomendacaoVisitante;
-    const statusVisita = "Realizada";
-    const recTexto = rec === "aprovado" ? "Aprovado" : rec === "condicional" ? "Condicional" : rec === "reprovado" ? "Reprovado" : "—";
-    const pontos = (data.relatorioVisita.pontosAtencao || []).slice(0, 2).map(p => p.substring(0, 40));
-
-    drawInfoGrid([
-      { label: "Status da visita", valor: statusVisita },
-      { label: "Recomendacao do visitante", valor: recTexto },
-    ]);
-
-    if (pontos.length > 0) {
-      checkPageBreak(6 + pontos.length * 6);
-      doc.setFontSize(6);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(...colors.textMuted);
-      doc.text("PONTOS DE ATENCAO", margin, y + 4);
-      y += 6;
-      pontos.forEach(pt => {
-        checkPageBreak(8);
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(...colors.text);
-        doc.text(`- ${pt}`, margin + 2, y + 4);
-        y += 6;
+    ];
+    if (top3Clientes.length > 0) {
+      top3Clientes.forEach((cl, i) => {
+        abcItems.push({ label: `Top ${i+1} sacado`, valor: `${cl.nome.substring(0, 18)} (${cl.percentualReceita || "—"}%)` });
       });
     }
-    y += 4;
+    const hR1 = data.curvaABC
+      ? drawSevCard("CURVA ABC / SACADOS", abcItems, abcSev, colRX, colHalfW, yPar1, data.curvaABC.alertaConcentracao ? "ALTA CONCENTRACAO" : undefined)
+      : 0;
+    y = yPar1 + Math.max(hL1, hR1);
   }
 
-  // ── Bloco 7: Street View ──
+  // Par 2: Protestos (esq) + CCF (dir)
   {
-    drawBlockHeader("ESTABELECIMENTO — STREET VIEW");
+    checkPageBreak(60);
+    const yPar2 = y;
+    const hL2 = drawSevCard("PROTESTOS", [
+      { label: "Vigentes (qtd)", valor: vigQtd2 > 0 ? String(vigQtd2) : "0" },
+      { label: "Vigentes (valor)", valor: vigQtd2 > 0 ? `R$ ${fmtMoney(vigVal2)}` : "—" },
+      { label: "Mais recente", valor: maisRecenteProt },
+      { label: "Ultimos 30 dias", valor: String(ult30) },
+    ], protSev, colLX, colHalfW, yPar2, protBadge);
+    const hR2 = data.ccf
+      ? drawSevCard("CCF — CHEQUES SEM FUNDO", [
+          { label: "Total ocorrencias", valor: String(totalOcorr2) },
+          { label: "Bancos c/ registro", valor: String(bancosReg.length) },
+          { label: "Maior conc.", valor: maiorBanco2 ? `${maiorBanco2.banco} (${maiorBanco2.quantidade})` : "—" },
+          { label: "Severidade", valor: totalOcorr2 > 10 ? "ALTA" : totalOcorr2 > 0 ? "MODERADA" : "SEM REG." },
+        ], ccfSev, colRX, colHalfW, yPar2, ccfBadge)
+      : 0;
+    y = yPar2 + Math.max(hL2, hR2);
+  }
+
+  // Par 3: Processos (esq) + Visita (dir)
+  {
+    checkPageBreak(60);
+    const yPar3 = y;
+    const hL3 = drawSevCard("PROCESSOS JUDICIAIS", [
+      { label: "Passivos / Ativos", valor: `${passivos2} / ${ativos2}` },
+      { label: "Valor estimado", valor: valorEst2 !== "—" ? `R$ ${fmtMoney(valorEst2)}` : "—" },
+      { label: "Bancarios / Trabalhistas", valor: `${bancarios2} / ${trabalhistas2}` },
+      { label: "Outros", valor: String(outros2) },
+    ], procSev, colLX, colHalfW, yPar3, procBadge);
+    const hR3 = data.relatorioVisita
+      ? drawSevCard("VISITA COMERCIAL", [
+          { label: "Status", valor: "Realizada" },
+          { label: "Recomendacao", valor: visitaRecTexto },
+          { label: "Pontos de atencao", valor: pontosVisita },
+          { label: "Nivel de confianca", valor: data.relatorioVisita.nivelConfiancaVisita ?? "—" },
+        ], visitaSev, colRX, colHalfW, yPar3)
+      : 0;
+    y = yPar3 + Math.max(hL3, hR3);
+  }
+
+  // ── Street View (largura total) ──
+  {
+    checkPageBreak(30);
+    y += 4;
+    doc.setFillColor(...colors.primary);
+    doc.roundedRect(margin, y, contentW, 6, 1, 1, "F");
+    doc.setFontSize(6.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("ESTABELECIMENTO — STREET VIEW", margin + 3, y + 4.2);
+    y += 8;
     if (p.streetViewBase64) {
-      checkPageBreak(55);
-      const imgW = contentW;
-      const imgH = 50;
-      doc.addImage(p.streetViewBase64, "JPEG", margin, y, imgW, imgH);
-      y += imgH + 4;
+      checkPageBreak(52);
+      doc.addImage(p.streetViewBase64, "JPEG", margin, y, contentW, 48);
+      y += 52;
     } else {
-      doc.setFillColor(248, 250, 252);
-      doc.rect(margin, y, contentW, 20, "F");
+      doc.setFillColor(247, 249, 253);
+      doc.roundedRect(margin, y, contentW, 16, 2, 2, "F");
+      doc.setFillColor(...colors.primary);
+      doc.rect(margin, y, 3, 16, "F");
       doc.setFontSize(7);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...colors.textMuted);
-      doc.text("Foto do estabelecimento indisponivel — configure GOOGLE_MAPS_API_KEY", margin + contentW / 2, y + 12, { align: "center" });
-      y += 24;
+      doc.text("Foto indisponivel — configure GOOGLE_MAPS_API_KEY", margin + contentW / 2, y + 10, { align: "center" });
+      y += 20;
     }
   }
 
