@@ -949,7 +949,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       { label: "Pleito sugerido", valor: pleitoVal },
     ], "neutral", colLX, colHalfW, yPar1);
     // Direita: Curva ABC
-    let abcItems: { label: string; valor: string }[] = [
+    const abcItems: { label: string; valor: string }[] = [
       { label: "Conc. Top 3", valor: concTop3 },
       { label: "Segmentos", valor: segmentos },
     ];
