@@ -283,6 +283,7 @@ export interface RelatorioVisitaData {
   documentosVerificados: string[];
   observacoesLivres: string;
   pleito?: string;
+  modalidade?: "comissaria" | "convencional" | "hibrida" | "outra";
 }
 
 // ─── IR dos Sócios ───

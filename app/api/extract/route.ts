@@ -342,8 +342,8 @@ const PROMPT_IR_SOCIOS = `Extraia dados do IR do sócio (recibo de entrega ou de
 Regras: anoBase=ANO-CALENDÁRIO (não exercício), ex: "EXERCÍCIO 2025 — ANO-CALENDÁRIO 2024" → anoBase="2024", nomeSocio e anoBase são OBRIGATÓRIOS, cpf formato 000.000.000-00, situacaoMalhas=true se mencionar pendências de malhas, debitosEmAberto=true se mencionar débitos, recibo simples deixe valores monetários como "0,00", NÃO invente dados.`;
 
 const PROMPT_RELATORIO_VISITA = `Extraia dados do Relatório de Visita (texto livre, formulário ou template). Retorne APENAS JSON, sem markdown:
-{"dataVisita":"","responsavelVisita":"","localVisita":"","duracaoVisita":"","estruturaFisicaConfirmada":true,"funcionariosObservados":0,"estoqueVisivel":false,"estimativaEstoque":"","operacaoCompativelFaturamento":true,"maquinasEquipamentos":false,"descricaoEstrutura":"","pontosPositivos":[],"pontosAtencao":[],"recomendacaoVisitante":"aprovado","nivelConfiancaVisita":"alto","presencaSocios":false,"sociosPresentes":[],"documentosVerificados":[],"observacoesLivres":"","pleito":""}
-Regras: dataVisita=DD/MM/YYYY, recomendacaoVisitante="aprovado"/"condicional"/"reprovado", nivelConfiancaVisita="alto"/"medio"/"baixo", campos ausentes="" ou false, NÃO invente dados. pleito=valor em R$ sugerido pelo cedente (ex: "150000,00") — buscar por termos como "pleito", "valor solicitado", "limite sugerido", "crédito pleiteado"; se não encontrado deixe "".`;
+{"dataVisita":"","responsavelVisita":"","localVisita":"","duracaoVisita":"","estruturaFisicaConfirmada":true,"funcionariosObservados":0,"estoqueVisivel":false,"estimativaEstoque":"","operacaoCompativelFaturamento":true,"maquinasEquipamentos":false,"descricaoEstrutura":"","pontosPositivos":[],"pontosAtencao":[],"recomendacaoVisitante":"aprovado","nivelConfiancaVisita":"alto","presencaSocios":false,"sociosPresentes":[],"documentosVerificados":[],"observacoesLivres":"","pleito":"","modalidade":""}
+Regras: dataVisita=DD/MM/YYYY, recomendacaoVisitante="aprovado"/"condicional"/"reprovado", nivelConfiancaVisita="alto"/"medio"/"baixo", campos ausentes="" ou false, NÃO invente dados. pleito=valor em R$ sugerido pelo cedente (ex: "150000,00") — buscar por termos como "pleito", "valor solicitado", "limite sugerido", "crédito pleiteado"; se não encontrado deixe "". modalidade=tipo de operação de recebíveis — valores aceitos: "comissaria" (quando o cedente mantém a relação com o sacado, faz cobrança, risco de crédito do sacado é do cedente), "convencional" (cessão plena, FIDC assume risco do sacado), "hibrida" (misto), "outra"; buscar por termos como "comissária", "convencional", "modalidade", "tipo de operação", "estrutura"; se não encontrado deixe "".`;
 
 // ─────────────────────────────────────────
 // PROVEDOR 1: Gemini (primário — melhor qualidade)
@@ -779,6 +779,7 @@ function fillRelatorioVisitaDefaults(data: Partial<RelatorioVisitaData>): Relato
     documentosVerificados: Array.isArray(data.documentosVerificados) ? data.documentosVerificados : [],
     observacoesLivres: data.observacoesLivres || "",
     pleito: data.pleito || "",
+    modalidade: data.modalidade || undefined,
   };
 }
 

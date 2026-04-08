@@ -895,6 +895,9 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   const top3Clientes = (data.curvaABC?.clientes || []).slice(0, 3);
   const concTop3 = data.curvaABC?.concentracaoTop3 ? `${data.curvaABC.concentracaoTop3}%` : "—";
   const segmentos = data.curvaABC?.segmentos?.join(", ") || "—";
+  const modalidadeTexto = data.relatorioVisita?.modalidade
+    ? { comissaria: "Comissária", convencional: "Convencional", hibrida: "Híbrida", outra: "Outra" }[data.relatorioVisita.modalidade] ?? "—"
+    : "—";
   const abcSev: SevKey = data.curvaABC?.alertaConcentracao ? "danger" : "neutral";
 
   // Bloco 3: Protestos
@@ -950,8 +953,10 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     ], "neutral", colLX, colHalfW, yPar1);
     // Direita: Curva ABC
     const abcItems: { label: string; valor: string }[] = [
+      { label: "Modalidade", valor: modalidadeTexto },
       { label: "Conc. Top 3", valor: concTop3 },
       { label: "Segmentos", valor: segmentos },
+      { label: "", valor: "" },
     ];
     if (top3Clientes.length > 0) {
       top3Clientes.forEach((cl, i) => {
