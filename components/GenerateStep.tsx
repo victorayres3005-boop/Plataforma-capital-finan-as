@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { ArrowLeft, Download, Loader2, CheckCircle2, AlertTriangle, AlertCircle, Pencil, Check, X as XIcon, RotateCcw } from "lucide-react";
+import { ArrowLeft, Loader2, CheckCircle2, AlertTriangle, AlertCircle, Pencil, Check, X as XIcon, RotateCcw } from "lucide-react";
 import Image from "next/image";
 import { buildHTMLReport } from "@/lib/generators/html";
 import { buildDOCXReport } from "@/lib/generators/docx";
@@ -190,6 +190,18 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   // ── Collection ID (needed by cache logic below) ──
   const [collectionId, setCollectionId] = useState<string | null>(null);
 
+  // ── Observações do analista ──
+  const NOTES_KEY = "cf_analyst_notes_draft";
+  const [analystNotes, setAnalystNotes] = useState<string>(() => {
+    try { return localStorage.getItem(NOTES_KEY) || ""; } catch { return ""; }
+  });
+  const [savingNotes, setSavingNotes] = useState(false);
+
+  // Persiste no localStorage a cada mudança
+  useEffect(() => {
+    try { localStorage.setItem(NOTES_KEY, analystNotes); } catch { /* ignore */ }
+  }, [analystNotes]);
+
   // ── Fund Settings ──
   const [fundSettings, setFundSettings] = useState<FundSettings>(DEFAULT_FUND_SETTINGS);
   useEffect(() => {
@@ -198,7 +210,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         const supabase = createClient();
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
-        const { data: s } = await supabase.from("fund_settings").select("*").eq("user_id", user.id).single();
+        const { data: s } = await supabase.from("fund_settings").select("*").eq("user_id", user.id).maybeSingle();
         if (s) setFundSettings({ ...DEFAULT_FUND_SETTINGS, ...s });
       } catch { /* use defaults */ }
     };
@@ -209,19 +221,26 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   const [aiAnalysis, setAiAnalysis] = useState<AIAnalysis | null>(null);
   const [analyzingAI, setAnalyzingAI] = useState(false);
   const [analysisFromCache, setAnalysisFromCache] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [analysisStatus, setAnalysisStatus] = useState<string>("");
   const analysisFetched = useRef(false);
 
-  const applyAnalysis = (analysis: AIAnalysis) => {
-    setAiAnalysis(analysis);
-    const p = analysis.parecer;
-    if (p) {
-      if (typeof p === "string") {
-        setResumoRisco(p);
-      } else {
-        const po = p as Record<string, unknown>;
-        setResumoRisco(String(po.textoCompleto || po.resumoExecutivo || ""));
-      }
+  const normalizeParecer = (parecer: unknown): Record<string, unknown> => {
+    if (typeof parecer === "string") {
+      return { resumoExecutivo: parecer };
     }
+    if (typeof parecer === "object" && parecer !== null) {
+      return parecer as Record<string, unknown>;
+    }
+    return { resumoExecutivo: "" };
+  };
+
+  const applyAnalysis = (analysis: AIAnalysis) => {
+    const normalizedParecer = normalizeParecer(analysis.parecer);
+    const normalizedAnalysis = { ...analysis, parecer: normalizedParecer };
+    setAiAnalysis(normalizedAnalysis as AIAnalysis);
+    const resumo = String(normalizedParecer.textoCompleto || normalizedParecer.resumoExecutivo || "");
+    if (resumo) setResumoRisco(resumo);
   };
 
   const loadCachedAnalysis = async (colId: string): Promise<boolean> => {
@@ -235,14 +254,15 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       if (error || !row?.ai_analysis) return false;
       const cached = row.ai_analysis as Record<string, unknown>;
       if (!cached.decisao && !cached.rating) return false;
+      const parecerNorm = normalizeParecer(cached.parecer);
       const cacheValido =
         cached.parametrosOperacionais &&
         (cached.alertas as Array<Record<string, unknown>> | undefined)?.[0]?.mitigacao !== undefined &&
-        (cached.parecer as Record<string, unknown> | undefined)?.resumoExecutivo;
+        parecerNorm.resumoExecutivo;
       if (!cacheValido) {
         return false;
       }
-      applyAnalysis(cached as unknown as AIAnalysis);
+      applyAnalysis({ ...cached, parecer: parecerNorm } as unknown as AIAnalysis);
       setAnalysisFromCache(true);
       return true;
     } catch {
@@ -266,13 +286,14 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     analysisFetched.current = false;
     setAiAnalysis(null);
     setAnalysisFromCache(false);
+    setAnalysisError(null);
+    setAnalysisStatus("");
     if (collectionId) {
       try {
         const supabase = createClient();
         await supabase.from("document_collections").update({ ai_analysis: null }).eq("id", collectionId);
       } catch { /* ignore */ }
     }
-    // Trigger re-run
     runAnalysisRef.current?.();
   };
 
@@ -289,39 +310,58 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         if (hasCached) return;
       }
 
-      // 2. Enriquecer com Credit Hub (protestos + processos) se CNPJ disponível
-      let dataToAnalyze = data;
-      if (data.cnpj?.cnpj) {
-        try {
-          const chRes = await fetch("/api/credithub", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ cnpj: data.cnpj.cnpj }),
-          });
-          const chJson = await chRes.json();
-          if (chJson.success && !chJson.mock) {
-            const { toProtestosData, toProcessosData } = await import("@/lib/credithub/parser");
-            dataToAnalyze = {
-              ...data,
-              protestos: toProtestosData(chJson.protestos),
-              processos: toProcessosData(chJson.processos),
-            };
-          }
-        } catch (err) {
-          console.warn("[generate] Credit Hub fetch failed, continuing without it:", err);
-        }
-      }
-
-      // 3. Call API
+      // 2. Call AI analysis API (bureaus já foram consultados no UploadStep)
       setAnalyzingAI(true);
+      setAnalysisError(null);
+      setAnalysisStatus("Iniciando análise...");
       try {
         const res = await fetch("/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ data: dataToAnalyze, settings: fundSettings }),
+          body: JSON.stringify({ data, settings: fundSettings }),
         });
-        const json = await res.json();
-        if (json.success && json.analysis) {
+        if (!res.ok) {
+          throw new Error(res.status === 504 ? "Timeout (504) — tente novamente." : `Erro HTTP ${res.status}`);
+        }
+
+        // ── Lê SSE stream ou JSON ──
+        let analysisJson: { success: boolean; analysis?: AIAnalysis; error?: string } | null = null;
+        const ct = res.headers.get("content-type") || "";
+        if (ct.includes("text/event-stream") && res.body) {
+          const reader = res.body.getReader();
+          const dec = new TextDecoder();
+          let buf = "";
+          outer: while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += dec.decode(value, { stream: true });
+            const parts = buf.split("\n\n");
+            buf = parts.pop() ?? "";
+            for (const part of parts) {
+              if (!part.trim()) continue;
+              const lines = part.trim().split("\n");
+              let ev = "message"; let rawData = "";
+              for (const line of lines) {
+                if (line.startsWith("event: ")) ev = line.slice(7).trim();
+                if (line.startsWith("data: ")) rawData = line.slice(6).trim();
+              }
+              if (!rawData) continue;
+              try {
+                const payload = JSON.parse(rawData);
+                if (ev === "status") setAnalysisStatus(payload.message || "");
+                if (ev === "result") { analysisJson = payload; break outer; }
+                if (ev === "error") throw new Error(payload.error || "Erro na análise");
+              } catch (parseErr) {
+                if (parseErr instanceof SyntaxError) continue;
+                throw parseErr;
+              }
+            }
+          }
+        } else {
+          analysisJson = await res.json().catch(() => ({ success: false, error: `Erro HTTP ${res.status}` }));
+        }
+
+        if (analysisJson?.success && analysisJson?.analysis) {
           // 3. Garantir coleta no Supabase antes de salvar o cache
           let idParaSalvar = collectionId;
 
@@ -366,18 +406,41 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             }
           }
 
-          applyAnalysis(json.analysis);
+          console.log("[generate] parecer raw:", JSON.stringify(analysisJson.analysis!.parecer));
+          applyAnalysis(analysisJson.analysis!);
 
           if (idParaSalvar) {
-            await saveAnalysisCache(idParaSalvar, json.analysis);
+            await saveAnalysisCache(idParaSalvar, { ...analysisJson.analysis!, parecer: normalizeParecer(analysisJson.analysis!.parecer) } as AIAnalysis);
           } else {
             console.warn("[generate] idParaSalvar is null — ai_analysis not saved to Supabase");
           }
+
+          // Auto-send to Goalfy (fire-and-forget)
+          try {
+            fetch("/api/goalfy", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ data, aiAnalysis: analysisJson.analysis, settings: fundSettings }),
+            }).then(r => r.json()).then(gj => {
+              if (gj.mock) {
+                console.log("[generate] Goalfy: webhook não configurado (mock)");
+              } else if (gj.success) {
+                console.log("[generate] Goalfy: dados enviados com sucesso");
+              } else {
+                console.warn("[generate] Goalfy: falha no envio:", gj.error);
+              }
+            }).catch(e => console.warn("[generate] Goalfy fetch error:", e));
+          } catch {
+            // non-blocking
+          }
         }
       } catch (err) {
-        console.error("[generate] AI analysis failed:", err);
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[generate] AI analysis failed:", msg);
+        setAnalysisError(msg);
       } finally {
         setAnalyzingAI(false);
+        setAnalysisStatus("");
       }
     };
 
@@ -390,7 +453,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   // ── Supabase: Salvar / Finalizar coleta ──
   const [, setSaving] = useState(false);
   const [savedFeedback, setSavedFeedback] = useState(false);
-  const [showFinishModal, setShowFinishModal] = useState(false);
+  const [confirmFinish, setConfirmFinish] = useState(false);
   const [finishing, setFinishing] = useState(false);
 
   // Helper: campos desnormalizados para a tabela
@@ -495,15 +558,22 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
   const handleFinish = async () => {
     setFinishing(true);
+    setConfirmFinish(false);
     try {
       const supabase = createClient();
-      const idToFinish = collectionId || await handleSave();
+      let idToFinish = collectionId;
+      if (!idToFinish) {
+        idToFinish = await handleSave();
+      }
       if (!idToFinish) throw new Error("Não foi possível salvar a coleta");
 
-      const { error } = await supabase.from("document_collections").update({ status: "finished", finished_at: new Date().toISOString(), ...getCollectionMeta() }).eq("id", idToFinish);
+      const { error } = await supabase.from("document_collections").update({
+        status: "finished",
+        finished_at: new Date().toISOString(),
+        ...getCollectionMeta(),
+      }).eq("id", idToFinish);
       if (error) throw error;
 
-      setShowFinishModal(false);
       toast.success("Coleta finalizada!");
       onNotify?.(`Relatório de "${data.cnpj.razaoSocial || "empresa"}" finalizado`);
       onFirstCollection?.();
@@ -616,10 +686,18 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   const alertsMod = alerts.filter(a => a.severity === "MODERADA" || a.severity === "INFO");
 
   // ── Pontos fortes/fracos e parecer da IA ──
-  const pontosFortes = aiAnalysis?.pontosFortes || [];
-  const pontosFracos = aiAnalysis?.pontosFracos || [];
-  const perguntasVisita = aiAnalysis?.perguntasVisita || [];
-  const resumoExecutivo = aiAnalysis?.resumoExecutivo || "";
+  // parecer é string | objeto — narrowar antes de acessar propriedades
+  const _parecerObj = (typeof aiAnalysis?.parecer === 'object' && aiAnalysis?.parecer !== null)
+    ? aiAnalysis!.parecer as { resumoExecutivo?: string; textoCompleto?: string; pontosFortes?: string[]; pontosNegativosOuFracos?: string[]; perguntasVisita?: Array<{pergunta: string; contexto: string}> }
+    : null;
+  const pontosFortes   = (aiAnalysis?.pontosFortes   || _parecerObj?.pontosFortes              || []) as string[];
+  const pontosFracos   = (aiAnalysis?.pontosFracos   || _parecerObj?.pontosNegativosOuFracos   || []) as string[];
+  const perguntasVisita = (aiAnalysis?.perguntasVisita || _parecerObj?.perguntasVisita           || []) as Array<{pergunta: string; contexto: string}>;
+  // textoCompleto = análise completa (3-4 parágrafos); resumoExecutivo = 1 parágrafo. Prioriza o completo no PDF.
+  const resumoExecutivo = _parecerObj?.textoCompleto
+    || aiAnalysis?.resumoExecutivo
+    || (typeof aiAnalysis?.parecer === 'string' ? aiAnalysis.parecer : _parecerObj?.resumoExecutivo)
+    || "";
 
   // ── Legacy risk for UI badge ──
   const riskScore = (() => {
@@ -659,14 +737,59 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   // ═══════════════════════════════════════════════════
   // PDF Generation
   // ═══════════════════════════════════════════════════
+  // Carrega notas salvas no Supabase quando collectionId fica disponível
+  useEffect(() => {
+    if (!collectionId) return;
+    const supabase = createClient();
+    supabase.from("document_collections").select("observacoes").eq("id", collectionId).single()
+      .then(({ data: row }) => {
+        if (row?.observacoes && !analystNotes.trim()) {
+          setAnalystNotes(row.observacoes);
+        }
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collectionId]);
+
+  const saveNotes = async (notes: string) => {
+    if (!collectionId) return;
+    setSavingNotes(true);
+    try {
+      const supabase = createClient();
+      await supabase.from("document_collections").update({ observacoes: notes.trim() || null }).eq("id", collectionId);
+    } catch { /* silently fail */ } finally { setSavingNotes(false); }
+  };
+
   const generatePDF = async () => {
     setGeneratingFormat("pdf");
     try {
+      // Tenta buscar foto do estabelecimento via Street View antes de gerar o PDF
+      let streetViewBase64: string | undefined;
+      const endereco = data.cnpj?.endereco;
+      const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+      if (endereco && apiKey) {
+        try {
+          const svUrl = `https://maps.googleapis.com/maps/api/streetview?size=600x250&location=${encodeURIComponent(endereco)}&key=${apiKey}`;
+          const svRes = await fetch(svUrl);
+          if (svRes.ok) {
+            const svBlob = await svRes.blob();
+            const reader = new FileReader();
+            streetViewBase64 = await new Promise<string>(resolve => {
+              reader.onloadend = () => resolve((reader.result as string).split(",")[1]);
+              reader.readAsDataURL(svBlob);
+            });
+          }
+        } catch {
+          // Street View indisponível — segue sem foto
+        }
+      }
+
       const blob = await buildPDFReport({
         data, aiAnalysis, decision, finalRating, alerts, alertsHigh,
         pontosFortes, pontosFracos, perguntasVisita, resumoExecutivo,
         companyAge, protestosVigentes, vencidosSCR, vencidas, prejuizosVal,
         dividaAtiva, atraso, riskScore, decisionColor, decisionBg, decisionBorder,
+        observacoes: analystNotes.trim() || undefined,
+        streetViewBase64,
       });
       triggerDownload(blob, `capital-financas-${safeName}-${dateStr}.pdf`);
       setGeneratedFormats(p => new Set(p).add("pdf"));
@@ -808,9 +931,28 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
           {/* AI Analysis: Resumo + Pontos Fortes/Fracos */}
           {analyzingAI && (
-            <div className="bg-cf-surface border border-cf-border rounded-lg px-4 py-3 flex items-center gap-2">
-              <Loader2 size={14} className="animate-spin text-cf-navy" />
-              <span className="text-xs text-cf-text-2">Gerando analise inteligente com IA...</span>
+            <div className="bg-cf-surface border border-cf-border rounded-lg px-4 py-3 flex items-center gap-3">
+              <Loader2 size={14} className="animate-spin text-cf-navy flex-shrink-0" />
+              <div className="flex flex-col gap-0.5">
+                <span className="text-xs text-cf-text-2 font-medium">Analisando com IA...</span>
+                {analysisStatus && (
+                  <span className="text-[10px] text-cf-text-4">{analysisStatus}</span>
+                )}
+              </div>
+            </div>
+          )}
+          {!analyzingAI && analysisError && (
+            <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-red-500 text-xs">⚠</span>
+                <span className="text-xs text-red-700">{analysisError}</span>
+              </div>
+              <button
+                onClick={handleReanalyze}
+                className="text-[11px] font-semibold text-white bg-cf-navy hover:bg-cf-navy/90 px-3 py-1.5 rounded transition-colors flex-shrink-0"
+              >
+                Tentar novamente
+              </button>
             </div>
           )}
           {aiAnalysis && !analyzingAI && (
@@ -1279,6 +1421,27 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         </div>
       </div>
 
+      {/* ── Observações do Analista ── */}
+      <div className="card overflow-hidden">
+        <div className="px-5 py-4 border-b border-cf-border bg-cf-bg/50 flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-bold text-cf-text-3 uppercase tracking-widest">Observacoes do analista</p>
+            <p className="text-[10px] text-cf-text-4 mt-0.5">Anotacoes livres que aparecem no PDF e ficam salvas na coleta</p>
+          </div>
+          {savingNotes && <span className="text-[10px] text-cf-text-4 animate-pulse">Salvando...</span>}
+        </div>
+        <div className="p-4">
+          <textarea
+            value={analystNotes}
+            onChange={e => setAnalystNotes(e.target.value)}
+            onBlur={() => saveNotes(analystNotes)}
+            placeholder="Ex: Empresa apresenta boa liquidez mas concentração elevada no cliente principal. Recomendo solicitar balanço atualizado antes da aprovação..."
+            rows={4}
+            className="w-full text-sm text-cf-text-1 bg-cf-bg/50 border border-cf-border rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-cf-navy/20 focus:border-cf-navy/40 placeholder:text-cf-text-4"
+          />
+        </div>
+      </div>
+
       {/* ── Download & Acoes ── */}
       <div className="space-y-4 pt-1">
         {generatedFormats.size > 0 && (
@@ -1336,67 +1499,53 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         </div>
 
         {/* Acoes finais */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-1">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1 border-t border-cf-border">
+          {/* Esquerda: navegação */}
           <div className="flex items-center gap-2">
-            <button onClick={onBack} className="btn-secondary text-xs sm:text-sm">
-              <ArrowLeft size={15} /> Voltar
+            <button onClick={onBack} className="btn-secondary text-xs" style={{ minHeight: "auto", padding: "6px 12px" }}>
+              <ArrowLeft size={13} /> Voltar
             </button>
             {onReset && (
-              <button onClick={onReset} className="btn-secondary text-xs sm:text-sm">
-                <RotateCcw size={14} /> Voltar ao inicio
+              <button onClick={() => { try { localStorage.removeItem(NOTES_KEY); } catch { /* ignore */ } onReset(); }}
+                className="text-xs font-medium text-cf-text-3 hover:text-cf-navy transition-colors px-2 py-1.5"
+                style={{ minHeight: "auto" }}>
+                <RotateCcw size={12} className="inline mr-1" /> Recomeçar
               </button>
             )}
             {savedFeedback && (
-              <span className="flex items-center gap-1.5 text-xs font-semibold text-cf-green">
-                <Check size={14} /> Salvo automaticamente
+              <span className="flex items-center gap-1 text-[11px] font-medium text-cf-green">
+                <Check size={12} /> Salvo
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2 justify-end">
-            {collectionId && (
-              <button onClick={() => setShowFinishModal(true)} className="btn-green text-xs sm:text-sm">
-                <Check size={15} /> Finalizar
+
+          {/* Direita: ações principais */}
+          <div className="flex items-center gap-2">
+            {/* Goalfy */}
+            <GoalfyButton data={data} aiAnalysis={aiAnalysis} settings={fundSettings} disabled={!aiAnalysis} />
+
+            {/* Finalizar — sempre visível */}
+            {!confirmFinish ? (
+              <button
+                onClick={() => setConfirmFinish(true)}
+                disabled={finishing}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-lg border border-cf-green/30 text-cf-green hover:bg-cf-green/5 transition-colors disabled:opacity-50"
+                style={{ minHeight: "auto" }}
+              >
+                {finishing ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                {finishing ? "Finalizando..." : "Finalizar coleta"}
               </button>
+            ) : (
+              <div className="flex items-center gap-1.5 border border-cf-green/30 rounded-lg px-3 py-1.5 bg-cf-green/5">
+                <span className="text-xs text-cf-text-2">Confirmar?</span>
+                <button onClick={handleFinish} className="text-xs font-semibold text-cf-green hover:underline" style={{ minHeight: "auto" }}>Sim</button>
+                <span className="text-cf-text-4 text-xs">·</span>
+                <button onClick={() => setConfirmFinish(false)} className="text-xs text-cf-text-3 hover:underline" style={{ minHeight: "auto" }}>Não</button>
+              </div>
             )}
-            {generatedFormats.size > 0 && (
-              <button onClick={() => { generatePDF(); }} disabled={!!generatingFormat} className="btn-primary text-xs sm:text-sm">
-                <Download size={15} /> Baixar todos
-              </button>
-            )}
-            <GoalfyButton
-              data={data}
-              aiAnalysis={aiAnalysis}
-              settings={fundSettings}
-              disabled={!aiAnalysis}
-            />
           </div>
         </div>
       </div>
-
-      {/* Modal: Finalizar coleta */}
-      {showFinishModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="card max-w-md w-full mx-4 overflow-hidden animate-fade-in">
-            <div className="bg-gradient-to-r from-cf-navy to-cf-navy-dark px-6 py-4 flex items-center justify-between">
-              <h3 className="text-base font-bold text-white">Finalizar coleta</h3>
-              <button onClick={() => setShowFinishModal(false)} className="w-8 h-8 rounded-lg flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-colors">
-                <XIcon size={16} />
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              <p className="text-sm text-cf-text-2 leading-relaxed">
-                Deseja finalizar esta coleta? Voce podera consulta-la a qualquer momento no <span className="font-semibold text-cf-navy">historico</span>.
-              </p>
-              <div className="flex items-center justify-end gap-3 pt-2">
-                <button onClick={() => setShowFinishModal(false)} className="btn-secondary">Cancelar</button>
-                <button onClick={handleFinish} disabled={finishing} className="btn-green">
-                  {finishing ? <><Loader2 size={15} className="animate-spin" /> Finalizando...</> : <><Check size={15} /> Finalizar</>}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

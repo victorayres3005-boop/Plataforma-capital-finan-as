@@ -1,7 +1,7 @@
 export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
-import type { CNPJData, ContratoSocialData, SCRData, QSAData, FaturamentoData, ProtestosData, ProcessosData, GrupoEconomicoData } from "@/types";
+import type { CNPJData, ContratoSocialData, SCRData, QSAData, FaturamentoData, ProtestosData, ProcessosData, GrupoEconomicoData, CurvaABCData, DREData, BalancoData, IRSocioData, RelatorioVisitaData } from "@/types";
 
 export const runtime = "nodejs";
 
@@ -14,19 +14,15 @@ const GEMINI_API_KEYS = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_K
   .map(k => k.trim())
   .filter(Boolean);
 
-const GEMINI_MODELS = ["gemini-2.0-flash", "gemini-2.5-flash"];
+const GEMINI_MODELS = ["gemini-2.0-flash"];
+
+const OPENROUTER_API_KEYS = (process.env.OPENROUTER_API_KEYS || process.env.OPENROUTER_API_KEY || "")
+  .split(",").map(k => k.trim()).filter(Boolean);
+const OPENROUTER_MODELS = ["google/gemini-2.0-flash-exp:free", "meta-llama/llama-4-maverick:free"];
 
 function geminiUrl(model: string, key: string) {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
 }
-
-const OPENROUTER_API_KEYS = (process.env.OPENROUTER_API_KEYS || process.env.OPENROUTER_API_KEY || "")
-  .split(",").map(k => k.trim()).filter(Boolean);
-const OPENROUTER_MODELS = [
-  "google/gemini-2.0-flash-exp:free",
-  "google/gemini-2.5-pro-exp-03-25:free",
-  "meta-llama/llama-3.2-90b-vision-instruct:free",
-];
 
 // ─────────────────────────────────────────
 // Helpers
@@ -44,7 +40,7 @@ function getFileExt(fileName: string): string {
   return fileName.split(".").pop()?.toLowerCase() || "";
 }
 
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 
 function hasReadableContent(text: string): boolean {
   const sample = text.substring(2000, Math.min(text.length, 8000));
@@ -240,620 +236,114 @@ async function extractExcel(buffer: Buffer): Promise<FaturamentoData> {
 // Prompts
 // ─────────────────────────────────────────
 
-const PROMPT_CNPJ = `Você é um especialista em documentos da Receita Federal do Brasil.
-Analise o Cartão CNPJ recebido e extraia os dados com máxima precisão.
-Retorne APENAS JSON válido, sem texto adicional:
+const PROMPT_CNPJ = `Extraia dados do Cartão CNPJ. Retorne APENAS JSON:
+{"razaoSocial":"","nomeFantasia":"","cnpj":"","dataAbertura":"","situacaoCadastral":"","dataSituacaoCadastral":"","motivoSituacao":"","naturezaJuridica":"","cnaePrincipal":"","cnaeSecundarios":"","porte":"","capitalSocialCNPJ":"","endereco":"","telefone":"","email":""}
+Regras: CNPJ formato XX.XXX.XXX/XXXX-XX, datas DD/MM/YYYY, endereco completo concatenado, cnaeSecundarios separados por ;, campos ausentes=""，NÃO invente dados.`;
 
-{
-  "razaoSocial": "", "nomeFantasia": "", "cnpj": "", "dataAbertura": "",
-  "situacaoCadastral": "", "dataSituacaoCadastral": "", "motivoSituacao": "",
-  "naturezaJuridica": "", "cnaePrincipal": "", "cnaeSecundarios": "",
-  "porte": "", "capitalSocialCNPJ": "", "endereco": "", "telefone": "", "email": ""
-}
+const PROMPT_QSA = `Extraia dados do QSA (Quadro de Sócios e Administradores). Retorne APENAS JSON:
+{"capitalSocial":"","quadroSocietario":[{"nome":"","cpfCnpj":"","qualificacao":"","participacao":""}]}
+Regras: liste TODOS os sócios/administradores, CPF formato XXX.XXX.XXX-XX, capitalSocial em reais (ex: "R$ 220.000,00"), não confunda testemunhas/advogados com sócios, campos ausentes="", NÃO invente dados.`;
 
-Regras:
-- CNPJ com pontuação (XX.XXX.XXX/XXXX-XX), datas DD/MM/YYYY
-- endereco: concatenar logradouro, nº, complemento, bairro, município, UF, CEP
-- cnaePrincipal: código + descrição. cnaeSecundarios: todos separados por ;
-- Campos ausentes → ""
-- NÃO invente dados`;
+const PROMPT_CONTRATO = `Extraia dados do Contrato Social. Retorne APENAS JSON:
+{"socios":[{"nome":"","cpf":"","participacao":"","qualificacao":""}],"capitalSocial":"","objetoSocial":"","dataConstituicao":"","temAlteracoes":false,"prazoDuracao":"","administracao":"","foro":""}
+Regras: liste TODOS os sócios (CPF formato XXX.XXX.XXX-XX), não inclua testemunhas/advogados, objetoSocial em até 2 frases, temAlteracoes=true se for alteração/consolidação, campos ausentes="" ou false, NÃO invente dados.`;
 
-const PROMPT_QSA = `Você é um especialista em análise de documentos societários brasileiros.
-Analise o documento QSA (Quadro de Sócios e Administradores) recebido e extraia os dados.
-Retorne APENAS JSON válido, sem texto adicional:
+const PROMPT_FATURAMENTO = `Extraia valores mensais de faturamento do documento inteiro. Retorne APENAS JSON, sem markdown:
+{"meses":[{"mes":"01/2024","valor":"1.234.567,89"}],"somatoriaTotal":"","totalMesesExtraidos":0,"faturamentoZerado":false,"dadosAtualizados":true,"ultimoMesComDados":"","anoMaisAntigo":"","anoMaisRecente":""}
+Regras: extraia TODOS os meses de TODO o documento (tabelas, rodapés, cabeçalhos), todos os anos, mes=MM/YYYY, valor em formato brasileiro, se mês aparecer duplicado use o maior valor, NÃO inclua meses futuros sem dados, NÃO inclua zeros a menos que seja mês sem faturamento real, NÃO invente dados.`;
 
-{
-  "capitalSocial": "",
-  "quadroSocietario": [
-    { "nome": "", "cpfCnpj": "", "qualificacao": "", "participacao": "" }
-  ]
-}
+const PROMPT_SCR = `Extraia dados do SCR (Sistema de Informações de Crédito do Banco Central). Retorne APENAS JSON válido, sem markdown.
 
-Regras:
-- Liste TODOS os sócios/administradores encontrados
-- CPF com pontuação (XXX.XXX.XXX-XX), CNPJ com pontuação
-- qualificacao: Sócio-Administrador, Sócio, Administrador, Procurador, etc. (valor exato do documento)
-- participacao: percentual ou quantidade de quotas se disponível
-- capitalSocial: valor em reais formatado (ex: "R$ 220.000,00")
-- NÃO confunda testemunhas ou advogados com sócios
-- NÃO invente dados`;
+Schema obrigatório:
+{"periodoReferencia":"MM/AAAA","tipoPessoa":"PJ","cnpjSCR":"","nomeCliente":"","cpfSCR":"","pctDocumentosProcessados":"","pctVolumeProcessado":"","carteiraAVencer":"","vencidos":"","prejuizos":"","limiteCredito":"","qtdeInstituicoes":"","qtdeOperacoes":"","totalDividasAtivas":"","operacoesAVencer":"","operacoesEmAtraso":"","operacoesVencidas":"","tempoAtraso":"","coobrigacoes":"","classificacaoRisco":"","carteiraCurtoPrazo":"","carteiraLongoPrazo":"","emDia":"","semHistorico":false,"numeroIfs":"","faixasAVencer":{"ate30d":"0,00","d31_60":"0,00","d61_90":"0,00","d91_180":"0,00","d181_360":"0,00","acima360d":"0,00","prazoIndeterminado":"0,00","total":"0,00"},"faixasVencidos":{"ate30d":"0,00","d31_60":"0,00","d61_90":"0,00","d91_180":"0,00","d181_360":"0,00","acima360d":"0,00","total":"0,00"},"faixasPrejuizos":{"ate12m":"0,00","acima12m":"0,00","total":"0,00"},"faixasLimite":{"ate360d":"0,00","acima360d":"0,00","total":"0,00"},"outrosValores":{"carteiraCredito":"0,00","repasses":"0,00","coobrigacoes":"0,00","responsabilidadeTotal":"0,00","creditosALiberar":"0,00","riscoTotal":"0,00"},"modalidades":[{"nome":"","total":"","aVencer":"","vencido":"","participacao":"","ehContingente":false}],"instituicoes":[{"nome":"","valor":""}],"valoresMoedaEstrangeira":"","historicoInadimplencia":"","periodoAnterior":{"periodoReferencia":"","carteiraAVencer":"","vencidos":"","prejuizos":"","limiteCredito":"","totalDividasAtivas":"","operacoesAVencer":"","operacoesEmAtraso":"","operacoesVencidas":"","carteiraCurtoPrazo":"","carteiraLongoPrazo":"","classificacaoRisco":"","qtdeInstituicoes":"","numeroIfs":"","emDia":"","semHistorico":false,"faixasAVencer":{"ate30d":"0,00","d31_60":"0,00","d61_90":"0,00","d91_180":"0,00","d181_360":"0,00","acima360d":"0,00","prazoIndeterminado":"0,00","total":"0,00"},"faixasVencidos":{"ate30d":"0,00","d31_60":"0,00","d61_90":"0,00","d91_180":"0,00","d181_360":"0,00","acima360d":"0,00","total":"0,00"}},"variacoes":{"emDia":"","carteiraCurtoPrazo":"","carteiraLongoPrazo":"","totalDividasAtivas":"","vencidos":"","prejuizos":"","limiteCredito":"","numeroIfs":""}}
 
-const PROMPT_CONTRATO = `Você é um especialista em análise de documentos societários brasileiros.
-Analise o Contrato Social recebido e extraia os dados.
-Retorne APENAS JSON válido, sem texto adicional:
+REGRAS GERAIS:
+- periodoReferencia: OBRIGATÓRIO, formato MM/AAAA (ex: "04/2025")
+- tipoPessoa: "PF" se documento mostra CPF, "PJ" se CNPJ
+- Valores monetários: formato brasileiro com pontos e vírgula (ex: "23.785,80"); ausente="0,00"
+- NÃO invente dados; NÃO copie valores de A Vencer para Vencidos ou vice-versa
+- semHistorico=true somente se totalDividasAtivas=0 E limiteCredito=0 E modalidades vazia
 
-{
-  "socios": [{ "nome": "", "cpf": "", "participacao": "", "qualificacao": "" }],
-  "capitalSocial": "", "objetoSocial": "", "dataConstituicao": "",
-  "temAlteracoes": false, "prazoDuracao": "", "administracao": "", "foro": ""
-}
+TABELA PRINCIPAL DE MODALIDADES:
+- O documento SCR tem uma tabela com colunas: Modalidade | A Vencer | Vencidos | Prejuízos | Limite | Coobrigação | Participação
+- Para cada linha de modalidade: extraia nome, aVencer (col "A Vencer"), vencido (col "Vencidos"), total (soma ou col "Total")
+- carteiraAVencer = linha "Total" da coluna "A Vencer"
+- vencidos = linha "Total" da coluna "Vencidos" — ATENÇÃO: NÃO confundir com A Vencer
+- prejuizos = linha "Total" da coluna "Prejuízos"
+- limiteCredito = linha "Total" da coluna "Limite de Crédito"
+- emDia = linha "Total" da coluna "Em Dia" (se existir)
+- ehContingente=true para modalidades em "Responsabilidades Contingentes" ou "Títulos Descontados"
 
-Regras:
-- Liste TODOS os sócios. CPF com pontuação. Não inclua testemunhas/advogados.
-- objetoSocial: resumir em até 2 frases
-- temAlteracoes: true se for alteração/consolidação
-- Campos ausentes → "" ou false
-- NÃO invente dados`;
+TABELA DE FAIXAS "A VENCER" (seção: "Discriminação A Vencer por Faixa de Prazo" ou similar):
+- ESTA tabela preenche APENAS faixasAVencer — não misture com faixasVencidos
+- Mapeamento: "Até 30 dias"/"1 a 30 dias" → ate30d | "31 a 60 dias" → d31_60 | "61 a 90 dias" → d61_90 | "91 a 180 dias" → d91_180 | "181 a 360 dias" → d181_360 | "Acima de 360 dias"/"Superior a 360 dias" → acima360d | "Prazo Indeterminado" → prazoIndeterminado | "Total" → total
+- carteiraCurtoPrazo = soma das faixas até 360d de A Vencer
+- carteiraLongoPrazo = faixa acima360d de A Vencer
 
-const PROMPT_FATURAMENTO = `Você é um especialista em análise financeira.
-Analise O DOCUMENTO INTEIRO de faturamento recebido e extraia os valores mensais.
+TABELA DE FAIXAS "VENCIDOS" (seção: "Discriminação Vencido por Faixa de Prazo" ou "Discriminação dos Vencidos" ou similar):
+- ESTA tabela preenche APENAS faixasVencidos — NÃO reutilize valores de faixasAVencer
+- As faixas de vencidos NÃO têm "Prazo Indeterminado"
+- Mapeamento: "1 a 30 dias"/"Até 30 dias" → ate30d | "31 a 60 dias" → d31_60 | "61 a 90 dias" → d61_90 | "91 a 180 dias" → d91_180 | "181 a 360 dias" → d181_360 | "Acima de 360 dias" → acima360d | "Total" → total
+- VALIDAÇÃO: faixasVencidos.total deve ser igual a vencidos (campo principal)
+- Se a seção de vencidos não existir no documento (empresa sem vencidos), todos os campos de faixasVencidos = "0,00"
 
-ATENÇÃO — REGRAS CRÍTICAS DE EXTRAÇÃO:
-- Varra TODO o documento: tabelas, gráficos, resumos, rodapés, cabeçalhos
-- Extraia TODOS os meses encontrados, independente do ano
-- NÃO se limite ao ano mais recente ou aos dados em destaque
-- Se o documento tiver dados de 2023, 2024, 2025 e 2026 — extraia todos
-- Se um mês aparecer em mais de um lugar com valores diferentes, use o maior valor
-- NÃO inclua meses futuros sem dados — se o mês ainda não ocorreu ou o valor é zero porque não há movimento, OMITA o mês do array
-- NÃO inclua meses com valor "0,00" a menos que seja comprovadamente um mês sem faturamento dentro do histórico real da empresa
-- O array meses[] deve conter APENAS meses com faturamento efetivamente realizado
-- NÃO invente dados — se um mês não estiver no documento, não inclua
+DOIS PERÍODOS:
+- Se o documento tiver 2 períodos: período mais recente nos campos principais, anterior em periodoAnterior (incluindo faixasAVencer e faixasVencidos completos)
+- variacoes: calcule a variação percentual de cada campo (ex: "+7,6%", "-6,5%", "0,0%" se igual, "" se ausente)
 
-Retorne APENAS JSON válido, sem texto adicional, sem markdown:
-{
-  "meses": [
-    { "mes": "01/2024", "valor": "1.234.567,89" },
-    { "mes": "02/2024", "valor": "1.234.567,89" }
-  ],
-  "somatoriaTotal": "",
-  "totalMesesExtraidos": 0,
-  "faturamentoZerado": false,
-  "dadosAtualizados": true,
-  "ultimoMesComDados": "",
-  "anoMaisAntigo": "",
-  "anoMaisRecente": ""
-}
-
-Regras de formatação:
-- meses: TODOS os meses encontrados no documento inteiro, ordem cronológica crescente
-- mes: formato MM/YYYY
-- valor: formatação brasileira (1.234.567,89) — se for zero, use "0,00"
-- somatoriaTotal: soma de todos os meses extraídos
-- totalMesesExtraidos: contagem total de meses no array
-- faturamentoZerado: true se todos os valores são zero ou ausentes
-- dadosAtualizados: false se o último mês com dados é anterior a 60 dias da data atual
-- ultimoMesComDados: último mês que tem valor maior que zero (formato MM/YYYY)
-- anoMaisAntigo: ano mais antigo encontrado no documento (formato YYYY)
-- anoMaisRecente: ano mais recente encontrado no documento (formato YYYY)`;
-
-const PROMPT_SCR = `Você é um extrator de dados estruturados especializado em documentos do Sistema de Informações de Crédito (SCR) do Banco Central do Brasil.
-Retorne APENAS JSON válido, sem markdown, sem explicações.
-
-TIPO DE CLIENTE:
-- Verifique se o documento é de Pessoa Física (CPF) ou Pessoa Jurídica (CNPJ)
-- Para Pessoa Física: o campo cnpjSCR deve conter o CPF sem formatação
-- Modalidades comuns PF: financiamento habitacional (SFH/não-SFH), financiamento rural (custeio), cartão de crédito, cheque especial
-- Para Pessoa Jurídica: modalidades incluem capital de giro, desconto de duplicatas, veículos, outros financiamentos
-
-O documento SCR contém estas seções — extraia cada uma:
-
-1. CABEÇALHO: CNPJ do cliente, período de referência (MM/AAAA), % documentos processados, % volume processado
-
-2. CARTEIRA A VENCER (seção "Carteira a Vencer" ou "A Vencer"): valores em R$ por faixa — 14-30d, 31-60d, 61-90d, 91-180d, 181-360d, acima 360d, prazo indeterminado, total
-
-3. VENCIDOS (seção "Vencidos"): valores em R$ por faixa — 15-30d, 31-60d, 61-90d, 91-180d, 181-360d, acima 360d, total
-
-4. PREJUÍZOS: até 12 meses, acima de 12 meses, total
-
-5. LIMITE DE CRÉDITO: até 360 dias, acima de 360 dias, total
-
-6. OUTROS VALORES: Carteira de Crédito total, Responsabilidade Total, Risco Total, Coobrigação Assumida, Coobrigação Recebida, Créditos a Liberar
-
-7. MODALIDADES (tabela se presente): para cada linha extraia tipo, domínio, subdomínio, valor
-
-8. INSTITUIÇÕES FINANCEIRAS: listar todas com nome e valor
-
-9. CAMPOS DERIVADOS (calcule você mesmo):
-- totalDividasAtivas = carteira_a_vencer.total + vencidos.total
-- operacoesAVencer = carteira_a_vencer.total (em dia = a vencer)
-- operacoesVencidas = vencidos.total
-- carteiraCurtoPrazo = soma das faixas até 360d da carteira a vencer
-- carteiraLongoPrazo = faixa acima 360d da carteira a vencer
-- semHistorico = true se totalDividasAtivas === 0 E limite.total === 0 E modalidades vazia
-- classificacaoRisco = letra de classificação (AA, A, B, C, D, E, F, G, H) se presente no documento
-
-Schema JSON de saída (RESPEITE EXATAMENTE estes nomes de campos):
-{
-  "periodoReferencia": "MM/AAAA",
-  "tipoPessoa": "PJ",
-  "cnpjSCR": "",
-  "nomeCliente": "",
-  "cpfSCR": "",
-  "pctDocumentosProcessados": "",
-  "pctVolumeProcessado": "",
-  "carteiraAVencer": "",
-  "vencidos": "",
-  "prejuizos": "",
-  "limiteCredito": "",
-  "qtdeInstituicoes": "",
-  "qtdeOperacoes": "",
-  "totalDividasAtivas": "",
-  "operacoesAVencer": "",
-  "operacoesEmAtraso": "",
-  "operacoesVencidas": "",
-  "tempoAtraso": "",
-  "coobrigacoes": "",
-  "classificacaoRisco": "",
-  "carteiraCurtoPrazo": "",
-  "carteiraLongoPrazo": "",
-  "emDia": "",
-  "semHistorico": false,
-  "numeroIfs": "",
-  "faixasAVencer": {
-    "ate30d": "0,00", "d31_60": "0,00", "d61_90": "0,00",
-    "d91_180": "0,00", "d181_360": "0,00", "acima360d": "0,00",
-    "prazoIndeterminado": "0,00", "total": "0,00"
-  },
-  "faixasVencidos": {
-    "ate30d": "0,00", "d31_60": "0,00", "d61_90": "0,00",
-    "d91_180": "0,00", "d181_360": "0,00", "acima360d": "0,00", "total": "0,00"
-  },
-  "faixasPrejuizos": { "ate12m": "0,00", "acima12m": "0,00", "total": "0,00" },
-  "faixasLimite": { "ate360d": "0,00", "acima360d": "0,00", "total": "0,00" },
-  "outrosValores": {
-    "carteiraCredito": "0,00", "repasses": "0,00", "coobrigacoes": "0,00",
-    "responsabilidadeTotal": "0,00", "creditosALiberar": "0,00", "riscoTotal": "0,00"
-  },
-  "modalidades": [
-    { "nome": "", "total": "", "aVencer": "", "vencido": "", "participacao": "" }
-  ],
-  "instituicoes": [
-    { "nome": "", "valor": "" }
-  ],
-  "valoresMoedaEstrangeira": "",
-  "historicoInadimplencia": "",
-  "periodoAnterior": {
-    "periodoReferencia": "", "carteiraAVencer": "", "vencidos": "", "prejuizos": "",
-    "limiteCredito": "", "totalDividasAtivas": "", "operacoesAVencer": "", "operacoesEmAtraso": "",
-    "operacoesVencidas": "", "carteiraCurtoPrazo": "", "carteiraLongoPrazo": "",
-    "classificacaoRisco": "", "qtdeInstituicoes": "", "numeroIfs": "", "emDia": "",
-    "semHistorico": false
-  },
-  "variacoes": {
-    "emDia": "", "carteiraCurtoPrazo": "", "carteiraLongoPrazo": "",
-    "totalDividasAtivas": "", "vencidos": "", "prejuizos": "", "limiteCredito": "", "numeroIfs": ""
-  }
-}
-
-REGRAS CRÍTICAS DE EXTRAÇÃO:
-- periodoReferencia: leia o cabeçalho do documento — "Resultado da Consulta - Período - MM/AAAA" — e extraia exatamente esse valor no formato MM/AAAA. Este campo é OBRIGATÓRIO e deve refletir o período impresso no topo do documento, nunca de outra seção.
-- Extraia TODOS os campos do documento, independente do layout ou formatação
-- O campo periodoReferencia é OBRIGATÓRIO — formato MM/YYYY (ex: "11/2025")
-- Se o documento mostrar "Resultado da Consulta - Período - MM/YYYY", esse é o periodoReferencia
-- Sempre extraia faixasAVencer com os campos: ate30d, d31_60, d61_90, d91_180, d181_360, acima360d, prazoIndeterminado, total
-- Sempre extraia faixasVencidos com os campos: ate30d, d31_60, d61_90, d91_180, d181_360, acima360d, total
-- Sempre extraia faixasPrejuizos com os campos: ate12m, acima12m, total
-- Sempre extraia faixasLimite com os campos: ate360d, acima360d, total
-- Sempre extraia outrosValores com os campos: carteiraCredito, repasses, coobrigacoes, responsabilidadeTotal, creditosALiberar, riscoTotal
-- Se um campo não existir no documento, retorne "0,00" — NUNCA omita o campo
-- pctDocumentosProcessados e pctVolumeProcessado são campos numéricos — extraia o valor sem o símbolo %
-- tipoPessoa: "PF" se for pessoa física (CPF), "PJ" se for pessoa jurídica (CNPJ)
-- nomeCliente: nome completo do titular extraído do cabeçalho do documento
-- cpfSCR: CPF do titular se Pessoa Física (formato 000.000.000-00), sem pontuação se CNPJ
-
-REGRAS:
-- Campos de valor: use os valores TOTAIS da seção nos campos flat (carteiraAVencer, vencidos, prejuizos, limiteCredito) E os detalhes por faixa nos objetos (faixasAVencer, faixasVencidos, etc.)
-- Valores monetários: formatação brasileira com vírgula decimal (ex: "23.785,80")
-- Se o valor estiver em "mil R$" ou "R$ mil", multiplique por 1000 e formate
-- Procure em TODAS as páginas do documento — dados podem estar espalhados
-- modalidades: listar TODAS encontradas com total, a vencer, vencido e % participação
-- instituicoes: listar TODAS com nome e valor
-- Campos ausentes → "" para strings, false para booleanos, arrays vazios []
-- NÃO invente dados — extraia apenas o que está visível no documento
-- Se o documento contiver dados de dois períodos distintos (ex: tabela comparativa com colunas como "02/2025" e "02/2026"), extraia: o período MAIS RECENTE nos campos principais e o período ANTERIOR em "periodoAnterior" com o mesmo schema flat. Calcule "variacoes" para os campos: emDia, carteiraCurtoPrazo, carteiraLongoPrazo, totalDividasAtivas, vencidos, prejuizos, limiteCredito, numeroIfs. Formato da variação: "+7,6%", "-6,5%", "0" ou "-" se ausente. Se o documento tiver apenas um período, deixe "periodoAnterior" com campos vazios e "variacoes" com campos "-"`;
+NÃO invente dados`;
 
 
-const PROMPT_PROTESTOS = `Você é um especialista em análise de crédito.
-Analise o documento de certidão de protestos e extraia os dados.
-Retorne APENAS JSON válido:
+const PROMPT_PROTESTOS = `Extraia dados da certidão de protestos. Retorne APENAS JSON:
+{"vigentesQtd":"","vigentesValor":"","regularizadosQtd":"","regularizadosValor":"","detalhes":[{"data":"","credor":"","valor":"","regularizado":false}]}
+Regras: vigentes=protestos ativos, regularizados=quitados, liste TODOS os protestos em detalhes, valores em formato brasileiro, regularizado=true se pago/regularizado, NÃO invente dados.`;
 
-{
-  "vigentesQtd": "",
-  "vigentesValor": "",
-  "regularizadosQtd": "",
-  "regularizadosValor": "",
-  "detalhes": [
-    { "data": "", "credor": "", "valor": "", "regularizado": false }
-  ]
-}
+const PROMPT_PROCESSOS = `Extraia dados de processos judiciais. Retorne APENAS JSON:
+{"passivosTotal":"","ativosTotal":"","valorTotalEstimado":"","temRJ":false,"distribuicao":[{"tipo":"","qtd":"","pct":""}],"bancarios":[{"banco":"","assunto":"","status":"","data":"","valor":""}],"fiscais":[{"contraparte":"","valor":"","status":"","data":""}],"fornecedores":[{"contraparte":"","assunto":"","valor":"","status":"","data":""}],"outros":[{"contraparte":"","assunto":"","valor":"","status":"","data":""}]}
+Regras: passivosTotal=processos como réu, ativosTotal=como autor, temRJ=true se Recuperação Judicial, distribuicao por tipo (TRABALHISTA/BANCO/FISCAL/FORNECEDOR/OUTROS), trabalhistas NÃO listar individualmente, status=ARQUIVADO/EM ANDAMENTO/DISTRIBUIDO/JULGADO/EM GRAU DE RECURSO, campos ausentes="", NÃO invente dados.`;
 
-Regras:
-- vigentesQtd/Valor: total de protestos ativos (não regularizados)
-- regularizadosQtd/Valor: total de protestos já quitados
-- detalhes: listar TODOS os protestos encontrados
-- Valores em formatação brasileira
-- regularizado: true se consta como pago/regularizado
-- NÃO invente dados`;
+const PROMPT_GRUPO_ECONOMICO = `Extraia dados do grupo econômico. Retorne APENAS JSON:
+{"empresas":[{"razaoSocial":"","cnpj":"","relacao":"","scrTotal":"","protestos":"","processos":""}]}
+Regras: liste TODAS as empresas, relacao="via Sócio"/"Controlada"/"Coligada" conforme documento, campos ausentes="", NÃO invente dados.`;
 
-const PROMPT_PROCESSOS = `Você é um especialista em análise jurídica.
-Analise o documento de processos judiciais e extraia os dados.
-Retorne APENAS JSON válido:
+const PROMPT_CURVA_ABC = `Você receberá um relatório de Curva ABC de clientes. As colunas são: Cliente, Peso (kg), Valor Total, Ticket Médio, % Participação, % Acumulado, Classe ABC.
 
-{
-  "passivosTotal": "",
-  "ativosTotal": "",
-  "valorTotalEstimado": "",
-  "temRJ": false,
-  "distribuicao": [
-    { "tipo": "", "qtd": "", "pct": "" }
-  ],
-  "bancarios": [
-    { "banco": "", "assunto": "", "status": "", "data": "", "valor": "" }
-  ],
-  "fiscais": [
-    { "contraparte": "", "valor": "", "status": "", "data": "" }
-  ],
-  "fornecedores": [
-    { "contraparte": "", "assunto": "", "valor": "", "status": "", "data": "" }
-  ],
-  "outros": [
-    { "contraparte": "", "assunto": "", "valor": "", "status": "", "data": "" }
-  ]
-}
+Retorne APENAS JSON válido, sem markdown, sem texto adicional:
 
-Regras:
-- passivosTotal: número total de processos como réu
-- ativosTotal: número total de processos como autor
-- temRJ: true se houver Recuperação Judicial
-- distribuicao: agrupar por tipo (TRABALHISTA, BANCO, FISCAL, FORNECEDOR, OUTROS) com qtd e %
-- bancarios: listar processos contra bancos/instituições financeiras com detalhes; incluir valor individual se disponível
-- fiscais: extraia todos os processos fiscais/tributários individuais encontrados no documento
-- fornecedores: extraia todos os processos com fornecedores individuais encontrados
-- outros: extraia processos que não se enquadrem em bancário, trabalhista, fiscal ou fornecedor
-- Para trabalhistas: NÃO listar individualmente — apenas manter no array distribuicao com qtd e %
-- status: ARQUIVADO, EM ANDAMENTO, DISTRIBUIDO, JULGADO, EM GRAU DE RECURSO
-- Campos ausentes em processos individuais: usar "" para strings
-- NÃO invente dados`;
+{"clientes":[{"posicao":1,"nome":"","cnpjCpf":"","valorFaturado":"0,00","percentualReceita":"0.00","percentualAcumulado":"0.00","classe":"A"}],"totalClientesNaBase":0,"totalClientesExtraidos":0,"periodoReferencia":"","receitaTotalBase":"0,00","concentracaoTop3":"0.00","concentracaoTop5":"0.00","concentracaoTop10":"0.00","totalClientesClasseA":0,"receitaClasseA":"0,00","maiorCliente":"","maiorClientePct":"0.00","alertaConcentracao":false}
 
-const PROMPT_GRUPO_ECONOMICO = `Você é um especialista em análise de crédito.
-Analise o documento de grupo econômico e extraia os dados das empresas relacionadas.
-Retorne APENAS JSON válido:
+Regras obrigatórias:
+1. Extraia TODOS os clientes do documento em ordem decrescente de valor
+2. percentualReceita e percentualAcumulado: número sem % e sem vírgula (ex: 36.35, não "36,35%")
+3. valorFaturado e receitaTotalBase: formato brasileiro com vírgula (ex: "4.664.989,95")
+4. concentracaoTop3 = soma dos percentualReceita dos 3 maiores clientes
+5. concentracaoTop5 = soma dos percentualReceita dos 5 maiores clientes
+6. concentracaoTop10 = soma dos percentualReceita dos 10 maiores clientes
+7. totalClientesClasseA = quantidade de linhas com Classe "A"
+8. receitaClasseA = soma do valorFaturado de todos os clientes classe A
+9. maiorCliente = nome do cliente com maior valor
+10. maiorClientePct = percentualReceita do maior cliente
+11. alertaConcentracao = true se maiorClientePct > 30
+12. receitaTotalBase = valor da linha "Total Geral" do documento
+13. totalClientesNaBase = total de clientes no documento (excluindo linha Total Geral)
+14. Se o nome do cliente vier com CPF/número no início (ex: "59.580.931 MARIA LUIZA"), separe: cnpjCpf = "59.580.931", nome = "MARIA LUIZA DA SILVA MACEDO"
+15. NÃO invente dados — use apenas o que está no documento`;
 
-{
-  "empresas": [
-    {
-      "razaoSocial": "",
-      "cnpj": "",
-      "relacao": "",
-      "scrTotal": "",
-      "protestos": "",
-      "processos": ""
-    }
-  ]
-}
+const PROMPT_DRE = `Extraia dados do DRE (Demonstração de Resultado). Pode ser formato SPED ou livre. Retorne APENAS JSON, sem markdown:
+{"anos":[{"ano":"2024","receitaBruta":"0,00","deducoes":"0,00","receitaLiquida":"0,00","custoProdutosServicos":"0,00","lucroBruto":"0,00","margemBruta":"0,00","despesasOperacionais":"0,00","ebitda":"0,00","margemEbitda":"0,00","depreciacaoAmortizacao":"0,00","resultadoFinanceiro":"0,00","lucroAntesIR":"0,00","impostoRenda":"0,00","lucroLiquido":"0,00","margemLiquida":"0,00"}],"crescimentoReceita":"0,00","tendenciaLucro":"estavel","periodoMaisRecente":"","observacoes":""}
+Regras: extraia dados anuais consolidados (não mensais/trimestrais), todos os anos encontrados em ordem crescente, SPED: "RECEITA OPERACIONAL BRUTA"=receitaBruta, "LUCRO/PREJUIZO APURADO NO PERÍODO"=lucroLiquido, valores negativos com sinal de menos, margens em %, tendenciaLucro="crescimento"/"queda"/"estavel", NÃO invente dados.`;
 
-Regras:
-- Listar TODAS as empresas do grupo econômico
-- relacao: "via Sócio", "Controlada", "Coligada" ou como consta no documento
-- scrTotal: valor total do SCR da empresa se disponível
-- protestos: quantidade ou valor de protestos se disponível
-- processos: quantidade de processos se disponível
-- Campos ausentes → ""
-- NÃO invente dados`;
+const PROMPT_BALANCO = `Extraia dados do Balanço Patrimonial. Pode ser formato SPED ou livre. Retorne APENAS JSON, sem markdown:
+{"anos":[{"ano":"2024","ativoTotal":"0,00","ativoCirculante":"0,00","caixaEquivalentes":"0,00","contasAReceber":"0,00","estoques":"0,00","outrosAtivosCirculantes":"0,00","ativoNaoCirculante":"0,00","imobilizado":"0,00","intangivel":"0,00","outrosAtivosNaoCirculantes":"0,00","passivoTotal":"0,00","passivoCirculante":"0,00","fornecedores":"0,00","emprestimosCP":"0,00","outrosPassivosCirculantes":"0,00","passivoNaoCirculante":"0,00","emprestimosLP":"0,00","outrosPassivosNaoCirculantes":"0,00","patrimonioLiquido":"0,00","capitalSocial":"0,00","reservas":"0,00","lucrosAcumulados":"0,00","liquidezCorrente":"0,00","liquidezGeral":"0,00","endividamentoTotal":"0,00","capitalDeGiroLiquido":"0,00"}],"periodoMaisRecente":"","tendenciaPatrimonio":"estavel","observacoes":""}
+Regras: SPED=use Saldo Final, todos os anos em ordem crescente, patrimonioLiquido negativo mantém sinal de menos, liquidezCorrente=AC÷PC, endividamento em %, capitalDeGiro=AC-PC (pode ser negativo), tendenciaPatrimonio="crescimento"/"queda"/"estavel", NÃO invente dados.`;
 
-const PROMPT_CURVA_ABC = `
-Você é um especialista em análise financeira.
-Analise o documento de Curva ABC / Carteira de Clientes recebido.
+const PROMPT_IR_SOCIOS = `Extraia dados do IR do sócio (recibo de entrega ou declaração completa). Retorne APENAS JSON, sem markdown:
+{"nomeSocio":"","cpf":"","anoBase":"","tipoDocumento":"recibo","numeroRecibo":"","dataEntrega":"","situacaoMalhas":false,"debitosEmAberto":false,"descricaoDebitos":"","rendimentosTributaveis":"0,00","rendimentosIsentos":"0,00","rendimentoTotal":"0,00","bensImoveis":"0,00","bensVeiculos":"0,00","aplicacoesFinanceiras":"0,00","outrosBens":"0,00","totalBensDireitos":"0,00","dividasOnus":"0,00","patrimonioLiquido":"0,00","impostoPago":"0,00","impostoRestituir":"0,00","temSociedades":false,"sociedades":[],"coerenciaComEmpresa":true,"observacoes":""}
+Regras: anoBase=ANO-CALENDÁRIO (não exercício), ex: "EXERCÍCIO 2025 — ANO-CALENDÁRIO 2024" → anoBase="2024", nomeSocio e anoBase são OBRIGATÓRIOS, cpf formato 000.000.000-00, situacaoMalhas=true se mencionar pendências de malhas, debitosEmAberto=true se mencionar débitos, recibo simples deixe valores monetários como "0,00", NÃO invente dados.`;
 
-FOCO: Leia APENAS os primeiros 20 clientes por valor faturado.
-Ignore clientes com participação abaixo de 0,5% — não são relevantes para análise de crédito.
-O objetivo é identificar concentração de receita, não listar todos os clientes.
-
-ATENÇÃO:
-- Extraia APENAS os top 20 clientes por valor faturado ou % de participação
-- Se o documento tiver coluna de % acumulado, use para identificar os mais relevantes
-- NÃO invente dados — se um campo não existir, deixe vazio
-- Calcule concentracaoTop3 e concentracaoTop5 somando os % dos maiores clientes
-
-Retorne APENAS JSON válido, sem texto adicional, sem markdown:
-{
-  "clientes": [
-    {
-      "posicao": 1,
-      "nome": "Nome do Cliente",
-      "cnpjCpf": "",
-      "valorFaturado": "1.234.567,89",
-      "percentualReceita": "35,50",
-      "segmento": ""
-    }
-  ],
-  "totalClientesNaBase": 0,
-  "totalClientesExtraidos": 0,
-  "periodoReferencia": "",
-  "receitaTotalBase": "0,00",
-  "concentracaoTop3": "0,00",
-  "concentracaoTop5": "0,00",
-  "maiorCliente": "",
-  "maiorClientePct": "0,00",
-  "alertaConcentracao": false
-}
-
-Regras:
-- clientes: APENAS os top 20 por valor — ordem decrescente
-- posicao: 1 = maior cliente
-- nome: razão social ou nome do cliente
-- cnpjCpf: se disponível, senão vazio
-- valorFaturado: formatação brasileira (1.234.567,89)
-- percentualReceita: apenas o número sem % (ex: "35,50")
-- segmento: setor se disponível, senão vazio
-- totalClientesNaBase: total real de clientes no documento
-- totalClientesExtraidos: quantos foram extraídos (máx 20)
-- concentracaoTop3: soma dos % dos 3 maiores
-- concentracaoTop5: soma dos % dos 5 maiores
-- alertaConcentracao: true se qualquer cliente tiver percentualReceita > 30
-- NÃO processe mais de 20 clientes — pare ao atingir o 20º
-`;
-
-const PROMPT_DRE = `
-Você é um especialista em análise financeira.
-Analise o documento de DRE (Demonstração de Resultado do Exercício) recebido.
-O documento pode estar no formato SPED (Sistema Público de Escrituração Digital)
-ou em formato livre de contador.
-
-FOCO: Extraia os dados consolidados anuais — não os trimestrais ou mensais.
-Se o documento tiver múltiplos períodos, extraia cada ano como um item separado.
-No formato SPED, os campos "Saldo anterior" e "Saldo atual" representam
-o ano anterior e o ano corrente respectivamente.
-
-ATENÇÃO:
-- No formato SPED: "LUCRO APURADO NO PERÍODO" ou "PREJUIZO APURADO NO PERÍODO" = Lucro/Prejuízo Líquido
-- "RECEITA OPERACIONAL BRUTA" = Receita Bruta
-- "(-) DEDUCOES DA RECEITA BRUTA" = Deduções
-- "(-) CUSTOS DOS PRODUTOS VENDIDOS" ou "(-) CUSTOS OPERACIONAIS" = CPV
-- "(-) DESPESAS OPERACIONAIS" = Despesas Operacionais
-- Se lucro for negativo (prejuízo), mantenha o valor negativo com sinal de menos
-- NÃO invente dados — se um campo não existir no documento, use "0,00"
-
-Retorne APENAS JSON válido, sem texto adicional, sem markdown:
-{
-  "anos": [
-    {
-      "ano": "2024",
-      "receitaBruta": "0,00",
-      "deducoes": "0,00",
-      "receitaLiquida": "0,00",
-      "custoProdutosServicos": "0,00",
-      "lucroBruto": "0,00",
-      "margemBruta": "0,00",
-      "despesasOperacionais": "0,00",
-      "ebitda": "0,00",
-      "margemEbitda": "0,00",
-      "depreciacaoAmortizacao": "0,00",
-      "resultadoFinanceiro": "0,00",
-      "lucroAntesIR": "0,00",
-      "impostoRenda": "0,00",
-      "lucroLiquido": "0,00",
-      "margemLiquida": "0,00"
-    }
-  ],
-  "crescimentoReceita": "0,00",
-  "tendenciaLucro": "estavel",
-  "periodoMaisRecente": "",
-  "observacoes": ""
-}
-
-Regras:
-- anos: array com todos os anos encontrados, ordem crescente
-- ano: formato YYYY — extraia do cabeçalho "Período da Escrituração" ou "Período Selecionado"
-- todos os valores monetários: formatação brasileira sem R$ (ex: "1.234.567,89")
-- valores negativos: use sinal de menos (ex: "-336.325,65")
-- margemBruta, margemEbitda, margemLiquida: percentual calculado sobre receita bruta (ex: "15,30")
-- crescimentoReceita: variação % da receita bruta entre o ano mais antigo e o mais recente
-- tendenciaLucro: "crescimento" se lucro melhorou, "queda" se piorou, "estavel" se variação < 10%
-- periodoMaisRecente: ano mais recente no documento (YYYY)
-- observacoes: informações relevantes como prejuízos acumulados, mudanças de regime, etc.
-- NÃO invente dados
-`;
-
-const PROMPT_BALANCO = `
-Você é um especialista em análise financeira.
-Analise o documento de Balanço Patrimonial recebido.
-O documento pode estar no formato SPED ou em formato livre de contador.
-
-FOCO: Extraia o Saldo Final de cada ano — não os saldos intermediários trimestrais.
-No formato SPED, cada seção tem "Saldo Inicial" e "Saldo Final" — use sempre o Saldo Final.
-Se houver múltiplos períodos no mesmo arquivo, extraia cada ano completo.
-
-ATENÇÃO:
-- No formato SPED: use o campo "Saldo Final" como valor do ano
-- "ATIVO" total = soma de Ativo Circulante + Ativo Não Circulante
-- "PASSIVO" total = soma de Passivo Circulante + Passivo Não Circulante
-- "(-) PATRIMÔNIO LÍQUIDO" — se negativo, é patrimônio líquido negativo (empresa endividada)
-- Patrimônio Líquido negativo é um alerta crítico — mantenha o valor negativo
-- Liquidez Corrente = Ativo Circulante ÷ Passivo Circulante
-- Endividamento = Passivo Total ÷ Ativo Total × 100
-- Capital de Giro = Ativo Circulante - Passivo Circulante
-- NÃO invente dados — se um campo não existir, use "0,00"
-
-Retorne APENAS JSON válido, sem texto adicional, sem markdown:
-{
-  "anos": [
-    {
-      "ano": "2024",
-      "ativoTotal": "0,00",
-      "ativoCirculante": "0,00",
-      "caixaEquivalentes": "0,00",
-      "contasAReceber": "0,00",
-      "estoques": "0,00",
-      "outrosAtivosCirculantes": "0,00",
-      "ativoNaoCirculante": "0,00",
-      "imobilizado": "0,00",
-      "intangivel": "0,00",
-      "outrosAtivosNaoCirculantes": "0,00",
-      "passivoTotal": "0,00",
-      "passivoCirculante": "0,00",
-      "fornecedores": "0,00",
-      "emprestimosCP": "0,00",
-      "outrosPassivosCirculantes": "0,00",
-      "passivoNaoCirculante": "0,00",
-      "emprestimosLP": "0,00",
-      "outrosPassivosNaoCirculantes": "0,00",
-      "patrimonioLiquido": "0,00",
-      "capitalSocial": "0,00",
-      "reservas": "0,00",
-      "lucrosAcumulados": "0,00",
-      "liquidezCorrente": "0,00",
-      "liquidezGeral": "0,00",
-      "endividamentoTotal": "0,00",
-      "capitalDeGiroLiquido": "0,00"
-    }
-  ],
-  "periodoMaisRecente": "",
-  "tendenciaPatrimonio": "estavel",
-  "observacoes": ""
-}
-
-Regras:
-- anos: array com todos os anos encontrados, ordem crescente
-- ano: formato YYYY — extraia do cabeçalho "Período da Escrituração"
-- todos os valores monetários: formatação brasileira sem R$ (ex: "1.234.567,89")
-- patrimonioLiquido negativo: use sinal de menos (ex: "-3.683.516,62")
-- liquidezCorrente: número decimal com vírgula (ex: "1,25") — se PC=0, use "0,00"
-- endividamentoTotal: percentual (ex: "85,30")
-- capitalDeGiroLiquido: pode ser negativo se PC > AC
-- tendenciaPatrimonio: "crescimento" se PL melhorou, "queda" se piorou, "estavel" se variação < 10%
-- observacoes: alertas como PL negativo, endividamento alto, etc.
-- NÃO invente dados
-`;
-
-const PROMPT_IR_SOCIOS = `
-FOCO: Leia APENAS o cabeçalho e as primeiras informações do documento.
-Ignore instruções sobre DARF, quotas, pagamentos e informações adicionais.
-O que importa está nas primeiras 10 linhas: nome, CPF, ano-calendário e número do recibo.
-
-Você é um especialista em análise financeira.
-Analise o documento de Imposto de Renda recebido — pode ser um RECIBO DE ENTREGA
-ou uma DECLARAÇÃO COMPLETA. Extraia o máximo de informações disponíveis.
-
-ATENÇÃO — REGRAS CRÍTICAS:
-- Se for RECIBO DE ENTREGA: o cabeçalho contém "EXERCÍCIO AAAA — ANO-CALENDÁRIO AAAA"
-  O anoBase é o ANO-CALENDÁRIO (não o exercício)
-  Exemplo: "EXERCÍCIO 2025 — ANO-CALENDÁRIO 2024" → anoBase = "2024"
-- O nome do declarante está na primeira linha após o cabeçalho do Ministério da Fazenda
-- O CPF está na mesma linha do nome, formato 000.000.000-00
-- situacaoMalhas: true se o documento mencionar pendências de malhas
-- debitosEmAberto: true se mencionar débitos em aberto no âmbito da Receita Federal
-- NÃO invente dados — se um campo não existir, deixe vazio ou false
-
-Retorne APENAS JSON válido, sem texto adicional, sem markdown:
-{
-  "nomeSocio": "",
-  "cpf": "",
-  "anoBase": "",
-  "tipoDocumento": "recibo",
-  "numeroRecibo": "",
-  "dataEntrega": "",
-  "situacaoMalhas": false,
-  "debitosEmAberto": false,
-  "descricaoDebitos": "",
-  "rendimentosTributaveis": "0,00",
-  "rendimentosIsentos": "0,00",
-  "rendimentoTotal": "0,00",
-  "bensImoveis": "0,00",
-  "bensVeiculos": "0,00",
-  "aplicacoesFinanceiras": "0,00",
-  "outrosBens": "0,00",
-  "totalBensDireitos": "0,00",
-  "dividasOnus": "0,00",
-  "patrimonioLiquido": "0,00",
-  "impostoPago": "0,00",
-  "impostoRestituir": "0,00",
-  "temSociedades": false,
-  "sociedades": [],
-  "coerenciaComEmpresa": true,
-  "observacoes": ""
-}
-
-Regras de formatação:
-- tipoDocumento: "recibo" se for só o recibo de entrega, "declaracao" se for declaração completa
-- anoBase: ANO-CALENDÁRIO da declaração (ex: "2024") — campo OBRIGATÓRIO
-- nomeSocio: nome completo do declarante — campo OBRIGATÓRIO
-- cpf: formato 000.000.000-00
-- numeroRecibo: número completo do recibo (ex: "18,48,06,49,54 - 24")
-- dataEntrega: data de entrega no formato DD/MM/AAAA
-- situacaoMalhas: true se houver pendências de malhas em qualquer exercício
-- debitosEmAberto: true se mencionar débitos em aberto
-- descricaoDebitos: descrição dos débitos se houver
-- coerenciaComEmpresa: true por padrão para recibos simples sem dados patrimoniais
-- observacoes: informações adicionais relevantes como débitos ou malhas encontradas
-- Para recibo simples, mantenha todos os campos monetários como "0,00"
-- NÃO invente dados
-`;
-
-const PROMPT_RELATORIO_VISITA = `
-Você é um especialista em análise de crédito.
-Analise o documento de Relatório de Visita recebido e extraia as informações relevantes.
-
-ATENÇÃO — REGRAS CRÍTICAS DE EXTRAÇÃO:
-- O documento pode ser texto livre, formulário ou template — adapte a extração ao formato
-- Extraia informações qualitativas com fidelidade ao documento
-- NÃO invente dados — se um campo não existir, deixe vazio ou false
-
-Retorne APENAS JSON válido, sem texto adicional, sem markdown:
-{
-  "dataVisita": "",
-  "responsavelVisita": "",
-  "localVisita": "",
-  "duracaoVisita": "",
-  "estruturaFisicaConfirmada": true,
-  "funcionariosObservados": 0,
-  "estoqueVisivel": false,
-  "estimativaEstoque": "",
-  "operacaoCompativelFaturamento": true,
-  "maquinasEquipamentos": false,
-  "descricaoEstrutura": "",
-  "pontosPositivos": [],
-  "pontosAtencao": [],
-  "recomendacaoVisitante": "aprovado",
-  "nivelConfiancaVisita": "alto",
-  "presencaSocios": false,
-  "sociosPresentes": [],
-  "documentosVerificados": [],
-  "observacoesLivres": ""
-}
-
-Regras:
-- dataVisita: formato DD/MM/YYYY se disponível
-- responsavelVisita: nome de quem realizou a visita
-- localVisita: endereço ou descrição do local visitado
-- duracaoVisita: ex "2 horas", "30 minutos"
-- estruturaFisicaConfirmada: true se a empresa existe fisicamente no endereço declarado
-- funcionariosObservados: número aproximado de funcionários vistos
-- estoqueVisivel: true se havia estoque visível no local
-- estimativaEstoque: descrição qualitativa do estoque (ex: "alto", "médio", "baixo")
-- operacaoCompativelFaturamento: true se a operação observada é compatível com o faturamento declarado
-- maquinasEquipamentos: true se havia máquinas ou equipamentos relevantes
-- descricaoEstrutura: descrição livre da estrutura física observada
-- pontosPositivos: array de strings com pontos positivos observados
-- pontosAtencao: array de strings com pontos de atenção ou riscos observados
-- recomendacaoVisitante: "aprovado", "condicional" ou "reprovado"
-- nivelConfiancaVisita: "alto", "medio" ou "baixo" — confiança do visitante na operação
-- presencaSocios: true se sócios estavam presentes durante a visita
-- sociosPresentes: array com nomes dos sócios presentes
-- documentosVerificados: array com documentos físicos verificados durante a visita
-- observacoesLivres: texto livre com qualquer observação adicional relevante
-- NÃO invente dados
-`;
+const PROMPT_RELATORIO_VISITA = `Extraia dados do Relatório de Visita (texto livre, formulário ou template). Retorne APENAS JSON, sem markdown:
+{"dataVisita":"","responsavelVisita":"","localVisita":"","duracaoVisita":"","estruturaFisicaConfirmada":true,"funcionariosObservados":0,"estoqueVisivel":false,"estimativaEstoque":"","operacaoCompativelFaturamento":true,"maquinasEquipamentos":false,"descricaoEstrutura":"","pontosPositivos":[],"pontosAtencao":[],"recomendacaoVisitante":"aprovado","nivelConfiancaVisita":"alto","presencaSocios":false,"sociosPresentes":[],"documentosVerificados":[],"observacoesLivres":"","pleito":""}
+Regras: dataVisita=DD/MM/YYYY, recomendacaoVisitante="aprovado"/"condicional"/"reprovado", nivelConfiancaVisita="alto"/"medio"/"baixo", campos ausentes="" ou false, NÃO invente dados. pleito=valor em R$ sugerido pelo cedente (ex: "150000,00") — buscar por termos como "pleito", "valor solicitado", "limite sugerido", "crédito pleiteado"; se não encontrado deixe "".`;
 
 // ─────────────────────────────────────────
 // PROVEDOR 1: Gemini (primário — melhor qualidade)
@@ -870,15 +360,15 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
 
   for (const apiKey of GEMINI_API_KEYS) {
     for (const model of GEMINI_MODELS) {
-      let rateLimitRetries = 0;
-      const MAX_RATE_RETRIES = 2;
-
-      for (let attempt = 0; attempt < 2 + MAX_RATE_RETRIES; attempt++) {
+      for (let attempt = 0; attempt < 1; attempt++) {
         try {
-          console.log(`[Gemini] key=${apiKey.substring(0, 8)}... model=${model} attempt=${attempt + 1}`);
+          console.log(`[Gemini] key=${apiKey.substring(0, 8)}... model=${model}`);
+          const controller = new AbortController();
+          const fetchTimeout = setTimeout(() => controller.abort(), 25000);
           const response = await fetch(geminiUrl(model, apiKey), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            signal: controller.signal,
             body: JSON.stringify({
               contents: [{ parts }],
               generationConfig: {
@@ -888,34 +378,11 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
               },
             }),
           });
+          clearTimeout(fetchTimeout);
 
           if (response.status === 429) {
-            if (rateLimitRetries < MAX_RATE_RETRIES) {
-              rateLimitRetries++;
-              // Extract wait time from response
-              let waitMs = 3000;
-              const retryAfterMs = response.headers.get("retry-after-ms");
-              const retryAfter = response.headers.get("retry-after");
-              if (retryAfterMs) {
-                waitMs = parseInt(retryAfterMs);
-              } else if (retryAfter) {
-                waitMs = parseInt(retryAfter) * 1000;
-              } else {
-                try {
-                  const errBody = await response.clone().json();
-                  const msg = errBody?.error?.message || "";
-                  const match = msg.match(/retry\s+(?:in|after)\s+(\d+(?:\.\d+)?)\s*s/i);
-                  if (match) waitMs = Math.ceil(parseFloat(match[1]) * 1000);
-                } catch { /* ignore */ }
-              }
-              waitMs = Math.min(Math.max(waitMs, 2000), 60000);
-              console.log(`[Gemini] Rate limited on key=${apiKey.substring(0, 8)} model=${model}, waiting ${waitMs}ms (retry ${rateLimitRetries}/${MAX_RATE_RETRIES})...`);
-              await sleep(waitMs);
-              continue;
-            } else {
-              console.log(`[Gemini] Max rate-limit retries on key=${apiKey.substring(0, 8)} model=${model}, moving on`);
-              break;
-            }
+            console.log(`[Gemini] Rate limited on key=${apiKey.substring(0, 8)} model=${model}, skipping to next`);
+            break; // pula para próximo model/key sem esperar
           }
 
           if (!response.ok) {
@@ -942,27 +409,14 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
 }
 
 // ─────────────────────────────────────────
-// Chamada OpenRouter (fallback)
+// Chamada OpenRouter (fallback text-only)
 // ─────────────────────────────────────────
-async function callOpenRouter(prompt: string, content: string | { mimeType: string; base64: string }): Promise<string> {
+async function callOpenRouter(prompt: string, textContent: string): Promise<string> {
   if (OPENROUTER_API_KEYS.length === 0) throw new Error("OPENROUTER_API_KEYS não configurada");
-
   for (const apiKey of OPENROUTER_API_KEYS) {
     for (const model of OPENROUTER_MODELS) {
       try {
-        console.log(`[OpenRouter] key=${apiKey.substring(0, 16)}... model=${model}`);
-
-        let messageContent: unknown;
-        if (typeof content === "string") {
-          messageContent = prompt + "\n\n--- DOCUMENTO ---\n\n" + content;
-        } else {
-          const dataUrl = `data:${content.mimeType};base64,${content.base64}`;
-          messageContent = [
-            { type: "image_url", image_url: { url: dataUrl } },
-            { type: "text", text: prompt },
-          ];
-        }
-
+        console.log(`[OpenRouter/extract] key=${apiKey.substring(0, 16)}... model=${model}`);
         const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",
           headers: {
@@ -973,33 +427,19 @@ async function callOpenRouter(prompt: string, content: string | { mimeType: stri
           },
           body: JSON.stringify({
             model,
-            messages: [{ role: "user", content: messageContent }],
+            messages: [{ role: "user", content: prompt + "\n\n--- DOCUMENTO ---\n\n" + textContent }],
             temperature: 0.1,
             max_tokens: 8192,
           }),
         });
-
-        if (response.status === 429 || response.status === 503) {
-          console.log(`[OpenRouter] ${response.status} on key=${apiKey.substring(0, 16)} model=${model}, trying next...`);
-          continue;
-        }
-
-        if (!response.ok) {
-          const body = await response.text();
-          console.error(`[OpenRouter] HTTP ${response.status}:`, body.substring(0, 300));
-          continue;
-        }
-
+        if (!response.ok) { console.error(`[OpenRouter/extract] HTTP ${response.status}`); continue; }
         const result = await response.json();
         const text = result?.choices?.[0]?.message?.content;
-        if (!text) {
-          console.error(`[OpenRouter] Empty response from model=${model}`);
-          continue;
-        }
-        console.log(`[OpenRouter] Success with key=${apiKey.substring(0, 16)} model=${model}`);
+        if (!text) { console.error(`[OpenRouter/extract] Empty response`); continue; }
+        console.log(`[OpenRouter/extract] Success model=${model}`);
         return text;
       } catch (err) {
-        console.error(`[OpenRouter] Error on model=${model}:`, err instanceof Error ? err.message : err);
+        console.error(`[OpenRouter/extract] Error:`, err instanceof Error ? err.message : err);
       }
     }
   }
@@ -1007,7 +447,7 @@ async function callOpenRouter(prompt: string, content: string | { mimeType: stri
 }
 
 // ─────────────────────────────────────────
-// Chamada AI (Gemini → OpenRouter fallback)
+// Chamada AI — Gemini primário, OpenRouter fallback (texto)
 // ─────────────────────────────────────────
 async function callAI(
   prompt: string,
@@ -1016,26 +456,23 @@ async function callAI(
 ): Promise<string> {
   const content: string | { mimeType: string; base64: string } = imageContent ?? textContent;
 
-  // Tentar Gemini primeiro
-  if (GEMINI_API_KEYS.length > 0) {
+  // Timeout global de 45s — evita que a função fique pendurada
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error("AI_TIMEOUT_55s")), 55000)
+  );
+
+  const aiCall = async (): Promise<string> => {
     try {
       return await callGemini(prompt, content);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg === "GEMINI_EXHAUSTED") {
-        console.log("[callAI] Gemini esgotado — tentando OpenRouter...");
-      } else {
-        throw err;
-      }
+      if (imageContent || OPENROUTER_API_KEYS.length === 0) throw err;
+      console.warn(`[extract] Gemini falhou (${msg}), tentando OpenRouter...`);
+      return await callOpenRouter(prompt, textContent);
     }
-  }
+  };
 
-  // Fallback: OpenRouter
-  if (OPENROUTER_API_KEYS.length > 0) {
-    return await callOpenRouter(prompt, content);
-  }
-
-  throw new Error("Nenhum provedor de IA disponível. Configure GEMINI_API_KEYS ou OPENROUTER_API_KEY.");
+  return Promise.race([aiCall(), timeoutPromise]);
 }
 
 // ─────────────────────────────────────────
@@ -1175,8 +612,25 @@ function fillFaturamentoDefaults(data: Partial<FaturamentoData>): FaturamentoDat
 }
 
 function fillSCRDefaults(data: Partial<SCRData>): SCRData {
-  const emptyFaixas = { ate30d: "", d31_60: "", d61_90: "", d91_180: "", d181_360: "", acima360d: "", total: "" };
+  // Normaliza faixas key-por-key para evitar objetos vazios {} que passam pelo ||
+  const f = data.faixasAVencer as Record<string, string> | undefined;
+  const fv = data.faixasVencidos as Record<string, string> | undefined;
+  const faixasAVencer: SCRData["faixasAVencer"] = {
+    ate30d: f?.ate30d || "", d31_60: f?.d31_60 || "", d61_90: f?.d61_90 || "",
+    d91_180: f?.d91_180 || "", d181_360: f?.d181_360 || "", acima360d: f?.acima360d || "",
+    prazoIndeterminado: f?.prazoIndeterminado || "", total: f?.total || "",
+  };
+  const faixasVencidos: SCRData["faixasVencidos"] = {
+    ate30d: fv?.ate30d || "", d31_60: fv?.d31_60 || "", d61_90: fv?.d61_90 || "",
+    d91_180: fv?.d91_180 || "", d181_360: fv?.d181_360 || "", acima360d: fv?.acima360d || "",
+    total: fv?.total || "",
+  };
+
   return {
+    // Identificação — preservar para roteamento PJ vs PF
+    tipoPessoa: data.tipoPessoa || undefined,
+    nomeCliente: data.nomeCliente || "",
+    cpfSCR: data.cpfSCR || "",
     periodoReferencia: data.periodoReferencia || "",
     carteiraAVencer: data.carteiraAVencer || "", vencidos: data.vencidos || "",
     prejuizos: data.prejuizos || "", limiteCredito: data.limiteCredito || "",
@@ -1190,17 +644,21 @@ function fillSCRDefaults(data: Partial<SCRData>): SCRData {
     instituicoes: Array.isArray(data.instituicoes) ? data.instituicoes : [],
     valoresMoedaEstrangeira: data.valoresMoedaEstrangeira || "",
     historicoInadimplencia: data.historicoInadimplencia || "",
-    // Campos detalhados (novo prompt)
+    // Campos detalhados
     cnpjSCR: data.cnpjSCR || "",
     pctDocumentosProcessados: data.pctDocumentosProcessados || "",
     pctVolumeProcessado: data.pctVolumeProcessado || "",
-    faixasAVencer: data.faixasAVencer || { ...emptyFaixas, prazoIndeterminado: "" },
-    faixasVencidos: data.faixasVencidos || { ...emptyFaixas },
-    faixasPrejuizos: data.faixasPrejuizos || { ate12m: "", acima12m: "", total: "" },
-    faixasLimite: data.faixasLimite || { ate360d: "", acima360d: "", total: "" },
-    outrosValores: data.outrosValores || {
-      carteiraCredito: "", responsabilidadeTotal: "", riscoTotal: "",
-      coobrigacaoAssumida: "", coobrigacaoRecebida: "", creditosALiberar: "",
+    faixasAVencer,
+    faixasVencidos,
+    faixasPrejuizos: { ate12m: data.faixasPrejuizos?.ate12m || "", acima12m: data.faixasPrejuizos?.acima12m || "", total: data.faixasPrejuizos?.total || "" },
+    faixasLimite: { ate360d: data.faixasLimite?.ate360d || "", acima360d: data.faixasLimite?.acima360d || "", total: data.faixasLimite?.total || "" },
+    outrosValores: {
+      carteiraCredito: data.outrosValores?.carteiraCredito || "",
+      responsabilidadeTotal: data.outrosValores?.responsabilidadeTotal || "",
+      riscoTotal: data.outrosValores?.riscoTotal || "",
+      coobrigacaoAssumida: data.outrosValores?.coobrigacaoAssumida || "",
+      coobrigacaoRecebida: data.outrosValores?.coobrigacaoRecebida || "",
+      creditosALiberar: data.outrosValores?.creditosALiberar || "",
     },
     emDia: data.emDia || "",
     semHistorico: data.semHistorico ?? (!data.totalDividasAtivas && !data.carteiraAVencer && !data.vencidos && !data.prejuizos && !data.limiteCredito),
@@ -1232,7 +690,99 @@ function fillGrupoEconomicoDefaults(data: Partial<GrupoEconomicoData>): GrupoEco
   return { empresas: Array.isArray(data.empresas) ? data.empresas : [] };
 }
 
-type AnyExtracted = CNPJData | QSAData | ContratoSocialData | FaturamentoData | SCRData | ProtestosData | ProcessosData | GrupoEconomicoData;
+function fillCurvaABCDefaults(data: Partial<CurvaABCData>): CurvaABCData {
+  return {
+    clientes: data.clientes ?? [],
+    totalClientesNaBase: data.totalClientesNaBase ?? 0,
+    totalClientesExtraidos: data.totalClientesExtraidos ?? 0,
+    periodoReferencia: data.periodoReferencia ?? "",
+    receitaTotalBase: data.receitaTotalBase ?? "0,00",
+    concentracaoTop3: data.concentracaoTop3 ?? "0.00",
+    concentracaoTop5: data.concentracaoTop5 ?? "0.00",
+    concentracaoTop10: data.concentracaoTop10 ?? "0.00",
+    totalClientesClasseA: data.totalClientesClasseA ?? 0,
+    receitaClasseA: data.receitaClasseA ?? "0,00",
+    maiorCliente: data.maiorCliente ?? "",
+    maiorClientePct: data.maiorClientePct ?? "0.00",
+    alertaConcentracao: data.alertaConcentracao ?? false,
+  };
+}
+
+function fillDREDefaults(data: Partial<DREData>): DREData {
+  return {
+    anos: Array.isArray(data.anos) ? data.anos : [],
+    crescimentoReceita: data.crescimentoReceita || "0,00",
+    tendenciaLucro: data.tendenciaLucro || "estavel",
+    periodoMaisRecente: data.periodoMaisRecente || "",
+    observacoes: data.observacoes || "",
+  };
+}
+
+function fillBalancoDefaults(data: Partial<BalancoData>): BalancoData {
+  return {
+    anos: Array.isArray(data.anos) ? data.anos : [],
+    periodoMaisRecente: data.periodoMaisRecente || "",
+    tendenciaPatrimonio: data.tendenciaPatrimonio || "estavel",
+    observacoes: data.observacoes || "",
+  };
+}
+
+function fillIRSocioDefaults(data: Partial<IRSocioData>): IRSocioData {
+  return {
+    nomeSocio: data.nomeSocio || "",
+    cpf: data.cpf || "",
+    anoBase: data.anoBase || "",
+    tipoDocumento: data.tipoDocumento || "recibo",
+    numeroRecibo: data.numeroRecibo || "",
+    dataEntrega: data.dataEntrega || "",
+    situacaoMalhas: data.situacaoMalhas ?? false,
+    debitosEmAberto: data.debitosEmAberto ?? false,
+    descricaoDebitos: data.descricaoDebitos || "",
+    rendimentosTributaveis: data.rendimentosTributaveis || "0,00",
+    rendimentosIsentos: data.rendimentosIsentos || "0,00",
+    rendimentoTotal: data.rendimentoTotal || "0,00",
+    bensImoveis: data.bensImoveis || "0,00",
+    bensVeiculos: data.bensVeiculos || "0,00",
+    aplicacoesFinanceiras: data.aplicacoesFinanceiras || "0,00",
+    outrosBens: data.outrosBens || "0,00",
+    totalBensDireitos: data.totalBensDireitos || "0,00",
+    dividasOnus: data.dividasOnus || "0,00",
+    patrimonioLiquido: data.patrimonioLiquido || "0,00",
+    impostoPago: data.impostoPago || "0,00",
+    impostoRestituir: data.impostoRestituir || "0,00",
+    temSociedades: data.temSociedades ?? false,
+    sociedades: Array.isArray(data.sociedades) ? data.sociedades : [],
+    coerenciaComEmpresa: data.coerenciaComEmpresa ?? true,
+    observacoes: data.observacoes || "",
+  };
+}
+
+function fillRelatorioVisitaDefaults(data: Partial<RelatorioVisitaData>): RelatorioVisitaData {
+  return {
+    dataVisita: data.dataVisita || "",
+    responsavelVisita: data.responsavelVisita || "",
+    localVisita: data.localVisita || "",
+    duracaoVisita: data.duracaoVisita || "",
+    estruturaFisicaConfirmada: data.estruturaFisicaConfirmada ?? true,
+    funcionariosObservados: data.funcionariosObservados ?? 0,
+    estoqueVisivel: data.estoqueVisivel ?? false,
+    estimativaEstoque: data.estimativaEstoque || "",
+    operacaoCompativelFaturamento: data.operacaoCompativelFaturamento ?? true,
+    maquinasEquipamentos: data.maquinasEquipamentos ?? false,
+    descricaoEstrutura: data.descricaoEstrutura || "",
+    pontosPositivos: Array.isArray(data.pontosPositivos) ? data.pontosPositivos : [],
+    pontosAtencao: Array.isArray(data.pontosAtencao) ? data.pontosAtencao : [],
+    recomendacaoVisitante: data.recomendacaoVisitante || "aprovado",
+    nivelConfiancaVisita: data.nivelConfiancaVisita || "alto",
+    presencaSocios: data.presencaSocios ?? false,
+    sociosPresentes: Array.isArray(data.sociosPresentes) ? data.sociosPresentes : [],
+    documentosVerificados: Array.isArray(data.documentosVerificados) ? data.documentosVerificados : [],
+    observacoesLivres: data.observacoesLivres || "",
+    pleito: data.pleito || "",
+  };
+}
+
+type AnyExtracted = CNPJData | QSAData | ContratoSocialData | FaturamentoData | SCRData | ProtestosData | ProcessosData | GrupoEconomicoData | CurvaABCData | DREData | BalancoData | IRSocioData | RelatorioVisitaData;
 
 function countFilledFields(data: AnyExtracted): number {
   const obj = data as unknown as Record<string, unknown>;
@@ -1337,15 +887,13 @@ export async function POST(request: NextRequest) {
 
     if (isImage) {
       imageContent = { mimeType, base64: buffer.toString("base64") };
-    } else if (ext === "pdf" && (docType === "scr" || docType === "qsa")) {
-      // SCR e QSA do Bacen/Receita: sempre enviar como binário (encoding problemático)
-      console.log(`[extract] ${docType} PDF — sending as binary (always multimodal for this type)`);
-      imageContent = { mimeType: "application/pdf", base64: buffer.toString("base64") };
     } else {
+      // Sempre tenta extrair texto primeiro (muito mais barato em tokens)
       textContent = await extractText(buffer, ext);
       const isUsableText = textContent.trim().length >= 20 && hasReadableContent(textContent);
 
       if (!isUsableText && ext === "pdf") {
+        // Só envia como binário se não conseguiu extrair texto
         console.log(`[extract] PDF text not usable, sending as binary...`);
         imageContent = { mimeType: "application/pdf", base64: buffer.toString("base64") };
         textContent = "";
@@ -1358,90 +906,139 @@ export async function POST(request: NextRequest) {
 
     if (textContent) {
       const maxChars: Record<string, number> = {
-        cnpj: 8000, qsa: 15000, contrato: 40000, faturamento: 20000, scr: 40000,
-        protestos: 25000, processos: 30000, grupoEconomico: 20000,
+        cnpj: 6000, qsa: 10000, contrato: 25000, faturamento: 15000, scr: 25000,
+        protestos: 15000, processos: 20000, grupoEconomico: 15000,
+        curva_abc: 8000, dre: 20000, balanco: 20000, ir_socio: 6000, relatorio_visita: 10000,
       };
-      textContent = textContent.substring(0, maxChars[docType] || 25000);
+      textContent = textContent.substring(0, maxChars[docType] || 15000);
     }
 
     console.log(`[extract] ${file.name} | type=${docType} | ext=${ext} | textLen=${textContent.length} | hasImage=${!!imageContent}`);
 
-    // ──── Chamar IA ────
-    let data: AnyExtracted;
-    const inputMode = imageContent ? "binary" : "text";
+    // ──── SSE stream — mantém conexão viva enquanto Gemini processa ────
+    const enc = new TextEncoder();
+    const _send = (ctrl: ReadableStreamDefaultController, ev: string, d: object) => {
+      try { ctrl.enqueue(enc.encode(`event: ${ev}\ndata: ${JSON.stringify(d)}\n\n`)); } catch { /* ignore if closed */ }
+    };
 
-    try {
-      const aiResponse = await callAI(prompt, textContent, imageContent);
-      console.log(`[extract] AI response length: ${aiResponse.length}`);
-      console.log(`[extract] AI raw response (first 1000 chars):`, aiResponse.substring(0, 1000));
-      const parsed = parseJSON<Record<string, unknown>>(aiResponse);
+    const _prompt = prompt;
+    const _textContent = textContent;
+    const _imageContent = imageContent;
+    const _docType = docType;
+    const _isImage = isImage;
 
-      switch (docType) {
-        case "cnpj":           data = fillCNPJDefaults(parsed as Partial<CNPJData>); break;
-        case "qsa":            data = fillQSADefaults(parsed as Partial<QSAData>); break;
-        case "contrato":       data = fillContratoDefaults(parsed as Partial<ContratoSocialData>); break;
-        case "faturamento":    data = fillFaturamentoDefaults(parsed as Partial<FaturamentoData>); break;
-        case "scr": {
-          data = fillSCRDefaults(parsed as Partial<SCRData>);
-          const periodoAnterior = (parsed as Record<string, unknown>).periodoAnterior as Partial<SCRData> | undefined;
-          if (periodoAnterior && periodoAnterior.periodoReferencia) {
-            (data as SCRData & { _scrAnterior?: SCRData })._scrAnterior = fillSCRDefaults(periodoAnterior);
-            (data as SCRData & { _variacoes?: Record<string, string> })._variacoes =
-              ((parsed as Record<string, unknown>).variacoes as Record<string, string>) || {};
+    const stream = new ReadableStream({
+      async start(controller) {
+        const keepalive = setInterval(() => _send(controller, "keepalive", { ts: Date.now() }), 5000);
+
+        try {
+          let data: AnyExtracted;
+          const inputMode = _imageContent ? "binary" : "text";
+          _send(controller, "status", { message: "Processando documento...", inputMode, textLen: _textContent.length, docType: _docType });
+
+          try {
+            const aiResponse = await callAI(_prompt, _textContent, _imageContent);
+            console.log(`[extract] AI response length: ${aiResponse.length}`);
+            console.log(`[extract] AI raw response (first 1000 chars):`, aiResponse.substring(0, 1000));
+            const parsed = parseJSON<Record<string, unknown>>(aiResponse);
+
+            switch (_docType) {
+              case "cnpj":           data = fillCNPJDefaults(parsed as Partial<CNPJData>); break;
+              case "qsa":            data = fillQSADefaults(parsed as Partial<QSAData>); break;
+              case "contrato":       data = fillContratoDefaults(parsed as Partial<ContratoSocialData>); break;
+              case "faturamento":    data = fillFaturamentoDefaults(parsed as Partial<FaturamentoData>); break;
+              case "scr": {
+                data = fillSCRDefaults(parsed as Partial<SCRData>);
+                const periodoAnterior = (parsed as Record<string, unknown>).periodoAnterior as Partial<SCRData> | undefined;
+                if (periodoAnterior && periodoAnterior.periodoReferencia) {
+                  (data as SCRData & { _scrAnterior?: SCRData })._scrAnterior = fillSCRDefaults(periodoAnterior);
+                  (data as SCRData & { _variacoes?: Record<string, string> })._variacoes =
+                    ((parsed as Record<string, unknown>).variacoes as Record<string, string>) || {};
+                }
+                break;
+              }
+              case "protestos":        data = fillProtestosDefaults(parsed as Partial<ProtestosData>); break;
+              case "processos":        data = fillProcessosDefaults(parsed as Partial<ProcessosData>); break;
+              case "grupoEconomico":   data = fillGrupoEconomicoDefaults(parsed as Partial<GrupoEconomicoData>); break;
+              case "curva_abc":        data = fillCurvaABCDefaults(parsed as Partial<CurvaABCData>); break;
+              case "dre":              data = fillDREDefaults(parsed as Partial<DREData>); break;
+              case "balanco":          data = fillBalancoDefaults(parsed as Partial<BalancoData>); break;
+              case "ir_socio":         data = fillIRSocioDefaults(parsed as Partial<IRSocioData>); break;
+              case "relatorio_visita": data = fillRelatorioVisitaDefaults(parsed as Partial<RelatorioVisitaData>); break;
+              default:                 data = fillCNPJDefaults(parsed as Partial<CNPJData>);
+            }
+          } catch (aiError) {
+            const errMsg = aiError instanceof Error ? aiError.message : String(aiError);
+            console.error(`[extract] AI failed:`, errMsg);
+            console.error(`[extract] Context: inputMode=${inputMode} | docType=${_docType}`);
+            console.error(`[extract] Input preview:`, inputMode === "text"
+              ? _textContent.substring(0, 200)
+              : `[binary ${_imageContent?.mimeType}, base64 len: ${_imageContent?.base64.length}]`
+            );
+
+            switch (_docType) {
+              case "cnpj":           data = fillCNPJDefaults({}); break;
+              case "qsa":            data = fillQSADefaults({}); break;
+              case "contrato":       data = fillContratoDefaults({}); break;
+              case "faturamento":    data = fillFaturamentoDefaults({}); break;
+              case "scr":            data = fillSCRDefaults({}); break;
+              case "protestos":      data = fillProtestosDefaults({}); break;
+              case "processos":      data = fillProcessosDefaults({}); break;
+              case "grupoEconomico": data = fillGrupoEconomicoDefaults({}); break;
+              case "curva_abc":      data = fillCurvaABCDefaults({}); break;
+              case "dre":            data = fillDREDefaults({}); break;
+              case "balanco":        data = fillBalancoDefaults({}); break;
+              case "ir_socio":       data = fillIRSocioDefaults({}); break;
+              case "relatorio_visita": data = fillRelatorioVisitaDefaults({}); break;
+              default:               data = fillCNPJDefaults({});
+            }
+
+            let errorType: "quota" | "parse" | "empty" | "unknown" = "unknown";
+            if (errMsg.includes("429") || errMsg.includes("EXHAUSTED") || errMsg.includes("quota") || errMsg.includes("rate")) {
+              errorType = "quota";
+            } else if (errMsg.includes("JSON") || errMsg.includes("parse") || errMsg.includes("SyntaxError")) {
+              errorType = "parse";
+            } else if (errMsg.includes("empty") || errMsg.includes("length: 0") || errMsg.includes("Empty")) {
+              errorType = "empty";
+            }
+
+            _send(controller, "result", {
+              success: true, data,
+              meta: { rawTextLength: _textContent.length, filledFields: 0, isScanned: _isImage, aiError: true, errorType, errorMessage: errMsg.substring(0, 200) },
+            });
+            return;
           }
-          break;
+
+          const filled = countFilledFields(data);
+          const scrAnteriorExtra = (data as SCRData & { _scrAnterior?: SCRData })._scrAnterior;
+          const variacoesExtra = (data as SCRData & { _variacoes?: Record<string, string> })._variacoes;
+          if (scrAnteriorExtra) {
+            delete (data as SCRData & { _scrAnterior?: SCRData })._scrAnterior;
+            delete (data as SCRData & { _variacoes?: Record<string, string> })._variacoes;
+          }
+
+          _send(controller, "result", {
+            success: true, data,
+            ...(scrAnteriorExtra ? { scrAnterior: scrAnteriorExtra, variacoes: variacoesExtra } : {}),
+            meta: { rawTextLength: _textContent.length, filledFields: filled, isScanned: _isImage, aiPowered: true },
+          });
+        } catch (err) {
+          console.error("[extract] Stream error:", err instanceof Error ? err.message : err);
+          _send(controller, "result", { success: false, error: "Erro interno ao processar o documento." });
+        } finally {
+          clearInterval(keepalive);
+          controller.close();
         }
-        case "protestos":      data = fillProtestosDefaults(parsed as Partial<ProtestosData>); break;
-        case "processos":      data = fillProcessosDefaults(parsed as Partial<ProcessosData>); break;
-        case "grupoEconomico": data = fillGrupoEconomicoDefaults(parsed as Partial<GrupoEconomicoData>); break;
-        default:               data = fillCNPJDefaults(parsed as Partial<CNPJData>);
       }
-    } catch (aiError) {
-      const errMsg = aiError instanceof Error ? aiError.message : String(aiError);
-      console.error(`[extract] AI (Gemini) failed:`, errMsg);
-      console.error(`[extract] Context: inputMode=${inputMode} | docType=${docType}`);
-      console.error(`[extract] Input preview (first 200 chars):`, inputMode === "text"
-        ? textContent.substring(0, 200)
-        : `[binary ${imageContent?.mimeType}, base64 length: ${imageContent?.base64.length}]`
-      );
+    });
 
-      switch (docType) {
-        case "cnpj":           data = fillCNPJDefaults({}); break;
-        case "qsa":            data = fillQSADefaults({}); break;
-        case "contrato":       data = fillContratoDefaults({}); break;
-        case "faturamento":    data = fillFaturamentoDefaults({}); break;
-        case "scr":            data = fillSCRDefaults({}); break;
-        case "protestos":      data = fillProtestosDefaults({}); break;
-        case "processos":      data = fillProcessosDefaults({}); break;
-        case "grupoEconomico": data = fillGrupoEconomicoDefaults({}); break;
-        default:               data = fillCNPJDefaults({});
-      }
-      let errorType: "quota" | "parse" | "empty" | "unknown" = "unknown";
-      if (errMsg.includes("429") || errMsg.includes("EXHAUSTED") || errMsg.includes("quota") || errMsg.includes("rate")) {
-        errorType = "quota";
-      } else if (errMsg.includes("JSON") || errMsg.includes("parse") || errMsg.includes("SyntaxError")) {
-        errorType = "parse";
-      } else if (errMsg.includes("empty") || errMsg.includes("length: 0") || errMsg.includes("Empty")) {
-        errorType = "empty";
-      }
-
-      return NextResponse.json({
-        success: true, data,
-        meta: { rawTextLength: textContent.length, filledFields: 0, isScanned: isImage, aiError: true, errorType, errorMessage: errMsg.substring(0, 200) },
-      });
-    }
-
-    const filled = countFilledFields(data);
-    const scrAnteriorExtra = (data as SCRData & { _scrAnterior?: SCRData })._scrAnterior;
-    const variacoesExtra = (data as SCRData & { _variacoes?: Record<string, string> })._variacoes;
-    if (scrAnteriorExtra) {
-      delete (data as SCRData & { _scrAnterior?: SCRData })._scrAnterior;
-      delete (data as SCRData & { _variacoes?: Record<string, string> })._variacoes;
-    }
-    return NextResponse.json({
-      success: true, data,
-      ...(scrAnteriorExtra ? { scrAnterior: scrAnteriorExtra, variacoes: variacoesExtra } : {}),
-      meta: { rawTextLength: textContent.length, filledFields: filled, isScanned: isImage, aiPowered: true },
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "Connection": "keep-alive",
+      },
     });
   } catch (err) {
     console.error("[extract] Error:", err instanceof Error ? err.message : err);

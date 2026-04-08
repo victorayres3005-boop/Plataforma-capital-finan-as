@@ -26,6 +26,8 @@ export interface PDFReportParams {
   decisionBg: string;
   decisionBorder: string;
   alavancagem?: number;
+  observacoes?: string;
+  streetViewBase64?: string;
 }
 
 function parseMoneyToNumber(val: string): number {
@@ -33,2510 +35,4154 @@ function parseMoneyToNumber(val: string): number {
   return parseFloat(val.replace(/\./g, "").replace(",", ".")) || 0;
 }
 
+function fmtBR(n: number, decimals = 0): string {
+  return n.toLocaleString("pt-BR", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+}
+
+// Normaliza qualquer string monetária para o formato brasileiro com separadores corretos
+// Ex: "1234567,89" → "1.234.567,89" | "1234567.89" → "1.234.567,89"
+function fmtMoney(val: string | undefined | null): string {
+  if (!val || val === "N/D" || val === "—") return val || "—";
+  const n = parseMoneyToNumber(val);
+  if (n === 0 && !val.match(/^[0,\.]+$/)) return val; // preserva strings não-numéricas
+  return n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function fmtVar(pct: number): string {
+  const arrow = pct > 0 ? "↑ +" : pct < 0 ? "↓ " : "→ ";
+  return arrow + fmtBR(Math.abs(pct), 1) + "%";
+}
+
+function normalizeTendencia(val: string | undefined | null): string {
+  if (!val) return "—";
+  const lower = val.toLowerCase();
+  if (lower.includes("crescimento") || lower.includes("alta") || lower.includes("positiv"))
+    return "↑ Crescimento";
+  if (lower.includes("queda") || lower.includes("baixa") || lower.includes("negativ") || lower.includes("declín"))
+    return "↓ Queda";
+  if (lower.includes("estavel") || lower.includes("estável") || lower.includes("neutro") || lower.includes("estáv"))
+    return "→ Estável";
+  return "—";
+}
+
+// ─── Alertas determinísticos por seção ───────────────────────────────────────
+type NivelAlerta = 'alta' | 'media' | 'info';
+type AlertaDet = { nivel: NivelAlerta; mensagem: string };
+
+function gerarAlertasFaturamento(
+  fat: { meses?: { mes: string; valor: string }[]; fmm12m?: string; fmmMedio?: string } | undefined,
+  validMeses: { mes: string; valor: string }[]
+): AlertaDet[] {
+  const out: AlertaDet[] = [];
+  const ultimos6 = validMeses.slice(-6);
+  ultimos6.filter(m => parseMoneyToNumber(m.valor) === 0).forEach(m => {
+    out.push({ nivel: 'alta', mensagem: `Faturamento zerado em ${m.mes} — verificar interrupção de operação` });
+  });
+  if (validMeses.length >= 6) {
+    const rec = validMeses.slice(-3).reduce((s, m) => s + parseMoneyToNumber(m.valor), 0);
+    const ant = validMeses.slice(-6, -3).reduce((s, m) => s + parseMoneyToNumber(m.valor), 0);
+    if (ant > 0) {
+      const pct = ((rec - ant) / ant) * 100;
+      if (pct < -20) out.push({ nivel: 'media', mensagem: `Queda de ${fmtBR(Math.abs(pct), 0)}% no faturamento recente — monitorar tendência` });
+      if (pct > 50) out.push({ nivel: 'info', mensagem: `Crescimento acelerado de ${fmtBR(pct, 0)}% — validar sustentabilidade` });
+    }
+  }
+  const fmm = parseMoneyToNumber(fat?.fmm12m || fat?.fmmMedio || '0');
+  if (fmm >= 300000 && fmm < 500000) {
+    out.push({ nivel: 'info', mensagem: `FMM próximo ao limite mínimo (R$${fmtBR(fmm / 1000, 0)}k) — margem reduzida` });
+  }
+  return out;
+}
+
+function gerarAlertasSCR(
+  scr: { vencidos?: string; prejuizos?: string; limiteCredito?: string; totalDividasAtivas?: string } | undefined,
+  scrAnterior: { limiteCredito?: string; totalDividasAtivas?: string } | null | undefined,
+  fmmVal: number
+): AlertaDet[] {
+  const out: AlertaDet[] = [];
+  if (!scr) return out;
+  const vencidos = parseMoneyToNumber(scr.vencidos || '0');
+  if (vencidos > 0) out.push({ nivel: 'alta', mensagem: `SCR com R$ ${fmtMoney(scr.vencidos)} em operações vencidas` });
+  const prej = parseMoneyToNumber(scr.prejuizos || '0');
+  if (prej > 0) out.push({ nivel: 'alta', mensagem: `Operações em prejuízo identificadas no SCR — R$ ${fmtMoney(scr.prejuizos)}` });
+  if (scrAnterior?.limiteCredito) {
+    const limAt = parseMoneyToNumber(scr.limiteCredito || '0');
+    const limAnt = parseMoneyToNumber(scrAnterior.limiteCredito);
+    if (limAnt > 0 && limAt < limAnt) {
+      const pct = ((limAnt - limAt) / limAnt) * 100;
+      if (pct > 50) out.push({ nivel: 'media', mensagem: `Limite de crédito reduzido em ${fmtBR(pct, 0)}% nos últimos 12 meses` });
+    }
+  }
+  if (fmmVal > 0) {
+    const alav = parseMoneyToNumber(scr.totalDividasAtivas || '0') / fmmVal;
+    if (alav > 1.5) out.push({ nivel: 'media', mensagem: `Alavancagem de ${fmtBR(alav, 1)}x — acima do patamar conservador` });
+  }
+  if (scrAnterior?.totalDividasAtivas) {
+    const divAt = parseMoneyToNumber(scr.totalDividasAtivas || '0');
+    const divAnt = parseMoneyToNumber(scrAnterior.totalDividasAtivas);
+    if (divAnt > 0 && divAt < divAnt) {
+      const pct = ((divAnt - divAt) / divAnt) * 100;
+      if (pct > 50) out.push({ nivel: 'info', mensagem: `Redução expressiva de dívida (${fmtBR(pct, 0)}%) — pode indicar renegociação` });
+    }
+  }
+  return out;
+}
+
+function gerarAlertasDRE(
+  dre: { anos?: { margemLiquida?: string; margemBruta?: string; ebitda?: string }[] } | undefined
+): AlertaDet[] {
+  const out: AlertaDet[] = [];
+  if (!dre?.anos?.length) return out;
+  const u = dre.anos[dre.anos.length - 1];
+  const ml = parseFloat(String(u.margemLiquida || '0').replace(',', '.')) || 0;
+  const mb = parseFloat(String(u.margemBruta || '0').replace(',', '.')) || 0;
+  if (ml < 0) {
+    out.push({ nivel: 'alta', mensagem: `Empresa com prejuízo líquido — margem de ${fmtBR(ml, 1)}%` });
+  } else if (ml > 0 && ml < 3) {
+    out.push({ nivel: 'info', mensagem: `Margem líquida reduzida (${fmtBR(ml, 1)}%) — baixa tolerância a choques` });
+  }
+  if (!u.ebitda || parseMoneyToNumber(u.ebitda) === 0) {
+    out.push({ nivel: 'media', mensagem: `EBITDA não calculado — dados de depreciação/amortização ausentes` });
+  }
+  if (mb > 0 && mb < 10) {
+    out.push({ nivel: 'media', mensagem: `Margem bruta baixa (${fmtBR(mb, 1)}%) — estrutura de custos pressionada` });
+  }
+  return out;
+}
+
+function gerarAlertasBalanco(
+  balanco: { anos?: { patrimonioLiquido?: string; liquidezCorrente?: string; capitalDeGiroLiquido?: string; endividamentoTotal?: string }[] } | undefined
+): AlertaDet[] {
+  const out: AlertaDet[] = [];
+  if (!balanco?.anos?.length) return out;
+  const u = balanco.anos[balanco.anos.length - 1];
+  const pl = parseMoneyToNumber(u.patrimonioLiquido || '0');
+  const lc = parseFloat(String(u.liquidezCorrente || '0').replace(',', '.')) || 0;
+  const cg = parseMoneyToNumber(u.capitalDeGiroLiquido || '0');
+  const end = parseFloat(String(u.endividamentoTotal || '0').replace(',', '.')) || 0;
+  if (pl < 0) out.push({ nivel: 'alta', mensagem: `Patrimônio Líquido negativo (R$ ${fmtMoney(u.patrimonioLiquido)}) — passivo a descoberto` });
+  if (lc > 0 && lc < 0.5) {
+    out.push({ nivel: 'alta', mensagem: `Liquidez Corrente de ${fmtBR(lc, 2)} — risco elevado de inadimplência de curto prazo` });
+  } else if (lc >= 0.5 && lc < 1.0) {
+    out.push({ nivel: 'info', mensagem: `Liquidez Corrente de ${fmtBR(lc, 2)} — abaixo do ideal (> 1,0)` });
+  }
+  if (cg < 0) out.push({ nivel: 'media', mensagem: `Capital de Giro negativo (R$ ${fmtMoney(u.capitalDeGiroLiquido)}) — dependência de financiamento externo` });
+  if (end > 150) out.push({ nivel: 'media', mensagem: `Endividamento de ${fmtBR(end, 0)}% — estrutura de capital alavancada` });
+  return out;
+}
+
+function gerarAlertasQSA(
+  qsa: { quadroSocietario?: { nome?: string }[] } | undefined,
+  contrato: { temAlteracoes?: boolean } | undefined
+): AlertaDet[] {
+  const out: AlertaDet[] = [];
+  if (contrato?.temAlteracoes) out.push({ nivel: 'media', mensagem: `Alteração societária recente — verificar motivação e impacto` });
+  const socios = (qsa?.quadroSocietario || []).filter(s => s.nome);
+  if (socios.length === 1) out.push({ nivel: 'info', mensagem: `Empresa com sócio único — risco de concentração de gestão` });
+  return out;
+}
+
+function gerarAlertasIRSocios(
+  irSocios: { nomeSocio?: string; anoBase?: string; debitosEmAberto?: boolean }[] | undefined,
+  anoAtual: number
+): AlertaDet[] {
+  const out: AlertaDet[] = [];
+  if (!irSocios?.length) return out;
+  irSocios.forEach(ir => {
+    if (!ir.nomeSocio && !ir.anoBase) return;
+    const nome = ir.nomeSocio || 'Sócio';
+    if (ir.debitosEmAberto) out.push({ nivel: 'alta', mensagem: `Sócio ${nome} com débitos em aberto na Receita Federal` });
+    if (ir.anoBase) {
+      const ano = parseInt(ir.anoBase);
+      if (!isNaN(ano) && (anoAtual - ano) > 2) out.push({ nivel: 'media', mensagem: `IR do sócio ${nome} desatualizado — ano-base ${ir.anoBase}` });
+    }
+  });
+  return out;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { data, aiAnalysis, decision, finalRating, alerts, alertsHigh, pontosFortes, pontosFracos, perguntasVisita, resumoExecutivo, companyAge, protestosVigentes, vencidosSCR, vencidas, prejuizosVal, dividaAtiva, atraso, riskScore, decisionColor, decisionBg, decisionBorder } = p;
 
-      // Parse de mês suportando MM/YYYY e MMM/YY (ex: "Jan/25")
-      const parseDateKey = (s: string): number => {
-        if (!s) return 0;
-        const parts = s.split("/");
-        if (parts.length !== 2) return 0;
-        const [p1, p2] = parts;
-        const monthMap: Record<string, number> = {
-          jan:1,fev:2,mar:3,abr:4,mai:5,jun:6,
-          jul:7,ago:8,set:9,out:10,nov:11,dez:12
-        };
-        const month = isNaN(Number(p1)) ? (monthMap[p1.toLowerCase()] || 0) : Number(p1);
-        const year = Number(p2) < 100 ? Number(p2) + 2000 : Number(p2);
-        return year * 100 + month;
-      };
+  // Parse de mês suportando MM/YYYY e MMM/YY (ex: "Jan/25")
+  const parseDateKey = (s: string): number => {
+    if (!s) return 0;
+    const parts = s.split("/");
+    if (parts.length !== 2) return 0;
+    const [p1, p2] = parts;
+    const monthMap: Record<string, number> = {
+      jan: 1, fev: 2, mar: 3, abr: 4, mai: 5, jun: 6,
+      jul: 7, ago: 8, set: 9, out: 10, nov: 11, dez: 12
+    };
+    const month = isNaN(Number(p1)) ? (monthMap[p1.toLowerCase()] || 0) : Number(p1);
+    const year = Number(p2) < 100 ? Number(p2) + 2000 : Number(p2);
+    return year * 100 + month;
+  };
 
-      const validMeses = [...(data.faturamento?.meses || [])]
-        .filter(m => m?.mes && m?.valor)
-        .sort((a, b) => parseDateKey(a.mes) - parseDateKey(b.mes));
+  const validMeses = [...(data.faturamento?.meses || [])]
+    .filter(m => m?.mes && m?.valor)
+    .sort((a, b) => parseDateKey(a.mes) - parseDateKey(b.mes));
 
-      // Usa fmm12m já calculado pelo fillFaturamentoDefaults — não recalcula
-      const fmmNum = data.faturamento?.fmm12m
-        ? parseMoneyToNumber(data.faturamento.fmm12m)
-        : validMeses.slice(-12).reduce((s, m) => s + parseMoneyToNumber(m.valor), 0) / 12;
+  // Usa fmm12m já calculado pelo fillFaturamentoDefaults — não recalcula
+  const fmmNum = data.faturamento?.fmm12m
+    ? parseMoneyToNumber(data.faturamento.fmm12m)
+    : validMeses.slice(-12).reduce((s, m) => s + parseMoneyToNumber(m.valor), 0) / 12;
 
-      // Todos os meses extraídos
-      const mesesFMM = validMeses;
+  // Todos os meses extraídos
+  const mesesFMM = validMeses;
 
-      const scrNum = parseMoneyToNumber(data.scr?.totalDividasAtivas || "0");
-      const alavancagem = p.alavancagem ?? (fmmNum > 0 ? scrNum / fmmNum : 0);
-      const faturamentoRealmenteZerado = fmmNum === 0 || (data.faturamento.meses || []).length === 0 || (data.faturamento.meses || []).every(m => parseMoneyToNumber(m.valor) === 0);
+  const scrNum = parseMoneyToNumber(data.scr?.totalDividasAtivas || "0");
+  const alavancagem = p.alavancagem ?? (fmmNum > 0 ? scrNum / fmmNum : 0);
+  const faturamentoRealmenteZerado = fmmNum === 0 || (data.faturamento.meses || []).length === 0 || (data.faturamento.meses || []).every(m => parseMoneyToNumber(m.valor) === 0);
 
-      const { jsPDF } = await import("jspdf");
-      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-      const W = 210;
-      const margin = 20;
-      const contentW = W - margin * 2;
-      let y = 0;
+  // ── Alertas determinísticos (pré-computados antes do jsPDF) ──
+  const _anoAtual = new Date().getFullYear();
+  const alertasFat = gerarAlertasFaturamento(data.faturamento, validMeses);
+  const alertasSCR = gerarAlertasSCR(data.scr, data.scrAnterior, fmmNum);
+  const alertasDRE = gerarAlertasDRE(data.dre);
+  const alertasBalanco = gerarAlertasBalanco(data.balanco);
+  const alertasQSA = gerarAlertasQSA(data.qsa, data.contrato);
+  const alertasIR = gerarAlertasIRSocios(data.irSocios, _anoAtual);
+  const alertasAltaDet = [...alertasFat, ...alertasSCR, ...alertasDRE, ...alertasBalanco, ...alertasQSA, ...alertasIR].filter(a => a.nivel === 'alta');
 
-      const colors = {
-        bg: [32, 59, 136] as [number, number, number],
-        primary: [32, 59, 136] as [number, number, number],
-        accent: [115, 184, 21] as [number, number, number],
-        "accent-light": [168, 217, 107] as [number, number, number],
-        surface: [255, 255, 255] as [number, number, number],
-        surface2: [237, 242, 251] as [number, number, number],
-        surface3: [220, 232, 248] as [number, number, number],
-        text: [17, 24, 39] as [number, number, number],
-        textSec: [55, 65, 81] as [number, number, number],
-        textMuted: [107, 114, 128] as [number, number, number],
-        border: [209, 220, 240] as [number, number, number],
-        warning: [217, 119, 6] as [number, number, number],
-        danger: [220, 38, 38] as [number, number, number],
-        white: [255, 255, 255] as [number, number, number],
-        navy: [32, 59, 136] as [number, number, number],
-        navyLight: [26, 48, 112] as [number, number, number],
-        green: [22, 163, 74] as [number, number, number],
-        amber: [217, 119, 6] as [number, number, number],
-        red: [220, 38, 38] as [number, number, number],
-      };
+  // TODO: substituir por dados reais após integração Credit Hub
+  // Detecta se protestos/processos foram realmente consultados ou apenas defaults vazios
+  const protestosNaoConsultados = !data.protestos?.vigentesQtd && !data.protestos?.vigentesValor
+    && (data.protestos?.detalhes || []).length === 0;
+  const processosNaoConsultados = !data.processos?.passivosTotal && !data.processos?.valorTotalEstimado
+    && !(data.processos?.temRJ)
+    && (data.processos?.distribuicao || []).length === 0;
 
-      const pageCount = { n: 0 };
-      const footerDateStr = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+    import("jspdf"),
+    import("jspdf-autotable"),
+  ]);
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const W = 210;
+  const margin = 20;
+  const contentW = W - margin * 2;
+  let y = 0;
 
-      const newPage = () => {
-        if (pageCount.n > 0) doc.addPage();
-        pageCount.n++;
-        doc.setFillColor(255, 255, 255);
-        doc.rect(0, 0, 210, 297, "F");
-        doc.setFillColor(...colors.navy);
-        doc.rect(0, 0, 210, 1.5, "F");
-        y = 1.5;
-      };
+  const colors = {
+    bg: [32, 59, 136] as [number, number, number],
+    primary: [32, 59, 136] as [number, number, number],
+    accent: [115, 184, 21] as [number, number, number],
+    "accent-light": [168, 217, 107] as [number, number, number],
+    surface: [255, 255, 255] as [number, number, number],
+    surface2: [237, 242, 251] as [number, number, number],
+    surface3: [220, 232, 248] as [number, number, number],
+    text: [17, 24, 39] as [number, number, number],
+    textSec: [55, 65, 81] as [number, number, number],
+    textMuted: [107, 114, 128] as [number, number, number],
+    border: [209, 220, 240] as [number, number, number],
+    warning: [217, 119, 6] as [number, number, number],
+    danger: [220, 38, 38] as [number, number, number],
+    white: [255, 255, 255] as [number, number, number],
+    navy: [32, 59, 136] as [number, number, number],
+    navyLight: [26, 48, 112] as [number, number, number],
+    green: [22, 163, 74] as [number, number, number],
+    amber: [217, 119, 6] as [number, number, number],
+    red: [220, 38, 38] as [number, number, number],
+  };
 
-      const checkPageBreak = (needed: number) => {
-        if (y + needed > 275) { newPage(); drawHeader(); }
-      };
+  const pageCount = { n: 0 };
+  const footerDateStr = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
 
-      const drawHeader = () => {
-        doc.setFillColor(...colors.navy);
-        doc.rect(0, 1.5, 210, 32, "F");
-        doc.setFillColor(...colors.accent);
-        doc.rect(0, 33.5, 210, 2, "F");
+  const newPage = () => {
+    if (pageCount.n > 0) doc.addPage();
+    pageCount.n++;
+    doc.setFillColor(255, 255, 255);
+    doc.rect(0, 0, 210, 297, "F");
+    doc.setFillColor(...colors.navy);
+    doc.rect(0, 0, 210, 1.5, "F");
+    y = 1.5;
+  };
 
-        doc.setDrawColor(255, 255, 255);
-        doc.setLineWidth(1.2);
-        doc.circle(margin + 7, 12, 7);
-        doc.setFillColor(255, 255, 255);
-        doc.circle(margin + 7, 20.5, 1.5, "F");
+  const checkPageBreak = (needed: number) => {
+    if (y + needed > 275) { newPage(); drawHeader(); }
+  };
 
-        doc.setFontSize(14);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(255, 255, 255);
-        doc.text("capital", margin + 17, 16);
-        doc.setTextColor(...colors["accent-light"]);
-        doc.text("financas", margin + 17 + doc.getTextWidth("capital") + 1, 16);
+  const drawHeader = () => {
+    doc.setFillColor(...colors.navy);
+    doc.rect(0, 1.5, 210, 32, "F");
+    doc.setFillColor(...colors.accent);
+    doc.rect(0, 33.5, 210, 2, "F");
 
-        doc.setFontSize(6);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(180, 200, 240);
-        doc.text("CONSOLIDADOR DE DOCUMENTOS", margin + 17, 21);
+    doc.setDrawColor(255, 255, 255);
+    doc.setLineWidth(1.2);
+    doc.circle(margin + 7, 12, 7);
+    doc.setFillColor(255, 255, 255);
+    doc.circle(margin + 7, 20.5, 1.5, "F");
 
-        doc.setFontSize(11);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(255, 255, 255);
-        doc.text("Relatório de Due Diligence", W - margin, 13, { align: "right" });
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("capital", margin + 17, 16);
+    doc.setTextColor(...colors["accent-light"]);
+    doc.text("financas", margin + 17 + doc.getTextWidth("capital") + 1, 16);
 
-        doc.setFontSize(7.5);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(180, 200, 240);
-        const now = new Date();
-        const dtStr = now.toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
-        doc.text(`Gerado em ${dtStr}`, W - margin, 20, { align: "right" });
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(180, 200, 240);
+    doc.text("CONSOLIDADOR DE DOCUMENTOS", margin + 17, 21);
 
-        if (data.cnpj.razaoSocial) {
-          doc.setFontSize(7);
-          doc.setTextColor(180, 200, 240);
-          doc.text(data.cnpj.razaoSocial.substring(0, 45), W - margin, 26, { align: "right" });
-        }
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("Relatório de Due Diligence", W - margin, 13, { align: "right" });
 
-        y = 42;
-      };
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(180, 200, 240);
+    const now = new Date();
+    const dtStr = now.toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
+    doc.text(`Gerado em ${dtStr}`, W - margin, 20, { align: "right" });
 
-      const drawSectionTitle = (num: string, title: string, color: [number, number, number]) => {
-        checkPageBreak(16);
-        doc.setFillColor(...colors.surface2);
-        doc.roundedRect(margin, y, contentW, 10, 1.5, 1.5, "F");
-        doc.setFillColor(...color);
-        doc.roundedRect(margin, y, 3, 10, 0.5, 0.5, "F");
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...color);
-        doc.text(num, margin + 7, y + 6.5);
-        doc.setFontSize(9);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors.text);
-        doc.text(title, margin + 14, y + 6.5);
-        y += 14;
-      };
-
-      const drawField = (label: string, value: string, fullWidth = false) => {
-        if (!value) return;
-        checkPageBreak(14);
-        const fieldW = fullWidth ? contentW : contentW / 2 - 2;
-        doc.setFillColor(...colors.surface);
-        doc.roundedRect(margin, y, fieldW, 12, 1, 1, "F");
-        doc.setFontSize(6);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(...colors.textMuted);
-        doc.text(label.toUpperCase(), margin + 4, y + 4.5);
-        doc.setFontSize(8);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors.text);
-        const displayVal = value.length > (fullWidth ? 80 : 35) ? value.substring(0, fullWidth ? 80 : 35) + "..." : value;
-        doc.text(displayVal, margin + 4, y + 9.5);
-        y += 14;
-      };
-
-      const drawFieldRow = (fields: Array<{ label: string; value: string }>) => {
-        const validFields = fields.filter((f) => f.value);
-        if (validFields.length === 0) return;
-        checkPageBreak(14);
-        const fieldW = contentW / validFields.length - 2;
-        let x = margin;
-        validFields.forEach((field) => {
-          doc.setFillColor(...colors.surface);
-          doc.roundedRect(x, y, fieldW, 12, 1, 1, "F");
-          doc.setFontSize(6);
-          doc.setFont("helvetica", "normal");
-          doc.setTextColor(...colors.textMuted);
-          doc.text(field.label.toUpperCase(), x + 4, y + 4.5);
-          doc.setFontSize(8);
-          doc.setFont("helvetica", "bold");
-          doc.setTextColor(...colors.text);
-          const maxChars = Math.floor(fieldW / 2.8);
-          const displayVal = field.value.length > maxChars ? field.value.substring(0, maxChars) + "..." : field.value;
-          doc.text(displayVal, x + 4, y + 9.5);
-          x += fieldW + 4;
-        });
-        y += 14;
-      };
-
-      const drawMultilineField = (label: string, value: string, maxLines = 6) => {
-        if (!value) return;
-        const lineH = 5;
-        const paddingV = 6;
-        const maxWidth = contentW - 8;
-        const lines = doc.splitTextToSize(value, maxWidth);
-        const displayLines = lines.slice(0, maxLines);
-        const boxH = displayLines.length * lineH + paddingV * 2 + 6;
-        checkPageBreak(boxH + 4);
-        doc.setFillColor(...colors.surface);
-        doc.roundedRect(margin, y, contentW, boxH, 1, 1, "F");
-        doc.setFontSize(6);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(...colors.textMuted);
-        doc.text(label.toUpperCase(), margin + 4, y + 5);
-        doc.setFontSize(8);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(...colors.text);
-        displayLines.forEach((line: string, i: number) => {
-          doc.text(line, margin + 4, y + paddingV + 5 + i * lineH);
-        });
-        if (lines.length > maxLines) {
-          doc.setFontSize(7);
-          doc.setTextColor(...colors.textMuted);
-          doc.text(`+ ${lines.length - maxLines} linha(s) omitida(s)...`, margin + 4, y + boxH - 2);
-        }
-        y += boxH + 4;
-      };
-
-      const drawSpacer = (h = 6) => { y += h; };
-
-      // Helper: draw simple table
-      const drawTable = (headers: string[], rows: string[][], colWidths: number[]) => {
-        const rowH = 10;
-        const headerH = 8;
-
-        checkPageBreak(headerH + Math.min(rows.length, 3) * rowH + 4);
-
-        // Header
-        doc.setFillColor(...colors.surface2);
-        doc.roundedRect(margin, y, contentW, headerH, 1, 1, "F");
-        doc.setFontSize(6.5);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors.textMuted);
-        let hx = margin;
-        headers.forEach((h, i) => {
-          doc.text(h, hx + 4, y + 5.5);
-          hx += colWidths[i];
-        });
-        y += headerH + 1;
-
-        // Rows
-        rows.forEach((row, idx) => {
-          checkPageBreak(rowH + 2);
-          const rowColor = idx % 2 === 0 ? colors.surface : colors.surface2;
-          doc.setFillColor(...rowColor);
-          doc.rect(margin, y, contentW, rowH, "F");
-          doc.setFontSize(7.5);
-          doc.setFont("helvetica", "normal");
-          doc.setTextColor(...colors.text);
-          let rx = margin;
-          row.forEach((cell, ci) => {
-            const maxChars = Math.floor(colWidths[ci] / 2.2);
-            const val = cell.length > maxChars ? cell.substring(0, maxChars) + "..." : cell;
-            doc.text(val, rx + 4, y + 6.5);
-            rx += colWidths[ci];
-          });
-          y += rowH;
-        });
-        y += 4;
-      };
-
-      // Helper: draw alert box in PDF
-      const drawAlertBox = (text: string, severity: AlertSeverity) => {
-        checkPageBreak(10);
-        const bgColor: [number, number, number] = severity === "ALTA" ? [254, 242, 242] : [255, 251, 235];
-        const barColor: [number, number, number] = severity === "ALTA" ? colors.danger : colors.warning;
-        const textColor: [number, number, number] = severity === "ALTA" ? colors.danger : colors.warning;
-        doc.setFillColor(...bgColor);
-        doc.roundedRect(margin, y, contentW, 8, 1, 1, "F");
-        doc.setFillColor(...barColor);
-        doc.roundedRect(margin, y, 2.5, 8, 0.5, 0.5, "F");
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...textColor);
-        doc.text(`[${severity}] ${text}`, margin + 6, y + 5.5);
-        y += 10;
-      };
-
-
-      // ===== PAGE 1 — CAPA =====
-      newPage();
-      doc.setFillColor(...colors.navy);
-      doc.rect(0, 0, 210, 297, "F");
-      doc.setFillColor(...colors.accent);
-      doc.rect(0, 0, 210, 3, "F");
-
-      // Decorative
-      doc.setDrawColor(255, 255, 255);
-      doc.setLineWidth(0.3);
-      doc.circle(160, 50, 40);
-      doc.circle(50, 250, 30);
-
-      // Logo
-      doc.setLineWidth(2);
-      doc.circle(W / 2, 65, 18);
-      doc.setFillColor(255, 255, 255);
-      doc.circle(W / 2, 84, 3, "F");
-
-      doc.setFontSize(28);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(255, 255, 255);
-      const capW2 = doc.getTextWidth("capital");
-      doc.text("capital", W / 2 - (capW2 + doc.getTextWidth("financas") + 2) / 2, 105);
-      doc.setTextColor(...colors["accent-light"]);
-      doc.text("financas", W / 2 - (capW2 + doc.getTextWidth("financas") + 2) / 2 + capW2 + 2, 105);
-
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "normal");
+    if (data.cnpj.razaoSocial) {
+      doc.setFontSize(7);
       doc.setTextColor(180, 200, 240);
-      doc.text("CONSOLIDADOR DE DOCUMENTOS", W / 2, 116, { align: "center" });
+      doc.text(data.cnpj.razaoSocial.substring(0, 45), W - margin, 26, { align: "right" });
+    }
 
-      doc.setFillColor(...colors.accent);
-      doc.rect(W / 2 - 30, 123, 60, 1.5, "F");
+    y = 42;
+  };
 
-      doc.setFontSize(22);
+  const drawSectionTitle = (num: string, title: string, color: [number, number, number]) => {
+    checkPageBreak(16);
+    doc.setFillColor(...colors.surface2);
+    doc.roundedRect(margin, y, contentW, 10, 1.5, 1.5, "F");
+    doc.setFillColor(...color);
+    doc.roundedRect(margin, y, 3, 10, 0.5, 0.5, "F");
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...color);
+    doc.text(num, margin + 7, y + 6.5);
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...colors.text);
+    doc.text(title, margin + 14, y + 6.5);
+    y += 14;
+  };
+
+  const drawField = (label: string, value: string, fullWidth = false) => {
+    if (!value) return;
+    checkPageBreak(14);
+    const fieldW = fullWidth ? contentW : contentW / 2 - 2;
+    doc.setFillColor(...colors.surface);
+    doc.roundedRect(margin, y, fieldW, 12, 1, 1, "F");
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...colors.textMuted);
+    doc.text(label.toUpperCase(), margin + 4, y + 4.5);
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...colors.text);
+    const displayVal = value.length > (fullWidth ? 80 : 35) ? value.substring(0, fullWidth ? 80 : 35) + "..." : value;
+    doc.text(displayVal, margin + 4, y + 9.5);
+    y += 14;
+  };
+
+  const drawFieldRow = (fields: Array<{ label: string; value: string }>) => {
+    const validFields = fields.filter((f) => f.value);
+    if (validFields.length === 0) return;
+    checkPageBreak(14);
+    const fieldW = contentW / validFields.length - 2;
+    let x = margin;
+    validFields.forEach((field) => {
+      doc.setFillColor(...colors.surface);
+      doc.roundedRect(x, y, fieldW, 12, 1, 1, "F");
+      doc.setFontSize(6);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...colors.textMuted);
+      doc.text(field.label.toUpperCase(), x + 4, y + 4.5);
+      doc.setFontSize(8);
       doc.setFont("helvetica", "bold");
-      doc.setTextColor(255, 255, 255);
-      doc.text("Relatorio de", W / 2, 145, { align: "center" });
-      doc.text("Due Diligence", W / 2, 156, { align: "center" });
+      doc.setTextColor(...colors.text);
+      const maxChars = Math.floor(fieldW / 2.8);
+      const displayVal = field.value.length > maxChars ? field.value.substring(0, maxChars) + "..." : field.value;
+      doc.text(displayVal, x + 4, y + 9.5);
+      x += fieldW + 4;
+    });
+    y += 14;
+  };
 
-      if (data.cnpj.razaoSocial) {
-        doc.setFontSize(13);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors["accent-light"]);
-        doc.text(data.cnpj.razaoSocial.substring(0, 50), W / 2, 175, { align: "center" });
-      }
-      if (data.cnpj.cnpj) {
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(180, 200, 240);
-        doc.text("CNPJ: " + data.cnpj.cnpj, W / 2, 184, { align: "center" });
-      }
-
-      const coverDate = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
-      doc.setFontSize(9);
-      doc.setTextColor(140, 170, 220);
-      doc.text("Gerado em " + coverDate, W / 2, 198, { align: "center" });
+  const drawMultilineField = (label: string, value: string, maxLines = 6) => {
+    if (!value) return;
+    const lineH = 5;
+    const paddingV = 6;
+    const maxWidth = contentW - 8;
+    const lines = doc.splitTextToSize(value, maxWidth);
+    const displayLines = lines.slice(0, maxLines);
+    const boxH = displayLines.length * lineH + paddingV * 2 + 6;
+    checkPageBreak(boxH + 4);
+    doc.setFillColor(...colors.surface);
+    doc.roundedRect(margin, y, contentW, boxH, 1, 1, "F");
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...colors.textMuted);
+    doc.text(label.toUpperCase(), margin + 4, y + 5);
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...colors.text);
+    displayLines.forEach((line: string, i: number) => {
+      doc.text(line, margin + 4, y + paddingV + 5 + i * lineH);
+    });
+    if (lines.length > maxLines) {
       doc.setFontSize(7);
-      doc.setTextColor(100, 140, 200);
-      doc.text("Documento confidencial — uso restrito", W / 2, 280, { align: "center" });
-      doc.setFillColor(...colors.accent);
-      doc.rect(0, 294, 210, 3, "F");
+      doc.setTextColor(...colors.textMuted);
+      doc.text(`+ ${lines.length - maxLines} linha(s) omitida(s)...`, margin + 4, y + boxH - 2);
+    }
+    y += boxH + 4;
+  };
 
-      // ===== PAGE 1b — SINTESE PRELIMINAR =====
-      newPage();
-      drawHeader();
-      drawSectionTitle("00", "SINTESE PRELIMINAR", colors.primary);
+  const drawSpacer = (h = 6) => { y += h; };
 
-      // Rating + Decision
-      const ratingColorPDF = finalRating >= 7 ? colors.green : finalRating >= 4 ? colors.amber : colors.red;
-      doc.setFontSize(22);
+  // ─── autoT: helper universal baseado em jspdf-autotable ───────────────────
+  // Substitui drawTable e todos os drawProcTableHeader+drawProcRow manuais.
+  // Suporta células com { content, styles } para cor/bold por célula.
+  type AutoCell = string | { content: string; styles?: Record<string, unknown> };
+  const autoT = (
+    headers: string[],
+    rows: AutoCell[][],
+    colWidths: number[],
+    opts?: {
+      headFill?: [number, number, number];
+      headTextColor?: [number, number, number];
+      fontSize?: number;
+      headFontSize?: number;
+      gap?: number;         // espaço extra após tabela (padrão 4)
+      minCellHeight?: number;
+    }
+  ) => {
+    const totalW = colWidths.reduce((a, b) => a + b, 0);
+    const scale = contentW / (totalW || contentW);
+    const scaledWidths = colWidths.map(w => w * scale);
+
+    const headFill = opts?.headFill ?? colors.navy;
+    const headText = opts?.headTextColor ?? ([255, 255, 255] as [number, number, number]);
+    const fs = opts?.fontSize ?? 7;
+    const hfs = opts?.headFontSize ?? 5.5;
+    const gap = opts?.gap ?? 4;
+
+    autoTable(doc, {
+      startY: y,
+      head: [headers],
+      body: rows,
+      margin: { left: margin, right: margin },
+      tableWidth: contentW,
+      theme: "plain",
+      styles: {
+        fontSize: fs,
+        cellPadding: { top: 2, bottom: 2, left: 2, right: 2 },
+        overflow: "linebreak",
+        lineColor: [230, 230, 230],
+        lineWidth: 0.1,
+        textColor: colors.text,
+        font: "helvetica",
+        minCellHeight: opts?.minCellHeight ?? 6,
+      },
+      headStyles: {
+        fillColor: headFill,
+        textColor: headText,
+        fontStyle: "bold",
+        fontSize: hfs,
+        cellPadding: { top: 2, bottom: 2, left: 2, right: 2 },
+      },
+      alternateRowStyles: {
+        fillColor: colors.surface2,
+      },
+      bodyStyles: {
+        fillColor: colors.surface,
+      },
+      columnStyles: scaledWidths.reduce((acc, w, i) => {
+        acc[i] = { cellWidth: w };
+        return acc;
+      }, {} as Record<number, { cellWidth: number }>),
+    });
+    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + gap;
+  };
+
+  // Helper: draw simple table (mantido para compatibilidade — delega ao autoT)
+  const drawTable = (headers: string[], rows: string[][], colWidths: number[]) => {
+    autoT(headers, rows, colWidths, {
+      headFill: colors.surface2,
+      headTextColor: colors.textMuted,
+      headFontSize: 6.5,
+      fontSize: 7.5,
+    });
+  };
+
+  // Helper: draw alert box in PDF
+  const drawAlertBox = (text: string, severity: AlertSeverity) => {
+    checkPageBreak(10);
+    const bgColor: [number, number, number] = severity === "ALTA" ? [254, 242, 242] : [255, 251, 235];
+    const barColor: [number, number, number] = severity === "ALTA" ? colors.danger : colors.warning;
+    const textColor: [number, number, number] = severity === "ALTA" ? colors.danger : colors.warning;
+    doc.setFillColor(...bgColor);
+    doc.roundedRect(margin, y, contentW, 8, 1, 1, "F");
+    doc.setFillColor(...barColor);
+    doc.roundedRect(margin, y, 2.5, 8, 0.5, 0.5, "F");
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...textColor);
+    doc.text(`[${severity}] ${text}`, margin + 6, y + 5.5);
+    y += 10;
+  };
+
+  // Helper: draw deterministic section alert (alta=vermelho, media=âmbar, info=azul)
+  const drawDetAlerts = (alertas: AlertaDet[]) => {
+    if (!alertas.length) return;
+    alertas.forEach(al => {
+      checkPageBreak(10);
+      const bgColor: [number, number, number] = al.nivel === 'alta' ? [254, 242, 242] : al.nivel === 'media' ? [255, 251, 235] : [239, 246, 255];
+      const barColor: [number, number, number] = al.nivel === 'alta' ? colors.danger : al.nivel === 'media' ? colors.warning : [59, 130, 246];
+      const txColor: [number, number, number] = al.nivel === 'alta' ? colors.danger : al.nivel === 'media' ? colors.warning : [29, 78, 216];
+      const label = al.nivel === 'alta' ? 'ALTA' : al.nivel === 'media' ? 'MOD' : 'INFO';
+      doc.setFillColor(...bgColor);
+      doc.roundedRect(margin, y, contentW, 8, 1, 1, 'F');
+      doc.setFillColor(...barColor);
+      doc.roundedRect(margin, y, 2.5, 8, 0.5, 0.5, 'F');
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...txColor);
+      doc.text(`[${label}] ${al.mensagem}`, margin + 6, y + 5.5);
+      y += 10;
+    });
+  };
+
+  // Helper: banner âmbar de "consulta não realizada" (protestos / processos)
+  const drawBannerNaoConsultado = (secao: string) => {
+    const padV = 10; // padding vertical interno
+    const padH = 14; // padding horizontal interno
+    const textW = contentW - padH * 2 - 3; // descontando borda âmbar + padding h
+    // Calcular altura dinamicamente pelo conteúdo
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'normal');
+    const descText = `${secao}: integração com bureau de crédito não configurada. Esta seção não foi verificada nesta análise.`;
+    const descLines = doc.splitTextToSize(descText, textW);
+    const bannerH = padV + 8 + descLines.length * 4 + padV; // padTop + título + linhas desc + padBottom
+    checkPageBreak(bannerH + 4);
+    doc.setFillColor(255, 251, 235);
+    doc.roundedRect(margin, y, contentW, bannerH, 1.5, 1.5, 'F');
+    doc.setFillColor(...colors.warning);
+    doc.roundedRect(margin, y, 3, bannerH, 0.5, 0.5, 'F');
+    // Título — fonte normal, sentence case
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...colors.warning);
+    doc.text('Consulta não realizada', margin + padH, y + padV);
+    // Texto descritivo — fonte normal, sem uppercase
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(120, 80, 0);
+    descLines.forEach((l: string, i: number) => {
+      doc.text(l, margin + padH, y + padV + 7 + i * 4);
+    });
+    y += bannerH + 4;
+  };
+
+
+  // ===== PAGE 1 — CAPA =====
+  newPage();
+  doc.setFillColor(...colors.navy);
+  doc.rect(0, 0, 210, 297, "F");
+  doc.setFillColor(...colors.accent);
+  doc.rect(0, 0, 210, 3, "F");
+
+  // Decorative
+  doc.setDrawColor(255, 255, 255);
+  doc.setLineWidth(0.3);
+  doc.circle(160, 50, 40);
+  doc.circle(50, 250, 30);
+
+  // Logo
+  doc.setLineWidth(2);
+  doc.circle(W / 2, 65, 18);
+  doc.setFillColor(255, 255, 255);
+  doc.circle(W / 2, 84, 3, "F");
+
+  doc.setFontSize(28);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(255, 255, 255);
+  const capW2 = doc.getTextWidth("capital");
+  doc.text("capital", W / 2 - (capW2 + doc.getTextWidth("financas") + 2) / 2, 105);
+  doc.setTextColor(...colors["accent-light"]);
+  doc.text("financas", W / 2 - (capW2 + doc.getTextWidth("financas") + 2) / 2 + capW2 + 2, 105);
+
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(180, 200, 240);
+  doc.text("CONSOLIDADOR DE DOCUMENTOS", W / 2, 116, { align: "center" });
+
+  doc.setFillColor(...colors.accent);
+  doc.rect(W / 2 - 30, 123, 60, 1.5, "F");
+
+  doc.setFontSize(22);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(255, 255, 255);
+  doc.text("Relatorio de", W / 2, 145, { align: "center" });
+  doc.text("Due Diligence", W / 2, 156, { align: "center" });
+
+  if (data.cnpj.razaoSocial) {
+    doc.setFontSize(13);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...colors["accent-light"]);
+    doc.text(data.cnpj.razaoSocial.substring(0, 50), W / 2, 175, { align: "center" });
+  }
+  if (data.cnpj.cnpj) {
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(180, 200, 240);
+    doc.text("CNPJ: " + data.cnpj.cnpj, W / 2, 184, { align: "center" });
+  }
+
+  const coverDate = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
+  doc.setFontSize(9);
+  doc.setTextColor(140, 170, 220);
+  doc.text("Gerado em " + coverDate, W / 2, 198, { align: "center" });
+  doc.setFontSize(7);
+  doc.setTextColor(100, 140, 200);
+  doc.text("Documento confidencial — uso restrito", W / 2, 280, { align: "center" });
+  doc.setFillColor(...colors.accent);
+  doc.rect(0, 294, 210, 3, "F");
+
+  // ===== PAGE 1b — SINTESE PRELIMINAR =====
+  newPage();
+  drawHeader();
+  drawSectionTitle("00", "SINTESE PRELIMINAR", colors.primary);
+
+  // Rating + Decision — centralizados, lado a lado (score 28pt + badge alinhado ao centro)
+  const ratingColorPDF = finalRating >= 7 ? colors.green : finalRating >= 4 ? colors.amber : colors.red;
+  const decisionPDFColor = decision === "APROVADO" ? colors.green : decision === "REPROVADO" ? colors.red : colors.amber;
+  const decisionPDFBg = decision === "APROVADO" ? [240, 253, 244] as [number, number, number] : decision === "REPROVADO" ? [254, 242, 242] as [number, number, number] : [255, 251, 235] as [number, number, number];
+
+  const ratingText = finalRating + "/10";
+  doc.setFontSize(28);
+  doc.setFont("helvetica", "bold");
+  const ratingW = doc.getTextWidth(ratingText);
+  const badgeW = 52;
+  const badgeH = 14;
+  const gap = 16;
+  const totalBlockW = ratingW + gap + badgeW;
+  // Bloco centralizado horizontalmente
+  const blockX = margin + (contentW - totalBlockW) / 2;
+  const scoreLineH = 18; // altura do score em 28pt
+
+  // Score em destaque (28pt bold)
+  doc.setFontSize(28);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(...ratingColorPDF);
+  doc.text(ratingText, blockX, y + scoreLineH - 4);
+
+  // Badge status ao lado direito, alinhado ao centro vertical do score
+  const badgeX = blockX + ratingW + gap;
+  const badgeY = y + (scoreLineH - badgeH) / 2;
+  doc.setFillColor(...decisionPDFBg);
+  doc.roundedRect(badgeX, badgeY, badgeW, badgeH, 2, 2, "F");
+  doc.setFontSize(8.5);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(...decisionPDFColor);
+  doc.text(decision.replace(/_/g, " "), badgeX + badgeW / 2, badgeY + badgeH / 2 + 3, { align: "center" });
+  y += scoreLineH + 4;
+
+  // Score gauge bar — barra colorida proporcional ao rating
+  {
+    const gaugeW = 80;
+    const gaugeH = 4;
+    const gaugeX = margin + (contentW - gaugeW) / 2;
+    doc.setFillColor(220, 220, 220);
+    doc.roundedRect(gaugeX, y, gaugeW, gaugeH, 1.5, 1.5, "F");
+    doc.setFillColor(...ratingColorPDF);
+    doc.roundedRect(gaugeX, y, (finalRating / 10) * gaugeW, gaugeH, 1.5, 1.5, "F");
+    // divisores brancos a cada 10%
+    doc.setDrawColor(255, 255, 255);
+    doc.setLineWidth(0.4);
+    for (let tick = 1; tick <= 9; tick++) {
+      const tx = gaugeX + (tick / 10) * gaugeW;
+      doc.line(tx, y, tx, y + gaugeH);
+    }
+    doc.setLineWidth(0.1);
+    y += gaugeH + 6;
+  }
+
+  // 6 Alert Cards (3x2 grid)
+  const alertCardsData = [
+    { label: "PROTESTOS", value: protestosNaoConsultados ? "N/C" : protestosVigentes > 0 ? "R$ " + (data.protestos?.vigentesValor || "0") : "—", isDanger: protestosVigentes > 0, isWarning: protestosNaoConsultados },
+    { label: "PROCESSOS", value: processosNaoConsultados ? "N/C" : (data.processos?.passivosTotal || "—"), isDanger: parseInt(data.processos?.passivosTotal || "0") > 20, isWarning: processosNaoConsultados },
+    { label: "SCR VENCIDO", value: vencidosSCR > 0 ? data.scr.vencidos : "—", isDanger: vencidosSCR > 0, isWarning: false },
+    { label: "SCR PREJUIZO", value: prejuizosVal > 0 ? data.scr.prejuizos : "—", isDanger: prejuizosVal > 0, isWarning: false },
+    { label: "REC. JUDICIAL", value: data.processos?.temRJ ? "Sim" : "—", isDanger: !!data.processos?.temRJ, isWarning: false },
+    { label: "ALAVANCAGEM", value: alavancagem > 0 ? fmtBR(alavancagem, 2) + "x" : "—", isDanger: alavancagem > 5, isWarning: alavancagem > 3.5 && alavancagem <= 5 },
+  ];
+  const cardW2 = (contentW - 8) / 3;
+  const cardH2 = 16;
+  alertCardsData.forEach((card, i) => {
+    const col = i % 3;
+    const rowIdx = Math.floor(i / 3);
+    const cx = margin + col * (cardW2 + 4);
+    const cy = y + rowIdx * (cardH2 + 3);
+    const bg = card.isDanger ? [254, 242, 242] as [number, number, number] : card.isWarning ? [255, 251, 235] as [number, number, number] : [248, 250, 252] as [number, number, number];
+    doc.setFillColor(...bg);
+    doc.roundedRect(cx, cy, cardW2, cardH2, 2, 2, "F");
+    const tc = card.isDanger ? colors.danger : card.isWarning ? colors.warning : colors.text;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(...tc);
+    doc.text(String(card.value).substring(0, 18), cx + cardW2 / 2, cy + 7, { align: "center" });
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6);
+    doc.setTextColor(...colors.textMuted);
+    doc.text(card.label, cx + cardW2 / 2, cy + 12.5, { align: "center" });
+  });
+  y += cardH2 * 2 + 12;
+
+  // ── DRE Resumida (4 métricas) ──
+  if (data.dre && data.dre.anos && data.dre.anos.length > 0) {
+    const anoMaisRecente = data.dre.anos[data.dre.anos.length - 1];
+    y += 6;
+    doc.setFillColor(...colors.primary);
+    doc.rect(margin, y, contentW, 7, "F");
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("DEMONSTRAÇÃO DE RESULTADO", margin + 3, y + 4.8);
+    y += 9;
+
+    const metricasDRE = [
+      { label: "Receita Bruta", valor: `R$ ${fmtMoney(anoMaisRecente.receitaBruta) || "N/D"}` },
+      { label: "Margem Líquida", valor: `${anoMaisRecente.margemLiquida || "0"}%` },
+      { label: "Tendência", valor: normalizeTendencia(data.dre.tendenciaLucro) },
+      { label: "Crescimento Receita", valor: `${data.dre.crescimentoReceita || "0"}%` },
+    ];
+    const colWDRE = contentW / 4;
+    metricasDRE.forEach((m, i) => {
+      const xD = margin + i * colWDRE;
+      doc.setFillColor(248, 250, 252);
+      doc.rect(xD, y, colWDRE - 2, 20, "F");
+      doc.setFontSize(6);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...colors.textMuted);
+      doc.text(m.label.toUpperCase(), xD + 3, y + 5);
+      doc.setFontSize(8);
       doc.setFont("helvetica", "bold");
-      doc.setTextColor(...ratingColorPDF);
-      doc.text(finalRating + "/10", margin, y + 2);
-      const decisionPDFColor = decision === "APROVADO" ? colors.green : decision === "REPROVADO" ? colors.red : colors.amber;
-      const decisionPDFBg = decision === "APROVADO" ? [240, 253, 244] as [number,number,number] : decision === "REPROVADO" ? [254, 242, 242] as [number,number,number] : [255, 251, 235] as [number,number,number];
-      doc.setFillColor(...decisionPDFBg);
-      doc.roundedRect(margin + 28, y - 6, 40, 10, 2, 2, "F");
-      doc.setFontSize(9);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(...decisionPDFColor);
-      doc.text(decision, margin + 48, y + 1, { align: "center" });
-      y += 16;
+      doc.setTextColor(...colors.text);
+      doc.text(m.valor, xD + 3, y + 14);
+    });
+    y += 24;
+  }
 
-      // 6 Alert Cards (3x2 grid)
-      const alertCardsData = [
-        { label: "PROTESTOS", value: protestosVigentes > 0 ? "R$ " + (data.protestos?.vigentesValor || "0") : "—", isDanger: protestosVigentes > 0, isWarning: false },
-        { label: "PROCESSOS", value: data.processos?.passivosTotal || "—", isDanger: parseInt(data.processos?.passivosTotal || "0") > 20, isWarning: false },
-        { label: "SCR VENCIDO", value: vencidosSCR > 0 ? data.scr.vencidos : "—", isDanger: vencidosSCR > 0, isWarning: false },
-        { label: "SCR PREJUIZO", value: prejuizosVal > 0 ? data.scr.prejuizos : "—", isDanger: prejuizosVal > 0, isWarning: false },
-        { label: "REC. JUDICIAL", value: data.processos?.temRJ ? "Sim" : "—", isDanger: !!data.processos?.temRJ, isWarning: false },
-        { label: "ALAVANCAGEM", value: alavancagem > 0 ? alavancagem.toFixed(2) + "x" : "—", isDanger: alavancagem > 5, isWarning: alavancagem > 3.5 && alavancagem <= 5 },
-      ];
-      const cardW2 = (contentW - 8) / 3;
-      const cardH2 = 16;
-      alertCardsData.forEach((card, i) => {
-        const col = i % 3;
-        const rowIdx = Math.floor(i / 3);
-        const cx = margin + col * (cardW2 + 4);
-        const cy = y + rowIdx * (cardH2 + 3);
-        const bg = card.isDanger ? [254, 242, 242] as [number,number,number] : card.isWarning ? [255, 251, 235] as [number,number,number] : [248, 250, 252] as [number,number,number];
-        doc.setFillColor(...bg);
-        doc.roundedRect(cx, cy, cardW2, cardH2, 2, 2, "F");
-        const tc = card.isDanger ? colors.danger : card.isWarning ? colors.warning : colors.text;
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(10);
-        doc.setTextColor(...tc);
-        doc.text(String(card.value).substring(0, 18), cx + cardW2 / 2, cy + 7, { align: "center" });
-        doc.setFont("helvetica", "normal");
+  // helper local para cabeçalho de bloco
+  const drawBlockHeader = (titulo: string) => {
+    y += 5;
+    doc.setFillColor(...colors.primary);
+    doc.rect(margin, y, contentW, 7, "F");
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text(titulo, margin + 3, y + 4.8);
+    y += 9;
+  };
+
+  // helper para badge colorido inline
+  const drawBadge = (texto: string, cor: [number, number, number], bgCor: [number, number, number], bx: number, by: number): number => {
+    doc.setFontSize(6.5);
+    doc.setFont("helvetica", "bold");
+    const bw = doc.getTextWidth(texto) + 6;
+    const bh = 7;
+    doc.setFillColor(...bgCor);
+    doc.roundedRect(bx, by - 5, bw, bh, 1.5, 1.5, "F");
+    doc.setTextColor(...cor);
+    doc.text(texto, bx + 3, by);
+    doc.setTextColor(...colors.text);
+    return bw;
+  };
+
+  // helper para linha label + valor em grid de 2 colunas
+  const drawInfoGrid = (items: { label: string; valor: string }[], cols = 2) => {
+    const colW2 = contentW / cols;
+    items.forEach((item, i) => {
+      const col = i % cols;
+      const xI = margin + col * colW2;
+      if (col === 0 && i > 0) y += 16;
+      doc.setFillColor(248, 250, 252);
+      doc.rect(xI, y, colW2 - 2, 14, "F");
+      doc.setFontSize(6);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...colors.textMuted);
+      doc.text(item.label.toUpperCase(), xI + 3, y + 4.5);
+      doc.setFontSize(7.5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...colors.text);
+      doc.text(String(item.valor).substring(0, 38), xI + 3, y + 11);
+    });
+    const lastRow = Math.ceil(items.length / cols);
+    y += lastRow * 16 + 2;
+  };
+
+  // ── Bloco 1: Perfil da empresa ──
+  {
+    drawBlockHeader("PERFIL DA EMPRESA");
+    const anoAbertura = data.cnpj?.dataAbertura
+      ? new Date(data.cnpj.dataAbertura).getFullYear()
+      : null;
+    const idadeEmpresa = anoAbertura ? `${new Date().getFullYear() - anoAbertura} anos` : "—";
+    const fmm12mVal = data.faturamento?.fmm12m
+      ? `R$ ${fmtMoney(data.faturamento.fmm12m)}`
+      : data.faturamento?.mediaAno
+        ? `R$ ${fmtMoney(data.faturamento.mediaAno)}`
+        : "—";
+    const grupoQtd = data.grupoEconomico?.empresas?.length ?? 0;
+    const grupoTexto = grupoQtd > 0 ? `Sim — ${grupoQtd} empresa${grupoQtd > 1 ? "s" : ""} vinculada${grupoQtd > 1 ? "s" : ""}` : "Não identificado";
+    const pleitoVal = data.relatorioVisita?.pleito
+      ? `R$ ${fmtMoney(data.relatorioVisita.pleito)}`
+      : "Não informado";
+    drawInfoGrid([
+      { label: "Idade da empresa", valor: idadeEmpresa },
+      { label: "FMM 12M", valor: fmm12mVal },
+      { label: "Grupo econômico", valor: grupoTexto },
+      { label: "Pleito sugerido", valor: pleitoVal },
+    ]);
+  }
+
+  // ── Bloco 2: Curva ABC / Sacados ──
+  if (data.curvaABC) {
+    drawBlockHeader("CURVA ABC / SACADOS");
+    const top3 = (data.curvaABC.clientes || []).slice(0, 3);
+    const concTop3 = data.curvaABC.concentracaoTop3 ? `${data.curvaABC.concentracaoTop3}%` : "—";
+    const segmentos = data.curvaABC.segmentos?.join(", ") || "—";
+
+    // linha de sacados
+    if (top3.length > 0) {
+      const colW3 = contentW / top3.length;
+      top3.forEach((cl, i) => {
+        const xS = margin + i * colW3;
+        doc.setFillColor(248, 250, 252);
+        doc.rect(xS, y, colW3 - 2, 20, "F");
         doc.setFontSize(6);
+        doc.setFont("helvetica", "normal");
         doc.setTextColor(...colors.textMuted);
-        doc.text(card.label, cx + cardW2 / 2, cy + 12.5, { align: "center" });
+        doc.text(`TOP ${i + 1} SACADO`, xS + 3, y + 4.5);
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.text);
+        doc.text(cl.nome.substring(0, 20), xS + 3, y + 11);
+        doc.setFontSize(6.5);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...colors.textMuted);
+        doc.text(cl.percentualReceita ? `${cl.percentualReceita}%` : "—", xS + 3, y + 16.5);
       });
-      y += cardH2 * 2 + 12;
+      y += 22;
+    }
 
-      // ── Métricas DRE ──
-      if (data.dre && data.dre.anos && data.dre.anos.length > 0) {
-        const anoMaisRecente = data.dre.anos[data.dre.anos.length - 1];
+    drawInfoGrid([
+      { label: "Concentracao Top 3", valor: concTop3 },
+      { label: "Segmentos", valor: segmentos },
+    ], 2);
 
-        y += 6;
-        doc.setFillColor(...colors.primary);
-        doc.rect(margin, y, contentW, 7, "F");
-        doc.setFontSize(7.5);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(255, 255, 255);
-        doc.text("DEMONSTRAÇÃO DE RESULTADO", margin + 3, y + 4.8);
-        y += 9;
+    if (data.curvaABC.alertaConcentracao) {
+      drawBadge("ALTA CONCENTRACAO", [220, 38, 38], [254, 226, 226], margin, y + 5);
+      y += 10;
+    }
+  }
 
-        const metricasDRE = [
-          { label: "Receita Bruta", valor: `R$ ${anoMaisRecente.receitaBruta || "N/D"}`, ano: data.dre.periodoMaisRecente },
-          { label: "Lucro Líquido", valor: `R$ ${anoMaisRecente.lucroLiquido || "N/D"}`, destaque: true },
-          { label: "Margem Líquida", valor: `${anoMaisRecente.margemLiquida || "0"}%` },
-          { label: "EBITDA", valor: `R$ ${anoMaisRecente.ebitda || "N/D"}` },
-          { label: "Margem EBITDA", valor: `${anoMaisRecente.margemEbitda || "0"}%` },
-          { label: "Tendência", valor: data.dre.tendenciaLucro === "crescimento" ? "↑ Crescimento" : data.dre.tendenciaLucro === "queda" ? "↓ Queda" : "→ Estável" },
-          { label: "Crescimento Receita", valor: `${data.dre.crescimentoReceita || "0"}%` },
-        ];
+  // ── Bloco 3: Protestos ──
+  {
+    drawBlockHeader("PROTESTOS");
+    const vigQtd = parseInt(data.protestos?.vigentesQtd || "0");
+    const vigVal = data.protestos?.vigentesValor || "0";
+    const detalhes = [...(data.protestos?.detalhes || [])].sort((a, b) =>
+      (b.data || "").localeCompare(a.data || "")
+    );
+    const maisRecente = detalhes[0]?.data || "—";
+    const hoje = new Date();
+    const h30 = new Date(hoje.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const ultimos30 = detalhes.filter(d => {
+      if (!d.data) return false;
+      const parts = d.data.split("/");
+      if (parts.length !== 3) return false;
+      const dt = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+      return dt >= h30;
+    }).length;
 
-        const colW = contentW / 4;
-        let xDRE = margin;
-        let rowY = y;
+    drawInfoGrid([
+      { label: "Vigentes (qtd)", valor: vigQtd > 0 ? String(vigQtd) : "0" },
+      { label: "Vigentes (valor)", valor: vigQtd > 0 ? `R$ ${fmtMoney(vigVal)}` : "—" },
+      { label: "Protesto mais recente", valor: maisRecente },
+      { label: "Ultimos 30 dias", valor: String(ultimos30) },
+    ]);
 
-        metricasDRE.forEach((m, i) => {
-          if (i > 0 && i % 4 === 0) {
-            xDRE = margin;
-            rowY += 22;
-          }
-          doc.setFillColor(248, 250, 252);
-          doc.rect(xDRE, rowY, colW - 2, 20, "F");
-          doc.setFontSize(6);
-          doc.setFont("helvetica", "normal");
-          doc.setTextColor(...colors.textMuted);
-          doc.text(m.label.toUpperCase(), xDRE + 3, rowY + 5);
-          doc.setFontSize(8);
-          doc.setFont("helvetica", "bold");
-          doc.setTextColor(...colors.text);
-          doc.text(m.valor, xDRE + 3, rowY + 14);
-          xDRE += colW;
-        });
+    const badgeProt: [number, number, number][] = vigQtd === 0
+      ? [[22, 163, 74], [240, 253, 244]]
+      : vigQtd <= 3
+        ? [[180, 83, 9], [255, 251, 235]]
+        : [[220, 38, 38], [254, 226, 226]];
+    const labelProt = vigQtd === 0 ? "SEM PROTESTOS" : vigQtd <= 3 ? "ATENCAO" : "ALTA";
+    drawBadge(labelProt, badgeProt[0], badgeProt[1], margin, y + 5);
+    y += 10;
+  }
 
-        y = rowY + 24;
-      }
+  // ── Bloco 4: CCF ──
+  if (data.ccf) {
+    drawBlockHeader("CCF — CHEQUES SEM FUNDO");
+    const totalOcorr = data.ccf.qtdRegistros || 0;
+    const bancosComReg = (data.ccf.bancos || []).filter(b => b.quantidade > 0);
+    const maiorBanco = bancosComReg.sort((a, b) => b.quantidade - a.quantidade)[0];
 
-      // ── Métricas Balanço ──
-      if (data.balanco && data.balanco.anos && data.balanco.anos.length > 0) {
-        const anoMaisRecente = data.balanco.anos[data.balanco.anos.length - 1];
+    drawInfoGrid([
+      { label: "Total de ocorrencias", valor: String(totalOcorr) },
+      { label: "Bancos com registro", valor: String(bancosComReg.length) },
+      { label: "Banco maior conc.", valor: maiorBanco ? `${maiorBanco.banco} (${maiorBanco.quantidade})` : "—" },
+      { label: "Severidade", valor: totalOcorr > 10 ? "ALTA" : totalOcorr > 0 ? "MODERADA" : "SEM REGISTRO" },
+    ]);
 
-        y += 4;
-        doc.setFillColor(...colors.primary);
-        doc.rect(margin, y, contentW, 7, "F");
-        doc.setFontSize(7.5);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(255, 255, 255);
-        doc.text("BALANÇO PATRIMONIAL", margin + 3, y + 4.8);
-        y += 9;
+    if (totalOcorr > 10) {
+      drawBadge("ALTA", [220, 38, 38], [254, 226, 226], margin, y + 5);
+      y += 10;
+    }
+  }
 
-        const metricasBalanco = [
-          { label: "Ativo Total", valor: `R$ ${anoMaisRecente.ativoTotal || "N/D"}` },
-          { label: "Passivo Total", valor: `R$ ${anoMaisRecente.passivoTotal || "N/D"}` },
-          { label: "Patrimônio Líquido", valor: `R$ ${anoMaisRecente.patrimonioLiquido || "N/D"}`, destaque: true },
-          { label: "Liquidez Corrente", valor: anoMaisRecente.liquidezCorrente || "N/D" },
-          { label: "Endividamento", valor: `${anoMaisRecente.endividamentoTotal || "0"}%` },
-          { label: "Capital de Giro", valor: `R$ ${anoMaisRecente.capitalDeGiroLiquido || "N/D"}` },
-          { label: "Tendência PL", valor: data.balanco.tendenciaPatrimonio === "crescimento" ? "↑ Crescimento" : data.balanco.tendenciaPatrimonio === "queda" ? "↓ Queda" : "→ Estável" },
-        ];
+  // ── Bloco 5: Processos ──
+  {
+    drawBlockHeader("PROCESSOS JUDICIAIS");
+    const passivos = data.processos?.passivosTotal || "0";
+    const ativos = data.processos?.ativosTotal || "0";
+    const valorEst = data.processos?.valorTotalEstimado || "—";
+    const dist = data.processos?.distribuicao || [];
+    const bancarios = dist.filter(d => d.tipo?.toUpperCase().includes("BANCO")).reduce((s, d) => s + parseInt(d.qtd || "0"), 0);
+    const trabalhistas = dist.filter(d => d.tipo?.toUpperCase().includes("TRABALH")).reduce((s, d) => s + parseInt(d.qtd || "0"), 0);
+    const outros = dist
+      .filter(d => !d.tipo?.toUpperCase().includes("BANCO") && !d.tipo?.toUpperCase().includes("TRABALH"))
+      .reduce((s, d) => s + parseInt(d.qtd || "0"), 0);
 
-        const colWB = contentW / 4;
-        let xBAL = margin;
-        let rowYB = y;
+    drawInfoGrid([
+      { label: "Passivos / Ativos", valor: `${passivos} / ${ativos}` },
+      { label: "Valor estimado", valor: valorEst !== "—" ? `R$ ${fmtMoney(valorEst)}` : "—" },
+      { label: "Bancarios / Trabalhistas", valor: `${bancarios} / ${trabalhistas}` },
+      { label: "Outros", valor: String(outros) },
+    ]);
 
-        metricasBalanco.forEach((m, i) => {
-          if (i > 0 && i % 4 === 0) {
-            xBAL = margin;
-            rowYB += 22;
-          }
+    if (bancarios > 0) {
+      drawBadge("ALTA — BANCARIO ATIVO", [220, 38, 38], [254, 226, 226], margin, y + 5);
+      y += 10;
+    }
+  }
 
-          const isNegativo = m.valor.includes("-");
-          doc.setFillColor(isNegativo ? 254 : 248, isNegativo ? 242 : 250, isNegativo ? 242 : 252);
-          doc.rect(xBAL, rowYB, colWB - 2, 20, "F");
-          doc.setFontSize(6);
-          doc.setFont("helvetica", "normal");
-          doc.setTextColor(...colors.textMuted);
-          doc.text(m.label.toUpperCase(), xBAL + 3, rowYB + 5);
-          doc.setFontSize(8);
-          doc.setFont("helvetica", "bold");
-          doc.setTextColor(isNegativo ? 220 : colors.text[0], isNegativo ? 38 : colors.text[1], isNegativo ? 38 : colors.text[2]);
-          doc.text(m.valor, xBAL + 3, rowYB + 14);
-          xBAL += colWB;
-        });
+  // ── Bloco 6: Referência comercial / Visita ──
+  if (data.relatorioVisita) {
+    drawBlockHeader("VISITA / REFERENCIA COMERCIAL");
+    const rec = data.relatorioVisita.recomendacaoVisitante;
+    const statusVisita = "Realizada";
+    const recTexto = rec === "aprovado" ? "Aprovado" : rec === "condicional" ? "Condicional" : rec === "reprovado" ? "Reprovado" : "—";
+    const pontos = (data.relatorioVisita.pontosAtencao || []).slice(0, 2).map(p => p.substring(0, 40));
 
-        y = rowYB + 24;
-      }
+    drawInfoGrid([
+      { label: "Status da visita", valor: statusVisita },
+      { label: "Recomendacao do visitante", valor: recTexto },
+    ]);
 
-      // Alerts list
-      if (alerts.length > 0) {
-        alerts.forEach(alert => { drawAlertBox(alert.message, alert.severity); });
-        drawSpacer(4);
-      }
-
-      if (aiAnalysis?.sinteseExecutiva) {
-        y += 8;
-
-        // Título da síntese
-        doc.setFillColor(...colors.primary);
-        doc.rect(margin, y, contentW, 7, "F");
-        doc.setFontSize(7.5);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(255, 255, 255);
-        doc.text("SÍNTESE EXECUTIVA", margin + 3, y + 4.8);
-        y += 10;
-
-        // Texto da síntese
+    if (pontos.length > 0) {
+      doc.setFontSize(6);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...colors.textMuted);
+      doc.text("PONTOS DE ATENCAO", margin, y + 4);
+      y += 6;
+      pontos.forEach(pt => {
         doc.setFontSize(7);
         doc.setFont("helvetica", "normal");
         doc.setTextColor(...colors.text);
-
-        const linhasSintese = doc.splitTextToSize(aiAnalysis.sinteseExecutiva, contentW - 6);
-
-        for (const linha of linhasSintese) {
-          checkPageBreak(10);
-          doc.text(linha, margin + 3, y);
-          y += 4.5;
-        }
-
+        doc.text(`- ${pt}`, margin + 2, y + 4);
         y += 6;
-      }
+      });
+    }
+    y += 4;
+  }
 
-      // ===== PAGE 2 — CARTAO CNPJ =====
-      newPage();
-      drawHeader();
+  // ── Bloco 7: Street View ──
+  {
+    drawBlockHeader("ESTABELECIMENTO — STREET VIEW");
+    if (p.streetViewBase64) {
+      checkPageBreak(55);
+      const imgW = contentW;
+      const imgH = 50;
+      doc.addImage(p.streetViewBase64, "JPEG", margin, y, imgW, imgH);
+      y += imgH + 4;
+    } else {
+      doc.setFillColor(248, 250, 252);
+      doc.rect(margin, y, contentW, 20, "F");
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...colors.textMuted);
+      doc.text("Foto do estabelecimento indisponivel — configure GOOGLE_MAPS_API_KEY", margin + contentW / 2, y + 12, { align: "center" });
+      y += 24;
+    }
+  }
 
-      drawSectionTitle("01", "CARTAO CNPJ", colors.primary);
+  // Alerts list (vindos do Gemini)
+  if (alerts.length > 0) {
+    alerts.forEach(alert => { drawAlertBox(alert.message, alert.severity); });
+    drawSpacer(4);
+  }
+  // Alertas de alta das seções (determinísticos) — complementam a Síntese
+  if (alertasAltaDet.length > 0) {
+    drawDetAlerts(alertasAltaDet);
+    drawSpacer(4);
+  }
 
-      const cnpjColW = (contentW - 4) / 2;
+  if (aiAnalysis?.sinteseExecutiva) {
+    y += 8;
 
-      const drawCnpjRow = (
-        left: { label: string; value: string },
-        right: { label: string; value: string }
-      ) => {
-        checkPageBreak(14);
-        const leftVal = left.value || "—";
-        const rightVal = right.value || "—";
-        const maxChars = Math.floor(cnpjColW / 2.8);
-        // Left cell
-        doc.setFillColor(...colors.surface);
-        doc.roundedRect(margin, y, cnpjColW, 12, 1, 1, "F");
-        doc.setFontSize(6);
+    // Título da síntese
+    doc.setFillColor(...colors.primary);
+    doc.rect(margin, y, contentW, 7, "F");
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("SÍNTESE EXECUTIVA", margin + 3, y + 4.8);
+    y += 10;
+
+    // Texto da síntese
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...colors.text);
+
+    const linhasSintese = doc.splitTextToSize(aiAnalysis.sinteseExecutiva, contentW - 6);
+
+    for (const linha of linhasSintese) {
+      checkPageBreak(10);
+      doc.text(linha, margin + 3, y);
+      y += 4.5;
+    }
+
+    y += 6;
+  }
+
+  // ===== SEÇÃO 01 — CARTAO CNPJ (flui se couber na página) =====
+  drawSpacer(10);
+  checkPageBreak(90);
+
+  drawSectionTitle("01", "CARTAO CNPJ", colors.primary);
+
+  const cnpjColW = (contentW - 4) / 2;
+
+  const drawCnpjRow = (
+    left: { label: string; value: string },
+    right: { label: string; value: string }
+  ) => {
+    const leftVal = left.value || "—";
+    const rightVal = right.value || "—";
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    const leftLines = doc.splitTextToSize(leftVal, cnpjColW - 8);
+    const rightLines = doc.splitTextToSize(rightVal, cnpjColW - 8);
+    const rowH = Math.max(14, Math.max(leftLines.length, rightLines.length) * 5 + 6);
+    checkPageBreak(rowH);
+    // Left cell
+    doc.setFillColor(...colors.surface);
+    doc.roundedRect(margin, y, cnpjColW, rowH, 1, 1, "F");
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...colors.textMuted);
+    doc.text(left.label.toUpperCase(), margin + 4, y + 4.5);
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...colors.text);
+    doc.text(leftLines, margin + 4, y + 9.5);
+    // Right cell
+    const rx = margin + cnpjColW + 4;
+    doc.setFillColor(...colors.surface);
+    doc.roundedRect(rx, y, cnpjColW, rowH, 1, 1, "F");
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...colors.textMuted);
+    doc.text(right.label.toUpperCase(), rx + 4, y + 4.5);
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...colors.text);
+    doc.text(rightLines, rx + 4, y + 9.5);
+    y += rowH + 2;
+  };
+
+  drawCnpjRow(
+    { label: "Nome Fantasia", value: data.cnpj.nomeFantasia },
+    { label: "Situacao Cadastral", value: data.cnpj.situacaoCadastral }
+  );
+  drawCnpjRow(
+    { label: "Data de Abertura", value: data.cnpj.dataAbertura },
+    { label: "Data da Situacao", value: data.cnpj.dataSituacaoCadastral }
+  );
+  drawCnpjRow(
+    { label: "Natureza Juridica", value: data.cnpj.naturezaJuridica },
+    { label: "Porte", value: data.cnpj.porte }
+  );
+
+  // Tipo de empresa + Funcionários
+  {
+    const tipoEmp = data.cnpj.tipoEmpresa || "";
+    const func = data.cnpj.funcionarios || "";
+    const regime = data.cnpj.regimeTributario || "";
+    if (tipoEmp || func || regime) {
+      drawCnpjRow(
+        { label: "Tipo Empresa", value: tipoEmp || "—" },
+        { label: "Funcionarios", value: func || "—" }
+      );
+      if (regime) drawCnpjRow({ label: "Regime Tributario", value: regime }, { label: "", value: "" });
+    }
+  }
+
+  // Endereço principal — largura total
+  {
+    checkPageBreak(14);
+    const endVal = data.cnpj.endereco || "—";
+    const endLines = doc.splitTextToSize(endVal, contentW - 8);
+    const endBoxH = Math.max(16, endLines.length * 5 + 12);
+    doc.setFillColor(...colors.surface);
+    doc.roundedRect(margin, y, contentW, endBoxH, 1, 1, "F");
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...colors.textMuted);
+    doc.text("ENDERECO PRINCIPAL", margin + 4, y + 4.5);
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...colors.text);
+    doc.text(endLines, margin + 4, y + 10);
+    y += endBoxH + 2;
+  }
+
+  // Endereços adicionais (Credit Hub)
+  {
+    const endExtras: string[] = data.cnpj.enderecos || [];
+    if (endExtras.length > 1) {
+      const extras = endExtras.slice(1); // pula o principal
+      extras.forEach((end, idx) => {
+        checkPageBreak(10);
+        const endLines = doc.splitTextToSize(end, contentW - 8);
+        const endBoxH = Math.max(9, endLines.length * 5 + 4);
+        doc.setFillColor(248, 250, 252);
+        doc.roundedRect(margin, y, contentW, endBoxH, 1, 1, "F");
+        doc.setFontSize(5.5);
         doc.setFont("helvetica", "normal");
         doc.setTextColor(...colors.textMuted);
-        doc.text(left.label.toUpperCase(), margin + 4, y + 4.5);
-        doc.setFontSize(8);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors.text);
-        doc.text(leftVal.length > maxChars ? leftVal.substring(0, maxChars) + "…" : leftVal, margin + 4, y + 9.5);
-        // Right cell
-        const rx = margin + cnpjColW + 4;
-        doc.setFillColor(...colors.surface);
-        doc.roundedRect(rx, y, cnpjColW, 12, 1, 1, "F");
-        doc.setFontSize(6);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(...colors.textMuted);
-        doc.text(right.label.toUpperCase(), rx + 4, y + 4.5);
-        doc.setFontSize(8);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors.text);
-        doc.text(rightVal.length > maxChars ? rightVal.substring(0, maxChars) + "…" : rightVal, rx + 4, y + 9.5);
-        y += 14;
+        doc.text(`ENDERECO ${idx + 2}`, margin + 4, y + 3.5);
+        doc.setFontSize(7);
+        doc.setTextColor(...colors.textSec);
+        doc.text(endLines, margin + 4, y + 6);
+        y += endBoxH + 2;
+      });
+    }
+  }
+
+  drawCnpjRow(
+    { label: "Telefone", value: data.cnpj.telefone },
+    { label: "E-mail", value: data.cnpj.email }
+  );
+
+  // CNAEs Secundários
+  {
+    const cnaesRaw = data.cnpj.cnaeSecundarios || "";
+    const cnaesStr = Array.isArray(cnaesRaw) ? (cnaesRaw as string[]).join("; ") : String(cnaesRaw);
+    if (cnaesStr.trim() !== "") {
+      const cnaesLines = doc.splitTextToSize(cnaesStr, contentW - 8);
+      const cnaesBoxH = cnaesLines.length * 4 + 14;
+      checkPageBreak(cnaesBoxH + 2);
+      doc.setFillColor(...colors.surface);
+      doc.roundedRect(margin, y, contentW, cnaesBoxH, 1, 1, "F");
+      doc.setFontSize(6);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...colors.textMuted);
+      doc.text("CNAES SECUNDARIOS", margin + 4, y + 5);
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...colors.textMuted);
+      cnaesLines.forEach((line: string, i: number) => {
+        doc.text(line, margin + 4, y + 11 + i * 4);
+      });
+      y += cnaesBoxH + 2;
+    }
+  }
+
+  // ===== SEÇÃO 02 — QSA + CONTRATO (flui se couber) =====
+  drawSpacer(10);
+  checkPageBreak(60);
+
+  drawSectionTitle("02", "QUADRO SOCIETARIO (QSA)", colors.accent);
+
+  if (data.qsa.capitalSocial) {
+    drawField("Capital Social", data.qsa.capitalSocial, true);
+  }
+
+  const validQSA = data.qsa.quadroSocietario.filter(s => s.nome);
+  if (validQSA.length > 0) {
+    const temDatas = validQSA.some(s => s.dataEntrada || s.dataSaida);
+    if (temDatas) {
+      // Tabela estendida com dataEntrada / dataSaida
+      const qsaColW = [contentW * 0.26, contentW * 0.18, contentW * 0.22, contentW * 0.14, contentW * 0.10, contentW * 0.10];
+      drawTable(
+        ["NOME", "CPF/CNPJ", "QUALIFICACAO", "PART.", "ENTRADA", "SAIDA"],
+        validQSA.map(s => {
+          const part = s.participacao
+            ? (String(s.participacao).includes("%") ? s.participacao : s.participacao + "%")
+            : "—";
+          return [s.nome, s.cpfCnpj || "—", s.qualificacao || "—", part, s.dataEntrada || "—", s.dataSaida || "—"];
+        }),
+        qsaColW,
+      );
+    } else {
+      const qsaColW = [contentW * 0.30, contentW * 0.22, contentW * 0.28, contentW * 0.20];
+      drawTable(
+        ["NOME", "CPF/CNPJ", "QUALIFICACAO", "PART."],
+        validQSA.map(s => {
+          const part = s.participacao
+            ? (String(s.participacao).includes("%") ? s.participacao : s.participacao + "%")
+            : "—";
+          return [s.nome, s.cpfCnpj || "—", s.qualificacao || "—", part];
+        }),
+        qsaColW,
+      );
+    }
+  }
+
+  // Alertas determinísticos — QSA
+  if (alertasQSA.length > 0) { drawSpacer(4); drawDetAlerts(alertasQSA); }
+
+  drawSpacer(8);
+
+  drawSectionTitle("03", "CONTRATO SOCIAL", colors.primary);
+
+  if (data.contrato.temAlteracoes) {
+    checkPageBreak(12);
+    doc.setFillColor(254, 243, 199);
+    doc.roundedRect(margin, y, contentW, 10, 1, 1, "F");
+    doc.setFillColor(...colors.warning);
+    doc.roundedRect(margin, y, 3, 10, 0.5, 0.5, "F");
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...colors.warning);
+    doc.text("ATENCAO: Documento com alteracoes societarias recentes", margin + 8, y + 6.5);
+    y += 14;
+  }
+
+  if (data.contrato.objetoSocial) drawMultilineField("Objeto Social", data.contrato.objetoSocial, 5);
+  if (data.contrato.administracao) drawMultilineField("Administracao e Poderes", data.contrato.administracao, 4);
+
+  drawFieldRow([
+    { label: "Capital Social", value: data.contrato.capitalSocial },
+    { label: "Data de Constituicao", value: data.contrato.dataConstituicao },
+  ]);
+  drawFieldRow([
+    { label: "Prazo de Duracao", value: data.contrato.prazoDuracao },
+    { label: "Foro", value: data.contrato.foro },
+  ]);
+
+  // ===== GESTÃO E GRUPO ECONÔMICO =====
+  newPage();
+  drawHeader();
+
+  // Section header bar
+  doc.setFillColor(...colors.navy);
+  doc.rect(margin, y, contentW, 10, "F");
+  doc.setFillColor(...colors.accent);
+  doc.rect(margin, y + 10, contentW, 1.5, "F");
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(255, 255, 255);
+  doc.text("GESTAO E GRUPO ECONOMICO", margin + 4, y + 6.5);
+  y += 15;
+
+  // ── Tabela de Sócios ──
+  {
+    type SocioEntry = { nome: string; cpfCnpj: string; qualificacao: string; participacao: string };
+    const sociosList: SocioEntry[] = (data.qsa?.quadroSocietario || []).map((s) => ({
+      nome: s.nome || "",
+      cpfCnpj: s.cpfCnpj || "",
+      qualificacao: s.qualificacao || "",
+      participacao: s.participacao || "",
+    }));
+    if (sociosList.length === 0 && data.contrato?.socios) {
+      data.contrato.socios.forEach((s) => sociosList.push({
+        nome: s.nome || "",
+        cpfCnpj: s.cpf || "",
+        qualificacao: s.qualificacao || "",
+        participacao: s.participacao || "",
+      }));
+    }
+
+    if (sociosList.length > 0) {
+      doc.setFontSize(7.5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...colors.text);
+      doc.text("QUADRO SOCIETÁRIO", margin, y + 4);
+      y += 8;
+
+      const gColNome = contentW * 0.24;
+      const gColCpf  = contentW * 0.15;
+      const gColPart = contentW * 0.09;
+      const gColScr  = contentW * 0.13;
+      const gColVenc = contentW * 0.10;
+      const gColPrej = contentW * 0.10;
+      const gColProt = contentW * 0.10;
+      const gColProc = contentW * 0.09;
+      const gRowH = 6.5;
+
+      // Header
+      doc.setFillColor(...colors.navy);
+      doc.rect(margin, y, contentW, 6, "F");
+      doc.setFontSize(4.8);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(255, 255, 255);
+      let gx = margin;
+      doc.text("NOME / RAZÃO SOCIAL", gx + 2, y + 4); gx += gColNome;
+      doc.text("CPF/CNPJ", gx + 2, y + 4); gx += gColCpf;
+      doc.text("PART.", gx + gColPart - 1, y + 4, { align: "right" }); gx += gColPart;
+      doc.text("SCR TOTAL", gx + gColScr - 1, y + 4, { align: "right" }); gx += gColScr;
+      doc.text("VENCIDO", gx + gColVenc - 1, y + 4, { align: "right" }); gx += gColVenc;
+      doc.text("PREJUÍZO", gx + gColPrej - 1, y + 4, { align: "right" }); gx += gColPrej;
+      doc.text("PROT.", gx + gColProt - 1, y + 4, { align: "right" }); gx += gColProt;
+      doc.text("PROC.", gx + gColProc - 1, y + 4, { align: "right" });
+      y += 6;
+
+      const toAbbrev = (v: string | undefined) => {
+        if (!v || v === "0,00" || v === "") return "—";
+        const n = parseMoneyToNumber(v);
+        if (n === 0) return "—";
+        if (n >= 1000000) return fmtBR(n / 1000000, 1) + "M";
+        if (n >= 1000) return fmtBR(Math.round(n / 1000), 0) + "K";
+        return v;
       };
 
-      drawCnpjRow(
-        { label: "Nome Fantasia",      value: data.cnpj.nomeFantasia },
-        { label: "Situacao Cadastral", value: data.cnpj.situacaoCadastral }
-      );
-      drawCnpjRow(
-        { label: "Data de Abertura",   value: data.cnpj.dataAbertura },
-        { label: "Data da Situacao",   value: data.cnpj.dataSituacaoCadastral }
-      );
-      drawCnpjRow(
-        { label: "Natureza Juridica",  value: data.cnpj.naturezaJuridica },
-        { label: "Porte",              value: data.cnpj.porte }
-      );
+      sociosList.forEach((s, idx) => {
+        if (y + gRowH > 275) { newPage(); drawHeader(); }
+        const bg: [number, number, number] = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+        doc.setFillColor(...bg);
+        doc.rect(margin, y, contentW, gRowH, "F");
 
-      // Endereço — largura total
-      {
-        checkPageBreak(14);
-        const endVal = data.cnpj.endereco || "—";
-        const endMaxChars = Math.floor(contentW / 2.2);
-        const endDisplay = endVal.length > endMaxChars ? endVal.substring(0, endMaxChars) + "…" : endVal;
-        doc.setFillColor(...colors.surface);
-        doc.roundedRect(margin, y, contentW, 12, 1, 1, "F");
-        doc.setFontSize(6);
+        const scrSocio = data.scrSocios?.find(sc =>
+          sc.cpfSocio === s.cpfCnpj || sc.nomeSocio?.toLowerCase() === s.nome.toLowerCase()
+        );
+        const scrTotal   = scrSocio?.periodoAtual?.totalDividasAtivas;
+        const scrVencido = scrSocio?.periodoAtual?.vencidos;
+        const scrPrejuizo = scrSocio?.periodoAtual?.prejuizos;
+        const hasVenc = scrVencido && scrVencido !== "0,00";
+        const hasPrej = scrPrejuizo && scrPrejuizo !== "0,00";
+
+        doc.setFontSize(5);
         doc.setFont("helvetica", "normal");
-        doc.setTextColor(...colors.textMuted);
-        doc.text("ENDERECO COMPLETO", margin + 4, y + 4.5);
-        doc.setFontSize(8);
-        doc.setFont("helvetica", "bold");
+
+        let gxR = margin;
+        const nomeT = s.nome.length > 30 ? s.nome.substring(0, 29) + "…" : s.nome;
         doc.setTextColor(...colors.text);
-        doc.text(endDisplay, margin + 4, y + 9.5);
-        y += 14;
+        doc.text(nomeT, gxR + 2, y + 4.5);
+        gxR += gColNome;
+
+        doc.setTextColor(...colors.textSec);
+        doc.text(s.cpfCnpj || "—", gxR + 2, y + 4.5);
+        gxR += gColCpf;
+
+        doc.setTextColor(...colors.text);
+        doc.text(s.participacao || "—", gxR + gColPart - 1, y + 4.5, { align: "right" });
+        gxR += gColPart;
+
+        doc.text(toAbbrev(scrTotal), gxR + gColScr - 1, y + 4.5, { align: "right" });
+        gxR += gColScr;
+
+        doc.setTextColor(...(hasVenc ? [185, 28, 28] as [number, number, number] : colors.textMuted));
+        doc.text(toAbbrev(scrVencido), gxR + gColVenc - 1, y + 4.5, { align: "right" });
+        gxR += gColVenc;
+
+        doc.setTextColor(...(hasPrej ? [185, 28, 28] as [number, number, number] : colors.textMuted));
+        doc.text(toAbbrev(scrPrejuizo), gxR + gColPrej - 1, y + 4.5, { align: "right" });
+        gxR += gColPrej;
+
+        doc.setTextColor(...colors.textMuted);
+        doc.text("—", gxR + gColProt - 1, y + 4.5, { align: "right" });
+        gxR += gColProt;
+        doc.text("—", gxR + gColProc - 1, y + 4.5, { align: "right" });
+        doc.setTextColor(...colors.text);
+
+        y += gRowH;
+      });
+      y += 6;
+    }
+  }
+
+  // ── Tabela Empresas Vinculadas ──
+  {
+    const empresasGrupo = data.grupoEconomico?.empresas || [];
+
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...colors.text);
+    doc.text("EMPRESAS VINCULADAS (GRUPO ECONÔMICO)", margin, y + 4);
+    y += 8;
+
+    if (empresasGrupo.length === 0) {
+      checkPageBreak(10);
+      doc.setFillColor(248, 250, 252);
+      doc.rect(margin, y, contentW, 8, "F");
+      doc.setFontSize(6.5);
+      doc.setFont("helvetica", "italic");
+      doc.setTextColor(...colors.textMuted);
+      doc.text("Nenhuma empresa vinculada identificada", margin + 4, y + 5.5);
+      y += 10;
+    } else {
+      const geNome = contentW * 0.28;
+      const geCnpj = contentW * 0.17;
+      const geScr  = contentW * 0.13;
+      const geAl   = contentW * 0.10;
+      const geVenc = contentW * 0.10;
+      const gePrej = contentW * 0.09;
+      const geProt = contentW * 0.07;
+      void (contentW * 0.06); // geProc — largura implícita (resto até margem direita)
+      const geRowH = 7;
+
+      const geNeeded = 6 + empresasGrupo.length * geRowH + 8;
+      checkPageBreak(geNeeded);
+
+      doc.setFillColor(...colors.navy);
+      doc.rect(margin, y, contentW, 6, "F");
+      doc.setFontSize(4.5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(255, 255, 255);
+      let ex = margin;
+      doc.text("RAZÃO SOCIAL / RELAÇÃO", ex + 2, y + 4); ex += geNome;
+      doc.text("CNPJ", ex + 2, y + 4); ex += geCnpj;
+      doc.text("SCR", ex + geScr - 1, y + 4, { align: "right" }); ex += geScr;
+      doc.text("ALAV.", ex + geAl - 1, y + 4, { align: "right" }); ex += geAl;
+      doc.text("VENCIDO", ex + geVenc - 1, y + 4, { align: "right" }); ex += geVenc;
+      doc.text("PREJUÍZO", ex + gePrej - 1, y + 4, { align: "right" }); ex += gePrej;
+      doc.text("PROT.", ex + geProt - 1, y + 4, { align: "right" }); ex += geProt;
+      doc.text("PROC.", margin + contentW - 1, y + 4, { align: "right" });
+      y += 6;
+
+      empresasGrupo.forEach((emp, idx) => {
+        if (y + geRowH > 275) { newPage(); drawHeader(); }
+        const bg: [number, number, number] = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+        doc.setFillColor(...bg);
+        doc.rect(margin, y, contentW, geRowH, "F");
+
+        const nomeEmp = (emp.razaoSocial || "").length > 34 ? (emp.razaoSocial || "").substring(0, 33) + "…" : (emp.razaoSocial || "");
+        let ex2 = margin;
+        doc.setFontSize(4.8);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...colors.text);
+        doc.text(nomeEmp, ex2 + 2, y + 3.5);
+        if (emp.relacao) {
+          doc.setFontSize(4);
+          doc.setTextColor(...colors.textMuted);
+          doc.text(emp.relacao, ex2 + 2, y + 6);
+          doc.setFontSize(4.8);
+        }
+        ex2 += geNome;
+
+        doc.setTextColor(...colors.textSec);
+        doc.text(emp.cnpj || "—", ex2 + 2, y + 4.5); ex2 += geCnpj;
+
+        doc.setTextColor(...colors.text);
+        doc.text(emp.scrTotal || "—", ex2 + geScr - 1, y + 4.5, { align: "right" }); ex2 += geScr;
+
+        doc.setTextColor(...colors.textMuted);
+        doc.text("—", ex2 + geAl - 1, y + 4.5, { align: "right" }); ex2 += geAl;
+        doc.text("—", ex2 + geVenc - 1, y + 4.5, { align: "right" }); ex2 += geVenc;
+        doc.text("—", ex2 + gePrej - 1, y + 4.5, { align: "right" }); ex2 += gePrej;
+
+        const hasProt = emp.protestos && emp.protestos !== "0" && emp.protestos !== "—" && emp.protestos !== "";
+        const hasProc = emp.processos && emp.processos !== "0" && emp.processos !== "—" && emp.processos !== "";
+        doc.setTextColor(...(hasProt ? [185, 28, 28] as [number, number, number] : colors.textMuted));
+        doc.text(emp.protestos || "—", ex2 + geProt - 1, y + 4.5, { align: "right" }); ex2 += geProt;
+        doc.setTextColor(...(hasProc ? [185, 28, 28] as [number, number, number] : colors.textMuted));
+        doc.text(emp.processos || "—", margin + contentW - 1, y + 4.5, { align: "right" });
+        doc.setTextColor(...colors.text);
+        y += geRowH;
+      });
+
+      y += 4;
+      doc.setFontSize(5.5);
+      doc.setFont("helvetica", "italic");
+      doc.setTextColor(...colors.textMuted);
+      doc.text("* Rating parcial: FMM indisponível — componentes dependentes de faturamento foram neutralizados.", margin, y);
+      y += 6;
+    }
+  }
+
+  // ===== PAGE 3 — FATURAMENTO / SCR =====
+  newPage();
+  drawHeader();
+
+  // Section header bar
+  doc.setFillColor(...colors.navy);
+  doc.rect(margin, y, contentW, 10, "F");
+  doc.setFillColor(...colors.accent);
+  doc.rect(margin, y + 10, contentW, 1.5, "F");
+  doc.setFontSize(7);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(255, 255, 255);
+  doc.text("04", margin + 4, y + 6.5);
+  doc.setFontSize(9);
+  doc.text("FATURAMENTO / SCR", margin + 14, y + 6.5);
+  y += 13;
+
+  // ── Stacked layout ──
+  const leftW = contentW;
+  const leftX = margin;
+  const sectionY = y;
+  // Gráfico usa os mesmos 12 meses do FMM
+  const chartMeses = mesesFMM;
+
+  // ── LEFT COLUMN: Bar chart ──
+  let yLeft = sectionY;
+
+  if (faturamentoRealmenteZerado) {
+    doc.setFillColor(254, 242, 242);
+    doc.roundedRect(leftX, yLeft, leftW, 8, 1, 1, "F");
+    doc.setFillColor(...colors.danger);
+    doc.roundedRect(leftX, yLeft, 2.5, 8, 0.5, 0.5, "F");
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...colors.danger);
+    doc.text("[ALTA] Faturamento zerado no periodo", leftX + 6, yLeft + 5.5);
+    yLeft += 10;
+  }
+  if (!data.faturamento.dadosAtualizados) {
+    doc.setFillColor(255, 251, 235);
+    doc.roundedRect(leftX, yLeft, leftW, 8, 1, 1, "F");
+    doc.setFillColor(...colors.warning);
+    doc.roundedRect(leftX, yLeft, 2.5, 8, 0.5, 0.5, "F");
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...colors.warning);
+    doc.text(`[MOD] Desatualizado — ultimo: ${data.faturamento.ultimoMesComDados || "N/A"}`, leftX + 6, yLeft + 5.5);
+    yLeft += 10;
+  }
+
+  if (chartMeses.length > 0) {
+    const chartVals = chartMeses.map(m => parseMoneyToNumber(m.valor));
+    const chartMax = Math.max(...chartVals, 1);
+    const fmmChart = parseMoneyToNumber(data.faturamento.fmm12m || "0");
+    const barAreaH = 40;
+    const barTopPadding = 10; // espaço reservado acima da barra mais alta para o label
+    const labelAreaH = mesesFMM.length > 6 ? 12 : 6;
+    const n = chartMeses.length;
+    const bW = Math.max(2, (leftW / n) - 1.5);
+    const chartTopY = yLeft + barTopPadding;
+    const mesLabels = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+
+    const parseMesLabel = (mesStr: string): string => {
+      const parts = (mesStr || "").split("/");
+      const part0 = parts[0] || "";
+      const part1 = parts[1] || "";
+      const numerico = parseInt(part0);
+      if (!isNaN(numerico)) {
+        const yr = part1.length === 4 ? part1.slice(2) : part1;
+        return (mesLabels[numerico - 1] || part0) + (yr ? "/" + yr : "");
       }
+      const capitalizado = part0.charAt(0).toUpperCase() + part0.slice(1).toLowerCase();
+      const yr = part1.length === 4 ? part1.slice(2) : part1;
+      return capitalizado + (yr ? "/" + yr : "");
+    };
 
-      drawCnpjRow(
-        { label: "Telefone", value: data.cnpj.telefone },
-        { label: "E-mail",   value: data.cnpj.email }
+    // FMM reference line
+    if (fmmChart > 0) {
+      const fmmLineY = chartTopY + barAreaH - (fmmChart / chartMax) * barAreaH;
+      doc.setDrawColor(150, 150, 150);
+      doc.setLineDashPattern([1, 1], 0);
+      doc.line(leftX, fmmLineY, leftX + leftW, fmmLineY);
+      doc.setLineDashPattern([], 0);
+      doc.setFontSize(5);
+      doc.setTextColor(130, 130, 130);
+      doc.text("FMM", leftX + leftW + 1, fmmLineY + 1);
+    }
+
+    // Bars
+    chartMeses.forEach((m, i) => {
+      const v = chartVals[i];
+      const bH = Math.max(1, (v / chartMax) * barAreaH);
+      const bX = leftX + i * (bW + 1.5);
+      const bY = chartTopY + barAreaH - bH;
+      const isMax = v === chartMax && v > 0;
+      const isZero = v === 0;
+      const barColor: [number, number, number] = isZero ? [217, 119, 6] : isMax ? [20, 40, 100] : colors.navy;
+      doc.setFillColor(...barColor);
+      doc.roundedRect(bX, bY, bW, bH, 0.5, 0.5, "F");
+      // Month label: "Jan/25"
+      doc.setFontSize(4.5);
+      doc.setTextColor(100, 100, 100);
+      const mLabel = parseMesLabel(m.mes);
+      const labelX = bX + bW / 2;
+      const isEven = i % 2 === 0;
+      const labelY = chartTopY + barAreaH + (isEven ? 4 : 8);
+
+      doc.setFontSize(5.5);
+      doc.setTextColor(80, 80, 80);
+      doc.text(mLabel, labelX, labelY, { align: "center" });
+      const vLabel = v >= 1000
+        ? fmtBR(v / 1000, 0) + "k"
+        : v > 0
+          ? fmtBR(v / 1000, 1) + "k"
+          : "0";
+
+      doc.setFontSize(4);
+      doc.setTextColor(70, 70, 70);
+
+      if (bH > 6) {
+        // valor acima da barra
+        doc.text(vLabel, bX + bW / 2, bY - 1, { align: "center" });
+      } else if (v > 0) {
+        // barra pequena — valor logo acima com fundo branco
+        doc.setTextColor(30, 30, 30);
+        doc.text(vLabel, bX + bW / 2, chartTopY + barAreaH - bH - 1.5, { align: "center" });
+      }
+    });
+
+    yLeft = chartTopY + barAreaH + labelAreaH + 1;
+
+    // Summary line below chart
+    const fmmK = fmmNum > 0 ? (fmmNum / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) : "—";
+    const fmmMedioNum = data.faturamento?.fmmMedio
+      ? parseMoneyToNumber(data.faturamento.fmmMedio)
+      : (() => {
+        const porAno: Record<string, number[]> = {};
+        for (const m of validMeses) {
+          const ano = (m.mes || "").split("/")[1];
+          if (!ano) continue;
+          if (!porAno[ano]) porAno[ano] = [];
+          porAno[ano].push(parseMoneyToNumber(m.valor));
+        }
+        const anosValidos = Object.values(porAno).filter(v => v.length >= 10);
+        if (anosValidos.length === 0) return fmmNum;
+        return anosValidos.reduce((s, v) => s + v.reduce((a, b) => a + b, 0) / v.length, 0) / anosValidos.length;
+      })();
+    const fmmMedioK = fmmMedioNum > 0 ? (fmmMedioNum / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) : "—";
+    const totalFat = chartVals.reduce((a, b) => a + b, 0);
+    const totalK = (totalFat / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+    doc.setFontSize(6.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...colors.textMuted);
+    doc.text(`FMM 12M (mil R$): ${fmmK}   |   FMM Médio (mil R$): ${fmmMedioK}   |   Total (mil R$): ${totalK}`, leftX, yLeft);
+    yLeft += 6;
+
+    // Tabela faturamento mensal detalhado
+    yLeft += 4;
+    const tblMesW = 30;
+    const tblValW = 60;
+    const tblRowH = 5;
+    const ultimos12 = new Set(validMeses.slice(-12).map(m => m.mes));
+
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...colors.navy);
+    doc.text("FATURAMENTO MENSAL DETALHADO", leftX, yLeft);
+    yLeft += 5;
+
+    // Cabeçalho
+    doc.setFillColor(...colors.navy);
+    doc.rect(leftX, yLeft, tblMesW + tblValW, tblRowH, "F");
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("MÊS", leftX + 2, yLeft + 3.5);
+    doc.text("FATURAMENTO (R$)", leftX + tblMesW + tblValW - 2, yLeft + 3.5, { align: "right" });
+    yLeft += tblRowH;
+
+    // Linhas
+    validMeses.forEach((mes, idx) => {
+      if (yLeft + tblRowH > 275) {
+        doc.addPage();
+        yLeft = 20;
+      }
+      const isUltimos12 = ultimos12.has(mes.mes);
+      if (isUltimos12) {
+        doc.setFillColor(232, 240, 254);
+      } else {
+        doc.setFillColor(...(idx % 2 === 0 ? colors.surface : [245, 245, 245] as [number, number, number]));
+      }
+      doc.rect(leftX, yLeft, tblMesW + tblValW, tblRowH, "F");
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...colors.text);
+      doc.text(parseMesLabel(mes.mes), leftX + 2, yLeft + 3.5);
+      doc.text(mes.valor || "—", leftX + tblMesW + tblValW - 2, yLeft + 3.5, { align: "right" });
+      doc.setDrawColor(230, 230, 230);
+      doc.line(leftX, yLeft + tblRowH, leftX + tblMesW + tblValW, yLeft + tblRowH);
+      yLeft += tblRowH;
+    });
+    yLeft += 4;
+
+    // FMM por ano
+    const fmmAnual = data.faturamento?.fmmAnual || {};
+    const fmmAnualTexto = Object.entries(fmmAnual)
+      .sort(([a], [b]) => Number(a) - Number(b))
+      .map(([ano, valor]) => {
+        const qtdMeses = (data.faturamento?.meses || [])
+          .filter(m => m.mes?.endsWith(ano)).length;
+        return `FMM ${ano}: R$ ${fmtMoney(valor)} (${qtdMeses} meses)`;
+      })
+      .join("   |   ");
+    if (fmmAnualTexto) {
+      doc.setFontSize(6);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(130, 130, 130);
+      doc.text(fmmAnualTexto, leftX, yLeft);
+      yLeft += 5;
+    }
+
+    // Aviso de meses zerados
+    const mesesZeradosPDF = data.faturamento.mesesZerados;
+    if (mesesZeradosPDF && mesesZeradosPDF.length > 0) {
+      const listaMeses = mesesZeradosPDF.map(mz => mz.mes).join(", ");
+      doc.setFontSize(6);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...colors.warning);
+      doc.text(`\u26A0 ${mesesZeradosPDF.length} mes(es) com faturamento zero: ${listaMeses}`, leftX, yLeft);
+      yLeft += 5;
+    }
+  } else {
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...colors.textMuted);
+    doc.text("Sem dados de faturamento disponiveis", leftX + leftW / 2, yLeft + 20, { align: "center" });
+    yLeft += 30;
+  }
+
+  // Alertas determinísticos — Faturamento
+  if (alertasFat.length > 0) {
+    yLeft += 4;
+    y = yLeft;
+    drawDetAlerts(alertasFat);
+    yLeft = y;
+  }
+
+  // ── SCR (stacked below chart) ──
+  let currentSCRPage = doc.getCurrentPageInfo().pageNumber;
+  let yRight = yLeft + 6;
+
+  const fmmVal = parseMoneyToNumber(data.faturamento.mediaAno || "0");
+  const hasAnterior = !!(data.scrAnterior && data.scrAnterior.periodoReferencia);
+  const periodoAnt = hasAnterior ? (data.scrAnterior!.periodoReferencia || "Anterior") : "";
+  const periodoAt = data.scr.periodoReferencia || "Atual";
+
+  const scrSemHistorico =
+    data.scr?.semHistorico === true ||
+    (
+      parseMoneyToNumber(data.scr?.totalDividasAtivas || "0") === 0 &&
+      parseMoneyToNumber(data.scr?.limiteCredito || "0") === 0 &&
+      parseMoneyToNumber(data.scr?.carteiraAVencer || "0") === 0 &&
+      (!data.scr?.modalidades || data.scr.modalidades.length === 0)
+    );
+  if (scrSemHistorico) {
+    // ── Header azul ──
+    doc.setFillColor(...colors.primary);
+    doc.roundedRect(margin, yRight, contentW, 7, 1, 1, "F");
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("\u2713 PERFIL SCR \u2014 SEM OPERAÇÕES BANCÁRIAS", margin + 3, yRight + 4.8);
+    yRight += 9;
+
+    // ── 4 linhas de confirmação ──
+    const pctConsulta = data.scr.pctDocumentosProcessados || "99%+";
+    const confirmacoes = [
+      `\u2713 Consulta realizada: ${pctConsulta} das instituições consultadas`,
+      "\u2713 Sem dívida bancária ativa em nenhuma IF",
+      "\u2713 Sem coobrigações (não figura como avalista)",
+      "\u2713 Sem operações em discordância ou sub judice",
+    ];
+    doc.setFontSize(6.5);
+    confirmacoes.forEach(linha => {
+      doc.setFillColor(240, 246, 255);
+      doc.rect(margin, yRight, contentW, 6, "F");
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(22, 163, 74);
+      doc.text(linha, margin + 3, yRight + 4.2);
+      yRight += 6;
+    });
+
+    // ── Separador ──
+    doc.setDrawColor(...colors.border);
+    doc.setLineWidth(0.3);
+    doc.line(margin, yRight + 1, margin + contentW, yRight + 1);
+    yRight += 4;
+
+    // ── Interpretação em itálico ──
+    const interpretacaoLines = doc.splitTextToSize(
+      "Empresa opera sem alavancagem bancária \u2014 indica autofinanciamento ou uso exclusivo de capital próprio. Ausência confirmada pelo Bacen, não presumida.",
+      contentW - 4
+    );
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(6);
+    doc.setTextColor(...colors.textMuted);
+    interpretacaoLines.forEach((l: string) => { doc.text(l, margin + 2, yRight); yRight += 4; });
+
+    // ── Confirmação em dois períodos ──
+    const antSemHist = data.scrAnterior && data.scrAnterior.semHistorico;
+    if (antSemHist) {
+      yRight += 2;
+      const doisPeriodos = doc.splitTextToSize(
+        `Confirmado em dois periodos consecutivos: ${data.scrAnterior!.periodoReferencia} e ${data.scr.periodoReferencia}`,
+        contentW - 4
       );
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...colors.primary);
+      doisPeriodos.forEach((l: string) => { doc.text(l, margin + 2, yRight); yRight += 4; });
+    }
 
-      // CNAEs Secundários
-      {
-        const cnaesRaw = data.cnpj.cnaeSecundarios || "";
-        const cnaesStr = Array.isArray(cnaesRaw) ? (cnaesRaw as string[]).join("; ") : String(cnaesRaw);
-        if (cnaesStr.trim() !== "") {
-          const cnaesLines = doc.splitTextToSize(cnaesStr, contentW - 8);
-          const cnaesBoxH = cnaesLines.length * 4 + 14;
-          checkPageBreak(cnaesBoxH + 2);
-          doc.setFillColor(...colors.surface);
-          doc.roundedRect(margin, y, contentW, cnaesBoxH, 1, 1, "F");
-          doc.setFontSize(6);
-          doc.setFont("helvetica", "normal");
+    yRight += 4;
+
+    // ── Tabela comparativa de métricas ──
+    const alturaTabela = 6 + (9 * 5.5) + 10; // header + 9 linhas + padding
+    if (alturaTabela > 275 - yRight) {
+      doc.addPage();
+      yRight = 20;
+      currentSCRPage = doc.getCurrentPageInfo().pageNumber;
+    }
+    yRight += 3;
+    doc.setFillColor(...colors.primary);
+    doc.roundedRect(margin, yRight, contentW, 6, 1, 1, "F");
+    doc.setFontSize(5.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+
+    const colMetrica = contentW * 0.40;
+    const colAt = contentW * 0.22;
+    const colAnt = contentW * 0.22;
+
+    doc.text("MÉTRICA", margin + 2, yRight + 4);
+    doc.text(periodoAt, margin + colMetrica + 2, yRight + 4);
+    if (hasAnterior) {
+      doc.text(periodoAnt, margin + colMetrica + colAt + 2, yRight + 4);
+      doc.text("VAR.", margin + colMetrica + colAt + colAnt + 2, yRight + 4);
+    }
+    yRight += 6;
+
+
+    const fmtSCR = (v: string | undefined) => (v && v !== "0,00" && v !== "") ? `R$ ${fmtMoney(v)}` : "R$ 0,00";
+    const fmtPct = (v: string | undefined) => (v && v !== "") ? `${v}%` : "—";
+
+    const fmmValSCR = data.faturamento?.fmm12m
+      ? parseMoneyToNumber(data.faturamento.fmm12m)
+      : 0;
+    const dividaAt = parseMoneyToNumber(data.scr.totalDividasAtivas || "0");
+    const dividaAnt = parseMoneyToNumber(data.scrAnterior?.totalDividasAtivas || "0");
+    const alavAt2 = fmmValSCR > 0 ? fmtBR(dividaAt / fmmValSCR, 2) + "x" : "0,00x";
+    const alavAnt2 = fmmValSCR > 0 ? fmtBR(dividaAnt / fmmValSCR, 2) + "x" : "0,00x";
+
+    const linhasComparativo = [
+      { label: "Carteira a Vencer", at: fmtSCR(data.scr.carteiraAVencer), ant: fmtSCR(data.scrAnterior?.carteiraAVencer), positiveIsGood: false },
+      { label: "Vencidos", at: fmtSCR(data.scr.vencidos), ant: fmtSCR(data.scrAnterior?.vencidos), positiveIsGood: false },
+      { label: "Prejuízos", at: fmtSCR(data.scr.prejuizos), ant: fmtSCR(data.scrAnterior?.prejuizos), positiveIsGood: false },
+      { label: "Total Dívidas", at: fmtSCR(data.scr.totalDividasAtivas), ant: fmtSCR(data.scrAnterior?.totalDividasAtivas), positiveIsGood: false, bold: true },
+      { label: "Limite de Crédito", at: fmtSCR(data.scr.limiteCredito), ant: fmtSCR(data.scrAnterior?.limiteCredito), positiveIsGood: true },
+      { label: "Qtde IFs", at: data.scr.qtdeInstituicoes || "0", ant: data.scrAnterior?.qtdeInstituicoes || "0", positiveIsGood: true },
+      { label: "Qtde Operações", at: data.scr.qtdeOperacoes || "0", ant: data.scrAnterior?.qtdeOperacoes || "0", positiveIsGood: true },
+      { label: "% Docs Processados", at: fmtPct(data.scr.pctDocumentosProcessados), ant: fmtPct(data.scrAnterior?.pctDocumentosProcessados), positiveIsGood: true },
+      { label: "Alavancagem vs FMM", at: alavAt2, ant: alavAnt2, positiveIsGood: false, bold: true },
+    ];
+
+    linhasComparativo.forEach((linha, idx) => {
+      const bgColor: [number, number, number] = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+      doc.setFillColor(...bgColor);
+      doc.rect(margin, yRight, contentW, 5.5, "F");
+
+      doc.setFontSize(5.5);
+      doc.setFont("helvetica", linha.bold ? "bold" : "normal");
+      doc.setTextColor(...colors.text);
+      doc.text(linha.label, margin + 2, yRight + 3.8);
+      doc.text(linha.at, margin + colMetrica + 2, yRight + 3.8);
+
+      if (hasAnterior) {
+        doc.text(linha.ant, margin + colMetrica + colAt + 2, yRight + 3.8);
+
+        const numAt = parseFloat((linha.at || "0").replace(/[^0-9,]/g, "").replace(",", "."));
+        const numAnt = parseFloat((linha.ant || "0").replace(/[^0-9,]/g, "").replace(",", "."));
+
+        if (!isNaN(numAt) && !isNaN(numAnt) && numAnt !== 0) {
+          const varPct = ((numAt - numAnt) / numAnt) * 100;
+          const varStr = fmtVar(varPct);
+          const igual = Math.abs(varPct) < 0.1;
+          const melhorou = linha.positiveIsGood ? varPct > 0 : varPct < 0;
+          if (igual) {
+            doc.setTextColor(...colors.textMuted);
+          } else if (melhorou) {
+            doc.setTextColor(22, 163, 74);
+          } else {
+            doc.setTextColor(220, 38, 38);
+          }
+          doc.text(varStr, margin + colMetrica + colAt + colAnt + 2, yRight + 3.8);
+          doc.setTextColor(...colors.text);
+        } else {
           doc.setTextColor(...colors.textMuted);
-          doc.text("CNAES SECUNDARIOS", margin + 4, y + 5);
-          doc.setFontSize(7);
-          doc.setFont("helvetica", "normal");
-          doc.setTextColor(...colors.textMuted);
-          cnaesLines.forEach((line: string, i: number) => {
-            doc.text(line, margin + 4, y + 11 + i * 4);
-          });
-          y += cnaesBoxH + 2;
+          doc.text("—", margin + colMetrica + colAt + colAnt + 2, yRight + 3.8);
+          doc.setTextColor(...colors.text);
         }
       }
 
-      // ===== PAGE 3 — QSA + CONTRATO =====
-      newPage();
-      drawHeader();
+      yRight += 5.5;
+    });
 
-      drawSectionTitle("02", "QUADRO SOCIETARIO (QSA)", colors.accent);
+    yRight += 4;
 
-      if (data.qsa.capitalSocial) {
-        drawField("Capital Social", data.qsa.capitalSocial, true);
-      }
+  } else {
+    // Column widths (defined early so header helper can use them)
+    const cW = hasAnterior
+      ? [contentW * 0.33, contentW * 0.22, contentW * 0.22, contentW * 0.23]
+      : [contentW * 0.55, contentW * 0.45];
 
-      const validQSA = data.qsa.quadroSocietario.filter(s => s.nome);
-      if (validQSA.length > 0) {
-        const qsaColW = [contentW * 0.30, contentW * 0.22, contentW * 0.28, contentW * 0.20];
-        drawTable(
-          ["NOME", "CPF/CNPJ", "QUALIFICACAO", "PART."],
-          validQSA.map(s => {
-            const part = s.participacao
-              ? (String(s.participacao).includes("%") ? s.participacao : s.participacao + "%")
-              : "—";
-            return [s.nome, s.cpfCnpj || "—", s.qualificacao || "—", part];
-          }),
-          qsaColW,
-        );
-      }
+    const scrRowH = 6;
 
-      drawSpacer(8);
-
-      drawSectionTitle("03", "CONTRATO SOCIAL", colors.primary);
-
-      if (data.contrato.temAlteracoes) {
-        checkPageBreak(12);
-        doc.setFillColor(254, 243, 199);
-        doc.roundedRect(margin, y, contentW, 10, 1, 1, "F");
-        doc.setFillColor(...colors.warning);
-        doc.roundedRect(margin, y, 3, 10, 0.5, 0.5, "F");
-        doc.setFontSize(7.5);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors.warning);
-        doc.text("ATENCAO: Documento com alteracoes societarias recentes", margin + 8, y + 6.5);
-        y += 14;
-      }
-
-      if (data.contrato.objetoSocial) drawMultilineField("Objeto Social", data.contrato.objetoSocial, 5);
-      if (data.contrato.administracao) drawMultilineField("Administracao e Poderes", data.contrato.administracao, 4);
-
-      drawFieldRow([
-        { label: "Capital Social", value: data.contrato.capitalSocial },
-        { label: "Data de Constituicao", value: data.contrato.dataConstituicao },
-      ]);
-      drawFieldRow([
-        { label: "Prazo de Duracao", value: data.contrato.prazoDuracao },
-        { label: "Foro", value: data.contrato.foro },
-      ]);
-
-      // ===== PAGE 3 — FATURAMENTO / SCR =====
-      newPage();
-      drawHeader();
-
-      // Section header bar
+    // Helper: draw SCR column header at current yRight
+    const drawSCRColHeader = () => {
       doc.setFillColor(...colors.navy);
-      doc.rect(margin, y, contentW, 10, "F");
-      doc.setFillColor(...colors.accent);
-      doc.rect(margin, y + 10, contentW, 1.5, "F");
+      doc.rect(margin, yRight, contentW, 6, "F");
+      doc.setFontSize(5.5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(255, 255, 255);
+      doc.text("METRICA (mil R$)", margin + 2, yRight + 4);
+      if (hasAnterior) {
+        doc.text(periodoAnt, margin + cW[0] + cW[1] - 1, yRight + 4, { align: "right" });
+        doc.text(periodoAt, margin + cW[0] + cW[1] + cW[2] - 1, yRight + 4, { align: "right" });
+        doc.text("VAR.", margin + contentW - 1, yRight + 4, { align: "right" });
+      } else {
+        doc.text(periodoAt, margin + contentW - 1, yRight + 4, { align: "right" });
+      }
+      yRight += 7;
+    };
+
+    // Title — break page se não houver espaço suficiente para a tabela inteira
+    // Threshold conservador (220) para garantir que a tabela nunca seja cortada pelo rodapé
+    const scrTableNeeded = 7 + 7 + scrRowH * 9 + 4;
+    if (yRight + scrTableNeeded > 220) {
+      doc.addPage();
+      drawHeader();
+      currentSCRPage = doc.getCurrentPageInfo().pageNumber;
+      yRight = 35;
+    }
+
+    const scrTableTitle = hasAnterior
+      ? `COMPARATIVO SCR ${periodoAnt} x ${periodoAt}`
+      : `SCR — ${periodoAt}`;
+    doc.setFontSize(5.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...colors.textMuted);
+    doc.text(scrTableTitle, margin, yRight + 4);
+    yRight += 7;
+
+    drawSCRColHeader();
+
+    const toK = (v: string | undefined) => {
+      const n = parseMoneyToNumber(v || "0");
+      return n > 0 ? (n / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) : "—";
+    };
+
+    const alavAt = fmmVal > 0
+      ? fmtBR(parseMoneyToNumber(data.scr.totalDividasAtivas || "0") / fmmVal, 2) + "x"
+      : "—";
+    const alavAnt = hasAnterior && fmmVal > 0
+      ? fmtBR(parseMoneyToNumber(data.scrAnterior!.totalDividasAtivas || "0") / fmmVal, 2) + "x"
+      : "—";
+
+    type ScrRow = { label: string; antVal: string; atVal: string; antRaw: number; atRaw: number; positiveIsGood: boolean; bold?: boolean; skipVar?: boolean };
+    const scrRows: ScrRow[] = [
+      { label: "Em Dia", antVal: toK(data.scrAnterior?.emDia), atVal: toK(data.scr.emDia), antRaw: parseMoneyToNumber(data.scrAnterior?.emDia || "0"), atRaw: parseMoneyToNumber(data.scr.emDia || "0"), positiveIsGood: true },
+      { label: "CP", antVal: toK(data.scrAnterior?.carteiraCurtoPrazo), atVal: toK(data.scr.carteiraCurtoPrazo), antRaw: parseMoneyToNumber(data.scrAnterior?.carteiraCurtoPrazo || "0"), atRaw: parseMoneyToNumber(data.scr.carteiraCurtoPrazo || "0"), positiveIsGood: false },
+      { label: "LP", antVal: toK(data.scrAnterior?.carteiraLongoPrazo), atVal: toK(data.scr.carteiraLongoPrazo), antRaw: parseMoneyToNumber(data.scrAnterior?.carteiraLongoPrazo || "0"), atRaw: parseMoneyToNumber(data.scr.carteiraLongoPrazo || "0"), positiveIsGood: false },
+      { label: "Total Divida", antVal: toK(data.scrAnterior?.totalDividasAtivas), atVal: toK(data.scr.totalDividasAtivas), antRaw: parseMoneyToNumber(data.scrAnterior?.totalDividasAtivas || "0"), atRaw: parseMoneyToNumber(data.scr.totalDividasAtivas || "0"), positiveIsGood: false, bold: true },
+      { label: "Vencida", antVal: toK(data.scrAnterior?.vencidos), atVal: toK(data.scr.vencidos), antRaw: parseMoneyToNumber(data.scrAnterior?.vencidos || "0"), atRaw: parseMoneyToNumber(data.scr.vencidos || "0"), positiveIsGood: false },
+      { label: "Prejuizo", antVal: toK(data.scrAnterior?.prejuizos), atVal: toK(data.scr.prejuizos), antRaw: parseMoneyToNumber(data.scrAnterior?.prejuizos || "0"), atRaw: parseMoneyToNumber(data.scr.prejuizos || "0"), positiveIsGood: false },
+      { label: "Limite", antVal: toK(data.scrAnterior?.limiteCredito), atVal: toK(data.scr.limiteCredito), antRaw: parseMoneyToNumber(data.scrAnterior?.limiteCredito || "0"), atRaw: parseMoneyToNumber(data.scr.limiteCredito || "0"), positiveIsGood: true },
+      { label: "IFs", antVal: data.scrAnterior?.numeroIfs || "—", atVal: data.scr.numeroIfs || "—", antRaw: parseFloat(data.scrAnterior?.numeroIfs || "0") || 0, atRaw: parseFloat(data.scr.numeroIfs || "0") || 0, positiveIsGood: true },
+      { label: "Alavancagem", antVal: alavAnt, atVal: alavAt, antRaw: 0, atRaw: 0, positiveIsGood: false, skipVar: true },
+    ];
+
+    scrRows.forEach((row, idx) => {
+      // Page break check per row — re-draw column header on new page
+      if (yRight + scrRowH > 275) {
+        doc.addPage();
+        drawHeader();
+        currentSCRPage = doc.getCurrentPageInfo().pageNumber;
+        yRight = 25;
+        drawSCRColHeader();
+      }
+
+      doc.setFillColor(...(idx % 2 === 0 ? colors.surface : colors.surface2));
+      doc.rect(margin, yRight, contentW, scrRowH, "F");
+
+      doc.setFont("helvetica", row.bold ? "bold" : "normal");
+      doc.setFontSize(6.5);
+      doc.setTextColor(...(row.bold ? colors.text : colors.textSec));
+      doc.text(row.label, margin + 2, yRight + 4);
+
+      if (hasAnterior) {
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...colors.textSec);
+        doc.text(row.antVal, margin + cW[0] + cW[1] - 1, yRight + 4, { align: "right" });
+        doc.setFont("helvetica", row.bold ? "bold" : "normal");
+        doc.setTextColor(...colors.text);
+        doc.text(row.atVal, margin + cW[0] + cW[1] + cW[2] - 1, yRight + 4, { align: "right" });
+
+        let varStr = "—";
+        let varColor: [number, number, number] = [150, 150, 150];
+        if (!row.skipVar) {
+          const diff = row.atRaw - row.antRaw;
+          if (diff === 0 && row.atRaw > 0) {
+            varStr = "→ 0%";
+          } else if (diff !== 0 && row.antRaw > 0) {
+            const pct = (diff / row.antRaw) * 100;
+            varStr = fmtVar(pct);
+            const isGood = (diff > 0 && row.positiveIsGood) || (diff < 0 && !row.positiveIsGood);
+            varColor = isGood ? [22, 163, 74] : [220, 38, 38];
+          } else if (diff !== 0) {
+            varStr = diff > 0 ? "↑" : "↓";
+            const isGood = (diff > 0 && row.positiveIsGood) || (diff < 0 && !row.positiveIsGood);
+            varColor = isGood ? [22, 163, 74] : [220, 38, 38];
+          }
+        }
+        doc.setFont("helvetica", row.bold ? "bold" : "normal");
+        doc.setTextColor(...varColor);
+        doc.text(varStr, margin + contentW - 1, yRight + 4, { align: "right" });
+      } else {
+        doc.setFont("helvetica", row.bold ? "bold" : "normal");
+        doc.setTextColor(...colors.text);
+        doc.text(row.atVal, margin + contentW - 1, yRight + 4, { align: "right" });
+      }
+
+      doc.setDrawColor(230, 230, 230);
+      doc.line(margin, yRight + scrRowH, margin + contentW, yRight + scrRowH);
+      yRight += scrRowH;
+    });
+    yRight += 4;
+  }
+
+  // Advance y past SCR
+  if (doc.getCurrentPageInfo().pageNumber < currentSCRPage) {
+    doc.setPage(currentSCRPage);
+  }
+  y = yRight + 6;
+
+  // ── SCR Vencimentos — empresa + sócios lado a lado ──
+  {
+    const faixaKeys = ["ate30d", "d31_60", "d61_90", "d91_180", "d181_360", "acima360d"] as const;
+    const faixaKeyLabels: Record<string, string> = {
+      ate30d: "Até 30 dias",
+      d31_60: "31–60 dias",
+      d61_90: "61–90 dias",
+      d91_180: "91–180 dias",
+      d181_360: "181–360 dias",
+      acima360d: "Acima de 360d",
+    };
+
+    type VencEntity = {
+      label: string;
+      aVencer: Record<string, string> | undefined;
+      vencidos: Record<string, string> | undefined;
+      totalAVencer: string;
+      totalVencido: string;
+    };
+
+    const makeVencEnt = (label: string, scr: typeof data.scr | undefined | null): VencEntity | null => {
+      if (!scr) return null;
+      return {
+        label,
+        aVencer: scr.faixasAVencer as unknown as Record<string, string> | undefined,
+        vencidos: scr.faixasVencidos as unknown as Record<string, string> | undefined,
+        totalAVencer: scr.carteiraAVencer || scr.faixasAVencer?.total || "0,00",
+        totalVencido: scr.vencidos || scr.faixasVencidos?.total || "0,00",
+      };
+    };
+
+    const vencEntities: VencEntity[] = [];
+    const empLabel = (data.cnpj?.razaoSocial || "Empresa").split(" ")[0] + " (PJ)";
+    const empEnt = makeVencEnt(empLabel, data.scr);
+    if (empEnt) vencEntities.push(empEnt);
+
+    if (data.scrSocios) {
+      data.scrSocios.forEach(s => {
+        const nome = (s.nomeSocio || s.cpfSocio || "Sócio").split(" ")[0] + " (PF)";
+        const ent = makeVencEnt(nome, s.periodoAtual);
+        if (ent) vencEntities.push(ent);
+      });
+    }
+
+    const hasVencData = vencEntities.some(e =>
+      parseMoneyToNumber(e.totalAVencer) > 0 || parseMoneyToNumber(e.totalVencido) > 0
+    );
+
+    if (hasVencData) {
+      // 35% para label, restante dividido igualmente entre entidades
+      const vColLabel = contentW * 0.35;
+      const vColData = (contentW - vColLabel) / vencEntities.length;
+      const vRowH = 5.5;
+      const totalRows = 1 + 6 + 1 + 1 + 6 + 1; // header + faixas + total + sep + faixas + total
+      const vNeeded = 10 + 6 + totalRows * vRowH + 4;
+
+      drawSpacer(6);
+      checkPageBreak(vNeeded);
+
+      doc.setFontSize(7.5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...colors.text);
+      doc.text("SCR VENCIMENTOS", margin, y + 4);
+      y += 8;
+
+      // Cabeçalho: FAIXA | col por entidade
+      doc.setFillColor(...colors.navy);
+      doc.rect(margin, y, contentW, 6, "F");
+      doc.setFontSize(5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(255, 255, 255);
+      doc.text("FAIXA", margin + 2, y + 4);
+      vencEntities.forEach((ent, i) => {
+        doc.text(ent.label, margin + vColLabel + i * vColData + vColData / 2, y + 4, { align: "center" });
+      });
+      y += 6;
+
+      const fmtV = (v: string) => {
+        const n = parseMoneyToNumber(v || "0");
+        if (n === 0) return "—";
+        return n.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+      };
+
+      let vIdx = 0;
+      const drawVRow = (
+        label: string,
+        vals: string[],
+        opts: { bold?: boolean; sectionBg?: "blue" | "red"; summaryBg?: "blue" | "red" } = {}
+      ) => {
+        if (y + vRowH > 275) { newPage(); drawHeader(); }
+
+        if (opts.sectionBg) {
+          const isBlue = opts.sectionBg === "blue";
+          doc.setFillColor(...(isBlue ? [22, 78, 140] as [number,number,number] : [185, 28, 28] as [number,number,number]));
+          doc.rect(margin, y, contentW, vRowH, "F");
+          doc.setFontSize(5.5);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(255, 255, 255);
+          doc.text(label, margin + 2, y + 3.8);
+          y += vRowH;
+          vIdx = 0;
+          return;
+        }
+
+        if (opts.summaryBg) {
+          const isBlue = opts.summaryBg === "blue";
+          doc.setFillColor(...(isBlue ? [215, 237, 255] as [number,number,number] : [255, 220, 220] as [number,number,number]));
+          doc.rect(margin, y, contentW, vRowH, "F");
+          doc.setFontSize(5.5);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(...(isBlue ? colors.primary : [185, 28, 28] as [number,number,number]));
+          doc.text(label, margin + 2, y + 3.8);
+          vals.forEach((v, i) => {
+            const display = fmtV(v);
+            doc.setTextColor(...(isBlue ? colors.primary : [185, 28, 28] as [number,number,number]));
+            doc.text(display, margin + vColLabel + i * vColData + vColData - 1, y + 3.8, { align: "right" });
+          });
+          doc.setTextColor(...colors.text);
+          y += vRowH;
+          return;
+        }
+
+        const isVencida = opts.bold === false && vals.some(v => parseMoneyToNumber(v) > 0);
+        const bg: [number, number, number] = vIdx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+        doc.setFillColor(...bg);
+        doc.rect(margin, y, contentW, vRowH, "F");
+        doc.setFontSize(5.5);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...colors.textSec);
+        doc.text(label, margin + 2, y + 3.8);
+        vals.forEach((v, i) => {
+          const display = fmtV(v);
+          const hasVal = display !== "—";
+          doc.setTextColor(...(isVencida && hasVal ? [185, 28, 28] as [number,number,number] : hasVal ? colors.text : colors.textMuted));
+          doc.text(display, margin + vColLabel + i * vColData + vColData - 1, y + 3.8, { align: "right" });
+        });
+        doc.setTextColor(...colors.text);
+        y += vRowH;
+        vIdx++;
+      };
+
+      // A VENCER
+      drawVRow("A VENCER", [], { sectionBg: "blue" });
+      faixaKeys.forEach(key => drawVRow(faixaKeyLabels[key], vencEntities.map(e => e.aVencer?.[key] || "0,00")));
+      drawVRow("Total a Vencer", vencEntities.map(e => e.totalAVencer), { summaryBg: "blue" });
+
+      // VENCIDOS
+      drawVRow("VENCIDOS", [], { sectionBg: "red" });
+      faixaKeys.forEach(key => drawVRow(faixaKeyLabels[key], vencEntities.map(e => e.vencidos?.[key] || "0,00"), { bold: false }));
+      drawVRow("Total Vencido", vencEntities.map(e => e.totalVencido), { summaryBg: "red" });
+
+      y += 4;
+
+      if (!data.scrSocios || data.scrSocios.length === 0) {
+        doc.setFontSize(5.5);
+        doc.setFont("helvetica", "italic");
+        doc.setTextColor(...colors.textMuted);
+        doc.text("* SCR dos sócios não enviado — apenas dados da empresa disponíveis.", margin, y);
+        y += 6;
+      }
+    }
+  }
+
+  // ── Evolução SCR (pares de período por entidade) ──
+  {
+    type EvolEntity = {
+      label: string;
+      periodoAnt: string;
+      periodoAt: string;
+      aVencerAnt: string; aVencerAt: string;
+      vencidoAnt: string; vencidoAt: string;
+      prejuizoAnt: string; prejuizoAt: string;
+      limiteAnt: string; limiteAt: string;
+      cpAnt: string; cpAt: string;
+      lpAnt: string; lpAt: string;
+      totalAnt: string; totalAt: string;
+    };
+
+    const evolEntities: EvolEntity[] = [];
+
+    if (data.scr?.periodoReferencia) {
+      evolEntities.push({
+        label: (data.cnpj?.razaoSocial || "Empresa").split(" ")[0],
+        periodoAnt: hasAnterior ? periodoAnt : "",
+        periodoAt: periodoAt,
+        aVencerAnt: data.scrAnterior?.carteiraAVencer || "0,00", aVencerAt: data.scr.carteiraAVencer || "0,00",
+        vencidoAnt: data.scrAnterior?.vencidos || "0,00",        vencidoAt: data.scr.vencidos || "0,00",
+        prejuizoAnt: data.scrAnterior?.prejuizos || "0,00",      prejuizoAt: data.scr.prejuizos || "0,00",
+        limiteAnt: data.scrAnterior?.limiteCredito || "0,00",    limiteAt: data.scr.limiteCredito || "0,00",
+        cpAnt: data.scrAnterior?.carteiraCurtoPrazo || "0,00",   cpAt: data.scr.carteiraCurtoPrazo || "0,00",
+        lpAnt: data.scrAnterior?.carteiraLongoPrazo || "0,00",   lpAt: data.scr.carteiraLongoPrazo || "0,00",
+        totalAnt: data.scrAnterior?.totalDividasAtivas || "0,00",totalAt: data.scr.totalDividasAtivas || "0,00",
+      });
+    }
+
+    if (data.scrSocios) {
+      data.scrSocios.forEach(s => {
+        if (!s.periodoAtual?.periodoReferencia) return;
+        const temAnt = !!(s.periodoAnterior?.periodoReferencia);
+        evolEntities.push({
+          label: (s.nomeSocio || s.cpfSocio || "Sócio").split(" ")[0],
+          periodoAnt: temAnt ? (s.periodoAnterior!.periodoReferencia || "") : "",
+          periodoAt: s.periodoAtual.periodoReferencia || "Atual",
+          aVencerAnt: s.periodoAnterior?.carteiraAVencer || "0,00", aVencerAt: s.periodoAtual.carteiraAVencer || "0,00",
+          vencidoAnt: s.periodoAnterior?.vencidos || "0,00",        vencidoAt: s.periodoAtual.vencidos || "0,00",
+          prejuizoAnt: s.periodoAnterior?.prejuizos || "0,00",      prejuizoAt: s.periodoAtual.prejuizos || "0,00",
+          limiteAnt: s.periodoAnterior?.limiteCredito || "0,00",    limiteAt: s.periodoAtual.limiteCredito || "0,00",
+          cpAnt: s.periodoAnterior?.carteiraCurtoPrazo || "0,00",   cpAt: s.periodoAtual.carteiraCurtoPrazo || "0,00",
+          lpAnt: s.periodoAnterior?.carteiraLongoPrazo || "0,00",   lpAt: s.periodoAtual.carteiraLongoPrazo || "0,00",
+          totalAnt: s.periodoAnterior?.totalDividasAtivas || "0,00",totalAt: s.periodoAtual.totalDividasAtivas || "0,00",
+        });
+      });
+    }
+
+    // Só renderiza se há pelo menos um período anterior
+    const hasEvol = evolEntities.some(e => e.periodoAnt !== "");
+
+    if (hasEvol) {
+      // Cada entidade ocupa 1 ou 2 colunas (anterior + atual ou só atual)
+      const eColLabel = 30;
+      const totalECols = evolEntities.reduce((s, e) => s + (e.periodoAnt ? 2 : 1), 0);
+      const eColW = (contentW - eColLabel) / Math.max(totalECols, 1);
+      const eRowH = 5.5;
+
+      const eNeeded = 10 + 6 + 5 + 7 * eRowH + 4;
+      drawSpacer(6);
+      checkPageBreak(eNeeded);
+
+      doc.setFontSize(7.5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...colors.text);
+      doc.text("EVOLUÇÃO SCR", margin, y + 4);
+      y += 8;
+
+      // Linha 1 header: nomes das entidades (grouped)
+      doc.setFillColor(...colors.navy);
+      doc.rect(margin, y, contentW, 6, "F");
+      doc.setFontSize(5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(255, 255, 255);
+      let hx = margin + eColLabel;
+      evolEntities.forEach(e => {
+        const numCols = e.periodoAnt ? 2 : 1;
+        const cx = hx + (numCols * eColW) / 2;
+        doc.text(e.label, cx, y + 4, { align: "center" });
+        hx += numCols * eColW;
+      });
+      y += 6;
+
+      // Linha 2 sub-header: períodos
+      doc.setFillColor(50, 70, 110);
+      doc.rect(margin, y, contentW, 5, "F");
+      doc.setFontSize(4.5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(255, 255, 255);
+      doc.text("MÉTRICA", margin + 2, y + 3.5);
+      let sx = margin + eColLabel;
+      evolEntities.forEach(e => {
+        if (e.periodoAnt) {
+          doc.text(e.periodoAnt, sx + eColW - 1, y + 3.5, { align: "right" });
+          sx += eColW;
+        }
+        doc.text(e.periodoAt, sx + eColW - 1, y + 3.5, { align: "right" });
+        sx += eColW;
+      });
+      y += 5;
+
+      const toKE = (v: string) => {
+        const n = parseMoneyToNumber(v || "0");
+        if (n === 0) return "—";
+        return n >= 1000000 ? fmtBR(n / 1000000, 1) + "M" : n.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+      };
+
+      type EvolRowDef = { label: string; antKey: keyof EvolEntity; atKey: keyof EvolEntity; bold?: boolean; badIfIncrease?: boolean };
+      const evolRows: EvolRowDef[] = [
+        { label: "A Vencer",  antKey: "aVencerAnt",  atKey: "aVencerAt" },
+        { label: "Vencido",   antKey: "vencidoAnt",  atKey: "vencidoAt",  badIfIncrease: true },
+        { label: "Prejuízo",  antKey: "prejuizoAnt", atKey: "prejuizoAt", badIfIncrease: true },
+        { label: "Limite",    antKey: "limiteAnt",   atKey: "limiteAt" },
+        { label: "CP",        antKey: "cpAnt",       atKey: "cpAt" },
+        { label: "LP",        antKey: "lpAnt",       atKey: "lpAt" },
+        { label: "Total",     antKey: "totalAnt",    atKey: "totalAt",    bold: true },
+      ];
+
+      evolRows.forEach((rowDef, ri) => {
+        if (y + eRowH > 275) { newPage(); drawHeader(); }
+        const bg: [number, number, number] = ri % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+        doc.setFillColor(...bg);
+        doc.rect(margin, y, contentW, eRowH, "F");
+        doc.setFontSize(5.5);
+        doc.setFont("helvetica", rowDef.bold ? "bold" : "normal");
+        doc.setTextColor(...(rowDef.bold ? colors.text : colors.textSec));
+        doc.text(rowDef.label, margin + 2, y + 3.8);
+
+        let cx = margin + eColLabel;
+        evolEntities.forEach(e => {
+          if (e.periodoAnt) {
+            const antVal = String(e[rowDef.antKey] || "0,00");
+            doc.setFont("helvetica", rowDef.bold ? "bold" : "normal");
+            doc.setTextColor(...colors.textSec);
+            doc.text(toKE(antVal), cx + eColW - 1, y + 3.8, { align: "right" });
+            cx += eColW;
+          }
+          const atVal = String(e[rowDef.atKey] || "0,00");
+          const antValN = e.periodoAnt ? parseMoneyToNumber(String(e[rowDef.antKey] || "0")) : 0;
+          const atValN = parseMoneyToNumber(atVal);
+          const isRed = rowDef.badIfIncrease && e.periodoAnt && atValN > antValN && atValN > 0;
+          doc.setFont("helvetica", rowDef.bold ? "bold" : "normal");
+          doc.setTextColor(...(isRed ? [185, 28, 28] as [number, number, number] : colors.text));
+          doc.text(toKE(atVal), cx + eColW - 1, y + 3.8, { align: "right" });
+          cx += eColW;
+        });
+        doc.setTextColor(...colors.text);
+        y += eRowH;
+      });
+      y += 4;
+    }
+  }
+
+  // Modalidades PJ — comparativo entre períodos
+  if (data.scr.modalidades && data.scr.modalidades.length > 0) {
+    const modPJ = data.scr.modalidades;
+    const modPJAnt = data.scrAnterior?.modalidades || [];
+    const temAntPJ = modPJAnt.length > 0 && hasAnterior;
+    const modPJRowH = 6;
+    const modPJNeeded = 4 + 8 + 6 + 5 + modPJ.length * modPJRowH + 4;
+    if (y + modPJNeeded > 275) { newPage(); drawHeader(); } else { y += 4; }
+
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...colors.text);
+    const razaoFull = data.cnpj?.razaoSocial || "Empresa";
+    const cnpjFmt = (data.cnpj?.cnpj || "").replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
+    doc.text(`MODALIDADES SCR — ${razaoFull} — ${cnpjFmt}`, margin, y + 4, { maxWidth: contentW });
+    y += 8;
+
+    const modColNomePJ = contentW * 0.32;
+    const modColGrpPJ = (contentW - modColNomePJ) / (temAntPJ ? 2 : 1);
+    const modSubColsPJ = [modColGrpPJ / 4, modColGrpPJ / 4, modColGrpPJ / 4, modColGrpPJ / 4];
+
+    // Grupo de períodos
+    doc.setFillColor(...colors.navy);
+    doc.rect(margin, y, contentW, 6, "F");
+    doc.setFontSize(5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    if (temAntPJ) {
+      doc.text(periodoAnt, margin + modColNomePJ + modColGrpPJ / 2, y + 4, { align: "center" });
+      doc.text(periodoAt, margin + modColNomePJ + modColGrpPJ + modColGrpPJ / 2, y + 4, { align: "center" });
+    } else {
+      doc.text(periodoAt, margin + modColNomePJ + modColGrpPJ / 2, y + 4, { align: "center" });
+    }
+    y += 6;
+
+    // Sub-cabeçalho
+    doc.setFillColor(50, 70, 110);
+    doc.rect(margin, y, contentW, 5, "F");
+    doc.setFontSize(4.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("MODALIDADE", margin + 2, y + 3.5);
+
+    const drawPJSubHeader = (startX: number) => {
+      doc.text("TOTAL", startX + modSubColsPJ[0] - 1, y + 3.5, { align: "right" });
+      doc.text("A VENCER", startX + modSubColsPJ[0] + modSubColsPJ[1] - 1, y + 3.5, { align: "right" });
+      doc.text("VENCIDO", startX + modSubColsPJ[0] + modSubColsPJ[1] + modSubColsPJ[2] - 1, y + 3.5, { align: "right" });
+      doc.text("PART.", startX + modColGrpPJ - 1, y + 3.5, { align: "right" });
+    };
+    if (temAntPJ) drawPJSubHeader(margin + modColNomePJ);
+    drawPJSubHeader(margin + modColNomePJ + (temAntPJ ? modColGrpPJ : 0));
+    y += 5;
+
+    const normaisPJ = [...modPJ].filter(m => !m.ehContingente).sort((a, b) =>
+      parseMoneyToNumber(b.total || "0") - parseMoneyToNumber(a.total || "0")
+    );
+    const contingentesPJ = [...modPJ].filter(m => m.ehContingente).sort((a, b) =>
+      parseMoneyToNumber(b.total || "0") - parseMoneyToNumber(a.total || "0")
+    );
+    const orderedModPJ = [...normaisPJ, ...contingentesPJ];
+
+    const toKPJ = (v: string) => {
+      const n = parseMoneyToNumber(v || "0");
+      return n === 0 ? "—" : n >= 1000000 ? fmtBR(n / 1000000, 1) + "M" : n >= 1000 ? fmtBR(Math.round(n / 1000), 0) : v;
+    };
+
+    const drawPJCells = (startX: number, mod: (typeof modPJ)[0] | undefined) => {
+      if (!mod) {
+        doc.setTextColor(...colors.textMuted);
+        doc.text("—", startX + modSubColsPJ[0] - 1, y + 4, { align: "right" });
+        doc.text("—", startX + modSubColsPJ[0] + modSubColsPJ[1] - 1, y + 4, { align: "right" });
+        doc.text("—", startX + modSubColsPJ[0] + modSubColsPJ[1] + modSubColsPJ[2] - 1, y + 4, { align: "right" });
+        doc.text("—", startX + modColGrpPJ - 1, y + 4, { align: "right" });
+      } else {
+        const hasVencPJ = mod.vencido && mod.vencido !== "0,00" && mod.vencido !== "—";
+        doc.setTextColor(...colors.text);
+        doc.text(toKPJ(mod.total), startX + modSubColsPJ[0] - 1, y + 4, { align: "right" });
+        doc.text(toKPJ(mod.aVencer), startX + modSubColsPJ[0] + modSubColsPJ[1] - 1, y + 4, { align: "right" });
+        doc.setTextColor(...(hasVencPJ ? [185, 28, 28] as [number, number, number] : colors.textMuted));
+        doc.text(hasVencPJ ? toKPJ(mod.vencido) : "—", startX + modSubColsPJ[0] + modSubColsPJ[1] + modSubColsPJ[2] - 1, y + 4, { align: "right" });
+        doc.setTextColor(...colors.textSec);
+        doc.text(mod.participacao || "—", startX + modColGrpPJ - 1, y + 4, { align: "right" });
+      }
+    };
+
+    let bgIdxPJ = 0;
+    let separadorRendered = false;
+
+    orderedModPJ.forEach((m) => {
+      // Linha separadora antes das contingentes
+      if (m.ehContingente && !separadorRendered) {
+        separadorRendered = true;
+        if (y + modPJRowH + 1 > 275) { newPage(); drawHeader(); }
+        doc.setFillColor(245, 245, 245);
+        doc.rect(margin, y, contentW, modPJRowH, "F");
+        doc.setFontSize(4.8);
+        doc.setFont("helvetica", "italic");
+        doc.setTextColor(...colors.textMuted);
+        doc.text("Responsabilidades contingentes / Títulos fora da carteira", margin + 2, y + 4);
+        y += modPJRowH;
+        bgIdxPJ = 0;
+      }
+
+      if (y + modPJRowH > 275) { newPage(); drawHeader(); }
+      const bg: [number, number, number] = bgIdxPJ % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+      doc.setFillColor(...bg);
+      doc.rect(margin, y, contentW, modPJRowH, "F");
+      doc.setFontSize(5);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...colors.text);
+      const nomeT = m.nome.length > 38 ? m.nome.substring(0, 37) + "…" : m.nome;
+      doc.text(nomeT, margin + 2, y + 4);
+
+      if (temAntPJ) {
+        drawPJCells(margin + modColNomePJ, modPJAnt.find(a => a.nome === m.nome));
+        drawPJCells(margin + modColNomePJ + modColGrpPJ, m);
+      } else {
+        drawPJCells(margin + modColNomePJ, m);
+      }
+      doc.setTextColor(...colors.text);
+      y += modPJRowH;
+      bgIdxPJ++;
+    });
+    y += 4;
+  }
+
+  if (data.scr.instituicoes && data.scr.instituicoes.length > 0) {
+    drawSpacer(4);
+    checkPageBreak(8 + 8 + data.scr.instituicoes.length * 10 + 4);
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...colors.text);
+    doc.text("INSTITUICOES CREDORAS", margin, y + 4);
+    y += 8;
+    const instColW = [contentW * 0.60, contentW * 0.40];
+    drawTable(
+      ["INSTITUIÇÃO", "VALOR (R$)"],
+      data.scr.instituicoes.map(i => [i.nome, i.valor]),
+      instColW,
+    );
+  }
+
+  if (data.scr.historicoInadimplencia) drawMultilineField("Historico de Inadimplencia", data.scr.historicoInadimplencia, 5);
+
+  if (data.scrSocios && data.scrSocios.length > 0) {
+    for (const socio of data.scrSocios) {
+      // Verifica espaço na página
+      checkPageBreak(80);
+
+      y += 6;
+
+      // Header do sócio
+      doc.setFillColor(...colors.primary);
+      doc.roundedRect(margin, y, contentW, 7, 1, 1, "F");
       doc.setFontSize(7);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(255, 255, 255);
-      doc.text("04", margin + 4, y + 6.5);
-      doc.setFontSize(9);
-      doc.text("FATURAMENTO / SCR", margin + 14, y + 6.5);
-      y += 13;
+      doc.text(
+        `SCR SÓCIO — ${socio.nomeSocio || socio.cpfSocio}`,
+        margin + 3,
+        y + 4.8
+      );
+      y += 9;
 
-      // ── Stacked layout ──
-      const leftW = contentW;
-      const leftX = margin;
-      const sectionY = y;
-      // Gráfico usa os mesmos 12 meses do FMM
-      const chartMeses = mesesFMM;
+      // Tabela comparativa igual à da empresa
+      const temAnteriorSocio = !!(socio.periodoAnterior?.periodoReferencia);
+      const periodoAtSocio = socio.periodoAtual?.periodoReferencia || "Atual";
+      const periodoAntSocio = socio.periodoAnterior?.periodoReferencia || "Anterior";
 
-      // ── LEFT COLUMN: Bar chart ──
-      let yLeft = sectionY;
+      // Cabeçalho da tabela
+      doc.setFillColor(...colors.primary);
+      doc.roundedRect(margin, y, contentW, 6, 1, 1, "F");
+      doc.setFontSize(5.5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(255, 255, 255);
 
-      if (faturamentoRealmenteZerado) {
-        doc.setFillColor(254, 242, 242);
-        doc.roundedRect(leftX, yLeft, leftW, 8, 1, 1, "F");
-        doc.setFillColor(...colors.danger);
-        doc.roundedRect(leftX, yLeft, 2.5, 8, 0.5, 0.5, "F");
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors.danger);
-        doc.text("[ALTA] Faturamento zerado no periodo", leftX + 6, yLeft + 5.5);
-        yLeft += 10;
+      const colMetrica = contentW * 0.40;
+      const colAt = contentW * 0.22;
+      const colAnt = contentW * 0.22;
+      const colVar = contentW * 0.16;
+      void colVar;
+
+      doc.text("MÉTRICA", margin + 2, y + 4);
+      doc.text(periodoAtSocio, margin + colMetrica + 2, y + 4);
+      if (temAnteriorSocio) {
+        doc.text(periodoAntSocio, margin + colMetrica + colAt + 2, y + 4);
+        doc.text("VAR.", margin + colMetrica + colAt + colAnt + 2, y + 4);
       }
-      if (!data.faturamento.dadosAtualizados) {
-        doc.setFillColor(255, 251, 235);
-        doc.roundedRect(leftX, yLeft, leftW, 8, 1, 1, "F");
-        doc.setFillColor(...colors.warning);
-        doc.roundedRect(leftX, yLeft, 2.5, 8, 0.5, 0.5, "F");
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors.warning);
-        doc.text(`[MOD] Desatualizado — ultimo: ${data.faturamento.ultimoMesComDados || "N/A"}`, leftX + 6, yLeft + 5.5);
-        yLeft += 10;
-      }
+      y += 6;
 
-      if (chartMeses.length > 0) {
-        const chartVals = chartMeses.map(m => parseMoneyToNumber(m.valor));
-        const chartMax = Math.max(...chartVals, 1);
-        const fmmChart = parseMoneyToNumber(data.faturamento.fmm12m || "0");
-        const barAreaH = 40;
-        const barTopPadding = 10; // espaço reservado acima da barra mais alta para o label
-        const labelAreaH = mesesFMM.length > 6 ? 12 : 6;
-        const n = chartMeses.length;
-        const bW = Math.max(2, (leftW / n) - 1.5);
-        const chartTopY = yLeft + barTopPadding;
-        const mesLabels = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+      const fmtSCRSocio = (v: string | undefined) =>
+        (v && v !== "0,00" && v !== "") ? `R$ ${fmtMoney(v)}` : "R$ 0,00";
 
-        const parseMesLabel = (mesStr: string): string => {
-          const parts = (mesStr || "").split("/");
-          const part0 = parts[0] || "";
-          const part1 = parts[1] || "";
-          const numerico = parseInt(part0);
-          if (!isNaN(numerico)) {
-            const yr = part1.length === 4 ? part1.slice(2) : part1;
-            return (mesLabels[numerico - 1] || part0) + (yr ? "/" + yr : "");
-          }
-          const capitalizado = part0.charAt(0).toUpperCase() + part0.slice(1).toLowerCase();
-          const yr = part1.length === 4 ? part1.slice(2) : part1;
-          return capitalizado + (yr ? "/" + yr : "");
-        };
+      const linhasSocio = [
+        { label: "Carteira a Vencer", at: fmtSCRSocio(socio.periodoAtual?.carteiraAVencer), ant: fmtSCRSocio(socio.periodoAnterior?.carteiraAVencer), positiveIsGood: false },
+        { label: "Vencidos", at: fmtSCRSocio(socio.periodoAtual?.vencidos), ant: fmtSCRSocio(socio.periodoAnterior?.vencidos), positiveIsGood: false },
+        { label: "Prejuízos", at: fmtSCRSocio(socio.periodoAtual?.prejuizos), ant: fmtSCRSocio(socio.periodoAnterior?.prejuizos), positiveIsGood: false },
+        { label: "Total Dívidas", at: fmtSCRSocio(socio.periodoAtual?.totalDividasAtivas), ant: fmtSCRSocio(socio.periodoAnterior?.totalDividasAtivas), positiveIsGood: false, bold: true },
+        { label: "Qtde IFs", at: socio.periodoAtual?.qtdeInstituicoes || "0", ant: socio.periodoAnterior?.qtdeInstituicoes || "0", positiveIsGood: true },
+        { label: "% Docs Processados", at: `${socio.periodoAtual?.pctDocumentosProcessados || "—"}%`, ant: `${socio.periodoAnterior?.pctDocumentosProcessados || "—"}%`, positiveIsGood: true },
+      ];
 
-        // FMM reference line
-        if (fmmChart > 0) {
-          const fmmLineY = chartTopY + barAreaH - (fmmChart / chartMax) * barAreaH;
-          doc.setDrawColor(150, 150, 150);
-          doc.setLineDashPattern([1, 1], 0);
-          doc.line(leftX, fmmLineY, leftX + leftW, fmmLineY);
-          doc.setLineDashPattern([], 0);
-          doc.setFontSize(5);
-          doc.setTextColor(130, 130, 130);
-          doc.text("FMM", leftX + leftW + 1, fmmLineY + 1);
-        }
+      linhasSocio.forEach((linha, idx) => {
+        const bgColor = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+        doc.setFillColor(...(bgColor as [number, number, number]));
+        doc.rect(margin, y, contentW, 5.5, "F");
+        doc.setFontSize(5.5);
+        doc.setFont("helvetica", (linha as { bold?: boolean }).bold ? "bold" : "normal");
+        doc.setTextColor(...colors.text);
+        doc.text(linha.label, margin + 2, y + 3.8);
+        doc.text(linha.at, margin + colMetrica + 2, y + 3.8);
 
-        // Bars
-        chartMeses.forEach((m, i) => {
-          const v = chartVals[i];
-          const bH = Math.max(1, (v / chartMax) * barAreaH);
-          const bX = leftX + i * (bW + 1.5);
-          const bY = chartTopY + barAreaH - bH;
-          const isMax = v === chartMax && v > 0;
-          const isZero = v === 0;
-          const barColor: [number, number, number] = isZero ? [217, 119, 6] : isMax ? [20, 40, 100] : colors.navy;
-          doc.setFillColor(...barColor);
-          doc.roundedRect(bX, bY, bW, bH, 0.5, 0.5, "F");
-          // Month label: "Jan/25"
-          doc.setFontSize(4.5);
-          doc.setTextColor(100, 100, 100);
-          const mLabel = parseMesLabel(m.mes);
-          const labelX = bX + bW / 2;
-          const isEven = i % 2 === 0;
-          const labelY = chartTopY + barAreaH + (isEven ? 4 : 8);
+        if (temAnteriorSocio) {
+          doc.text(linha.ant, margin + colMetrica + colAt + 2, y + 3.8);
 
-          doc.setFontSize(5.5);
-          doc.setTextColor(80, 80, 80);
-          doc.text(mLabel, labelX, labelY, { align: "center" });
-          const vLabel = v >= 1000
-            ? (v / 1000).toFixed(0) + "k"
-            : v > 0
-              ? (v / 1000).toFixed(1) + "k"
-              : "0";
+          const numAt = parseFloat((linha.at || "0").replace(/[^0-9,]/g, "").replace(",", "."));
+          const numAnt = parseFloat((linha.ant || "0").replace(/[^0-9,]/g, "").replace(",", "."));
 
-          doc.setFontSize(4);
-          doc.setTextColor(70, 70, 70);
-
-          if (bH > 6) {
-            // valor acima da barra
-            doc.text(vLabel, bX + bW / 2, bY - 1, { align: "center" });
-          } else if (v > 0) {
-            // barra pequena — valor logo acima com fundo branco
-            doc.setTextColor(30, 30, 30);
-            doc.text(vLabel, bX + bW / 2, chartTopY + barAreaH - bH - 1.5, { align: "center" });
-          }
-        });
-
-        yLeft = chartTopY + barAreaH + labelAreaH + 1;
-
-        // Summary line below chart
-        const fmmK = fmmNum > 0 ? (fmmNum / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) : "—";
-        const fmmMedioNum = data.faturamento?.fmmMedio
-          ? parseMoneyToNumber(data.faturamento.fmmMedio)
-          : (() => {
-              const porAno: Record<string, number[]> = {};
-              for (const m of validMeses) {
-                const ano = (m.mes || "").split("/")[1];
-                if (!ano) continue;
-                if (!porAno[ano]) porAno[ano] = [];
-                porAno[ano].push(parseMoneyToNumber(m.valor));
-              }
-              const anosValidos = Object.values(porAno).filter(v => v.length >= 10);
-              if (anosValidos.length === 0) return fmmNum;
-              return anosValidos.reduce((s, v) => s + v.reduce((a, b) => a + b, 0) / v.length, 0) / anosValidos.length;
-            })();
-        const fmmMedioK = fmmMedioNum > 0 ? (fmmMedioNum / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) : "—";
-        const totalFat = chartVals.reduce((a, b) => a + b, 0);
-        const totalK = (totalFat / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 });
-        doc.setFontSize(6.5);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors.textMuted);
-        doc.text(`FMM 12M (mil R$): ${fmmK}   |   FMM Médio (mil R$): ${fmmMedioK}   |   Total (mil R$): ${totalK}`, leftX, yLeft);
-        yLeft += 6;
-
-        // Tabela faturamento mensal detalhado
-        yLeft += 4;
-        const tblMesW = 30;
-        const tblValW = 60;
-        const tblRowH = 5;
-        const ultimos12 = new Set(validMeses.slice(-12).map(m => m.mes));
-
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors.navy);
-        doc.text("FATURAMENTO MENSAL DETALHADO", leftX, yLeft);
-        yLeft += 5;
-
-        // Cabeçalho
-        doc.setFillColor(...colors.navy);
-        doc.rect(leftX, yLeft, tblMesW + tblValW, tblRowH, "F");
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(255, 255, 255);
-        doc.text("MÊS", leftX + 2, yLeft + 3.5);
-        doc.text("FATURAMENTO (R$)", leftX + tblMesW + tblValW - 2, yLeft + 3.5, { align: "right" });
-        yLeft += tblRowH;
-
-        // Linhas
-        validMeses.forEach((mes, idx) => {
-          if (yLeft + tblRowH > 275) {
-            doc.addPage();
-            yLeft = 20;
-          }
-          const isUltimos12 = ultimos12.has(mes.mes);
-          if (isUltimos12) {
-            doc.setFillColor(232, 240, 254);
+          if (!isNaN(numAt) && !isNaN(numAnt) && numAnt !== 0) {
+            const varPct = ((numAt - numAnt) / numAnt) * 100;
+            const varStr = fmtVar(varPct);
+            const melhorou = linha.positiveIsGood ? varPct > 0 : varPct < 0;
+            const igual = Math.abs(varPct) < 0.1;
+            doc.setTextColor(
+              igual ? colors.textMuted[0] : melhorou ? 22 : 220,
+              igual ? colors.textMuted[1] : melhorou ? 163 : 38,
+              igual ? colors.textMuted[2] : melhorou ? 74 : 38
+            );
+            doc.text(varStr, margin + colMetrica + colAt + colAnt + 2, y + 3.8);
+            doc.setTextColor(...colors.text);
           } else {
-            doc.setFillColor(...(idx % 2 === 0 ? colors.surface : [245, 245, 245] as [number, number, number]));
+            doc.setTextColor(...colors.textMuted);
+            doc.text("—", margin + colMetrica + colAt + colAnt + 2, y + 3.8);
+            doc.setTextColor(...colors.text);
           }
-          doc.rect(leftX, yLeft, tblMesW + tblValW, tblRowH, "F");
-          doc.setFontSize(7);
-          doc.setFont("helvetica", "normal");
-          doc.setTextColor(...colors.text);
-          doc.text(parseMesLabel(mes.mes), leftX + 2, yLeft + 3.5);
-          doc.text(mes.valor || "—", leftX + tblMesW + tblValW - 2, yLeft + 3.5, { align: "right" });
-          doc.setDrawColor(230, 230, 230);
-          doc.line(leftX, yLeft + tblRowH, leftX + tblMesW + tblValW, yLeft + tblRowH);
-          yLeft += tblRowH;
-        });
-        yLeft += 4;
-
-        // FMM por ano
-        const fmmAnual = data.faturamento?.fmmAnual || {};
-        const fmmAnualTexto = Object.entries(fmmAnual)
-          .sort(([a], [b]) => Number(a) - Number(b))
-          .map(([ano, valor]) => {
-            const qtdMeses = (data.faturamento?.meses || [])
-              .filter(m => m.mes?.endsWith(ano)).length;
-            return `FMM ${ano}: R$ ${valor} (${qtdMeses} meses)`;
-          })
-          .join("   |   ");
-        if (fmmAnualTexto) {
-          doc.setFontSize(6);
-          doc.setFont("helvetica", "normal");
-          doc.setTextColor(130, 130, 130);
-          doc.text(fmmAnualTexto, leftX, yLeft);
-          yLeft += 5;
         }
+        y += 5.5;
+      });
 
-        // Aviso de meses zerados
-        const mesesZeradosPDF = data.faturamento.mesesZerados;
-        if (mesesZeradosPDF && mesesZeradosPDF.length > 0) {
-          const listaMeses = mesesZeradosPDF.map(mz => mz.mes).join(", ");
-          doc.setFontSize(6);
-          doc.setFont("helvetica", "bold");
-          doc.setTextColor(...colors.warning);
-          doc.text(`\u26A0 ${mesesZeradosPDF.length} mes(es) com faturamento zero: ${listaMeses}`, leftX, yLeft);
-          yLeft += 5;
-        }
-      } else {
-        doc.setFontSize(8);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(...colors.textMuted);
-        doc.text("Sem dados de faturamento disponiveis", leftX + leftW / 2, yLeft + 20, { align: "center" });
-        yLeft += 30;
-      }
+      // Modalidades do sócio — comparativo
+      if (socio.periodoAtual?.modalidades && socio.periodoAtual.modalidades.length > 0) {
+        const modS = socio.periodoAtual.modalidades;
+        const modSAnt = socio.periodoAnterior?.modalidades || [];
+        const modSRowH = 6;
+        const modSNeeded = 8 + 6 + 6 + modS.length * modSRowH + 4;
+        checkPageBreak(modSNeeded);
+        y += 4;
 
-      // ── SCR (stacked below chart) ──
-      let currentSCRPage = doc.getCurrentPageInfo().pageNumber;
-      let yRight = yLeft + 6;
-
-      const fmmVal = parseMoneyToNumber(data.faturamento.mediaAno || "0");
-      const hasAnterior = !!(data.scrAnterior && data.scrAnterior.periodoReferencia);
-      const periodoAnt = hasAnterior ? (data.scrAnterior!.periodoReferencia || "Anterior") : "";
-      const periodoAt = data.scr.periodoReferencia || "Atual";
-
-      const scrSemHistorico =
-        data.scr?.semHistorico === true ||
-        (
-          parseMoneyToNumber(data.scr?.totalDividasAtivas || "0") === 0 &&
-          parseMoneyToNumber(data.scr?.limiteCredito || "0") === 0 &&
-          parseMoneyToNumber(data.scr?.carteiraAVencer || "0") === 0 &&
-          (!data.scr?.modalidades || data.scr.modalidades.length === 0)
-        );
-      if (scrSemHistorico) {
-        // ── Header azul ──
-        doc.setFillColor(...colors.primary);
-        doc.roundedRect(margin, yRight, contentW, 7, 1, 1, "F");
-        doc.setFontSize(6);
+        const labelMod = `MODALIDADES — ${(socio.nomeSocio || socio.cpfSocio || "Sócio").split(" ").slice(0, 2).join(" ")}`;
+        doc.setFontSize(7);
         doc.setFont("helvetica", "bold");
-        doc.setTextColor(255, 255, 255);
-        doc.text("\u2713 PERFIL SCR \u2014 SEM OPERAÇÕES BANCÁRIAS", margin + 3, yRight + 4.8);
-        yRight += 9;
+        doc.setTextColor(...colors.text);
+        doc.text(labelMod, margin, y + 4);
+        y += 7;
 
-        // ── 4 linhas de confirmação ──
-        const pctConsulta = data.scr.pctDocumentosProcessados || "99%+";
-        const confirmacoes = [
-          `\u2713 Consulta realizada: ${pctConsulta} das instituições consultadas`,
-          "\u2713 Sem dívida bancária ativa em nenhuma IF",
-          "\u2713 Sem coobrigações (não figura como avalista)",
-          "\u2713 Sem operações em discordância ou sub judice",
-        ];
-        doc.setFontSize(6.5);
-        confirmacoes.forEach(linha => {
-          doc.setFillColor(240, 246, 255);
-          doc.rect(margin, yRight, contentW, 6, "F");
-          doc.setFont("helvetica", "normal");
-          doc.setTextColor(22, 163, 74);
-          doc.text(linha, margin + 3, yRight + 4.2);
-          yRight += 6;
-        });
+        // Grupo de período anterior e atual
+        const temAntMod = modSAnt.length > 0 && !!socio.periodoAnterior?.periodoReferencia;
+        const modColNome = contentW * 0.32;
+        const modColGrp = (contentW - modColNome) / (temAntMod ? 2 : 1);
+        const modSubCols = [modColGrp / 4, modColGrp / 4, modColGrp / 4, modColGrp / 4];
 
-        // ── Separador ──
-        doc.setDrawColor(...colors.border);
-        doc.setLineWidth(0.3);
-        doc.line(margin, yRight + 1, margin + contentW, yRight + 1);
-        yRight += 4;
-
-        // ── Interpretação em itálico ──
-        const interpretacaoLines = doc.splitTextToSize(
-          "Empresa opera sem alavancagem bancária \u2014 indica autofinanciamento ou uso exclusivo de capital próprio. Ausência confirmada pelo Bacen, não presumida.",
-          contentW - 4
-        );
-        doc.setFont("helvetica", "italic");
-        doc.setFontSize(6);
-        doc.setTextColor(...colors.textMuted);
-        interpretacaoLines.forEach((l: string) => { doc.text(l, margin + 2, yRight); yRight += 4; });
-
-        // ── Confirmação em dois períodos ──
-        const antSemHist = data.scrAnterior && data.scrAnterior.semHistorico;
-        if (antSemHist) {
-          yRight += 2;
-          const doisPeriodos = doc.splitTextToSize(
-            `Confirmado em dois periodos consecutivos: ${data.scrAnterior!.periodoReferencia} e ${data.scr.periodoReferencia}`,
-            contentW - 4
-          );
-          doc.setFont("helvetica", "bold");
-          doc.setTextColor(...colors.primary);
-          doisPeriodos.forEach((l: string) => { doc.text(l, margin + 2, yRight); yRight += 4; });
-        }
-
-        yRight += 4;
-
-        // ── Tabela comparativa de métricas ──
-        const alturaTabela = 6 + (9 * 5.5) + 10; // header + 9 linhas + padding
-        if (alturaTabela > 275 - yRight) {
-          doc.addPage();
-          yRight = 20;
-          currentSCRPage = doc.getCurrentPageInfo().pageNumber;
-        }
-        yRight += 3;
-        doc.setFillColor(...colors.primary);
-        doc.roundedRect(margin, yRight, contentW, 6, 1, 1, "F");
-        doc.setFontSize(5.5);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(255, 255, 255);
-
-        const colMetrica = contentW * 0.40;
-        const colAt = contentW * 0.22;
-        const colAnt = contentW * 0.22;
-
-        doc.text("MÉTRICA", margin + 2, yRight + 4);
-        doc.text(periodoAt, margin + colMetrica + 2, yRight + 4);
-        if (hasAnterior) {
-          doc.text(periodoAnt, margin + colMetrica + colAt + 2, yRight + 4);
-          doc.text("VAR.", margin + colMetrica + colAt + colAnt + 2, yRight + 4);
-        }
-        yRight += 6;
-
-
-        const fmtSCR = (v: string | undefined) => (v && v !== "0,00" && v !== "") ? `R$ ${v}` : "R$ 0,00";
-        const fmtPct = (v: string | undefined) => (v && v !== "") ? `${v}%` : "—";
-
-        const fmmValSCR = data.faturamento?.fmm12m
-          ? parseMoneyToNumber(data.faturamento.fmm12m)
-          : 0;
-        const dividaAt = parseMoneyToNumber(data.scr.totalDividasAtivas || "0");
-        const dividaAnt = parseMoneyToNumber(data.scrAnterior?.totalDividasAtivas || "0");
-        const alavAt2 = fmmValSCR > 0 ? (dividaAt / fmmValSCR).toFixed(2) + "x" : "0,00x";
-        const alavAnt2 = fmmValSCR > 0 ? (dividaAnt / fmmValSCR).toFixed(2) + "x" : "0,00x";
-
-        const linhasComparativo = [
-          { label: "Carteira a Vencer",  at: fmtSCR(data.scr.carteiraAVencer),       ant: fmtSCR(data.scrAnterior?.carteiraAVencer),       positiveIsGood: false },
-          { label: "Vencidos",           at: fmtSCR(data.scr.vencidos),               ant: fmtSCR(data.scrAnterior?.vencidos),               positiveIsGood: false },
-          { label: "Prejuízos",          at: fmtSCR(data.scr.prejuizos),              ant: fmtSCR(data.scrAnterior?.prejuizos),              positiveIsGood: false },
-          { label: "Total Dívidas",      at: fmtSCR(data.scr.totalDividasAtivas),     ant: fmtSCR(data.scrAnterior?.totalDividasAtivas),     positiveIsGood: false, bold: true },
-          { label: "Limite de Crédito",  at: fmtSCR(data.scr.limiteCredito),          ant: fmtSCR(data.scrAnterior?.limiteCredito),          positiveIsGood: true },
-          { label: "Qtde IFs",           at: data.scr.qtdeInstituicoes || "0",        ant: data.scrAnterior?.qtdeInstituicoes || "0",        positiveIsGood: true },
-          { label: "Qtde Operações",     at: data.scr.qtdeOperacoes || "0",           ant: data.scrAnterior?.qtdeOperacoes || "0",           positiveIsGood: true },
-          { label: "% Docs Processados", at: fmtPct(data.scr.pctDocumentosProcessados), ant: fmtPct(data.scrAnterior?.pctDocumentosProcessados), positiveIsGood: true },
-          { label: "Alavancagem vs FMM", at: alavAt2,                                 ant: alavAnt2,                                         positiveIsGood: false, bold: true },
-        ];
-
-        linhasComparativo.forEach((linha, idx) => {
-          const bgColor: [number, number, number] = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
-          doc.setFillColor(...bgColor);
-          doc.rect(margin, yRight, contentW, 5.5, "F");
-
-          doc.setFontSize(5.5);
-          doc.setFont("helvetica", linha.bold ? "bold" : "normal");
-          doc.setTextColor(...colors.text);
-          doc.text(linha.label, margin + 2, yRight + 3.8);
-          doc.text(linha.at, margin + colMetrica + 2, yRight + 3.8);
-
-          if (hasAnterior) {
-            doc.text(linha.ant, margin + colMetrica + colAt + 2, yRight + 3.8);
-
-            const numAt = parseFloat((linha.at || "0").replace(/[^0-9,]/g, "").replace(",", "."));
-            const numAnt = parseFloat((linha.ant || "0").replace(/[^0-9,]/g, "").replace(",", "."));
-
-            if (!isNaN(numAt) && !isNaN(numAnt) && numAnt !== 0) {
-              const varPct = ((numAt - numAnt) / numAnt) * 100;
-              const varStr = (varPct > 0 ? "+" : "") + varPct.toFixed(1) + "%";
-              const igual = Math.abs(varPct) < 0.1;
-              const melhorou = linha.positiveIsGood ? varPct > 0 : varPct < 0;
-              if (igual) {
-                doc.setTextColor(...colors.textMuted);
-              } else if (melhorou) {
-                doc.setTextColor(22, 163, 74);
-              } else {
-                doc.setTextColor(220, 38, 38);
-              }
-              doc.text(varStr, margin + colMetrica + colAt + colAnt + 2, yRight + 3.8);
-              doc.setTextColor(...colors.text);
-            } else {
-              doc.setTextColor(...colors.textMuted);
-              doc.text("—", margin + colMetrica + colAt + colAnt + 2, yRight + 3.8);
-              doc.setTextColor(...colors.text);
-            }
-          }
-
-          yRight += 5.5;
-        });
-
-        yRight += 4;
-
-      } else {
-        // Title
-        const scrTableTitle = hasAnterior
-          ? `COMPARATIVO SCR ${periodoAnt} x ${periodoAt}`
-          : `SCR — ${periodoAt}`;
-        doc.setFontSize(5.5);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors.textMuted);
-        doc.text(scrTableTitle, margin, yRight + 4);
-        yRight += 7;
-
-        // Column widths
-        const cW = hasAnterior
-          ? [contentW * 0.33, contentW * 0.22, contentW * 0.22, contentW * 0.23]
-          : [contentW * 0.55, contentW * 0.45];
-
-        // Header
+        // Cabeçalho — grupo de períodos
         doc.setFillColor(...colors.navy);
-        doc.rect(margin, yRight, contentW, 6, "F");
-        doc.setFontSize(5.5);
+        doc.rect(margin, y, contentW, 6, "F");
+        doc.setFontSize(5);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(255, 255, 255);
-        doc.text("METRICA (mil R$)", margin + 2, yRight + 4);
-        if (hasAnterior) {
-          doc.text(periodoAnt, margin + cW[0] + cW[1] - 1, yRight + 4, { align: "right" });
-          doc.text(periodoAt, margin + cW[0] + cW[1] + cW[2] - 1, yRight + 4, { align: "right" });
-          doc.text("VAR.", margin + contentW - 1, yRight + 4, { align: "right" });
+        if (temAntMod) {
+          const midAnt = margin + modColNome + modColGrp / 2;
+          const midAt = margin + modColNome + modColGrp + modColGrp / 2;
+          doc.text(periodoAtSocio, midAt, y + 4, { align: "center" });
+          doc.text(periodoAntSocio, midAnt, y + 4, { align: "center" });
         } else {
-          doc.text(periodoAt, margin + contentW - 1, yRight + 4, { align: "right" });
+          doc.text(periodoAtSocio, margin + modColNome + modColGrp / 2, y + 4, { align: "center" });
         }
-        yRight += 7;
+        y += 6;
 
-        const toK = (v: string | undefined) => {
+        // Sub-cabeçalho — colunas
+        doc.setFillColor(50, 70, 110);
+        doc.rect(margin, y, contentW, 5, "F");
+        doc.setFontSize(4.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(255, 255, 255);
+        doc.text("MODALIDADE", margin + 2, y + 3.5);
+
+        const drawModSubHeader = (startX: number) => {
+          doc.text("TOTAL", startX + modSubCols[0] - 1, y + 3.5, { align: "right" });
+          doc.text("A VENCER", startX + modSubCols[0] + modSubCols[1] - 1, y + 3.5, { align: "right" });
+          doc.text("VENCIDO", startX + modSubCols[0] + modSubCols[1] + modSubCols[2] - 1, y + 3.5, { align: "right" });
+          doc.text("PART.", startX + modColGrp - 1, y + 3.5, { align: "right" });
+        };
+        if (temAntMod) drawModSubHeader(margin + modColNome);
+        drawModSubHeader(margin + modColNome + (temAntMod ? modColGrp : 0));
+        y += 5;
+
+        // Linhas — normais + contingentes com separador
+        const normaisS = [...modS].filter(m => !m.ehContingente).sort((a, b) =>
+          parseMoneyToNumber(b.total || "0") - parseMoneyToNumber(a.total || "0")
+        );
+        const contingentesS = [...modS].filter(m => m.ehContingente).sort((a, b) =>
+          parseMoneyToNumber(b.total || "0") - parseMoneyToNumber(a.total || "0")
+        );
+        const orderedModS = [...normaisS, ...contingentesS];
+
+        const toKS = (v: string) => {
           const n = parseMoneyToNumber(v || "0");
-          return n > 0 ? (n / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) : "—";
+          return n === 0 ? "—" : n >= 1000000 ? fmtBR(n / 1000000, 1) + "M" : n >= 1000 ? fmtBR(Math.round(n / 1000), 0) : v;
         };
 
-        const alavAt = fmmVal > 0
-          ? (parseMoneyToNumber(data.scr.totalDividasAtivas || "0") / fmmVal).toFixed(2) + "x"
-          : "—";
-        const alavAnt = hasAnterior && fmmVal > 0
-          ? (parseMoneyToNumber(data.scrAnterior!.totalDividasAtivas || "0") / fmmVal).toFixed(2) + "x"
-          : "—";
-
-        type ScrRow = { label: string; antVal: string; atVal: string; antRaw: number; atRaw: number; positiveIsGood: boolean; bold?: boolean; skipVar?: boolean };
-        const scrRows: ScrRow[] = [
-          { label: "Em Dia",       antVal: toK(data.scrAnterior?.emDia),              atVal: toK(data.scr.emDia),              antRaw: parseMoneyToNumber(data.scrAnterior?.emDia || "0"),              atRaw: parseMoneyToNumber(data.scr.emDia || "0"),              positiveIsGood: true },
-          { label: "CP",           antVal: toK(data.scrAnterior?.carteiraCurtoPrazo), atVal: toK(data.scr.carteiraCurtoPrazo), antRaw: parseMoneyToNumber(data.scrAnterior?.carteiraCurtoPrazo || "0"), atRaw: parseMoneyToNumber(data.scr.carteiraCurtoPrazo || "0"), positiveIsGood: false },
-          { label: "LP",           antVal: toK(data.scrAnterior?.carteiraLongoPrazo), atVal: toK(data.scr.carteiraLongoPrazo), antRaw: parseMoneyToNumber(data.scrAnterior?.carteiraLongoPrazo || "0"), atRaw: parseMoneyToNumber(data.scr.carteiraLongoPrazo || "0"), positiveIsGood: false },
-          { label: "Total Divida", antVal: toK(data.scrAnterior?.totalDividasAtivas), atVal: toK(data.scr.totalDividasAtivas), antRaw: parseMoneyToNumber(data.scrAnterior?.totalDividasAtivas || "0"), atRaw: parseMoneyToNumber(data.scr.totalDividasAtivas || "0"), positiveIsGood: false, bold: true },
-          { label: "Vencida",      antVal: toK(data.scrAnterior?.vencidos),           atVal: toK(data.scr.vencidos),           antRaw: parseMoneyToNumber(data.scrAnterior?.vencidos || "0"),           atRaw: parseMoneyToNumber(data.scr.vencidos || "0"),           positiveIsGood: false },
-          { label: "Prejuizo",     antVal: toK(data.scrAnterior?.prejuizos),          atVal: toK(data.scr.prejuizos),          antRaw: parseMoneyToNumber(data.scrAnterior?.prejuizos || "0"),          atRaw: parseMoneyToNumber(data.scr.prejuizos || "0"),          positiveIsGood: false },
-          { label: "Limite",       antVal: toK(data.scrAnterior?.limiteCredito),      atVal: toK(data.scr.limiteCredito),      antRaw: parseMoneyToNumber(data.scrAnterior?.limiteCredito || "0"),      atRaw: parseMoneyToNumber(data.scr.limiteCredito || "0"),      positiveIsGood: true },
-          { label: "IFs",          antVal: data.scrAnterior?.numeroIfs || "—",        atVal: data.scr.numeroIfs || "—",        antRaw: parseFloat(data.scrAnterior?.numeroIfs || "0") || 0,             atRaw: parseFloat(data.scr.numeroIfs || "0") || 0,             positiveIsGood: true },
-          { label: "Alavancagem",  antVal: alavAnt,                                   atVal: alavAt,                           antRaw: 0,                                                                 atRaw: 0,                                                       positiveIsGood: false, skipVar: true },
-        ];
-
-        const scrRowH = 6;
-        scrRows.forEach((row, idx) => {
-          doc.setFillColor(...(idx % 2 === 0 ? colors.surface : colors.surface2));
-          doc.rect(margin, yRight, contentW, scrRowH, "F");
-
-          doc.setFont("helvetica", row.bold ? "bold" : "normal");
-          doc.setFontSize(6.5);
-          doc.setTextColor(...(row.bold ? colors.text : colors.textSec));
-          doc.text(row.label, margin + 2, yRight + 4);
-
-          if (hasAnterior) {
-            doc.setFont("helvetica", "normal");
-            doc.setTextColor(...colors.textSec);
-            doc.text(row.antVal, margin + cW[0] + cW[1] - 1, yRight + 4, { align: "right" });
-            doc.setFont("helvetica", row.bold ? "bold" : "normal");
-            doc.setTextColor(...colors.text);
-            doc.text(row.atVal, margin + cW[0] + cW[1] + cW[2] - 1, yRight + 4, { align: "right" });
-
-            let varStr = "—";
-            let varColor: [number, number, number] = [150, 150, 150];
-            if (!row.skipVar) {
-              const diff = row.atRaw - row.antRaw;
-              if (diff === 0 && row.atRaw > 0) {
-                varStr = "0";
-              } else if (diff !== 0 && row.antRaw > 0) {
-                const pct = (diff / row.antRaw) * 100;
-                varStr = (pct > 0 ? "+" : "") + pct.toFixed(1) + "%";
-                const isGood = (diff > 0 && row.positiveIsGood) || (diff < 0 && !row.positiveIsGood);
-                varColor = isGood ? [22, 163, 74] : [220, 38, 38];
-              } else if (diff !== 0) {
-                varStr = diff > 0 ? "+" : "-";
-                const isGood = (diff > 0 && row.positiveIsGood) || (diff < 0 && !row.positiveIsGood);
-                varColor = isGood ? [22, 163, 74] : [220, 38, 38];
-              }
-            }
-            doc.setFont("helvetica", row.bold ? "bold" : "normal");
-            doc.setTextColor(...varColor);
-            doc.text(varStr, margin + contentW - 1, yRight + 4, { align: "right" });
+        const drawModCells = (startX: number, mod: (typeof modS)[0] | undefined) => {
+          if (!mod) {
+            doc.setTextColor(...colors.textMuted);
+            ["—", "—", "—", "—"].forEach((v, ci) => {
+              const cx = startX + modSubCols.slice(0, ci + 1).reduce((a, b) => a + b, 0) - 1;
+              doc.text(v, cx, y + 4, { align: "right" });
+            });
           } else {
-            doc.setFont("helvetica", row.bold ? "bold" : "normal");
+            const hasVenc = mod.vencido && mod.vencido !== "0,00" && mod.vencido !== "—";
             doc.setTextColor(...colors.text);
-            doc.text(row.atVal, margin + contentW - 1, yRight + 4, { align: "right" });
+            doc.text(toKS(mod.total), startX + modSubCols[0] - 1, y + 4, { align: "right" });
+            doc.text(toKS(mod.aVencer), startX + modSubCols[0] + modSubCols[1] - 1, y + 4, { align: "right" });
+            doc.setTextColor(...(hasVenc ? [185, 28, 28] as [number, number, number] : colors.textMuted));
+            doc.text(hasVenc ? toKS(mod.vencido) : "—", startX + modSubCols[0] + modSubCols[1] + modSubCols[2] - 1, y + 4, { align: "right" });
+            doc.setTextColor(...colors.textSec);
+            doc.text(mod.participacao || "—", startX + modColGrp - 1, y + 4, { align: "right" });
           }
+        };
 
-          doc.setDrawColor(230, 230, 230);
-          doc.line(margin, yRight + scrRowH, margin + contentW, yRight + scrRowH);
-          yRight += scrRowH;
-        });
-        yRight += 4;
-      }
+        let bgIdxS = 0;
+        let sepRenderedS = false;
 
-      // Advance y past SCR
-      if (doc.getCurrentPageInfo().pageNumber < currentSCRPage) {
-        doc.setPage(currentSCRPage);
-      }
-      y = yRight + 6;
-
-      // Modalidades and Instituicoes — overflow naturally via checkPageBreak
-      if (data.scr.modalidades && data.scr.modalidades.length > 0) {
-        drawSpacer(4);
-        checkPageBreak(20);
-        doc.setFontSize(7.5);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors.text);
-        doc.text("MODALIDADES DE CREDITO", margin, y + 4);
-        y += 8;
-        const modColW = [contentW * 0.30, contentW * 0.18, contentW * 0.18, contentW * 0.18, contentW * 0.16];
-        drawTable(
-          ["MODALIDADE", "TOTAL", "A VENCER", "VENCIDO", "PART."],
-          data.scr.modalidades.map(m => [m.nome, m.total, m.aVencer, m.vencido, m.participacao]),
-          modColW,
-        );
-      }
-
-      if (data.scr.instituicoes && data.scr.instituicoes.length > 0) {
-        drawSpacer(4);
-        checkPageBreak(20);
-        doc.setFontSize(7.5);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors.text);
-        doc.text("INSTITUICOES CREDORAS", margin, y + 4);
-        y += 8;
-        const instColW = [contentW * 0.60, contentW * 0.40];
-        drawTable(
-          ["INSTITUIÇÃO", "VALOR (R$)"],
-          data.scr.instituicoes.map(i => [i.nome, i.valor]),
-          instColW,
-        );
-      }
-
-      if (data.scr.historicoInadimplencia) drawMultilineField("Historico de Inadimplencia", data.scr.historicoInadimplencia, 5);
-
-      if (data.scrSocios && data.scrSocios.length > 0) {
-        for (const socio of data.scrSocios) {
-          // Verifica espaço na página
-          checkPageBreak(80);
-
-          y += 6;
-
-          // Header do sócio
-          doc.setFillColor(...colors.primary);
-          doc.roundedRect(margin, y, contentW, 7, 1, 1, "F");
-          doc.setFontSize(7);
-          doc.setFont("helvetica", "bold");
-          doc.setTextColor(255, 255, 255);
-          doc.text(
-            `SCR SÓCIO — ${socio.nomeSocio || socio.cpfSocio}`,
-            margin + 3,
-            y + 4.8
-          );
-          y += 9;
-
-          // Tabela comparativa igual à da empresa
-          const temAnteriorSocio = !!(socio.periodoAnterior?.periodoReferencia);
-          const periodoAtSocio = socio.periodoAtual?.periodoReferencia || "Atual";
-          const periodoAntSocio = socio.periodoAnterior?.periodoReferencia || "Anterior";
-
-          // Cabeçalho da tabela
-          doc.setFillColor(...colors.primary);
-          doc.roundedRect(margin, y, contentW, 6, 1, 1, "F");
-          doc.setFontSize(5.5);
-          doc.setFont("helvetica", "bold");
-          doc.setTextColor(255, 255, 255);
-
-          const colMetrica = contentW * 0.40;
-          const colAt = contentW * 0.22;
-          const colAnt = contentW * 0.22;
-          const colVar = contentW * 0.16;
-          void colVar;
-
-          doc.text("MÉTRICA", margin + 2, y + 4);
-          doc.text(periodoAtSocio, margin + colMetrica + 2, y + 4);
-          if (temAnteriorSocio) {
-            doc.text(periodoAntSocio, margin + colMetrica + colAt + 2, y + 4);
-            doc.text("VAR.", margin + colMetrica + colAt + colAnt + 2, y + 4);
+        orderedModS.forEach((m) => {
+          if (m.ehContingente && !sepRenderedS) {
+            sepRenderedS = true;
+            if (y + modSRowH > 275) { newPage(); drawHeader(); }
+            doc.setFillColor(245, 245, 245);
+            doc.rect(margin, y, contentW, modSRowH, "F");
+            doc.setFontSize(4.8);
+            doc.setFont("helvetica", "italic");
+            doc.setTextColor(...colors.textMuted);
+            doc.text("Responsabilidades contingentes / Títulos fora da carteira", margin + 2, y + 4);
+            y += modSRowH;
+            bgIdxS = 0;
           }
-          y += 6;
-
-          const fmtSCRSocio = (v: string | undefined) =>
-            (v && v !== "0,00" && v !== "") ? `R$ ${v}` : "R$ 0,00";
-
-          const linhasSocio = [
-            { label: "Carteira a Vencer", at: fmtSCRSocio(socio.periodoAtual?.carteiraAVencer), ant: fmtSCRSocio(socio.periodoAnterior?.carteiraAVencer), positiveIsGood: false },
-            { label: "Vencidos", at: fmtSCRSocio(socio.periodoAtual?.vencidos), ant: fmtSCRSocio(socio.periodoAnterior?.vencidos), positiveIsGood: false },
-            { label: "Prejuízos", at: fmtSCRSocio(socio.periodoAtual?.prejuizos), ant: fmtSCRSocio(socio.periodoAnterior?.prejuizos), positiveIsGood: false },
-            { label: "Total Dívidas", at: fmtSCRSocio(socio.periodoAtual?.totalDividasAtivas), ant: fmtSCRSocio(socio.periodoAnterior?.totalDividasAtivas), positiveIsGood: false, bold: true },
-            { label: "Qtde IFs", at: socio.periodoAtual?.qtdeInstituicoes || "0", ant: socio.periodoAnterior?.qtdeInstituicoes || "0", positiveIsGood: true },
-            { label: "% Docs Processados", at: `${socio.periodoAtual?.pctDocumentosProcessados || "—"}%`, ant: `${socio.periodoAnterior?.pctDocumentosProcessados || "—"}%`, positiveIsGood: true },
-          ];
-
-          linhasSocio.forEach((linha, idx) => {
-            const bgColor = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
-            doc.setFillColor(...(bgColor as [number, number, number]));
-            doc.rect(margin, y, contentW, 5.5, "F");
-            doc.setFontSize(5.5);
-            doc.setFont("helvetica", (linha as { bold?: boolean }).bold ? "bold" : "normal");
-            doc.setTextColor(...colors.text);
-            doc.text(linha.label, margin + 2, y + 3.8);
-            doc.text(linha.at, margin + colMetrica + 2, y + 3.8);
-
-            if (temAnteriorSocio) {
-              doc.text(linha.ant, margin + colMetrica + colAt + 2, y + 3.8);
-
-              const numAt = parseFloat((linha.at || "0").replace(/[^0-9,]/g, "").replace(",", "."));
-              const numAnt = parseFloat((linha.ant || "0").replace(/[^0-9,]/g, "").replace(",", "."));
-
-              if (!isNaN(numAt) && !isNaN(numAnt) && numAnt !== 0) {
-                const varPct = ((numAt - numAnt) / numAnt) * 100;
-                const varStr = (varPct > 0 ? "+" : "") + varPct.toFixed(1) + "%";
-                const melhorou = linha.positiveIsGood ? varPct > 0 : varPct < 0;
-                const igual = Math.abs(varPct) < 0.1;
-                doc.setTextColor(
-                  igual ? colors.textMuted[0] : melhorou ? 22 : 220,
-                  igual ? colors.textMuted[1] : melhorou ? 163 : 38,
-                  igual ? colors.textMuted[2] : melhorou ? 74 : 38
-                );
-                doc.text(varStr, margin + colMetrica + colAt + colAnt + 2, y + 3.8);
-                doc.setTextColor(...colors.text);
-              } else {
-                doc.setTextColor(...colors.textMuted);
-                doc.text("—", margin + colMetrica + colAt + colAnt + 2, y + 3.8);
-                doc.setTextColor(...colors.text);
-              }
-            }
-            y += 5.5;
-          });
-
-          y += 4;
-        }
-      }
-
-      // ── Página DRE ──
-      if (data.dre && (
-        (data.dre.anos && data.dre.anos.length > 0) ||
-        data.dre.crescimentoReceita ||
-        data.dre.observacoes
-      )) {
-        newPage();
-        drawHeader();
-
-        // Header da seção
-        doc.setFillColor(...colors.primary);
-        doc.rect(margin, y, contentW, 8, "F");
-        doc.setFontSize(9);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(255, 255, 255);
-        doc.text("07   DEMONSTRACAO DE RESULTADO (DRE)", margin + 4, y + 5.5);
-        y += 12;
-
-        // Tabela comparativa por ano
-        const dreAnos = data.dre.anos;
-        const colLabel = 55;
-        const colAno = (contentW - colLabel) / dreAnos.length;
-
-        // Cabeçalho da tabela
-        doc.setFillColor(...colors.primary);
-        doc.rect(margin, y, contentW, 7, "F");
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(255, 255, 255);
-        doc.text("METRICA", margin + 2, y + 4.8);
-        dreAnos.forEach((ano, i) => {
-          doc.text(ano.ano, margin + colLabel + i * colAno + 2, y + 4.8);
-        });
-        y += 7;
-
-        // Linhas da tabela
-        const linhasDRE: { label: string; campo: string; bold: boolean; isPct?: boolean }[] = [
-          { label: "Receita Bruta", campo: "receitaBruta", bold: false },
-          { label: "Receita Liquida", campo: "receitaLiquida", bold: false },
-          { label: "Lucro Bruto", campo: "lucroBruto", bold: false },
-          { label: "Margem Bruta (%)", campo: "margemBruta", bold: false, isPct: true },
-          { label: "EBITDA", campo: "ebitda", bold: true },
-          { label: "Margem EBITDA (%)", campo: "margemEbitda", bold: false, isPct: true },
-          { label: "Lucro Liquido", campo: "lucroLiquido", bold: true },
-          { label: "Margem Liquida (%)", campo: "margemLiquida", bold: false, isPct: true },
-        ];
-
-        linhasDRE.forEach((linha, idx) => {
-          const bg: [number,number,number] = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+          if (y + modSRowH > 275) { newPage(); drawHeader(); }
+          const bg: [number, number, number] = bgIdxS % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
           doc.setFillColor(...bg);
-          doc.rect(margin, y, contentW, 6, "F");
-          doc.setFontSize(7);
-          doc.setFont("helvetica", linha.bold ? "bold" : "normal");
-          doc.setTextColor(...colors.text);
-          doc.text(linha.label, margin + 2, y + 4.2);
-          dreAnos.forEach((ano, i) => {
-            const val = (ano as unknown as Record<string, string>)[linha.campo] || "0,00";
-            const display = linha.isPct ? `${val}%` : `R$ ${val}`;
-            doc.text(display, margin + colLabel + i * colAno + 2, y + 4.2);
-          });
-          y += 6;
-        });
-
-        // Tendência
-        y += 4;
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors.primary);
-        const tendenciaDRE = data.dre.tendenciaLucro === "crescimento" ? "↑ Crescimento" :
-          data.dre.tendenciaLucro === "queda" ? "↓ Queda" : "→ Estavel";
-        doc.text(`Tendencia: ${tendenciaDRE} | Crescimento de Receita: ${data.dre.crescimentoReceita}%`, margin + 2, y);
-        y += 6;
-
-        if (data.dre.observacoes) {
-          doc.setFont("helvetica", "italic");
-          doc.setFontSize(6.5);
-          doc.setTextColor(...colors.textMuted);
-          const obsLines = doc.splitTextToSize(data.dre.observacoes, contentW - 4);
-          obsLines.forEach((l: string) => { doc.text(l, margin + 2, y); y += 4; });
-        }
-      }
-
-      // ── Página Balanço ──
-      if (data.balanco && (
-        (data.balanco.anos && data.balanco.anos.length > 0) ||
-        data.balanco.observacoes ||
-        data.balanco.tendenciaPatrimonio
-      )) {
-        newPage();
-        drawHeader();
-
-        doc.setFillColor(...colors.primary);
-        doc.rect(margin, y, contentW, 8, "F");
-        doc.setFontSize(9);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(255, 255, 255);
-        doc.text("08   BALANCO PATRIMONIAL", margin + 4, y + 5.5);
-        y += 12;
-
-        const balAnos = data.balanco.anos;
-        const colLabelB = 60;
-        const colAnoB = (contentW - colLabelB) / balAnos.length;
-
-        // Cabeçalho
-        doc.setFillColor(...colors.primary);
-        doc.rect(margin, y, contentW, 7, "F");
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(255, 255, 255);
-        doc.text("METRICA", margin + 2, y + 4.8);
-        balAnos.forEach((ano, i) => {
-          doc.text(ano.ano, margin + colLabelB + i * colAnoB + 2, y + 4.8);
-        });
-        y += 7;
-
-        const linhasBalanco: { label: string; campo: string; bold: boolean; isIndice?: boolean; isPct?: boolean }[] = [
-          { label: "Ativo Total", campo: "ativoTotal", bold: true },
-          { label: "Ativo Circulante", campo: "ativoCirculante", bold: false },
-          { label: "Ativo Nao Circulante", campo: "ativoNaoCirculante", bold: false },
-          { label: "Passivo Total", campo: "passivoTotal", bold: true },
-          { label: "Passivo Circulante", campo: "passivoCirculante", bold: false },
-          { label: "Passivo Nao Circulante", campo: "passivoNaoCirculante", bold: false },
-          { label: "Patrimonio Liquido", campo: "patrimonioLiquido", bold: true },
-          { label: "Liquidez Corrente", campo: "liquidezCorrente", bold: false, isIndice: true },
-          { label: "Endividamento (%)", campo: "endividamentoTotal", bold: false, isPct: true },
-          { label: "Capital de Giro Liq.", campo: "capitalDeGiroLiquido", bold: false },
-        ];
-
-        linhasBalanco.forEach((linha, idx) => {
-          const bg: [number,number,number] = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
-          doc.setFillColor(...bg);
-          doc.rect(margin, y, contentW, 6, "F");
-          doc.setFontSize(7);
-          doc.setFont("helvetica", linha.bold ? "bold" : "normal");
-          doc.setTextColor(...colors.text);
-          doc.text(linha.label, margin + 2, y + 4.2);
-          balAnos.forEach((ano, i) => {
-            const val = (ano as unknown as Record<string, string>)[linha.campo] || "0,00";
-            const display = linha.isIndice ? val : linha.isPct ? `${val}%` : `R$ ${val}`;
-            doc.text(display, margin + colLabelB + i * colAnoB + 2, y + 4.2);
-          });
-          y += 6;
-        });
-      }
-
-      // ── Página Curva ABC ──
-      if (data.curvaABC && (
-        (data.curvaABC.clientes && data.curvaABC.clientes.length > 0) ||
-        data.curvaABC.maiorCliente ||
-        data.curvaABC.periodoReferencia
-      )) {
-        newPage();
-        drawHeader();
-
-        doc.setFillColor(...colors.primary);
-        doc.rect(margin, y, contentW, 8, "F");
-        doc.setFontSize(9);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(255, 255, 255);
-        doc.text("09   CURVA ABC — CONCENTRACAO DE CLIENTES", margin + 4, y + 5.5);
-        y += 12;
-
-        // Alerta de concentração
-        if (data.curvaABC.alertaConcentracao) {
-          doc.setFillColor(254, 242, 242);
-          doc.rect(margin, y, contentW, 8, "F");
-          doc.setFontSize(7.5);
-          doc.setFont("helvetica", "bold");
-          doc.setTextColor(220, 38, 38);
-          doc.text(`ALERTA: Cliente "${data.curvaABC.maiorCliente}" concentra ${data.curvaABC.maiorClientePct}% da receita — acima do limite de 30%`, margin + 3, y + 5.2);
-          y += 10;
-        }
-
-        // Resumo de concentração
-        doc.setFontSize(7.5);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(...colors.text);
-        doc.text(`Periodo: ${data.curvaABC.periodoReferencia || "—"}   |   Top 3: ${data.curvaABC.concentracaoTop3}%   |   Top 5: ${data.curvaABC.concentracaoTop5}%   |   Total clientes: ${data.curvaABC.totalClientesNaBase || "—"}`, margin + 2, y);
-        y += 8;
-
-        // Tabela de clientes
-        doc.setFillColor(...colors.primary);
-        doc.rect(margin, y, contentW, 7, "F");
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(255, 255, 255);
-        const cW1 = 10, cW2 = 70, cW3 = 45, cW4 = 30;
-        doc.text("#", margin + 2, y + 4.8);
-        doc.text("CLIENTE", margin + cW1 + 2, y + 4.8);
-        doc.text("FATURAMENTO (R$)", margin + cW1 + cW2 + 2, y + 4.8);
-        doc.text("% RECEITA", margin + cW1 + cW2 + cW3 + 2, y + 4.8);
-        doc.text("SEGMENTO", margin + cW1 + cW2 + cW3 + cW4 + 2, y + 4.8);
-        y += 7;
-
-        data.curvaABC.clientes.slice(0, 10).forEach((cliente, idx) => {
-          const bg: [number,number,number] = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
-          doc.setFillColor(...bg);
-          doc.rect(margin, y, contentW, 6, "F");
-          doc.setFontSize(7);
+          doc.rect(margin, y, contentW, modSRowH, "F");
+          doc.setFontSize(5);
           doc.setFont("helvetica", "normal");
           doc.setTextColor(...colors.text);
-          doc.text(String(cliente.posicao), margin + 2, y + 4.2);
-          doc.text(cliente.nome || "—", margin + cW1 + 2, y + 4.2);
-          doc.text(cliente.valorFaturado || "—", margin + cW1 + cW2 + 2, y + 4.2);
-          const pct = parseFloat(cliente.percentualReceita || "0");
-          doc.setTextColor(pct > 30 ? 220 : colors.text[0], pct > 30 ? 38 : colors.text[1], pct > 30 ? 38 : colors.text[2]);
-          doc.text(`${cliente.percentualReceita}%`, margin + cW1 + cW2 + cW3 + 2, y + 4.2);
+          const nomeT = m.nome.length > 38 ? m.nome.substring(0, 37) + "…" : m.nome;
+          doc.text(nomeT, margin + 2, y + 4);
+
+          if (temAntMod) {
+            drawModCells(margin + modColNome, modSAnt.find(a => a.nome === m.nome));
+            drawModCells(margin + modColNome + modColGrp, m);
+          } else {
+            drawModCells(margin + modColNome, m);
+          }
           doc.setTextColor(...colors.text);
-          doc.text(cliente.segmento || "—", margin + cW1 + cW2 + cW3 + cW4 + 2, y + 4.2);
-          y += 6;
-        });
-      }
-
-      // ===== PAGE 5 — PROTESTOS =====
-      newPage();
-      drawHeader();
-      drawSectionTitle("05", "PROTESTOS", colors.danger);
-
-      // ── BLOCO 1 — Totais ──
-      drawFieldRow([
-        { label: "Vigentes (Qtd)", value: data.protestos?.vigentesQtd || "0" },
-        { label: "Vigentes (R$)", value: data.protestos?.vigentesValor || "0,00" },
-        { label: "Regularizados (Qtd)", value: data.protestos?.regularizadosQtd || "0" },
-        { label: "Regularizados (R$)", value: data.protestos?.regularizadosValor || "0,00" },
-      ]);
-
-      if (protestosVigentes > 0) {
-        drawAlertBox(`${protestosVigentes} protesto(s) vigente(s) — R$ ${data.protestos?.vigentesValor || "0,00"}`, "ALTA");
-      }
-
-      const protestoDetalhes = data.protestos?.detalhes || [];
-
-      if (protestoDetalhes.length === 0) {
-        drawSpacer(4);
-        checkPageBreak(12);
-        doc.setFillColor(240, 253, 244);
-        doc.roundedRect(margin, y, contentW, 10, 1, 1, "F");
-        doc.setFillColor(22, 163, 74);
-        doc.roundedRect(margin, y, 3, 10, 0.5, 0.5, "F");
-        doc.setFontSize(7.5);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(22, 163, 74);
-        doc.text("Nenhum protesto identificado", margin + 8, y + 6.5);
-        y += 14;
-      } else {
-        // Helper: parse date string DD/MM/AAAA → Date
-        const parseDate = (d: string): Date | null => {
-          if (!d) return null;
-          const parts = d.split("/");
-          if (parts.length !== 3) return null;
-          const [dd, mm, aaaa] = parts.map(Number);
-          if (!dd || !mm || !aaaa) return null;
-          return new Date(aaaa, mm - 1, dd);
-        };
-        // Helper: parse money string → number
-        const parseProt = (v: string) => parseFloat((v || "0").replace(/\./g, "").replace(",", ".")) || 0;
-        // Helper: format number as R$ X.XXX
-        const fmtProt = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-        const now = new Date();
-        const ms30  = 30  * 24 * 60 * 60 * 1000;
-        const ms90  = 90  * 24 * 60 * 60 * 1000;
-        const ms365 = 365 * 24 * 60 * 60 * 1000;
-
-        // ── BLOCO 2 — Distribuição Temporal ──
-        drawSpacer(6);
-        checkPageBreak(16);
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors.textMuted);
-        doc.text("DISTRIBUICAO TEMPORAL", margin, y + 4);
-        y += 7;
-
-        type TempBucket = { label: string; qtd: number; valor: number };
-        const tempBuckets: TempBucket[] = [
-          { label: "Ultimo mes (30 dias)",    qtd: 0, valor: 0 },
-          { label: "Ultimos 3 meses",         qtd: 0, valor: 0 },
-          { label: "Ultimos 12 meses",        qtd: 0, valor: 0 },
-          { label: "Mais de 12 meses",        qtd: 0, valor: 0 },
-        ];
-        protestoDetalhes.forEach(p => {
-          const dt = parseDate(p.data || "");
-          const val = parseProt(p.valor || "0");
-          if (!dt) return;
-          const age = now.getTime() - dt.getTime();
-          if (age <= ms30)  { tempBuckets[0].qtd++; tempBuckets[0].valor += val; }
-          if (age <= ms90)  { tempBuckets[1].qtd++; tempBuckets[1].valor += val; }
-          if (age <= ms365) { tempBuckets[2].qtd++; tempBuckets[2].valor += val; }
-          else              { tempBuckets[3].qtd++; tempBuckets[3].valor += val; }
-        });
-
-        const tempColW = [contentW * 0.52, contentW * 0.16, contentW * 0.32];
-        checkPageBreak(8 + tempBuckets.length * 7 + 4);
-        // header
-        doc.setFillColor(...colors.navy);
-        doc.rect(margin, y, contentW, 6, "F");
-        doc.setFontSize(6);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(255, 255, 255);
-        doc.text("PERIODO", margin + 2, y + 4);
-        doc.text("QTD", margin + tempColW[0] + tempColW[1] - 2, y + 4, { align: "right" });
-        doc.text("VALOR (R$)", margin + contentW - 2, y + 4, { align: "right" });
-        y += 6;
-        tempBuckets.forEach((b, idx) => {
-          doc.setFillColor(...(idx % 2 === 0 ? colors.surface : colors.surface2));
-          doc.rect(margin, y, contentW, 6, "F");
-          doc.setFontSize(6.5);
-          doc.setFont("helvetica", "normal");
-          doc.setTextColor(...colors.text);
-          doc.text(b.label, margin + 2, y + 4);
-          doc.text(String(b.qtd), margin + tempColW[0] + tempColW[1] - 2, y + 4, { align: "right" });
-          doc.setFont("helvetica", b.qtd > 0 ? "bold" : "normal");
-          doc.setTextColor(...(b.qtd > 0 ? colors.danger : colors.textMuted));
-          doc.text(b.qtd > 0 ? fmtProt(b.valor) : "—", margin + contentW - 2, y + 4, { align: "right" });
-          doc.setDrawColor(230, 230, 230);
-          doc.line(margin, y + 6, margin + contentW, y + 6);
-          y += 6;
+          y += modSRowH;
+          bgIdxS++;
         });
         y += 4;
-
-        // ── BLOCO 3 — Distribuição por Faixa de Valor ──
-        drawSpacer(4);
-        checkPageBreak(16);
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors.textMuted);
-        doc.text("DISTRIBUICAO POR FAIXA DE VALOR", margin, y + 4);
-        y += 7;
-
-        type ValBucket = { label: string; min: number; max: number; qtd: number; valor: number };
-        const valBuckets: ValBucket[] = [
-          { label: "Abaixo de R$ 1.000",       min: 0,      max: 1000,   qtd: 0, valor: 0 },
-          { label: "R$ 1.000 a R$ 10.000",     min: 1000,   max: 10000,  qtd: 0, valor: 0 },
-          { label: "R$ 10.000 a R$ 50.000",    min: 10000,  max: 50000,  qtd: 0, valor: 0 },
-          { label: "R$ 50.000 a R$ 100.000",   min: 50000,  max: 100000, qtd: 0, valor: 0 },
-          { label: "Acima de R$ 100.000",      min: 100000, max: Infinity, qtd: 0, valor: 0 },
-        ];
-        protestoDetalhes.forEach(p => {
-          const val = parseProt(p.valor || "0");
-          const bucket = valBuckets.find(b => val >= b.min && val < b.max);
-          if (bucket) { bucket.qtd++; bucket.valor += val; }
-        });
-
-        const valColW = [contentW * 0.52, contentW * 0.16, contentW * 0.32];
-        checkPageBreak(8 + valBuckets.length * 7 + 4);
-        doc.setFillColor(...colors.navy);
-        doc.rect(margin, y, contentW, 6, "F");
-        doc.setFontSize(6);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(255, 255, 255);
-        doc.text("FAIXA", margin + 2, y + 4);
-        doc.text("QTD", margin + valColW[0] + valColW[1] - 2, y + 4, { align: "right" });
-        doc.text("VALOR (R$)", margin + contentW - 2, y + 4, { align: "right" });
-        y += 6;
-        valBuckets.forEach((b, idx) => {
-          doc.setFillColor(...(idx % 2 === 0 ? colors.surface : colors.surface2));
-          doc.rect(margin, y, contentW, 6, "F");
-          doc.setFontSize(6.5);
-          doc.setFont("helvetica", "normal");
-          doc.setTextColor(...colors.text);
-          doc.text(b.label, margin + 2, y + 4);
-          doc.text(String(b.qtd), margin + valColW[0] + valColW[1] - 2, y + 4, { align: "right" });
-          doc.setFont("helvetica", b.qtd > 0 ? "bold" : "normal");
-          doc.setTextColor(...(b.qtd > 0 ? colors.text : colors.textMuted));
-          doc.text(b.qtd > 0 ? fmtProt(b.valor) : "—", margin + contentW - 2, y + 4, { align: "right" });
-          doc.setDrawColor(230, 230, 230);
-          doc.line(margin, y + 6, margin + contentW, y + 6);
-          y += 6;
-        });
-        y += 4;
-
-        // Helper: draw protestos detail table (shared by Blocos 4 e 5)
-        const drawProtTable = (rows: typeof protestoDetalhes) => {
-          const pColW = [contentW * 0.16, contentW * 0.42, contentW * 0.26, contentW * 0.16];
-          checkPageBreak(8 + Math.min(rows.length, 3) * 7 + 4);
-          doc.setFillColor(...colors.navy);
-          doc.rect(margin, y, contentW, 6, "F");
-          doc.setFontSize(6);
-          doc.setFont("helvetica", "bold");
-          doc.setTextColor(255, 255, 255);
-          doc.text("DATA", margin + 2, y + 4);
-          doc.text("CREDOR", margin + pColW[0] + 2, y + 4);
-          doc.text("VALOR (R$)", margin + pColW[0] + pColW[1] + pColW[2] - 2, y + 4, { align: "right" });
-          doc.text("REG.", margin + contentW - 2, y + 4, { align: "right" });
-          y += 6;
-          rows.forEach((p, idx) => {
-            checkPageBreak(7);
-            doc.setFillColor(...(idx % 2 === 0 ? colors.surface : colors.surface2));
-            doc.rect(margin, y, contentW, 6, "F");
-            doc.setFontSize(6.5);
-            doc.setFont("helvetica", "normal");
-            doc.setTextColor(...colors.text);
-            doc.text(p.data || "—", margin + 2, y + 4);
-            const credorMax = Math.floor(pColW[1] / 2.2);
-            const credorStr = (p.credor || "—").length > credorMax ? (p.credor || "").substring(0, credorMax) + "…" : (p.credor || "—");
-            doc.text(credorStr, margin + pColW[0] + 2, y + 4);
-            doc.setFont("helvetica", "bold");
-            doc.setTextColor(...(p.regularizado ? colors.textMuted : colors.danger));
-            doc.text(p.valor || "—", margin + pColW[0] + pColW[1] + pColW[2] - 2, y + 4, { align: "right" });
-            doc.setFont("helvetica", "normal");
-            doc.setTextColor(...(p.regularizado ? [22, 163, 74] as [number, number, number] : colors.danger));
-            doc.text(p.regularizado ? "Sim" : "Nao", margin + contentW - 2, y + 4, { align: "right" });
-            doc.setDrawColor(230, 230, 230);
-            doc.line(margin, y + 6, margin + contentW, y + 6);
-            y += 6;
-          });
-          y += 4;
-        };
-
-        // ── BLOCO 4 — Top 10 por Valor ──
-        drawSpacer(4);
-        checkPageBreak(16);
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors.textMuted);
-        doc.text("TOP 10 POR VALOR", margin, y + 4);
-        y += 7;
-        const top10Valor = [...protestoDetalhes]
-          .sort((a, b) => parseProt(b.valor || "0") - parseProt(a.valor || "0"))
-          .slice(0, 10);
-        drawProtTable(top10Valor);
-
-        // ── BLOCO 5 — Top 10 Mais Recentes ──
-        drawSpacer(4);
-        checkPageBreak(16);
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors.textMuted);
-        doc.text("TOP 10 MAIS RECENTES", margin, y + 4);
-        y += 7;
-        const top10Recentes = [...protestoDetalhes]
-          .sort((a, b) => {
-            const da = parseDate(a.data || "");
-            const db = parseDate(b.data || "");
-            if (!da && !db) return 0;
-            if (!da) return 1;
-            if (!db) return -1;
-            return db.getTime() - da.getTime();
-          })
-          .slice(0, 10);
-        drawProtTable(top10Recentes);
       }
 
-      // ===== PAGE 6 — PROCESSOS =====
-      newPage();
-      drawHeader();
-      drawSectionTitle("06", "PROCESSOS JUDICIAIS", colors.warning);
+      y += 4;
+    }
+  }
 
-      // ── BLOCO 1 — Totais ──
-      drawFieldRow([
-        { label: "Passivos (Total)", value: data.processos?.passivosTotal || "0" },
-        { label: "Ativos (Total)", value: data.processos?.ativosTotal || "0" },
-        { label: "Valor Estimado (R$)", value: data.processos?.valorTotalEstimado || "0,00" },
-        { label: "Rec. Judicial", value: data.processos?.temRJ ? "SIM" : "Nao" },
-      ]);
+  // Alertas determinísticos — SCR
+  if (alertasSCR.length > 0) { drawSpacer(4); drawDetAlerts(alertasSCR); }
 
-      if (data.processos?.temRJ) {
-        drawAlertBox("RECUPERACAO JUDICIAL identificada", "ALTA");
-      }
+  // ── Seção DRE (flui se couber) ──
+  if (data.dre && (
+    (data.dre.anos && data.dre.anos.length > 0) ||
+    data.dre.crescimentoReceita ||
+    data.dre.observacoes
+  )) {
+    drawSpacer(10);
+    checkPageBreak(80);
 
-      const proc = data.processos;
-      const distribuicao = proc?.distribuicao || [];
-      const bancarios   = proc?.bancarios   || [];
-      const fiscais     = proc?.fiscais     || [];
-      const fornecedores = proc?.fornecedores || [];
-      const outrosProc  = proc?.outros      || [];
+    // Header da seção
+    doc.setFillColor(...colors.primary);
+    doc.rect(margin, y, contentW, 8, "F");
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("07   DEMONSTRACAO DE RESULTADO (DRE)", margin + 4, y + 5.5);
+    y += 12;
 
-      const semDados = !proc
-        || (parseInt(proc.passivosTotal || "0") === 0
-          && parseInt(proc.ativosTotal || "0") === 0
-          && distribuicao.length === 0
-          && bancarios.length === 0
-          && fiscais.length === 0
-          && fornecedores.length === 0
-          && outrosProc.length === 0);
+    // Tabela comparativa por ano — deduplicar anos
+    const dreAnosMap = new Map<string, (typeof data.dre.anos)[0]>();
+    data.dre.anos.forEach(a => dreAnosMap.set(a.ano, a));
+    const dreAnos = Array.from(dreAnosMap.values()).sort((a, b) => parseInt(a.ano) - parseInt(b.ano));
+    const dreFontSz = dreAnos.length >= 4 ? 6.5 : 7;
+    const dreColLabel = dreAnos.length >= 4 ? 58 : 62;
+    const dreColAno = (contentW - dreColLabel) / dreAnos.length;
 
-      if (semDados) {
-        drawSpacer(4);
-        checkPageBreak(12);
-        doc.setFillColor(240, 253, 244);
-        doc.roundedRect(margin, y, contentW, 10, 1, 1, "F");
-        doc.setFillColor(22, 163, 74);
-        doc.roundedRect(margin, y, 3, 10, 0.5, 0.5, "F");
-        doc.setFontSize(7.5);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(22, 163, 74);
-        doc.text("Nenhum processo judicial identificado", margin + 8, y + 6.5);
-        y += 14;
-      } else {
-        // Helper: truncate text to max chars
-        const trunc = (s: string, max: number) => s.length > max ? s.substring(0, max) + "…" : s;
+    // Cabeçalho da tabela
+    doc.setFillColor(...colors.primary);
+    doc.rect(margin, y, contentW, 7, "F");
+    doc.setFontSize(dreFontSz);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("METRICA", margin + 2, y + 4.8);
+    dreAnos.forEach((ano, i) => {
+      doc.text(ano.ano, margin + dreColLabel + i * dreColAno + 2, y + 4.8);
+    });
+    y += 7;
 
-        // Helper: draw a proc section header label
-        const drawProcLabel = (title: string) => {
-          drawSpacer(4);
-          checkPageBreak(14);
-          doc.setFontSize(7);
-          doc.setFont("helvetica", "bold");
-          doc.setTextColor(...colors.textMuted);
-          doc.text(title.toUpperCase(), margin, y + 4);
-          y += 7;
-        };
+    // Linhas da tabela
+    const linhasDRE: { label: string; campo: string; bold: boolean; isPct?: boolean }[] = [
+      { label: "Receita Bruta", campo: "receitaBruta", bold: false },
+      { label: "Receita Liquida", campo: "receitaLiquida", bold: false },
+      { label: "Lucro Bruto", campo: "lucroBruto", bold: false },
+      { label: "Margem Bruta (%)", campo: "margemBruta", bold: false, isPct: true },
+      { label: "EBITDA", campo: "ebitda", bold: true },
+      { label: "Margem EBITDA (%)", campo: "margemEbitda", bold: false, isPct: true },
+      { label: "Lucro Liquido", campo: "lucroLiquido", bold: true },
+      { label: "Margem Liquida (%)", campo: "margemLiquida", bold: false, isPct: true },
+    ];
 
-        // Helper: draw a navy-header table row by row with per-cell color control
-        const drawProcTableHeader = (headers: string[], colWidths: number[]) => {
-          checkPageBreak(8 + 8);
-          doc.setFillColor(...colors.navy);
-          doc.rect(margin, y, contentW, 6, "F");
-          doc.setFontSize(5.5);
-          doc.setFont("helvetica", "bold");
-          doc.setTextColor(255, 255, 255);
-          let hx = margin;
-          headers.forEach((h, i) => {
-            doc.text(h, hx + 2, y + 4);
-            hx += colWidths[i];
-          });
-          y += 6;
-        };
+    linhasDRE.forEach((linha, idx) => {
+      const bg: [number, number, number] = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+      doc.setFillColor(...bg);
+      doc.rect(margin, y, contentW, 6, "F");
+      doc.setFontSize(dreFontSz);
+      doc.setFont("helvetica", linha.bold ? "bold" : "normal");
+      doc.setTextColor(...colors.text);
+      doc.text(linha.label, margin + 2, y + 4.2);
+      dreAnos.forEach((ano, i) => {
+        const val = (ano as unknown as Record<string, string>)[linha.campo] || "0,00";
+        const display = linha.isPct ? `${val}%` : `R$ ${fmtMoney(val)}`;
+        doc.text(display, margin + dreColLabel + i * dreColAno + 2, y + 4.2);
+      });
+      y += 6;
+    });
 
-        const drawProcRow = (cells: Array<{ text: string; color?: [number, number, number]; bold?: boolean; align?: "left" | "right" }>, colWidths: number[], idx: number) => {
-          checkPageBreak(7);
-          doc.setFillColor(...(idx % 2 === 0 ? colors.surface : colors.surface2));
-          doc.rect(margin, y, contentW, 6, "F");
-          let rx = margin;
-          cells.forEach((cell, ci) => {
-            doc.setFontSize(6.5);
-            doc.setFont("helvetica", cell.bold ? "bold" : "normal");
-            doc.setTextColor(...(cell.color || colors.text));
-            if (cell.align === "right") {
-              doc.text(cell.text, rx + colWidths[ci] - 2, y + 4, { align: "right" });
-            } else {
-              doc.text(cell.text, rx + 2, y + 4);
-            }
-            rx += colWidths[ci];
-          });
-          doc.setDrawColor(230, 230, 230);
-          doc.line(margin, y + 6, margin + contentW, y + 6);
-          y += 6;
-        };
+    // Tendência
+    y += 4;
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...colors.primary);
+    const tendenciaDRE = normalizeTendencia(data.dre.tendenciaLucro);
+    doc.text(`Tendencia: ${tendenciaDRE} | Crescimento de Receita: ${data.dre.crescimentoReceita}%`, margin + 2, y);
+    y += 6;
 
-        // Status color helper
-        const statusColor = (s: string): [number, number, number] =>
-          /arquivado/i.test(s) ? [22, 163, 74] : colors.warning;
+    if (data.dre.observacoes) {
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(6.5);
+      doc.setTextColor(...colors.textMuted);
+      const obsLines = doc.splitTextToSize(data.dre.observacoes, contentW - 4);
+      obsLines.forEach((l: string) => { doc.text(l, margin + 2, y); y += 4; });
+    }
+    // Alertas determinísticos — DRE
+    if (alertasDRE.length > 0) { y += 4; drawDetAlerts(alertasDRE); }
+  }
 
-        // ── BLOCO 2 — Distribuição por Tipo ──
-        if (distribuicao.length > 0) {
-          drawProcLabel("DISTRIBUICAO POR TIPO");
-          const distCW = [contentW * 0.55, contentW * 0.20, contentW * 0.25];
-          drawProcTableHeader(["TIPO", "QTD", "%"], distCW);
-          const totalQtd = distribuicao.reduce((s, d) => s + (parseInt(d.qtd || "0") || 0), 0);
-          distribuicao.forEach((d, idx) => {
+  // ── Seção Balanço (flui se couber) ──
+  if (data.balanco && (
+    (data.balanco.anos && data.balanco.anos.length > 0) ||
+    data.balanco.observacoes ||
+    data.balanco.tendenciaPatrimonio
+  )) {
+    drawSpacer(10);
+    checkPageBreak(90);
+
+    doc.setFillColor(...colors.primary);
+    doc.rect(margin, y, contentW, 8, "F");
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("08   BALANCO PATRIMONIAL", margin + 4, y + 5.5);
+    y += 12;
+
+    // Deduplicar anos do balanço (evita 2023 duplicado)
+    const balAnosMap = new Map<string, (typeof data.balanco.anos)[0]>();
+    data.balanco.anos.forEach(a => balAnosMap.set(a.ano, a));
+    const balAnos = Array.from(balAnosMap.values()).sort((a, b) => parseInt(a.ano) - parseInt(b.ano));
+    const balFontSz = balAnos.length >= 4 ? 6.5 : 7;
+    const colLabelB = balAnos.length >= 4 ? 58 : 65;
+    const colAnoB = (contentW - colLabelB) / balAnos.length;
+
+    // Cabeçalho
+    doc.setFillColor(...colors.primary);
+    doc.rect(margin, y, contentW, 7, "F");
+    doc.setFontSize(balFontSz);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("METRICA", margin + 2, y + 4.8);
+    balAnos.forEach((ano, i) => {
+      doc.text(ano.ano, margin + colLabelB + i * colAnoB + 2, y + 4.8);
+    });
+    y += 7;
+
+    const linhasBalanco: { label: string; campo: string; bold: boolean; isIndice?: boolean; isPct?: boolean }[] = [
+      { label: "Ativo Total", campo: "ativoTotal", bold: true },
+      { label: "Ativo Circulante", campo: "ativoCirculante", bold: false },
+      { label: "Ativo Nao Circulante", campo: "ativoNaoCirculante", bold: false },
+      { label: "Passivo Total", campo: "passivoTotal", bold: true },
+      { label: "Passivo Circulante", campo: "passivoCirculante", bold: false },
+      { label: "Passivo Nao Circulante", campo: "passivoNaoCirculante", bold: false },
+      { label: "Patrimonio Liquido", campo: "patrimonioLiquido", bold: true },
+      { label: "Liquidez Corrente", campo: "liquidezCorrente", bold: false, isIndice: true },
+      { label: "Endividamento (%)", campo: "endividamentoTotal", bold: false, isPct: true },
+      { label: "Capital de Giro Liq.", campo: "capitalDeGiroLiquido", bold: false },
+    ];
+
+    linhasBalanco.forEach((linha, idx) => {
+      const bg: [number, number, number] = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+      doc.setFillColor(...bg);
+      doc.rect(margin, y, contentW, 6, "F");
+      doc.setFontSize(balFontSz);
+      doc.setFont("helvetica", linha.bold ? "bold" : "normal");
+      doc.setTextColor(...colors.text);
+      doc.text(linha.label, margin + 2, y + 4.2);
+      balAnos.forEach((ano, i) => {
+        const val = (ano as unknown as Record<string, string>)[linha.campo] || "0,00";
+        const valClean = String(val).replace(/%/g, "").trim();
+        const display = linha.isIndice ? (val && val !== "0,00" ? `${val}x` : "—") : linha.isPct ? `${valClean}%` : `R$ ${fmtMoney(val)}`;
+        doc.text(display, margin + colLabelB + i * colAnoB + 2, y + 4.2);
+      });
+      y += 6;
+    });
+    // Alertas determinísticos — Balanço
+    if (alertasBalanco.length > 0) { y += 4; drawDetAlerts(alertasBalanco); }
+  }
+
+  // ── Seção Curva ABC (flui se couber) ──
+  if (data.curvaABC && (
+    (data.curvaABC.clientes && data.curvaABC.clientes.length > 0) ||
+    data.curvaABC.maiorCliente ||
+    data.curvaABC.periodoReferencia
+  )) {
+    drawSpacer(10);
+    checkPageBreak(65);
+
+    doc.setFillColor(...colors.primary);
+    doc.rect(margin, y, contentW, 8, "F");
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("09   CURVA ABC — CONCENTRACAO DE CLIENTES", margin + 4, y + 5.5);
+    y += 12;
+
+    // Alerta de concentração
+    if (data.curvaABC.alertaConcentracao) {
+      const alertaTexto = `! Cliente "${data.curvaABC.maiorCliente}" concentra ${data.curvaABC.maiorClientePct}% da receita — acima do limite de 30%`;
+      const alertaLines = doc.splitTextToSize(alertaTexto, contentW - 10);
+      const alertaH = Math.max(8, alertaLines.length * 5 + 4);
+      checkPageBreak(alertaH + 2);
+      doc.setFillColor(254, 242, 242);
+      doc.rect(margin, y, contentW, alertaH, "F");
+      doc.setFillColor(220, 38, 38);
+      doc.rect(margin, y, 2.5, alertaH, "F");
+      doc.setFontSize(7.5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(220, 38, 38);
+      alertaLines.forEach((l: string, i: number) => doc.text(l, margin + 5, y + 5 + i * 5));
+      y += alertaH + 2;
+    }
+
+    // Resumo de concentração
+    const top10Txt = data.curvaABC.concentracaoTop10 && data.curvaABC.concentracaoTop10 !== "0,00"
+      ? `   |   Top 10: ${data.curvaABC.concentracaoTop10}%` : "";
+    const classeATxt = data.curvaABC.totalClientesClasseA
+      ? `   |   Classe A: ${data.curvaABC.totalClientesClasseA} clientes (R$ ${fmtMoney(data.curvaABC.receitaClasseA)})` : "";
+    const resumoTexto = `Periodo: ${data.curvaABC.periodoReferencia || "—"}   |   Top 3: ${data.curvaABC.concentracaoTop3}%   |   Top 5: ${data.curvaABC.concentracaoTop5}%${top10Txt}   |   Total clientes: ${data.curvaABC.totalClientesNaBase || "—"}${classeATxt}`;
+    const resumoLines = doc.splitTextToSize(resumoTexto, contentW - 4);
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...colors.text);
+    doc.text(resumoLines, margin + 2, y);
+    y += resumoLines.length * 5 + 4;
+
+    // Tabela de clientes via autoT
+    if (data.curvaABC.clientes.length > 0) {
+      const abcRows = data.curvaABC.clientes.slice(0, 20).map(c => {
+        const pct = parseFloat(String(c.percentualReceita || "0").replace(",", "."));
+        const pctCell: AutoCell = pct > 30
+          ? { content: `${c.percentualReceita}%`, styles: { textColor: [220, 38, 38] as [number,number,number], fontStyle: "bold" } }
+          : { content: `${c.percentualReceita}%` };
+        const classeCell: AutoCell = c.classe === "A"
+          ? { content: "A", styles: { textColor: [21, 128, 61] as [number,number,number], fontStyle: "bold" } }
+          : c.classe === "B"
+          ? { content: "B", styles: { textColor: [161, 98, 7] as [number,number,number], fontStyle: "bold" } }
+          : { content: c.classe || "—" };
+        return [
+          String(c.posicao),
+          c.nome || "—",
+          c.valorFaturado ? fmtMoney(c.valorFaturado) : "—",
+          pctCell,
+          c.percentualAcumulado ? `${c.percentualAcumulado}%` : "—",
+          classeCell,
+        ] as AutoCell[];
+      });
+      autoT(
+        ["#", "CLIENTE", "FATURAMENTO (R$)", "% RECEITA", "% ACUM.", "CL."],
+        abcRows,
+        [10, 65, 40, 20, 20, 10],
+        { fontSize: 7, headFontSize: 6 }
+      );
+    }
+  }
+
+  // ===== SEÇÃO 05 — PROTESTOS (flui se couber) =====
+  drawSpacer(10);
+  checkPageBreak(50);
+  drawSectionTitle("05", "PROTESTOS", colors.danger);
+
+  // ── BLOCO 1 — Totais ──
+  drawFieldRow([
+    { label: "Vigentes (Qtd)", value: protestosNaoConsultados ? "Não consultado" : (data.protestos?.vigentesQtd || "0") },
+    { label: "Vigentes (R$)", value: protestosNaoConsultados ? "Não consultado" : (data.protestos?.vigentesValor || "0,00") },
+    { label: "Regularizados (Qtd)", value: protestosNaoConsultados ? "Não consultado" : (data.protestos?.regularizadosQtd || "0") },
+    { label: "Regularizados (R$)", value: protestosNaoConsultados ? "Não consultado" : (data.protestos?.regularizadosValor || "0,00") },
+  ]);
+
+  if (protestosNaoConsultados) {
+    drawSpacer(4);
+    drawBannerNaoConsultado("Protestos");
+  } else if (protestosVigentes > 0) {
+    const valorProt = parseMoneyToNumber(data.protestos?.vigentesValor || "0");
+    const msgProt = valorProt > 0
+      ? `${protestosVigentes} protesto(s) vigente(s) — R$ ${fmtMoney(data.protestos?.vigentesValor)}`
+      : `${protestosVigentes} protesto(s) vigente(s) — valor não disponível no bureau (confirmar junto ao cartório)`;
+    drawAlertBox(msgProt, "ALTA");
+  }
+
+  const protestoDetalhes = data.protestos?.detalhes || [];
+
+  if (!protestosNaoConsultados && protestoDetalhes.length === 0) {
+    drawSpacer(4);
+    checkPageBreak(12);
+    doc.setFillColor(240, 253, 244);
+    doc.roundedRect(margin, y, contentW, 10, 1, 1, "F");
+    doc.setFillColor(22, 163, 74);
+    doc.roundedRect(margin, y, 3, 10, 0.5, 0.5, "F");
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(22, 163, 74);
+    doc.text("Nenhum protesto identificado", margin + 8, y + 6.5);
+    y += 14;
+  } else if (!protestosNaoConsultados) {
+    // Helper: parse date string DD/MM/AAAA → Date
+    const parseDate = (d: string): Date | null => {
+      if (!d) return null;
+      const parts = d.split("/");
+      if (parts.length !== 3) return null;
+      const [dd, mm, aaaa] = parts.map(Number);
+      if (!dd || !mm || !aaaa) return null;
+      return new Date(aaaa, mm - 1, dd);
+    };
+    // Helper: parse money string → number
+    const parseProt = (v: string) => parseFloat((v || "0").replace(/\./g, "").replace(",", ".")) || 0;
+    // Helper: format number as R$ X.XXX
+    const fmtProt = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    const now = new Date();
+    const ms30 = 30 * 24 * 60 * 60 * 1000;
+    const ms90 = 90 * 24 * 60 * 60 * 1000;
+    const ms365 = 365 * 24 * 60 * 60 * 1000;
+
+    // ── BLOCO 2 — Distribuição Temporal ──
+    drawSpacer(6);
+    checkPageBreak(16);
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...colors.textMuted);
+    doc.text("DISTRIBUICAO TEMPORAL", margin, y + 4);
+    y += 7;
+
+    type TempBucket = { label: string; qtd: number; valor: number };
+    const tempBuckets: TempBucket[] = [
+      { label: "Ultimo mes (30 dias)", qtd: 0, valor: 0 },
+      { label: "Ultimos 3 meses", qtd: 0, valor: 0 },
+      { label: "Ultimos 12 meses", qtd: 0, valor: 0 },
+      { label: "Mais de 12 meses", qtd: 0, valor: 0 },
+    ];
+    protestoDetalhes.forEach(p => {
+      const dt = parseDate(p.data || "");
+      const val = parseProt(p.valor || "0");
+      if (!dt) return;
+      const age = now.getTime() - dt.getTime();
+      if (age <= ms30) { tempBuckets[0].qtd++; tempBuckets[0].valor += val; }
+      if (age <= ms90) { tempBuckets[1].qtd++; tempBuckets[1].valor += val; }
+      if (age <= ms365) { tempBuckets[2].qtd++; tempBuckets[2].valor += val; }
+      else { tempBuckets[3].qtd++; tempBuckets[3].valor += val; }
+    });
+
+    const tempColW = [contentW * 0.52, contentW * 0.16, contentW * 0.32];
+    checkPageBreak(8 + tempBuckets.length * 7 + 4);
+    // header
+    doc.setFillColor(...colors.navy);
+    doc.rect(margin, y, contentW, 6, "F");
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("PERIODO", margin + 2, y + 4);
+    doc.text("QTD", margin + tempColW[0] + tempColW[1] - 2, y + 4, { align: "right" });
+    doc.text("VALOR (R$)", margin + contentW - 2, y + 4, { align: "right" });
+    y += 6;
+    tempBuckets.forEach((b, idx) => {
+      doc.setFillColor(...(idx % 2 === 0 ? colors.surface : colors.surface2));
+      doc.rect(margin, y, contentW, 6, "F");
+      doc.setFontSize(6.5);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...colors.text);
+      doc.text(b.label, margin + 2, y + 4);
+      doc.text(String(b.qtd), margin + tempColW[0] + tempColW[1] - 2, y + 4, { align: "right" });
+      doc.setFont("helvetica", b.qtd > 0 ? "bold" : "normal");
+      doc.setTextColor(...(b.qtd > 0 ? colors.danger : colors.textMuted));
+      doc.text(b.qtd > 0 ? fmtProt(b.valor) : "—", margin + contentW - 2, y + 4, { align: "right" });
+      doc.setDrawColor(230, 230, 230);
+      doc.line(margin, y + 6, margin + contentW, y + 6);
+      y += 6;
+    });
+    y += 4;
+
+    // ── BLOCO 3 — Distribuição por Faixa de Valor ──
+    drawSpacer(4);
+    checkPageBreak(16);
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...colors.textMuted);
+    doc.text("DISTRIBUICAO POR FAIXA DE VALOR", margin, y + 4);
+    y += 7;
+
+    type ValBucket = { label: string; min: number; max: number; qtd: number; valor: number };
+    const valBuckets: ValBucket[] = [
+      { label: "Abaixo de R$ 1.000", min: 0, max: 1000, qtd: 0, valor: 0 },
+      { label: "R$ 1.000 a R$ 10.000", min: 1000, max: 10000, qtd: 0, valor: 0 },
+      { label: "R$ 10.000 a R$ 50.000", min: 10000, max: 50000, qtd: 0, valor: 0 },
+      { label: "R$ 50.000 a R$ 100.000", min: 50000, max: 100000, qtd: 0, valor: 0 },
+      { label: "Acima de R$ 100.000", min: 100000, max: Infinity, qtd: 0, valor: 0 },
+    ];
+    protestoDetalhes.forEach(p => {
+      const val = parseProt(p.valor || "0");
+      const bucket = valBuckets.find(b => val >= b.min && val < b.max);
+      if (bucket) { bucket.qtd++; bucket.valor += val; }
+    });
+
+    const valColW = [contentW * 0.52, contentW * 0.16, contentW * 0.32];
+    checkPageBreak(8 + valBuckets.length * 7 + 4);
+    doc.setFillColor(...colors.navy);
+    doc.rect(margin, y, contentW, 6, "F");
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("FAIXA", margin + 2, y + 4);
+    doc.text("QTD", margin + valColW[0] + valColW[1] - 2, y + 4, { align: "right" });
+    doc.text("VALOR (R$)", margin + contentW - 2, y + 4, { align: "right" });
+    y += 6;
+    valBuckets.forEach((b, idx) => {
+      doc.setFillColor(...(idx % 2 === 0 ? colors.surface : colors.surface2));
+      doc.rect(margin, y, contentW, 6, "F");
+      doc.setFontSize(6.5);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...colors.text);
+      doc.text(b.label, margin + 2, y + 4);
+      doc.text(String(b.qtd), margin + valColW[0] + valColW[1] - 2, y + 4, { align: "right" });
+      doc.setFont("helvetica", b.qtd > 0 ? "bold" : "normal");
+      doc.setTextColor(...(b.qtd > 0 ? colors.text : colors.textMuted));
+      doc.text(b.qtd > 0 ? fmtProt(b.valor) : "—", margin + contentW - 2, y + 4, { align: "right" });
+      doc.setDrawColor(230, 230, 230);
+      doc.line(margin, y + 6, margin + contentW, y + 6);
+      y += 6;
+    });
+    y += 4;
+
+    // Helper: draw protestos detail table via autoT (word-wrap automático, sem truncamento)
+    const drawProtTable = (rows: typeof protestoDetalhes) => {
+      autoT(
+        ["DT.PROT.", "VENCTO.", "ESPÉCIE", "CARTÓRIO / UF", "APRESENTANTE/CEDENTE", "VALOR (R$)", "REG."],
+        rows.map(p => [
+          p.data || "—",
+          { content: p.dataVencimento || "—", styles: { textColor: colors.textMuted } },
+          p.especie || "—",
+          p.credor || "—",
+          { content: p.apresentante || "—", styles: { textColor: colors.textSec } },
+          { content: p.valor || "—", styles: { textColor: p.regularizado ? colors.textMuted : colors.danger, fontStyle: "bold" } },
+          { content: p.regularizado ? "Sim" : "Não", styles: { textColor: p.regularizado ? [22, 163, 74] : colors.danger } },
+        ]),
+        [0.10, 0.10, 0.11, 0.22, 0.22, 0.14, 0.11].map(r => contentW * r),
+        { headFontSize: 5.5, fontSize: 6 },
+      );
+    };
+
+    // Detecta se o bureau retornou detalhes reais ou apenas localidades
+    const semDetalhesReais = protestoDetalhes.every(p => !p.data && !p.apresentante && parseProt(p.valor || "0") === 0);
+
+    if (semDetalhesReais) {
+      // ── BLOCO 4 (simplificado) — Locais dos Protestos ──
+      drawSpacer(4);
+      checkPageBreak(16);
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...colors.textMuted);
+      doc.text("LOCAIS DOS PROTESTOS", margin, y + 4);
+      y += 7;
+      drawProtTable(protestoDetalhes.slice(0, 10));
+
+      // Nota de limitação do bureau
+      checkPageBreak(10);
+      doc.setFontSize(5.5);
+      doc.setFont("helvetica", "italic");
+      doc.setTextColor(...colors.textMuted);
+      doc.text("* Detalhes (valor, data, apresentante) nao disponiveis no plano atual do Credit Hub — confirmar diretamente nos cartorios.", margin, y);
+      y += 7;
+    } else {
+      // ── BLOCO 4 — Top 10 por Valor ──
+      drawSpacer(4);
+      checkPageBreak(16);
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...colors.textMuted);
+      doc.text("TOP 10 POR VALOR", margin, y + 4);
+      y += 7;
+      const top10Valor = [...protestoDetalhes]
+        .sort((a, b) => parseProt(b.valor || "0") - parseProt(a.valor || "0"))
+        .slice(0, 10);
+      drawProtTable(top10Valor);
+
+      // ── BLOCO 5 — Top 10 Mais Recentes ──
+      drawSpacer(4);
+      checkPageBreak(16);
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...colors.textMuted);
+      doc.text("TOP 10 MAIS RECENTES", margin, y + 4);
+      y += 7;
+      const top10Recentes = [...protestoDetalhes]
+        .sort((a, b) => {
+          const da = parseDate(a.data || "");
+          const db = parseDate(b.data || "");
+          if (!da && !db) return 0;
+          if (!da) return 1;
+          if (!db) return -1;
+          return db.getTime() - da.getTime();
+        })
+        .slice(0, 10);
+      drawProtTable(top10Recentes);
+    }
+  }
+
+  // ===== SEÇÃO 06 — PROCESSOS (flui se couber) =====
+  drawSpacer(10);
+  checkPageBreak(50);
+  drawSectionTitle("06", "PROCESSOS JUDICIAIS", colors.warning);
+
+  // ── BLOCO 1 — Totais ──
+  drawFieldRow([
+    { label: "Processos (Total)", value: processosNaoConsultados ? "Não consultado" : (data.processos?.passivosTotal || "0") },
+    { label: "Em Andamento", value: processosNaoConsultados ? "Não consultado" : (data.processos?.ativosTotal || "0") },
+    { label: "Valor Estimado (R$)", value: processosNaoConsultados ? "Não consultado" : (data.processos?.valorTotalEstimado || "0,00") },
+    { label: "Rec. Judicial", value: processosNaoConsultados ? "Não consultado" : (data.processos?.temRJ ? "⚠ SIM" : "Não") },
+  ]);
+  if (!processosNaoConsultados && (data.processos?.dividasQtd || data.processos?.dividasValor)) {
+    drawFieldRow([
+      { label: "Dívidas Ativas (Qtd)", value: data.processos?.dividasQtd || "0" },
+      { label: "Dívidas Ativas (R$)", value: data.processos?.dividasValor || "0,00" },
+      { label: "", value: "" },
+      { label: "", value: "" },
+    ]);
+  }
+
+  if (processosNaoConsultados) {
+    drawSpacer(4);
+    drawBannerNaoConsultado("Processos judiciais");
+  } else if (data.processos?.temRJ) {
+    drawAlertBox("RECUPERACAO JUDICIAL identificada", "ALTA");
+  }
+
+  const proc = data.processos;
+  const distribuicao = proc?.distribuicao || [];
+  const bancarios = proc?.bancarios || [];
+  const fiscais = proc?.fiscais || [];
+  const fornecedores = proc?.fornecedores || [];
+  const outrosProc = proc?.outros || [];
+
+  const semDados = !proc
+    || (parseInt(proc.passivosTotal || "0") === 0
+      && parseInt(proc.ativosTotal || "0") === 0
+      && distribuicao.length === 0
+      && bancarios.length === 0
+      && fiscais.length === 0
+      && fornecedores.length === 0
+      && outrosProc.length === 0
+      && (proc.top10Valor?.length ?? 0) === 0
+      && (proc.top10Recentes?.length ?? 0) === 0);
+
+  if (!processosNaoConsultados && semDados) {
+    drawSpacer(4);
+    checkPageBreak(12);
+    doc.setFillColor(240, 253, 244);
+    doc.roundedRect(margin, y, contentW, 10, 1, 1, "F");
+    doc.setFillColor(22, 163, 74);
+    doc.roundedRect(margin, y, 3, 10, 0.5, 0.5, "F");
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(22, 163, 74);
+    doc.text("Nenhum processo judicial identificado", margin + 8, y + 6.5);
+    y += 14;
+  } else if (!processosNaoConsultados) {
+    // Helper: label de seção de processos
+    const drawProcLabel = (title: string) => {
+      drawSpacer(4);
+      checkPageBreak(14);
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...colors.textMuted);
+      doc.text(title.toUpperCase(), margin, y + 4);
+      y += 7;
+    };
+
+    // Status color helper
+    const statusColor = (s: string): [number, number, number] =>
+      /arquivado/i.test(s) ? [22, 163, 74] : colors.warning;
+
+    type ProcCell = { text: string; color?: [number, number, number]; bold?: boolean; align?: "left" | "right" };
+
+    // Helper unificado: drawProcAutoTable substitui drawProcTableHeader + drawProcRow
+    const drawProcAutoTable = (headers: string[], cellRows: ProcCell[][], colWidths: number[]) => {
+      autoT(
+        headers,
+        cellRows.map(row => row.map(cell => ({
+          content: cell.text,
+          styles: {
+            ...(cell.color ? { textColor: cell.color } : {}),
+            ...(cell.bold ? { fontStyle: "bold" } : {}),
+            ...(cell.align === "right" ? { halign: "right" } : {}),
+          } as Record<string, unknown>,
+        }))),
+        colWidths,
+        { fontSize: 6.5, headFontSize: 5.5 },
+      );
+    };
+
+    // ── BLOCO 2 — Distribuição por Tipo ──
+    if (distribuicao.length > 0) {
+      drawProcLabel("DISTRIBUICAO POR TIPO");
+      const distCW = [contentW * 0.55, contentW * 0.20, contentW * 0.25];
+      const totalQtd = distribuicao.reduce((s, d) => s + (parseInt(d.qtd || "0") || 0), 0);
+      drawProcAutoTable(
+        ["TIPO", "QTD", "%"],
+        [
+          ...distribuicao.map(d => {
             const qtdN = parseInt(d.qtd || "0") || 0;
             const isHigh = qtdN > 10;
-            drawProcRow([
+            return [
               { text: d.tipo || "—", color: isHigh ? colors.danger : colors.text, bold: isHigh },
               { text: String(qtdN), color: isHigh ? colors.danger : colors.text, bold: isHigh },
               { text: d.pct ? `${d.pct}%` : "—" },
-            ], distCW, idx);
-          });
-          // Total row
-          checkPageBreak(7);
-          doc.setFillColor(...colors.surface2);
-          doc.rect(margin, y, contentW, 6, "F");
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(6.5);
-          doc.setTextColor(...colors.text);
-          doc.text("TOTAL", margin + 2, y + 4);
-          doc.text(String(totalQtd), margin + distCW[0] + 2, y + 4);
-          doc.text("100%", margin + distCW[0] + distCW[1] + 2, y + 4);
-          y += 6;
-          y += 4;
-        }
+            ] as ProcCell[];
+          }),
+          [
+            { text: "TOTAL", bold: true },
+            { text: String(totalQtd), bold: true },
+            { text: "100%", bold: true },
+          ] as ProcCell[],
+        ],
+        distCW,
+      );
+    }
 
-        // ── BLOCO 3 — Processos Bancários ──
-        if (bancarios.length > 0) {
-          drawProcLabel(`PROCESSOS BANCARIOS (${bancarios.length})`);
-          const bancCW = [contentW * 0.22, contentW * 0.28, contentW * 0.18, contentW * 0.18, contentW * 0.14];
-          drawProcTableHeader(["BANCO", "ASSUNTO", "VALOR", "STATUS", "DATA"], bancCW);
-          bancarios.forEach((b, idx) => {
-            drawProcRow([
-              { text: trunc(b.banco || "—", 18) },
-              { text: trunc(b.assunto || "—", 22) },
-              { text: b.valor || "—" },
-              { text: trunc(b.status || "—", 14), color: statusColor(b.status || "") },
-              { text: b.data || "—" },
-            ], bancCW, idx);
-          });
-          y += 4;
-        }
+    // ── BLOCO 3 — Processos Bancários ──
+    if (bancarios.length > 0) {
+      drawProcLabel(`PROCESSOS BANCARIOS (${bancarios.length})`);
+      drawProcAutoTable(
+        ["BANCO", "ASSUNTO", "VALOR", "STATUS", "DATA"],
+        bancarios.map(b => [
+          { text: b.banco || "—" },
+          { text: b.assunto || "—" },
+          { text: b.valor || "—" },
+          { text: b.status || "—", color: statusColor(b.status || "") },
+          { text: b.data || "—" },
+        ]),
+        [0.22, 0.28, 0.18, 0.18, 0.14].map(r => contentW * r),
+      );
+    }
 
-        // ── BLOCO 4 — Processos Fiscais ──
-        if (fiscais.length > 0) {
-          const fiscalQtdDist = distribuicao.find(d => /fiscal/i.test(d.tipo || ""))?.qtd || String(fiscais.length);
-          const fiscaisShow = fiscais.slice(0, 3);
-          drawProcLabel(`TOP ${fiscaisShow.length} FISCAIS (de ${fiscalQtdDist} total)`);
-          const fiscCW = [contentW * 0.38, contentW * 0.22, contentW * 0.20, contentW * 0.20];
-          drawProcTableHeader(["CONTRAPARTE", "VALOR", "STATUS", "DATA"], fiscCW);
-          fiscaisShow.forEach((f, idx) => {
-            drawProcRow([
-              { text: trunc(f.contraparte || "—", 28) },
-              { text: f.valor || "—" },
-              { text: trunc(f.status || "—", 14), color: statusColor(f.status || "") },
-              { text: f.data || "—" },
-            ], fiscCW, idx);
-          });
-          y += 4;
-        }
+    // ── BLOCO 4 — Processos Fiscais ──
+    if (fiscais.length > 0) {
+      const fiscalQtdDist = distribuicao.find(d => /fiscal/i.test(d.tipo || ""))?.qtd || String(fiscais.length);
+      const fiscaisShow = fiscais.slice(0, 3);
+      drawProcLabel(`TOP ${fiscaisShow.length} FISCAIS (de ${fiscalQtdDist} total)`);
+      drawProcAutoTable(
+        ["CONTRAPARTE", "VALOR", "STATUS", "DATA"],
+        fiscaisShow.map(f => [
+          { text: f.contraparte || "—" },
+          { text: f.valor || "—" },
+          { text: f.status || "—", color: statusColor(f.status || "") },
+          { text: f.data || "—" },
+        ]),
+        [0.38, 0.22, 0.20, 0.20].map(r => contentW * r),
+      );
+    }
 
-        // ── BLOCO 5 — Processos Fornecedores ──
-        if (fornecedores.length > 0) {
-          drawProcLabel(`PROCESSOS FORNECEDORES (${fornecedores.length})`);
-          const fornCW = [contentW * 0.28, contentW * 0.24, contentW * 0.16, contentW * 0.18, contentW * 0.14];
-          drawProcTableHeader(["CONTRAPARTE", "ASSUNTO", "VALOR", "STATUS", "DATA"], fornCW);
-          fornecedores.forEach((f, idx) => {
-            drawProcRow([
-              { text: trunc(f.contraparte || "—", 22) },
-              { text: trunc(f.assunto || "—", 18) },
-              { text: f.valor || "—" },
-              { text: trunc(f.status || "—", 14), color: statusColor(f.status || "") },
-              { text: f.data || "—" },
-            ], fornCW, idx);
-          });
-          y += 4;
-        }
+    // ── BLOCO 5 — Processos Fornecedores ──
+    if (fornecedores.length > 0) {
+      drawProcLabel(`PROCESSOS FORNECEDORES (${fornecedores.length})`);
+      drawProcAutoTable(
+        ["CONTRAPARTE", "ASSUNTO", "VALOR", "STATUS", "DATA"],
+        fornecedores.map(f => [
+          { text: f.contraparte || "—" },
+          { text: f.assunto || "—" },
+          { text: f.valor || "—" },
+          { text: f.status || "—", color: statusColor(f.status || "") },
+          { text: f.data || "—" },
+        ]),
+        [0.28, 0.24, 0.16, 0.18, 0.14].map(r => contentW * r),
+      );
+    }
 
-        // ── BLOCO 6 — Top 5 Outros ──
-        if (outrosProc.length > 0) {
-          drawProcLabel("TOP 5 OUTROS");
-          const outrCW = [contentW * 0.28, contentW * 0.24, contentW * 0.16, contentW * 0.18, contentW * 0.14];
-          drawProcTableHeader(["CONTRAPARTE", "ASSUNTO", "VALOR", "STATUS", "DATA"], outrCW);
-          outrosProc.slice(0, 5).forEach((o, idx) => {
-            drawProcRow([
-              { text: trunc(o.contraparte || "—", 22) },
-              { text: trunc(o.assunto || "—", 18) },
-              { text: o.valor || "—" },
-              { text: trunc(o.status || "—", 14), color: statusColor(o.status || "") },
-              { text: o.data || "—" },
-            ], outrCW, idx);
-          });
-          y += 4;
-        }
-      }
+    // ── BLOCO 6 — Top 5 Outros ──
+    if (outrosProc.length > 0) {
+      drawProcLabel("TOP 5 OUTROS");
+      drawProcAutoTable(
+        ["CONTRAPARTE", "ASSUNTO", "VALOR", "STATUS", "DATA"],
+        outrosProc.slice(0, 5).map(o => [
+          { text: o.contraparte || "—" },
+          { text: o.assunto || "—" },
+          { text: o.valor || "—" },
+          { text: o.status || "—", color: statusColor(o.status || "") },
+          { text: o.data || "—" },
+        ]),
+        [0.28, 0.24, 0.16, 0.18, 0.14].map(r => contentW * r),
+      );
+    }
 
-      // ── Página IR dos Sócios ──
-      if (data.irSocios && data.irSocios.length > 0 && data.irSocios.some(s => s.nomeSocio || s.anoBase)) {
-        newPage();
-        drawHeader();
+    // ── BLOCO 7 — Distribuição Temporal ──
+    if ((proc?.distribuicaoTemporal?.length ?? 0) > 0) {
+      drawProcLabel("DISTRIBUIÇÃO TEMPORAL");
+      drawProcAutoTable(
+        ["PERÍODO", "QTD", "VALOR ESTIMADO"],
+        proc!.distribuicaoTemporal!.map(dt => [
+          { text: dt.periodo },
+          { text: dt.qtd, align: "right" as const },
+          { text: `R$ ${fmtMoney(dt.valor)}`, align: "right" as const },
+        ]),
+        [0.40, 0.25, 0.35].map(r => contentW * r),
+      );
+    }
 
-        // Header da seção
-        doc.setFillColor(...colors.primary);
-        doc.rect(margin, y, contentW, 8, "F");
-        doc.setFontSize(9);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(255, 255, 255);
-        doc.text("12   IR DOS SÓCIOS", margin + 4, y + 5.5);
-        y += 12;
+    // Verifica se detalhes de processos são reais ou apenas placeholders sem valor/data/partes
+    const procSemDetalhesReais = (proc?.top10Valor ?? []).every(p => p.valorNum === 0 && !p.data && !p.partes && !p.assunto);
 
-        for (let idx = 0; idx < data.irSocios.length; idx++) {
-          const ir = data.irSocios[idx];
-          if (!ir.nomeSocio && !ir.anoBase) continue;
+    // ── BLOCO 8 — Distribuição por Faixa de Valor (só mostra se há valores reais) ──
+    const faixaTemValor = (proc?.distribuicaoPorFaixa ?? []).some(f => parseFloat((f.valor || "0").replace(/\./g, "").replace(",", ".")) > 0);
+    if ((proc?.distribuicaoPorFaixa?.length ?? 0) > 0 && faixaTemValor) {
+      drawProcLabel("DISTRIBUIÇÃO POR FAIXA DE VALOR");
+      const totalFaixaQtd = proc!.distribuicaoPorFaixa!.reduce((s, f) => s + parseInt(f.qtd || "0"), 0);
+      drawProcAutoTable(
+        ["FAIXA", "QTD", "VALOR TOTAL", "%"],
+        proc!.distribuicaoPorFaixa!.map(f => {
+          const pctN = totalFaixaQtd > 0 ? fmtBR((parseInt(f.qtd) / totalFaixaQtd) * 100, 0) : "0";
+          const isHigh = parseInt(f.qtd) > 0 && (f.faixa === "> R$1M" || f.faixa === "R$200k-1M");
+          return [
+            { text: f.faixa, color: isHigh ? colors.danger : colors.text, bold: isHigh },
+            { text: f.qtd, align: "right" as const, color: isHigh ? colors.danger : colors.text },
+            { text: `R$ ${fmtMoney(f.valor)}`, align: "right" as const },
+            { text: `${pctN}%`, align: "right" as const, color: colors.textMuted },
+          ] as ProcCell[];
+        }),
+        [0.35, 0.18, 0.32, 0.15].map(r => contentW * r),
+      );
+    }
 
-          // Separador entre sócios
-          if (idx > 0) {
-            doc.setDrawColor(...colors.border);
-            doc.setLineWidth(0.3);
-            doc.line(margin, y, margin + contentW, y);
-            y += 6;
-          }
+    // ── BLOCO 9 — Top 10 por Valor ──
+    if ((proc?.top10Valor?.length ?? 0) > 0 && !procSemDetalhesReais) {
+      drawProcLabel(`TOP ${proc!.top10Valor!.length} POR VALOR`);
+      drawProcAutoTable(
+        ["TIPO", "POLO ATIVO", "POLO PASSIVO", "ASSUNTO / Nº", "VALOR", "STATUS", "UF/COMARCA"],
+        proc!.top10Valor!.map(p => {
+          const assuntoTxt = p.numero ? `${p.assunto || "—"} · ${p.numero}` : (p.assunto || "—");
+          const localTxt = [p.uf, p.comarca].filter(Boolean).join(" · ") || p.tribunal || "—";
+          const vencido = /venc|inadimp|atraso/i.test(p.status);
+          return [
+            { text: p.tipo || "—" },
+            { text: p.partes || "—" },
+            { text: p.polo_passivo || "—" },
+            { text: assuntoTxt },
+            { text: `R$ ${fmtMoney(p.valor)}`, align: "right" as const, color: vencido ? colors.danger : colors.text, bold: vencido },
+            { text: p.status || "—", color: statusColor(p.status) },
+            { text: localTxt },
+          ] as ProcCell[];
+        }),
+        [0.11, 0.16, 0.16, 0.20, 0.13, 0.12, 0.12].map(r => contentW * r),
+      );
+    }
 
-          // Header do sócio
-          doc.setFillColor(240, 246, 255);
-          doc.rect(margin, y, contentW, 8, "F");
-          doc.setFontSize(8);
-          doc.setFont("helvetica", "bold");
-          doc.setTextColor(...colors.primary);
-          doc.text(
-            `Sócio ${idx + 1} — ${ir.nomeSocio || "Nome não informado"}`,
-            margin + 3,
-            y + 5.2
-          );
-          // CPF e ano base no lado direito
-          doc.setFontSize(7);
-          doc.setFont("helvetica", "normal");
-          doc.setTextColor(...colors.textMuted);
-          const cpfAno = [ir.cpf && `CPF: ${ir.cpf}`, ir.anoBase && `Ano-base: ${ir.anoBase}`]
-            .filter(Boolean).join("   |   ");
-          if (cpfAno) {
-            doc.text(cpfAno, margin + contentW - 3, y + 5.2, { align: "right" });
-          }
-          y += 10;
-
-          // Tipo do documento
-          const tipoLabel = ir.tipoDocumento === "declaracao" ? "Declaração Completa" : "Recibo de Entrega";
-          doc.setFontSize(6.5);
-          doc.setFont("helvetica", "italic");
-          doc.setTextColor(...colors.textMuted);
-          doc.text(`Documento: ${tipoLabel}`, margin + 3, y);
-          y += 6;
-
-          // Alertas de malhas e débitos
-          if (ir.situacaoMalhas || ir.debitosEmAberto) {
-            doc.setFillColor(254, 242, 242);
-            doc.rect(margin, y, contentW, 7, "F");
-            doc.setFontSize(7);
-            doc.setFont("helvetica", "bold");
-            doc.setTextColor(220, 38, 38);
-            const alertaTexto = [
-              ir.situacaoMalhas && "Pendência de malhas fiscais",
-              ir.debitosEmAberto && `Débitos em aberto: ${ir.descricaoDebitos || "Sim"}`
-            ].filter(Boolean).join("   |   ");
-            doc.text(`⚠ ${alertaTexto}`, margin + 3, y + 4.8);
-            y += 9;
-          }
-
-          // Tabela de dados patrimoniais
-          const linhasIR = [
-            { label: "Renda Total", valor: `R$ ${ir.rendimentoTotal || "0,00"}` },
-            { label: "Rendimentos Tributáveis", valor: `R$ ${ir.rendimentosTributaveis || "0,00"}` },
-            { label: "Rendimentos Isentos", valor: `R$ ${ir.rendimentosIsentos || "0,00"}` },
-            { label: "Total Bens e Direitos", valor: `R$ ${ir.totalBensDireitos || "0,00"}`, bold: true },
-            { label: "Dívidas e Ônus", valor: `R$ ${ir.dividasOnus || "0,00"}` },
-            { label: "Patrimônio Líquido", valor: `R$ ${ir.patrimonioLiquido || "0,00"}`, bold: true },
-          ];
-
-          linhasIR.forEach((linha, i) => {
-            const bg: [number,number,number] = i % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
-            doc.setFillColor(...bg);
-            doc.rect(margin, y, contentW, 6, "F");
-            doc.setFontSize(7);
-            doc.setFont("helvetica", (linha as { label: string; valor: string; bold?: boolean }).bold ? "bold" : "normal");
-            doc.setTextColor(...colors.text);
-            doc.text(linha.label, margin + 3, y + 4.2);
-            doc.text(linha.valor, margin + contentW - 3, y + 4.2, { align: "right" });
-            y += 6;
-          });
-
-          y += 4;
-
-          // Participação em outras sociedades
-          if (ir.temSociedades && ir.sociedades && ir.sociedades.length > 0) {
-            doc.setFontSize(7);
-            doc.setFont("helvetica", "bold");
-            doc.setTextColor(...colors.primary);
-            doc.text("Participação em outras sociedades:", margin + 3, y);
-            y += 5;
-            ir.sociedades.forEach((soc: { razaoSocial?: string; cnpj?: string; participacao?: string }) => {
-              doc.setFont("helvetica", "normal");
-              doc.setTextColor(...colors.text);
-              doc.setFontSize(6.5);
-              doc.text(
-                `• ${soc.razaoSocial || "N/D"}${soc.cnpj ? ` — CNPJ: ${soc.cnpj}` : ""}${soc.participacao ? ` (${soc.participacao})` : ""}`,
-                margin + 5,
-                y
-              );
-              y += 4.5;
-            });
-            y += 3;
-          }
-
-          // Indicador de coerência
-          doc.setFontSize(7);
-          doc.setFont("helvetica", "bold");
-          if (ir.coerenciaComEmpresa) {
-            doc.setTextColor(22, 163, 74);
-            doc.text("✓ Renda compatível com o porte da empresa", margin + 3, y);
-          } else {
-            doc.setTextColor(220, 38, 38);
-            doc.text("⚠ Renda incompatível com o porte da empresa", margin + 3, y);
-          }
-          y += 6;
-
-          // Observações
-          if (ir.observacoes) {
-            doc.setFont("helvetica", "italic");
-            doc.setFontSize(6.5);
-            doc.setTextColor(...colors.textMuted);
-            const obsLines = doc.splitTextToSize(ir.observacoes, contentW - 6);
-            obsLines.forEach((l: string) => {
-              doc.text(l, margin + 3, y);
-              y += 4;
-            });
-            y += 2;
-          }
-        }
-
-        y += 6;
-      }
-
-      // ── Página Relatório de Visita ──
-      if (data.relatorioVisita && (
-        data.relatorioVisita.dataVisita ||
-        data.relatorioVisita.responsavelVisita ||
-        data.relatorioVisita.descricaoEstrutura ||
-        data.relatorioVisita.observacoesLivres ||
-        data.relatorioVisita.pontosPositivos?.length > 0 ||
-        data.relatorioVisita.pontosAtencao?.length > 0
-      )) {
-        newPage();
-        drawHeader();
-
-        doc.setFillColor(...colors.primary);
-        doc.rect(margin, y, contentW, 8, "F");
-        doc.setFontSize(9);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(255, 255, 255);
-        doc.text("13   RELATORIO DE VISITA", margin + 4, y + 5.5);
-        y += 12;
-
-        // Cabeçalho da visita
-        doc.setFontSize(7.5);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(...colors.text);
-        doc.text(`Data: ${data.relatorioVisita.dataVisita || "—"}   |   Responsavel: ${data.relatorioVisita.responsavelVisita || "—"}   |   Duracao: ${data.relatorioVisita.duracaoVisita || "—"}`, margin + 2, y);
-        y += 6;
-        doc.text(`Local: ${data.relatorioVisita.localVisita || "—"}`, margin + 2, y);
-        y += 8;
-
-        // Checklist
-        const checklist = [
-          { label: "Estrutura fisica confirmada no endereco", ok: data.relatorioVisita.estruturaFisicaConfirmada },
-          { label: "Operacao compativel com faturamento declarado", ok: data.relatorioVisita.operacaoCompativelFaturamento },
-          { label: "Estoque visivel no local", ok: data.relatorioVisita.estoqueVisivel },
-          { label: "Maquinas e equipamentos observados", ok: data.relatorioVisita.maquinasEquipamentos },
-          { label: "Socios presentes durante a visita", ok: data.relatorioVisita.presencaSocios },
-        ];
-
-        checklist.forEach((item, i) => {
-          const bg: [number,number,number] = i % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
-          doc.setFillColor(...bg);
-          doc.rect(margin, y, contentW, 6, "F");
-          doc.setFontSize(7);
-          const itemColor: [number,number,number] = item.ok ? [22, 163, 74] : [220, 38, 38];
-          doc.setTextColor(...itemColor);
-          doc.text(item.ok ? "+" : "x", margin + 3, y + 4.2);
-          doc.setTextColor(...colors.text);
-          doc.text(item.label, margin + 10, y + 4.2);
-          y += 6;
-        });
-
-        y += 4;
-
-        // Pontos positivos
-        if (data.relatorioVisita.pontosPositivos?.length > 0) {
-          doc.setFontSize(7.5);
-          doc.setFont("helvetica", "bold");
-          doc.setTextColor(...colors.primary);
-          doc.text("Pontos Positivos:", margin + 2, y);
-          y += 5;
-          data.relatorioVisita.pontosPositivos.forEach((p: string) => {
-            doc.setFont("helvetica", "normal");
-            doc.setFontSize(7);
-            doc.setTextColor(22, 163, 74);
-            doc.text(`+ ${p}`, margin + 4, y);
-            y += 4.5;
-          });
-          y += 2;
-        }
-
-        // Pontos de atenção
-        if (data.relatorioVisita.pontosAtencao?.length > 0) {
-          doc.setFontSize(7.5);
-          doc.setFont("helvetica", "bold");
-          doc.setTextColor(...colors.primary);
-          doc.text("Pontos de Atencao:", margin + 2, y);
-          y += 5;
-          data.relatorioVisita.pontosAtencao.forEach((p: string) => {
-            doc.setFont("helvetica", "normal");
-            doc.setFontSize(7);
-            doc.setTextColor(220, 38, 38);
-            doc.text(`! ${p}`, margin + 4, y);
-            y += 4.5;
-          });
-          y += 2;
-        }
-
-        // Recomendação
-        y += 2;
-        const recCor: [number,number,number] = data.relatorioVisita.recomendacaoVisitante === "aprovado" ? [22, 163, 74] :
-          data.relatorioVisita.recomendacaoVisitante === "condicional" ? [234, 179, 8] : [220, 38, 38];
-        doc.setFillColor(...recCor);
-        doc.roundedRect(margin, y, contentW, 8, 1, 1, "F");
-        doc.setFontSize(8);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(255, 255, 255);
-        const recTexto = data.relatorioVisita.recomendacaoVisitante === "aprovado" ? "RECOMENDACAO DO VISITANTE: APROVADO" :
-          data.relatorioVisita.recomendacaoVisitante === "condicional" ? "RECOMENDACAO DO VISITANTE: CONDICIONAL" :
-          "RECOMENDACAO DO VISITANTE: REPROVADO";
-        doc.text(recTexto, margin + 4, y + 5.5);
-        y += 10;
-
-        // Observações livres
-        if (data.relatorioVisita.observacoesLivres) {
-          doc.setFont("helvetica", "italic");
-          doc.setFontSize(6.5);
-          doc.setTextColor(...colors.textMuted);
-          const obsLines = doc.splitTextToSize(data.relatorioVisita.observacoesLivres, contentW - 4);
-          obsLines.forEach((l: string) => { doc.text(l, margin + 2, y); y += 4; });
-        }
-      }
-
-      // ===== PAGE 8 — PARECER =====
-      newPage();
-      drawHeader();
-
-      // Section header bar
-      doc.setFillColor(...colors.navy);
-      doc.rect(margin, y, contentW, 10, "F");
-      doc.setFillColor(...colors.accent);
-      doc.rect(margin, y + 10, contentW, 1.5, "F");
-      doc.setFontSize(7);
+    // ── Aviso quando há processos mas sem detalhes disponíveis (inclui caso de dados parciais) ──
+    if (parseInt(proc?.passivosTotal || "0") > 0 && procSemDetalhesReais) {
+      drawSpacer(4);
+      checkPageBreak(14);
+      doc.setFillColor(255, 251, 235);
+      doc.roundedRect(margin, y, contentW, 12, 1, 1, "F");
+      doc.setFillColor(...colors.warning);
+      doc.roundedRect(margin, y, 3, 12, 0.5, 0.5, "F");
+      doc.setFontSize(7.5);
       doc.setFont("helvetica", "bold");
-      doc.setTextColor(255, 255, 255);
-      doc.text("08", margin + 4, y + 6.5);
-      doc.setFontSize(9);
-      doc.text("PARECER PRELIMINAR", margin + 14, y + 6.5);
-      y += 13;
-
-      // ── BLOCO 1 — Decisão + Rating + Resumo ──
-      checkPageBreak(20);
-      const decisionColors: Record<string, { bg: [number,number,number]; text: [number,number,number] }> = {
-        APROVADO:              { bg: [240, 253, 244], text: [22, 163, 74] },
-        APROVACAO_CONDICIONAL: { bg: [254, 249, 195], text: [161, 98, 7] },
-        PENDENTE:              { bg: [255, 247, 237], text: [194, 65, 12] },
-        REPROVADO:             { bg: [254, 242, 242], text: [220, 38, 38] },
-      };
-      const dc = decisionColors[decision] ?? decisionColors.PENDENTE;
-
-      // Decision badge
-      doc.setFillColor(...dc.bg);
-      doc.roundedRect(margin, y, 70, 10, 2, 2, "F");
-      doc.setFontSize(8);
+      doc.setTextColor(...colors.warning);
+      doc.text(`${proc?.passivosTotal} processo(s) identificado(s) — valores e partes nao disponiveis no plano atual`, margin + 8, y + 5);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...colors.textMuted);
+      doc.text("O Credit Hub retornou apenas a contagem e UF dos processos. Solicitar relatorio detalhado ou consultar diretamente.", margin + 8, y + 9.5);
+      y += 16;
+    } else if (parseInt(proc?.passivosTotal || "0") > 0
+        && (proc?.top10Valor?.length ?? 0) === 0
+        && (proc?.top10Recentes?.length ?? 0) === 0
+        && distribuicao.length === 0) {
+      drawSpacer(4);
+      checkPageBreak(14);
+      doc.setFillColor(255, 251, 235);
+      doc.roundedRect(margin, y, contentW, 12, 1, 1, "F");
+      doc.setFillColor(...colors.warning);
+      doc.roundedRect(margin, y, 3, 12, 0.5, 0.5, "F");
+      doc.setFontSize(7.5);
       doc.setFont("helvetica", "bold");
-      doc.setTextColor(...dc.text);
-      doc.text(decision.replace("_", " "), margin + 35, y + 6.5, { align: "center" });
+      doc.setTextColor(...colors.warning);
+      doc.text(`${proc?.passivosTotal} processo(s) identificado(s) — detalhamento nao disponivel`, margin + 8, y + 5);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...colors.textMuted);
+      doc.text("Consultar diretamente nos tribunais competentes.", margin + 8, y + 9.5);
+      y += 16;
+    }
 
-      // Rating badge
-      const ratingColor: [number,number,number] = finalRating >= 7 ? colors.green : finalRating >= 4 ? colors.amber : colors.red;
-      doc.setFillColor(...colors.surface2);
-      doc.roundedRect(margin + 74, y, 28, 10, 2, 2, "F");
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(...ratingColor);
-      doc.text(finalRating + "/10", margin + 88, y + 6.5, { align: "center" });
-      y += 14;
+    // ── BLOCO 10 — Top 10 mais Recentes ──
+    if ((proc?.top10Recentes?.length ?? 0) > 0 && !procSemDetalhesReais) {
+      drawProcLabel(`TOP ${proc!.top10Recentes!.length} MAIS RECENTES`);
+      drawProcAutoTable(
+        ["TIPO", "DISTRIB.", "ULT.MOVTO.", "ASSUNTO / PARTES", "VALOR", "STATUS", "FASE / UF"],
+        proc!.top10Recentes!.map(p => {
+          const descTxt = [p.assunto, p.partes].filter(Boolean).join(" · ");
+          const faseTxt = [p.fase, p.uf].filter(Boolean).join(" · ") || "—";
+          return [
+            { text: p.tipo || "—" },
+            { text: p.data || "—" },
+            { text: p.dataUltimoAndamento || "—" },
+            { text: descTxt || "—" },
+            { text: `R$ ${fmtMoney(p.valor)}`, align: "right" as const },
+            { text: p.status || "—", color: statusColor(p.status) },
+            { text: faseTxt },
+          ] as ProcCell[];
+        }),
+        [0.10, 0.10, 0.10, 0.28, 0.13, 0.14, 0.15].map(r => contentW * r),
+      );
+    }
+  }
 
-      if (resumoExecutivo) {
-        checkPageBreak(12);
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(8.5);
-        doc.setTextColor(...colors.text);
-        const rLines = doc.splitTextToSize(resumoExecutivo, contentW);
-        rLines.slice(0, 12).forEach((line: string) => { checkPageBreak(5); doc.text(line, margin, y); y += 4.5; });
-        y += 4;
+  // ===== SEÇÃO CCF — CHEQUES SEM FUNDO =====
+  {
+    const ccf = data.ccf;
+    const ccfConsultado = !!ccf;
+    drawSpacer(10);
+    checkPageBreak(40);
+    drawSectionTitle("07", "CCF — CHEQUES SEM FUNDO", colors.danger);
+
+    if (!ccfConsultado) {
+      drawSpacer(4);
+      drawBannerNaoConsultado("CCF (Cheques sem Fundo)");
+    } else {
+      const temCCF = ccf.qtdRegistros > 0 || ccf.bancos.length > 0;
+      drawFieldRow([
+        { label: "Ocorrências (Total)", value: String(ccf.qtdRegistros) },
+        { label: "Bancos com Registro", value: String(ccf.bancos.length) },
+        { label: "Situação", value: temCCF ? "POSSUI REGISTROS" : "Sem ocorrências" },
+        { label: "", value: "" },
+      ]);
+      if (temCCF) {
+        drawAlertBox(`[ALTA] CCF: ${ccf.qtdRegistros} ocorrência(s) de Cheque sem Fundo — indicativo grave de inadimplência bancária`, "ALTA");
+        if (ccf.tendenciaLabel === "crescimento" && (ccf.tendenciaVariacao ?? 0) > 10) {
+          drawAlertBox(`[ALTA] Tendência CCF: crescimento de ${ccf.tendenciaVariacao}% nas ocorrências — deterioração bancária em curso`, "ALTA");
+        }
       }
 
-      // ── BLOCO 2 — Pontos Fortes | Pontos Fracos (duas colunas) ──
-      if (pontosFortes.length > 0 || pontosFracos.length > 0) {
-        checkPageBreak(16);
-        const halfW = (contentW - 4) / 2;
-        const leftXp = margin;
-        const rightXp = margin + halfW + 4;
-
-        // Column headers
-        doc.setFillColor(240, 253, 244);
-        doc.roundedRect(leftXp, y, halfW, 7, 1, 1, "F");
-        doc.setFontSize(6.5);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors.green);
-        doc.text("PONTOS FORTES", leftXp + halfW / 2, y + 4.8, { align: "center" });
-
-        doc.setFillColor(254, 242, 242);
-        doc.roundedRect(rightXp, y, halfW, 7, 1, 1, "F");
-        doc.setTextColor(...colors.danger);
-        doc.text("PONTOS FRACOS", rightXp + halfW / 2, y + 4.8, { align: "center" });
-        y += 9;
-
-        // Render both columns, tracking y independently
-        const colStartY = y;
-        let yLeft_p = colStartY;
-        let yRight_p = colStartY;
-
-        pontosFortes.forEach((pf: string) => {
-          doc.setFont("helvetica", "normal");
-          doc.setFontSize(7.5);
-          doc.setTextColor(...colors.text);
-          const lines = doc.splitTextToSize("• " + pf, halfW - 4);
-          lines.forEach((line: string) => { doc.text(line, leftXp + 2, yLeft_p); yLeft_p += 4; });
-          yLeft_p += 2;
-        });
-
-        pontosFracos.forEach((pf: string) => {
-          doc.setFont("helvetica", "normal");
-          doc.setFontSize(7.5);
-          doc.setTextColor(...colors.text);
-          const lines = doc.splitTextToSize("• " + pf, halfW - 4);
-          lines.forEach((line: string) => { doc.text(line, rightXp + 2, yRight_p); yRight_p += 4; });
-          yRight_p += 2;
-        });
-
-        y = Math.max(yLeft_p, yRight_p) + 4;
-      }
-
-      // ── BLOCO 3 — Tabela de Alertas ──
-      const aiAlertas = aiAnalysis?.alertas ?? [];
-      if (aiAlertas.length > 0) {
-        checkPageBreak(16);
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors.textMuted);
-        doc.text("ALERTAS", margin, y + 4);
-        y += 7;
-
-        const alertCW = [contentW * 0.15, contentW * 0.30, contentW * 0.25, contentW * 0.30];
-
-        // Header
-        doc.setFillColor(...colors.navy);
-        doc.rect(margin, y, contentW, 6, "F");
-        doc.setFontSize(5.5);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(255, 255, 255);
-        doc.text("TIPO", margin + 2, y + 4);
-        doc.text("DESCRICAO", margin + alertCW[0] + 2, y + 4);
-        doc.text("IMPACTO", margin + alertCW[0] + alertCW[1] + 2, y + 4);
-        doc.text("MITIGACAO", margin + alertCW[0] + alertCW[1] + alertCW[2] + 2, y + 4);
-        y += 6;
-
-        const lineH = 4;
-        const cellPad = 3;
-
-        aiAlertas.forEach((a, idx) => {
-          const sevStr = (a.severidade || "INFO").toUpperCase();
-          const descLines = doc.splitTextToSize(a.descricao || "—", alertCW[1] - 4);
-          const impLines  = doc.splitTextToSize(a.impacto   || "—", alertCW[2] - 4);
-          const mitLines  = doc.splitTextToSize(a.mitigacao || "—", alertCW[3] - 4);
-          const maxLines  = Math.max(1, descLines.length, impLines.length, mitLines.length);
-          const rowH = maxLines * lineH + cellPad * 2;
-
-          checkPageBreak(rowH + 2);
-          doc.setFillColor(...(idx % 2 === 0 ? colors.surface : colors.surface2));
-          doc.rect(margin, y, contentW, rowH, "F");
-
-          // Severity
-          const sevColor: [number,number,number] = sevStr === "ALTA" ? colors.danger : sevStr === "MODERADA" ? colors.warning : [37, 99, 235];
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(6);
-          doc.setTextColor(...sevColor);
-          doc.text(sevStr, margin + 2, y + cellPad + lineH);
-
-          // Text cells
-          doc.setFont("helvetica", "normal");
-          doc.setFontSize(6.5);
-          doc.setTextColor(...colors.text);
-          descLines.forEach((l: string, li: number) => doc.text(l, margin + alertCW[0] + 2, y + cellPad + (li + 1) * lineH));
-          impLines.forEach((l: string, li: number) => doc.text(l, margin + alertCW[0] + alertCW[1] + 2, y + cellPad + (li + 1) * lineH));
-          doc.setTextColor(...colors.primary);
-          mitLines.forEach((l: string, li: number) => doc.text(l, margin + alertCW[0] + alertCW[1] + alertCW[2] + 2, y + cellPad + (li + 1) * lineH));
-
-          doc.setDrawColor(230, 230, 230);
-          doc.line(margin, y + rowH, margin + contentW, y + rowH);
-          y += rowH;
-        });
-        y += 4;
-      }
-
-      // ── BLOCO 4 — Perguntas para Visita ──
-      if (perguntasVisita.length > 0) {
+      if (temCCF && ccf.bancos.length > 0) {
+        drawSpacer(4);
         checkPageBreak(14);
         doc.setFontSize(7);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(...colors.textMuted);
-        doc.text("PERGUNTAS PARA A VISITA", margin, y + 4);
+        doc.text("OCORRÊNCIAS POR BANCO", margin, y + 4);
         y += 7;
 
-        perguntasVisita.forEach((q, i) => {
-          checkPageBreak(14);
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(8);
+        const temMotivo = ccf.bancos.some(b => b.motivo);
+        autoT(
+          temMotivo ? ["BANCO / INSTITUIÇÃO", "QTD", "ÚLTIMA OCORR.", "MOTIVO"] : ["BANCO / INSTITUIÇÃO", "QTD", "ÚLTIMA OCORRÊNCIA"],
+          ccf.bancos.map(b => temMotivo
+            ? [
+                { content: b.banco, styles: { textColor: colors.danger } },
+                String(b.quantidade),
+                { content: b.dataUltimo || "—", styles: { textColor: colors.textMuted } },
+                b.motivo || "—",
+              ]
+            : [
+                { content: b.banco, styles: { textColor: colors.danger } },
+                String(b.quantidade),
+                { content: b.dataUltimo || "—", styles: { textColor: colors.textMuted } },
+              ]
+          ),
+          temMotivo
+            ? [0.32, 0.10, 0.18, 0.40].map(r => contentW * r)
+            : [0.50, 0.20, 0.30].map(r => contentW * r),
+          { fontSize: 6.5 },
+        );
+      } else if (!temCCF) {
+        drawSpacer(4);
+        checkPageBreak(12);
+        doc.setFillColor(240, 253, 244);
+        doc.roundedRect(margin, y, contentW, 10, 1, 1, "F");
+        doc.setFillColor(22, 163, 74);
+        doc.roundedRect(margin, y, 3, 10, 0.5, 0.5, "F");
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(22, 163, 74);
+        doc.text("Nenhuma ocorrência de Cheque sem Fundo identificada", margin + 8, y + 6.5);
+        y += 14;
+      }
+    }
+  }
+
+  // ===== SEÇÃO HISTÓRICO DE CONSULTAS =====
+  {
+    const hist = data.historicoConsultas;
+    if (hist && hist.length > 0) {
+      drawSpacer(10);
+      checkPageBreak(40);
+      drawSectionTitle("08", "HISTÓRICO DE CONSULTAS AO MERCADO", colors.primary);
+
+      drawSpacer(4);
+      checkPageBreak(8 + Math.min(hist.length, 15) * 6 + 4);
+
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...colors.textMuted);
+      doc.text(`${hist.length} consulta(s) registrada(s) — mostrando as mais recentes`, margin, y + 4);
+      y += 7;
+
+      autoT(
+        ["INSTITUIÇÃO / USUÁRIO", "DATA DA CONSULTA"],
+        hist.slice(0, 15).map(h => [
+          h.usuario,
+          { content: h.ultimaConsulta ? new Date(h.ultimaConsulta).toLocaleDateString("pt-BR") : "—", styles: { textColor: colors.textMuted } },
+        ]),
+        [contentW * 0.70, contentW * 0.30],
+        { fontSize: 6.5 },
+      );
+    }
+  }
+
+  // ── Seção IR dos Sócios (flui se couber) ──
+  if (data.irSocios && data.irSocios.length > 0 && data.irSocios.some(s => s.nomeSocio || s.anoBase)) {
+    drawSpacer(10);
+    checkPageBreak(50);
+
+    // Header da seção
+    doc.setFillColor(...colors.primary);
+    doc.rect(margin, y, contentW, 8, "F");
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("12   IR DOS SÓCIOS", margin + 4, y + 5.5);
+    y += 12;
+
+    for (let idx = 0; idx < data.irSocios.length; idx++) {
+      const ir = data.irSocios[idx];
+      if (!ir.nomeSocio && !ir.anoBase) continue;
+
+      // Garantir espaço antes de cada sócio
+      checkPageBreak(60);
+
+      // Separador entre sócios
+      if (idx > 0) {
+        doc.setDrawColor(...colors.border);
+        doc.setLineWidth(0.3);
+        doc.line(margin, y, margin + contentW, y);
+        y += 6;
+      }
+
+      // Header do sócio
+      doc.setFillColor(240, 246, 255);
+      doc.rect(margin, y, contentW, 8, "F");
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...colors.primary);
+      doc.text(
+        `Sócio ${idx + 1} — ${ir.nomeSocio || "Nome não informado"}`,
+        margin + 3,
+        y + 5.2
+      );
+      // CPF e ano base no lado direito
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...colors.textMuted);
+      const cpfAno = [ir.cpf && `CPF: ${ir.cpf}`, ir.anoBase && `Ano-base: ${ir.anoBase}`]
+        .filter(Boolean).join("   |   ");
+      if (cpfAno) {
+        doc.text(cpfAno, margin + contentW - 3, y + 5.2, { align: "right" });
+      }
+      y += 10;
+
+      // Tipo do documento
+      const tipoLabel = ir.tipoDocumento === "declaracao" ? "Declaração Completa" : "Recibo de Entrega";
+      doc.setFontSize(6.5);
+      doc.setFont("helvetica", "italic");
+      doc.setTextColor(...colors.textMuted);
+      doc.text(`Documento: ${tipoLabel}`, margin + 3, y);
+      y += 6;
+
+      // Alertas de malhas e débitos — com word-wrap limitado ao contentWidth
+      if (ir.situacaoMalhas || ir.debitosEmAberto) {
+        const alertaItens = [
+          ir.situacaoMalhas && "Pendência de malhas fiscais",
+          ir.debitosEmAberto && `Débitos em aberto: ${ir.descricaoDebitos || "Sim"}`
+        ].filter(Boolean) as string[];
+        const alertaTexto = `! ${alertaItens.join("  |  ")}`;
+        // Limitar largura ao contentW para evitar overflow horizontal
+        const alertaMaxW = contentW - 10; // margem interna
+        const alertaLines = doc.splitTextToSize(alertaTexto, alertaMaxW);
+        const alertaH = Math.max(8, alertaLines.length * 5 + 6);
+        checkPageBreak(alertaH + 2);
+        doc.setFillColor(254, 242, 242);
+        doc.rect(margin, y, contentW, alertaH, "F");
+        doc.setFillColor(220, 38, 38);
+        doc.rect(margin, y, 2.5, alertaH, "F");
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(220, 38, 38);
+        alertaLines.forEach((l: string, i: number) => {
+          doc.text(l, margin + 5, y + 5 + i * 5);
+        });
+        y += alertaH + 2;
+      }
+
+      // Tabela de dados patrimoniais
+      const linhasIR = [
+        { label: "Renda Total", valor: `R$ ${fmtMoney(ir.rendimentoTotal || "0,00")}` },
+        { label: "Rendimentos Tributáveis", valor: `R$ ${fmtMoney(ir.rendimentosTributaveis || "0,00")}` },
+        { label: "Rendimentos Isentos", valor: `R$ ${fmtMoney(ir.rendimentosIsentos || "0,00")}` },
+        { label: "Total Bens e Direitos", valor: `R$ ${fmtMoney(ir.totalBensDireitos || "0,00")}`, bold: true },
+        { label: "Dívidas e Ônus", valor: `R$ ${fmtMoney(ir.dividasOnus || "0,00")}` },
+        { label: "Patrimônio Líquido", valor: `R$ ${fmtMoney(ir.patrimonioLiquido || "0,00")}`, bold: true },
+      ];
+
+      linhasIR.forEach((linha, i) => {
+        const bg: [number, number, number] = i % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+        doc.setFillColor(...bg);
+        doc.rect(margin, y, contentW, 6, "F");
+        doc.setFontSize(7);
+        doc.setFont("helvetica", (linha as { label: string; valor: string; bold?: boolean }).bold ? "bold" : "normal");
+        doc.setTextColor(...colors.text);
+        doc.text(linha.label, margin + 3, y + 4.2);
+        doc.text(linha.valor, margin + contentW - 3, y + 4.2, { align: "right" });
+        y += 6;
+      });
+
+      y += 4;
+
+      // Participação em outras sociedades
+      if (ir.temSociedades && ir.sociedades && ir.sociedades.length > 0) {
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.primary);
+        doc.text("Participação em outras sociedades:", margin + 3, y);
+        y += 5;
+        ir.sociedades.forEach((soc: { razaoSocial?: string; cnpj?: string; participacao?: string }) => {
+          doc.setFont("helvetica", "normal");
           doc.setTextColor(...colors.text);
-          const qLines = doc.splitTextToSize(`${i + 1}. ${q.pergunta}`, contentW - 4);
-          qLines.forEach((line: string) => { doc.text(line, margin + 2, y); y += 4; });
-          if (q.contexto) {
-            doc.setFont("helvetica", "italic");
-            doc.setFontSize(7.5);
-            doc.setTextColor(...colors.textMuted);
-            const cLines = doc.splitTextToSize("Contexto: " + q.contexto, contentW - 8);
-            cLines.forEach((line: string) => { doc.text(line, margin + 4, y); y += 3.5; });
-          }
-          y += 3;
+          doc.setFontSize(6.5);
+          doc.text(
+            `• ${soc.razaoSocial || "N/D"}${soc.cnpj ? ` — CNPJ: ${soc.cnpj}` : ""}${soc.participacao ? ` (${soc.participacao})` : ""}`,
+            margin + 5,
+            y
+          );
+          y += 4.5;
+        });
+        y += 3;
+      }
+
+      // Indicador de coerência
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "bold");
+      if (ir.coerenciaComEmpresa) {
+        doc.setTextColor(22, 163, 74);
+        doc.text("✓ Renda compatível com o porte da empresa", margin + 3, y);
+      } else {
+        doc.setTextColor(220, 38, 38);
+        doc.text("⚠ Renda incompatível com o porte da empresa", margin + 3, y);
+      }
+      y += 6;
+
+      // Observações
+      if (ir.observacoes) {
+        doc.setFont("helvetica", "italic");
+        doc.setFontSize(6.5);
+        doc.setTextColor(...colors.textMuted);
+        const obsLines = doc.splitTextToSize(ir.observacoes, contentW - 6);
+        obsLines.forEach((l: string) => {
+          doc.text(l, margin + 3, y);
+          y += 4;
         });
         y += 2;
       }
+    }
 
-      // ── BLOCO 5 — Parâmetros Operacionais ──
-      const paramOp = aiAnalysis?.parametrosOperacionais;
-      const hasParamOp = paramOp && Object.values(paramOp).some(v => v && v.trim() !== "");
-      if (hasParamOp) {
-        checkPageBreak(16);
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors.textMuted);
-        doc.text("PARAMETROS OPERACIONAIS ORIENTATIVOS", margin, y + 4);
-        y += 7;
+    // Alertas determinísticos — IR Sócios
+    if (alertasIR.length > 0) { drawSpacer(4); drawDetAlerts(alertasIR); }
 
-        const paramCW = [contentW * 0.30, contentW * 0.35, contentW * 0.35];
+    y += 6;
+  }
 
-        // Header
-        doc.setFillColor(...colors.navy);
-        doc.rect(margin, y, contentW, 6, "F");
-        doc.setFontSize(5.5);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(255, 255, 255);
-        doc.text("PARAMETRO", margin + 2, y + 4);
-        doc.text("VALOR SUGERIDO", margin + paramCW[0] + 2, y + 4);
-        doc.text("BASE DE CALCULO", margin + paramCW[0] + paramCW[1] + 2, y + 4);
-        y += 6;
+  // ── Seção Relatório de Visita (flui se couber) ──
+  if (data.relatorioVisita && (
+    data.relatorioVisita.dataVisita ||
+    data.relatorioVisita.responsavelVisita ||
+    data.relatorioVisita.descricaoEstrutura ||
+    data.relatorioVisita.observacoesLivres ||
+    data.relatorioVisita.pontosPositivos?.length > 0 ||
+    data.relatorioVisita.pontosAtencao?.length > 0
+  )) {
+    drawSpacer(10);
+    checkPageBreak(55);
 
-        const paramRows: Array<{ label: string; key: string; base: string }> = [
-          { label: "Limite aproximado",    key: "limiteAproximado",   base: "FMM × fatores de score e risco" },
-          { label: "Prazo maximo",         key: "prazoMaximo",        base: "Baseado no rating" },
-          { label: "Concentracao/sacado",  key: "concentracaoSacado", base: "Perfil de risco" },
-          { label: "Garantias",            key: "garantias",          base: "Estrutura societaria" },
-          { label: "Revisao",              key: "revisao",            base: "Alertas ativos" },
-        ];
+    doc.setFillColor(...colors.primary);
+    doc.rect(margin, y, contentW, 8, "F");
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("13   RELATORIO DE VISITA", margin + 4, y + 5.5);
+    y += 12;
 
-        paramRows.forEach((row, idx) => {
-          const val = (paramOp as Record<string, string>)[row.key] || "—";
-          checkPageBreak(7);
-          doc.setFillColor(...(idx % 2 === 0 ? colors.surface : colors.surface2));
-          doc.rect(margin, y, contentW, 6, "F");
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(6.5);
-          doc.setTextColor(...colors.text);
-          doc.text(row.label, margin + 2, y + 4);
-          doc.setFont("helvetica", "normal");
-          doc.setTextColor(...colors.primary);
-          doc.text(val, margin + paramCW[0] + 2, y + 4);
-          doc.setTextColor(...colors.textMuted);
-          doc.text(row.base, margin + paramCW[0] + paramCW[1] + 2, y + 4);
-          doc.setDrawColor(230, 230, 230);
-          doc.line(margin, y + 6, margin + contentW, y + 6);
-          y += 6;
-        });
+    // Cabeçalho da visita
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...colors.text);
+    doc.text(`Data: ${data.relatorioVisita.dataVisita || "—"}   |   Responsavel: ${data.relatorioVisita.responsavelVisita || "—"}   |   Duracao: ${data.relatorioVisita.duracaoVisita || "—"}`, margin + 2, y);
+    y += 6;
+    doc.text(`Local: ${data.relatorioVisita.localVisita || "—"}`, margin + 2, y);
+    y += 8;
 
-        // Footnote
-        y += 3;
-        checkPageBreak(8);
-        doc.setFont("helvetica", "italic");
-        doc.setFontSize(6);
-        doc.setTextColor(...colors.textMuted);
-        doc.text("Parametros indicativos. Limite e condicoes formais definidos pelo Comite.", margin, y);
-        y += 6;
-      }
+    // Checklist
+    const checklist = [
+      { label: "Estrutura fisica confirmada no endereco", ok: data.relatorioVisita.estruturaFisicaConfirmada },
+      { label: "Operacao compativel com faturamento declarado", ok: data.relatorioVisita.operacaoCompativelFaturamento },
+      { label: "Estoque visivel no local", ok: data.relatorioVisita.estoqueVisivel },
+      { label: "Maquinas e equipamentos observados", ok: data.relatorioVisita.maquinasEquipamentos },
+      { label: "Socios presentes durante a visita", ok: data.relatorioVisita.presencaSocios },
+    ];
 
-      // Footer on all pages
-      const totalPages = doc.getNumberOfPages();
-      for (let p = 1; p <= totalPages; p++) {
-        doc.setPage(p);
-        doc.setFillColor(...colors.navy);
-        doc.rect(0, 284, 210, 13, "F");
-        doc.setFillColor(...colors.accent);
-        doc.rect(0, 284, 210, 1, "F");
-        doc.setFontSize(7);
+    checklist.forEach((item, i) => {
+      const bg: [number, number, number] = i % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+      doc.setFillColor(...bg);
+      doc.rect(margin, y, contentW, 6, "F");
+      doc.setFontSize(7);
+      const itemColor: [number, number, number] = item.ok ? [22, 163, 74] : [220, 38, 38];
+      doc.setTextColor(...itemColor);
+      doc.text(item.ok ? "+" : "x", margin + 3, y + 4.2);
+      doc.setTextColor(...colors.text);
+      doc.text(item.label, margin + 10, y + 4.2);
+      y += 6;
+    });
+
+    y += 4;
+
+    // Pontos positivos
+    if (data.relatorioVisita.pontosPositivos?.length > 0) {
+      doc.setFontSize(7.5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...colors.primary);
+      doc.text("Pontos Positivos:", margin + 2, y);
+      y += 5;
+      data.relatorioVisita.pontosPositivos.forEach((p: string) => {
         doc.setFont("helvetica", "normal");
-        doc.setTextColor(180, 200, 240);
-        doc.text(`Capital Financas — Consolidador | ${footerDateStr} | Confidencial`, margin, 291);
-        doc.text(`Pagina ${p} de ${totalPages}`, W - margin, 291, { align: "right" });
-      }
+        doc.setFontSize(7);
+        doc.setTextColor(22, 163, 74);
+        doc.text(`+ ${p}`, margin + 4, y);
+        y += 4.5;
+      });
+      y += 2;
+    }
 
-      const pdfBlob = doc.output("blob");
-      return new Blob([pdfBlob], { type: "application/pdf" });
+    // Pontos de atenção
+    if (data.relatorioVisita.pontosAtencao?.length > 0) {
+      doc.setFontSize(7.5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...colors.primary);
+      doc.text("Pontos de Atencao:", margin + 2, y);
+      y += 5;
+      data.relatorioVisita.pontosAtencao.forEach((p: string) => {
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7);
+        doc.setTextColor(220, 38, 38);
+        doc.text(`! ${p}`, margin + 4, y);
+        y += 4.5;
+      });
+      y += 2;
+    }
+
+    // Recomendação
+    y += 4;
+    const recCor: [number, number, number] = data.relatorioVisita.recomendacaoVisitante === "aprovado" ? [22, 163, 74] :
+      data.relatorioVisita.recomendacaoVisitante === "condicional" ? [234, 179, 8] : [220, 38, 38];
+    doc.setFillColor(...recCor);
+    doc.roundedRect(margin, y, contentW, 9, 1, 1, "F");
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    const recTexto = data.relatorioVisita.recomendacaoVisitante === "aprovado" ? "Recomendação do visitante: Aprovado" :
+      data.relatorioVisita.recomendacaoVisitante === "condicional" ? "Recomendação do visitante: Condicional" :
+        "Recomendação do visitante: Reprovado";
+    doc.text(recTexto, margin + 4, y + 6);
+    y += 11;
+
+    // Observações livres — espaçamento de 12pt entre bloco recomendação e texto
+    if (data.relatorioVisita.observacoesLivres) {
+      y += 12; // marginBottom mínimo de 12pt entre recomendação e texto descritivo
+      checkPageBreak(16);
+      doc.setFontSize(7.5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...colors.textMuted);
+      doc.text("Observações:", margin + 2, y);
+      y += 6;
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(7);
+      doc.setTextColor(...colors.text);
+      const obsLines = doc.splitTextToSize(data.relatorioVisita.observacoesLivres, contentW - 6);
+      obsLines.forEach((l: string) => { checkPageBreak(5); doc.text(l, margin + 2, y); y += 4.5; });
+      y += 4;
+    }
+  }
+
+  // ===== PAGE 8 — PARECER (sempre nova página) =====
+  newPage();
+  drawHeader();
+
+  // Normaliza parecer (pode chegar como string ou objeto do Supabase)
+  const normParecer = (raw: unknown): { resumoExecutivo?: string; pontosFortes?: string[]; pontosNegativosOuFracos?: string[] } => {
+    if (typeof raw === 'string') return { resumoExecutivo: raw };
+    if (raw && typeof raw === 'object') return raw as { resumoExecutivo?: string; pontosFortes?: string[] };
+    return {};
+  };
+  const parecerNorm = normParecer(aiAnalysis?.parecer);
+  const resumoFinal = resumoExecutivo || parecerNorm.resumoExecutivo || "";
+  const pontosFortesFinal = pontosFortes.length > 0 ? pontosFortes : (parecerNorm.pontosFortes || []);
+  const pontosFracosFinal = pontosFracos.length > 0 ? pontosFracos : (parecerNorm.pontosNegativosOuFracos || []);
+
+
+  // Section header bar
+  doc.setFillColor(...colors.navy);
+  doc.rect(margin, y, contentW, 10, "F");
+  doc.setFillColor(...colors.accent);
+  doc.rect(margin, y + 10, contentW, 1.5, "F");
+  doc.setFontSize(7);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(255, 255, 255);
+  doc.text("08", margin + 4, y + 6.5);
+  doc.setFontSize(9);
+  doc.text("PARECER PRELIMINAR", margin + 14, y + 6.5);
+  y += 13;
+
+  // ── BLOCO 1 — Decisão + Rating + Resumo ──
+  checkPageBreak(20);
+  const decisionColors: Record<string, { bg: [number, number, number]; text: [number, number, number] }> = {
+    APROVADO: { bg: [240, 253, 244], text: [22, 163, 74] },
+    APROVACAO_CONDICIONAL: { bg: [254, 249, 195], text: [161, 98, 7] },
+    PENDENTE: { bg: [255, 247, 237], text: [194, 65, 12] },
+    REPROVADO: { bg: [254, 242, 242], text: [220, 38, 38] },
+  };
+  const dc = decisionColors[decision] ?? decisionColors.PENDENTE;
+
+  // Decision badge
+  doc.setFillColor(...dc.bg);
+  doc.roundedRect(margin, y, 70, 10, 2, 2, "F");
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(...dc.text);
+  doc.text(decision.replace("_", " "), margin + 35, y + 6.5, { align: "center" });
+
+  // Rating badge
+  const ratingColor: [number, number, number] = finalRating >= 7 ? colors.green : finalRating >= 4 ? colors.amber : colors.red;
+  doc.setFillColor(...colors.surface2);
+  doc.roundedRect(margin + 74, y, 28, 10, 2, 2, "F");
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(...ratingColor);
+  doc.text(finalRating + "/10", margin + 88, y + 6.5, { align: "center" });
+  y += 14;
+
+  if (resumoFinal) {
+    checkPageBreak(12);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(...colors.text);
+    const rLines = doc.splitTextToSize(resumoFinal, contentW) as string[];
+    rLines.forEach((line: string) => { checkPageBreak(5); doc.text(line, margin, y); y += 4.5; });
+    y += 4;
+  }
+
+  // ── BLOCO 2 — Pontos Fortes e Pontos Fracos ──
+  if (pontosFortesFinal.length > 0 || pontosFracosFinal.length > 0) {
+    const renderBulletList = (
+      title: string,
+      items: string[],
+      headerBg: [number, number, number],
+      headerText: [number, number, number],
+    ) => {
+      if (items.length === 0) return;
+      checkPageBreak(12);
+      doc.setFillColor(...headerBg);
+      doc.roundedRect(margin, y, contentW, 7, 1, 1, "F");
+      doc.setFontSize(6.5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...headerText);
+      doc.text(title, margin + contentW / 2, y + 4.8, { align: "center" });
+      y += 9;
+
+      items.forEach((item: string) => {
+        const lines = doc.splitTextToSize("• " + item, contentW - 6) as string[];
+        checkPageBreak(lines.length * 4 + 3);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7.5);
+        doc.setTextColor(...colors.text);
+        lines.forEach((line: string) => { doc.text(line, margin + 2, y); y += 4; });
+        y += 2;
+      });
+      y += 2;
+    };
+
+    renderBulletList("PONTOS FORTES", pontosFortesFinal, [240, 253, 244], colors.green);
+    renderBulletList("PONTOS FRACOS / RISCOS", pontosFracosFinal, [254, 242, 242], colors.danger);
+  }
+
+  // ── BLOCO 3 — Tabela de Alertas ──
+  const aiAlertas = aiAnalysis?.alertas ?? [];
+  if (aiAlertas.length > 0) {
+    checkPageBreak(16);
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...colors.textMuted);
+    doc.text("ALERTAS", margin, y + 4);
+    y += 7;
+
+    // Tabela de alertas — autotable com overflow:linebreak (sem truncamento, word-wrap real)
+    autoT(
+      ["TIPO", "DESCRIÇÃO", "IMPACTO", "MITIGAÇÃO"],
+      aiAlertas.map(a => {
+        const sevStr = (a.severidade || "INFO").toUpperCase();
+        const sevColor: [number,number,number] = sevStr === "ALTA" ? colors.danger : sevStr === "MODERADA" ? colors.warning : [37, 99, 235];
+        return [
+          { content: sevStr, styles: { textColor: sevColor, fontStyle: "bold" } },
+          a.descricao || "—",
+          { content: a.impacto || "—", styles: { textColor: colors.textMuted } },
+          { content: a.mitigacao || "—", styles: { textColor: colors.primary } },
+        ];
+      }),
+      [0.15, 0.30, 0.25, 0.30].map(r => contentW * r),
+      { fontSize: 6.5, headFontSize: 5.5, minCellHeight: 8 },
+    );
+  }
+
+  // ── BLOCO 4 — Perguntas para Visita ──
+  if (perguntasVisita.length > 0) {
+    checkPageBreak(14);
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...colors.textMuted);
+    doc.text("PERGUNTAS PARA A VISITA", margin, y + 4);
+    y += 7;
+
+    perguntasVisita.forEach((q, i) => {
+      const qLines = doc.splitTextToSize(`${i + 1}. ${q.pergunta}`, contentW - 4) as string[];
+      const cLines = q.contexto ? doc.splitTextToSize("Contexto: " + q.contexto, contentW - 8) as string[] : [];
+      const needed = qLines.length * 4 + cLines.length * 3.5 + 5;
+      checkPageBreak(needed);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      doc.setTextColor(...colors.text);
+      qLines.forEach((line: string) => { doc.text(line, margin + 2, y); y += 4; });
+      if (cLines.length > 0) {
+        doc.setFont("helvetica", "italic");
+        doc.setFontSize(7.5);
+        doc.setTextColor(...colors.textMuted);
+        cLines.forEach((line: string) => { doc.text(line, margin + 4, y); y += 3.5; });
+      }
+      y += 3;
+    });
+    y += 2;
+  }
+
+  // ── BLOCO 5 — Parâmetros Operacionais ──
+  const paramOp = aiAnalysis?.parametrosOperacionais;
+  const hasParamOp = paramOp && Object.values(paramOp).some(v => v && v.trim() !== "");
+  if (hasParamOp) {
+    checkPageBreak(16);
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...colors.textMuted);
+    doc.text("PARAMETROS OPERACIONAIS ORIENTATIVOS", margin, y + 4);
+    y += 7;
+
+    const paramCW = [contentW * 0.30, contentW * 0.35, contentW * 0.35];
+
+    // Header
+    doc.setFillColor(...colors.navy);
+    doc.rect(margin, y, contentW, 6, "F");
+    doc.setFontSize(5.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("PARAMETRO", margin + 2, y + 4);
+    doc.text("VALOR SUGERIDO", margin + paramCW[0] + 2, y + 4);
+    doc.text("BASE DE CALCULO", margin + paramCW[0] + paramCW[1] + 2, y + 4);
+    y += 6;
+
+    const paramRows: Array<{ label: string; key: string; base: string }> = [
+      { label: "Limite aproximado", key: "limiteAproximado", base: "FMM × fatores de score e risco" },
+      { label: "Prazo maximo", key: "prazoMaximo", base: "Baseado no rating" },
+      { label: "Concentracao/sacado", key: "concentracaoSacado", base: "Perfil de risco" },
+      { label: "Garantias", key: "garantias", base: "Estrutura societaria" },
+      { label: "Revisao", key: "revisao", base: "Alertas ativos" },
+    ];
+
+    paramRows.forEach((row, idx) => {
+      const val = (paramOp as Record<string, string>)[row.key] || "—";
+      checkPageBreak(7);
+      doc.setFillColor(...(idx % 2 === 0 ? colors.surface : colors.surface2));
+      doc.rect(margin, y, contentW, 6, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(6.5);
+      doc.setTextColor(...colors.text);
+      doc.text(row.label, margin + 2, y + 4);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...colors.primary);
+      doc.text(val, margin + paramCW[0] + 2, y + 4);
+      doc.setTextColor(...colors.textMuted);
+      doc.text(row.base, margin + paramCW[0] + paramCW[1] + 2, y + 4);
+      doc.setDrawColor(230, 230, 230);
+      doc.line(margin, y + 6, margin + contentW, y + 6);
+      y += 6;
+    });
+
+    // Footnote
+    y += 3;
+    checkPageBreak(8);
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(6);
+    doc.setTextColor(...colors.textMuted);
+    doc.text("Parametros indicativos. Limite e condicoes formais definidos pelo Comite.", margin, y);
+    y += 6;
+  }
+
+  // ── Observações do analista — dentro do bloco Parecer ──
+  if (p.observacoes && p.observacoes.trim()) {
+    const noteLines = doc.splitTextToSize(p.observacoes.trim(), contentW - 8) as string[];
+    const titleH = 10;
+    const lineH = 5;
+
+    y += 4;
+    checkPageBreak(titleH + 4 + lineH + 4);
+
+    // Cabeçalho da subseção (inline, sem chamar drawSectionTitle para evitar double-checkPageBreak)
+    doc.setFillColor(...colors.surface2);
+    doc.roundedRect(margin, y, contentW, titleH, 1.5, 1.5, "F");
+    doc.setFillColor(...colors.navy);
+    doc.roundedRect(margin, y, 3, titleH, 0.5, 0.5, "F");
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...colors.navy);
+    doc.text("OBS", margin + 7, y + 6.5);
+    doc.setFontSize(8.5);
+    doc.setTextColor(...colors.text);
+    doc.text("OBSERVACOES DO ANALISTA", margin + 14, y + 6.5);
+    y += titleH + 4;
+
+    // Renderiza linha a linha com checkPageBreak por linha (suporte a múltiplas páginas)
+    noteLines.forEach((line) => {
+      checkPageBreak(lineH + 1);
+      doc.setFillColor(...colors.surface);
+      doc.rect(margin, y, contentW, lineH, "F");
+      doc.setFillColor(...colors.accent);
+      doc.rect(margin, y, 2.5, lineH, "F");
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.5);
+      doc.setTextColor(...colors.text);
+      doc.text(line, margin + 6, y + lineH - 1.2);
+      y += lineH;
+    });
+    y += 6;
+  }
+
+  // Footer on all pages
+  const totalPages = doc.getNumberOfPages();
+  for (let p = 1; p <= totalPages; p++) {
+    doc.setPage(p);
+    doc.setFillColor(...colors.navy);
+    doc.rect(0, 284, 210, 13, "F");
+    doc.setFillColor(...colors.accent);
+    doc.rect(0, 284, 210, 1, "F");
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(180, 200, 240);
+    doc.text(`Capital Financas — Consolidador | ${footerDateStr} | Confidencial`, margin, 291);
+    doc.text(`Pagina ${p} de ${totalPages}`, W - margin, 291, { align: "right" });
+  }
+
+  const pdfBlob = doc.output("blob");
+  return new Blob([pdfBlob], { type: "application/pdf" });
 }

@@ -23,6 +23,12 @@ export interface CNPJData {
   endereco: string;
   telefone: string;
   email: string;
+  // Campos enriquecidos pelo Credit Hub
+  tipoEmpresa?: string;
+  funcionarios?: string;
+  regimeTributario?: string;
+  site?: string;
+  enderecos?: string[];
 }
 
 // ─── QSA (Quadro de Sócios e Administradores) ───
@@ -31,6 +37,8 @@ export interface QSASocio {
   cpfCnpj: string;
   qualificacao: string;
   participacao: string;
+  dataEntrada?: string;
+  dataSaida?: string;
 }
 
 export interface QSAData {
@@ -79,6 +87,7 @@ export interface SCRModalidade {
   aVencer: string;
   vencido: string;
   participacao: string;
+  ehContingente?: boolean;
 }
 
 export interface SCRInstituicao {
@@ -145,9 +154,15 @@ export interface SCRData {
 // ─── Protestos ───
 export interface ProtestoDetalhe {
   data: string;
-  credor: string;
+  credor: string;       // cartório / apresentante
   valor: string;
   regularizado: boolean;
+  especie?: string;     // tipo do título (DUPLICATA, NP, etc.)
+  numero?: string;      // número do protocolo no cartório
+  apresentante?: string; // credor original / cedente
+  municipio?: string;
+  uf?: string;
+  dataVencimento?: string;
 }
 
 export interface ProtestosData {
@@ -196,6 +211,37 @@ export interface ProcessoOutro {
   data: string;
 }
 
+// Processo individual normalizado (Credit Hub)
+export interface ProcessoItem {
+  numero: string;
+  tipo: string;
+  assunto: string;
+  data: string;
+  valor: string;
+  valorNum: number;
+  status: string;
+  partes: string;       // polo ativo / autor / credor
+  tribunal: string;
+  polo_passivo?: string; // réu / devedor
+  fase?: string;         // fase processual (conhecimento, execução, etc.)
+  uf?: string;
+  comarca?: string;
+  dataUltimoAndamento?: string;
+}
+
+export interface DistribuicaoTemporal {
+  periodo: string;   // "< 1 ano", "1-3 anos", "3-5 anos", "> 5 anos"
+  qtd: string;
+  valor: string;
+}
+
+export interface DistribuicaoPorFaixa {
+  faixa: string;    // "< R$10k", "R$10k-50k", etc.
+  qtd: string;
+  valor: string;
+  pct: string;      // % da quantidade total
+}
+
 export interface ProcessosData {
   passivosTotal: string;
   ativosTotal: string;
@@ -206,6 +252,13 @@ export interface ProcessosData {
   fiscais: ProcessoFiscal[];
   fornecedores: ProcessoFornecedor[];
   outros: ProcessoOutro[];
+  // Análise analítica (Credit Hub)
+  dividasQtd?: string;
+  dividasValor?: string;
+  distribuicaoTemporal?: DistribuicaoTemporal[];
+  distribuicaoPorFaixa?: DistribuicaoPorFaixa[];
+  top10Valor?: ProcessoItem[];
+  top10Recentes?: ProcessoItem[];
 }
 
 // ─── Relatório de Visita ───
@@ -229,6 +282,7 @@ export interface RelatorioVisitaData {
   sociosPresentes: string[];
   documentosVerificados: string[];
   observacoesLivres: string;
+  pleito?: string;
 }
 
 // ─── IR dos Sócios ───
@@ -339,7 +393,8 @@ export interface ClienteCurvaABC {
   cnpjCpf: string;
   valorFaturado: string;
   percentualReceita: string;
-  segmento: string;
+  percentualAcumulado: string;
+  classe: string; // "A" | "B" | "C"
 }
 
 export interface CurvaABCData {
@@ -350,9 +405,13 @@ export interface CurvaABCData {
   receitaTotalBase: string;
   concentracaoTop3: string;
   concentracaoTop5: string;
+  concentracaoTop10: string;
+  totalClientesClasseA: number;
+  receitaClasseA: string;
   maiorCliente: string;
   maiorClientePct: string;
   alertaConcentracao: boolean;
+  segmentos?: string[];
 }
 
 // ─── Grupo Econômico ───
@@ -363,10 +422,22 @@ export interface EmpresaGrupo {
   scrTotal: string;
   protestos: string;
   processos: string;
+  socioOrigem?: string;   // nome do sócio que vincula esta empresa
+  cpfSocio?: string;
+  participacao?: string;
+  situacao?: string;      // "ATIVA" | "BAIXADA" | "SUSPENSA"
+}
+
+export interface ParentescoDetectado {
+  socio1: string;
+  socio2: string;
+  sobrenomeComum: string;
 }
 
 export interface GrupoEconomicoData {
   empresas: EmpresaGrupo[];
+  alertaParentesco?: boolean;
+  parentescosDetectados?: ParentescoDetectado[];
 }
 
 export interface SCRSocioData {
@@ -375,6 +446,60 @@ export interface SCRSocioData {
   tipoPessoa: "PF";
   periodoAtual: SCRData;
   periodoAnterior?: SCRData;
+}
+
+// ─── CCF (Cheque Sem Fundo) ───
+export interface CCFBanco {
+  banco: string;
+  agencia?: string;
+  quantidade: number;
+  dataUltimo?: string;
+  motivo?: string;
+}
+
+export interface CCFHistoricoItem {
+  quantidade: number;
+  dataConsulta: string;
+}
+
+export interface CCFData {
+  qtdRegistros: number;
+  bancos: CCFBanco[];
+  historico: CCFHistoricoItem[];
+  tendenciaVariacao?: number;   // % de variação vs 6 meses atrás (positivo = piora)
+  tendenciaLabel?: string;      // "crescimento", "estavel", "queda"
+}
+
+// ─── Histórico de Consultas ao Mercado ───
+export interface HistoricoConsultaItem {
+  usuario: string;
+  ultimaConsulta: string;
+}
+
+// ─── Bureau Score (birôs de crédito) ───
+export interface BureauScore {
+  serasa?: {
+    score: number;
+    faixa: string;
+    inadimplente: boolean;
+    consultadoEm: string;
+  };
+  spc?: {
+    score: number;
+    pendencias: number;
+    inadimplente: boolean;
+    consultadoEm: string;
+  };
+  quod?: {
+    score: number;
+    faixa: string;
+    consultadoEm: string;
+  };
+  credithub?: {
+    consultadoEm: string;
+    protestosIntegrados: boolean;
+    processosIntegrados: boolean;
+  };
 }
 
 // ─── Dados extraídos consolidados ───
@@ -394,7 +519,11 @@ export interface ExtractedData {
   irSocios?: IRSocioData[];
   relatorioVisita?: RelatorioVisitaData;
   scrSocios?: SCRSocioData[];
+  score?: BureauScore;
+  bureausConsultados?: string[];
   resumoRisco: string;
+  ccf?: CCFData;
+  historicoConsultas?: HistoricoConsultaItem[];
 }
 
 // ─── App types ───
@@ -424,6 +553,7 @@ export interface DocumentCollection {
   decisao: 'APROVADO' | 'APROVACAO_CONDICIONAL' | 'PENDENTE' | 'REPROVADO' | null;
   fmm_12m: number | null;
   ai_analysis?: Record<string, unknown> | null;
+  observacoes?: string | null;
 }
 
 // ─── Análise de IA ───
