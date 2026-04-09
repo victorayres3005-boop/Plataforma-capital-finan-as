@@ -129,8 +129,17 @@ function parseProtestos(d: any): ProtestosData {
     }
   });
 
-  const vigentes = todos.filter(p => !p.regularizado);
-  const regularizados = todos.filter(p => p.regularizado);
+  // Deduplica por chave: data + valor + cedente/apresentante (API pode repetir o mesmo protesto em múltiplos cartórios)
+  const vistos = new Set<string>();
+  const todosUniq = todos.filter(p => {
+    const key = `${p.data}|${p.valor}|${(p.nomeCedente || p.nomeApresentante || "").toLowerCase().trim()}`;
+    if (vistos.has(key)) return false;
+    vistos.add(key);
+    return true;
+  });
+
+  const vigentes = todosUniq.filter(p => !p.regularizado);
+  const regularizados = todosUniq.filter(p => p.regularizado);
 
   const vigentesValor = vigentes.reduce((s, p) => s + p.valor, 0);
   const regularizadosValor = regularizados.reduce((s, p) => s + p.valor, 0);
@@ -140,7 +149,7 @@ function parseProtestos(d: any): ProtestosData {
     ? vigentes.length
     : Number(d?.protestos?.qtdProtestos ?? 0);
 
-  const detalhes: ProtestosData["detalhes"] = todos.map((p) => {
+  const detalhes: ProtestosData["detalhes"] = todosUniq.map((p) => {
     const credorDisplay = p.cartorioNome
       ? [p.cartorioNome, p.municipio, p.uf].filter(Boolean).join(" — ")
       : [p.municipio, p.uf].filter(Boolean).join(" / ") || "—";
@@ -679,12 +688,6 @@ export async function consultarCreditHub(cnpj: string): Promise<CreditHubResult>
 
     const raw = await res.json();
     const d = raw?.data ?? raw; // dados aninhados sob raw.data
-
-    // DEBUG — remover após diagnóstico
-    console.log("[credithub] top-level keys:", Object.keys(d ?? {}));
-    console.log("[credithub] d.ccf:", JSON.stringify(d?.ccf ?? null));
-    const ccfCandidates = ["ccf", "cheque_sem_fundo", "cheques", "cce", "chequesSemFundo", "cheque"];
-    ccfCandidates.forEach(k => { if ((d as any)?.[k]) console.log(`[credithub] FOUND CCF under key "${k}":`, JSON.stringify((d as any)[k]).slice(0, 200)); });
 
     return {
       success: true,
