@@ -984,7 +984,7 @@ function fillIRSocioDefaults(data: Partial<IRSocioData>): IRSocioData {
     nomeSocio: sanitizeStr(data.nomeSocio, 100),
     cpf: data.cpf || "",
     anoBase: data.anoBase || "",
-    tipoDocumento: sanitizeEnum(data.tipoDocumento, ["recibo", "completa", "simples"] as const, "recibo"),
+    tipoDocumento: sanitizeEnum(data.tipoDocumento, ["recibo", "declaracao", "extrato"] as const, "recibo"),
     numeroRecibo: data.numeroRecibo || "",
     dataEntrega: data.dataEntrega || "",
     situacaoMalhas: data.situacaoMalhas ?? false,

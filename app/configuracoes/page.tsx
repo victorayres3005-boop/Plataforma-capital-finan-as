@@ -84,6 +84,9 @@ export default function ConfiguracoesPage() {
             fator_limite_base: Number(data.fator_limite_base),
             revisao_aprovado_dias: Number(data.revisao_aprovado_dias),
             revisao_condicional_dias: Number(data.revisao_condicional_dias),
+            protestos_max: data.protestos_max != null ? Number(data.protestos_max) : DEFAULT_FUND_SETTINGS.protestos_max,
+            processos_passivos_max: data.processos_passivos_max != null ? Number(data.processos_passivos_max) : DEFAULT_FUND_SETTINGS.processos_passivos_max,
+            scr_vencidos_max_pct: data.scr_vencidos_max_pct != null ? Number(data.scr_vencidos_max_pct) : DEFAULT_FUND_SETTINGS.scr_vencidos_max_pct,
           });
         }
       } catch { /* usa defaults */ }
@@ -121,6 +124,9 @@ export default function ConfiguracoesPage() {
         fator_limite_base: settings.fator_limite_base,
         revisao_aprovado_dias: settings.revisao_aprovado_dias,
         revisao_condicional_dias: settings.revisao_condicional_dias,
+        protestos_max: settings.protestos_max,
+        processos_passivos_max: settings.processos_passivos_max,
+        scr_vencidos_max_pct: settings.scr_vencidos_max_pct,
         updated_at: new Date().toISOString(),
       };
 
@@ -237,6 +243,63 @@ export default function ConfiguracoesPage() {
             <SettingField label="Fator Base do Limite" description="Limite sugerido = FMM x este fator" value={settings.fator_limite_base} onChange={v => set("fator_limite_base", v)} suffix="x FMM" step={0.1} min={0.1} />
             <SettingField label="Revisao Aprovado" description="Prazo para revisar empresa aprovada" value={settings.revisao_aprovado_dias} onChange={v => set("revisao_aprovado_dias", v)} suffix="dias" min={1} />
             <SettingField label="Revisao Condicional" description="Prazo para revisar aprovacao condicional" value={settings.revisao_condicional_dias} onChange={v => set("revisao_condicional_dias", v)} suffix="dias" min={1} />
+          </div>
+        </div>
+
+        {/* Grupo 5 — Restrições Adicionais */}
+        <div className="card p-6">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-1 h-8 rounded-full bg-red-500" />
+            <div>
+              <h2 className="text-sm font-bold text-cf-text-1">Restricoes Adicionais</h2>
+              <p className="text-[11px] text-cf-text-3">Limites eliminatorios para bureau de credito e SCR — empresa reprovada automaticamente se ultrapassar</p>
+            </div>
+          </div>
+
+          {/* Critérios fixos não configuráveis */}
+          <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200">
+            <p className="text-[11px] font-semibold text-red-700 mb-1.5">Criterios fixos (nao configuráveis)</p>
+            <div className="flex flex-wrap gap-2">
+              <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-red-700 bg-red-100 border border-red-300 rounded px-2 py-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                CCF — Cheques sem fundos &gt; 0 ocorrencias
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-red-700 bg-red-100 border border-red-300 rounded px-2 py-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                Recuperacao Judicial / Falencia ativa
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <SettingField
+              label="Protestos Maximos"
+              description="Numero maximo de protestos vigentes permitidos"
+              value={settings.protestos_max}
+              onChange={v => set("protestos_max", v)}
+              suffix="protestos"
+              step={1}
+              min={0}
+            />
+            <SettingField
+              label="Processos Passivos Max"
+              description="Numero maximo de processos passivos permitidos"
+              value={settings.processos_passivos_max}
+              onChange={v => set("processos_passivos_max", v)}
+              suffix="processos"
+              step={1}
+              min={0}
+            />
+            <SettingField
+              label="SCR Vencidos Max"
+              description="Percentual maximo de dividas vencidas no SCR"
+              value={settings.scr_vencidos_max_pct}
+              onChange={v => set("scr_vencidos_max_pct", v)}
+              suffix="% do total"
+              step={1}
+              min={0}
+              max={100}
+            />
           </div>
         </div>
 

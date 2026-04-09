@@ -1,5 +1,5 @@
 "use client";
-
+// v2
 import { useState, useCallback, useEffect, useRef } from "react";
 import { ArrowRight, ArrowLeft, AlertTriangle, AlertCircle, RefreshCw } from "lucide-react";
 import { ExtractedData, Socio, QSASocio, FaturamentoMensal, SCRModalidade, SCRInstituicao, SCRData, IRSocioData } from "@/types";

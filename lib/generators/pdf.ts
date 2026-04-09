@@ -313,7 +313,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   const W = 210;
   const margin = 20;
   const contentW = W - margin * 2;
-  let y = 0;
+  const pos = { y: 0 };
 
   const colors = {
     bg: [32, 59, 136] as [number, number, number],
@@ -347,11 +347,11 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     doc.rect(0, 0, 210, 297, "F");
     doc.setFillColor(...colors.navy);
     doc.rect(0, 0, 210, 1.5, "F");
-    y = 1.5;
+    pos.y = 1.5;
   };
 
   const checkPageBreak = (needed: number) => {
-    if (y + needed > 275) { newPage(); drawHeader(); }
+    if (pos.y + needed > 275) { newPage(); drawHeader(); }
   };
 
   const drawHeader = () => {
@@ -396,25 +396,25 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       doc.text(data.cnpj.razaoSocial.substring(0, 45), W - margin, 26, { align: "right" });
     }
 
-    y = 42;
+    pos.y = 42;
   };
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const drawSectionTitle = (num: string, title: string, color: [number, number, number]) => {
     checkPageBreak(16);
     doc.setFillColor(...colors.surface2);
-    doc.roundedRect(margin, y, contentW, 10, 1.5, 1.5, "F");
+    doc.roundedRect(margin, pos.y, contentW, 10, 1.5, 1.5, "F");
     doc.setFillColor(...color);
-    doc.roundedRect(margin, y, 3, 10, 0.5, 0.5, "F");
+    doc.roundedRect(margin, pos.y, 3, 10, 0.5, 0.5, "F");
     doc.setFontSize(7);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...color);
-    doc.text(num, margin + 7, y + 6.5);
+    doc.text(num, margin + 7, pos.y + 6.5);
     doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...colors.text);
-    doc.text(title, margin + 14, y + 6.5);
-    y += 14;
+    doc.text(title, margin + 14, pos.y + 6.5);
+    pos.y += 14;
   };
 
   const drawField = (label: string, value: string, fullWidth = false) => {
@@ -422,17 +422,17 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     checkPageBreak(14);
     const fieldW = fullWidth ? contentW : contentW / 2 - 2;
     doc.setFillColor(...colors.surface);
-    doc.roundedRect(margin, y, fieldW, 12, 1, 1, "F");
+    doc.roundedRect(margin, pos.y, fieldW, 12, 1, 1, "F");
     doc.setFontSize(6);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...colors.textMuted);
-    doc.text(label.toUpperCase(), margin + 4, y + 4.5);
+    doc.text(label.toUpperCase(), margin + 4, pos.y + 4.5);
     doc.setFontSize(8);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...colors.text);
     const displayVal = value.length > (fullWidth ? 80 : 35) ? value.substring(0, fullWidth ? 80 : 35) + "..." : value;
-    doc.text(displayVal, margin + 4, y + 9.5);
-    y += 14;
+    doc.text(displayVal, margin + 4, pos.y + 9.5);
+    pos.y += 14;
   };
 
   const drawFieldRow = (fields: Array<{ label: string; value: string }>) => {
@@ -443,20 +443,20 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     let x = margin;
     validFields.forEach((field) => {
       doc.setFillColor(...colors.surface);
-      doc.roundedRect(x, y, fieldW, 12, 1, 1, "F");
+      doc.roundedRect(x, pos.y, fieldW, 12, 1, 1, "F");
       doc.setFontSize(6);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...colors.textMuted);
-      doc.text(field.label.toUpperCase(), x + 4, y + 4.5);
+      doc.text(field.label.toUpperCase(), x + 4, pos.y + 4.5);
       doc.setFontSize(8);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...colors.text);
       const maxChars = Math.floor(fieldW / 2.8);
       const displayVal = field.value.length > maxChars ? field.value.substring(0, maxChars) + "..." : field.value;
-      doc.text(displayVal, x + 4, y + 9.5);
+      doc.text(displayVal, x + 4, pos.y + 9.5);
       x += fieldW + 4;
     });
-    y += 14;
+    pos.y += 14;
   };
 
   const drawMultilineField = (label: string, value: string, maxLines = 6) => {
@@ -469,26 +469,26 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     const boxH = displayLines.length * lineH + paddingV * 2 + 6;
     checkPageBreak(boxH + 4);
     doc.setFillColor(...colors.surface);
-    doc.roundedRect(margin, y, contentW, boxH, 1, 1, "F");
+    doc.roundedRect(margin, pos.y, contentW, boxH, 1, 1, "F");
     doc.setFontSize(6);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...colors.textMuted);
-    doc.text(label.toUpperCase(), margin + 4, y + 5);
+    doc.text(label.toUpperCase(), margin + 4, pos.y + 5);
     doc.setFontSize(8);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...colors.text);
     displayLines.forEach((line: string, i: number) => {
-      doc.text(line, margin + 4, y + paddingV + 5 + i * lineH);
+      doc.text(line, margin + 4, pos.y + paddingV + 5 + i * lineH);
     });
     if (lines.length > maxLines) {
       doc.setFontSize(7);
       doc.setTextColor(...colors.textMuted);
-      doc.text(`+ ${lines.length - maxLines} linha(s) omitida(s)...`, margin + 4, y + boxH - 2);
+      doc.text(`+ ${lines.length - maxLines} linha(s) omitida(s)...`, margin + 4, pos.y + boxH - 2);
     }
-    y += boxH + 4;
+    pos.y += boxH + 4;
   };
 
-  const drawSpacer = (h = 6) => { y += h; };
+  const drawSpacer = (h = 6) => { pos.y += h; };
 
   // ─── autoT: helper universal baseado em jspdf-autotable ───────────────────
   // Substitui drawTable e todos os drawProcTableHeader+drawProcRow manuais.
@@ -518,7 +518,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     const gap = opts?.gap ?? 4;
 
     autoTable(doc, {
-      startY: y,
+      startY: pos.y,
       head: [headers],
       body: rows,
       margin: { left: margin, right: margin },
@@ -552,7 +552,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         return acc;
       }, {} as Record<number, { cellWidth: number }>),
     });
-    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + gap;
+    pos.y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + gap;
   };
 
   // Helper: draw simple table (mantido para compatibilidade — delega ao autoT)
@@ -601,25 +601,25 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
     // Fundo da linha
     doc.setFillColor(...rowBg);
-    doc.rect(margin, y, contentW, rowH, "F");
+    doc.rect(margin, pos.y, contentW, rowH, "F");
 
     // Borda esquerda colorida (3mm)
     doc.setFillColor(...accentC);
-    doc.rect(margin, y, 3, rowH, "F");
+    doc.rect(margin, pos.y, 3, rowH, "F");
 
     // Pill de severidade
     doc.setFillColor(...badgeBg);
-    doc.roundedRect(margin + 4, y + (rowH - 5) / 2, pillW, 5, 1, 1, "F");
+    doc.roundedRect(margin + 4, pos.y + (rowH - 5) / 2, pillW, 5, 1, 1, "F");
     doc.setFontSize(5.5);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...badgeTxt);
-    doc.text(badgeLabel, margin + 4 + pillW / 2, y + (rowH - 5) / 2 + 3.5, { align: "center" });
+    doc.text(badgeLabel, margin + 4 + pillW / 2, pos.y + (rowH - 5) / 2 + 3.5, { align: "center" });
 
     // Texto principal
     doc.setFontSize(6.5);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(17, 24, 39);
-    let ty = y + 3 + lineH * 0.5;
+    let ty = pos.y + 3 + lineH * 0.5;
     mainLines.forEach((l: string) => { doc.text(l, textX, ty); ty += lineH; });
 
     // Subtítulo
@@ -633,9 +633,9 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     // Divisor inferior sutil
     doc.setDrawColor(235, 235, 240);
     doc.setLineWidth(0.2);
-    doc.line(margin + 3, y + rowH, margin + contentW, y + rowH);
+    doc.line(margin + 3, pos.y + rowH, margin + contentW, pos.y + rowH);
 
-    y += rowH;
+    pos.y += rowH;
   };
 
   // Helper: draw deterministic section alert — com deduplicação
@@ -649,24 +649,24 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
   // ── DS Helpers ──────────────────────────────────────────────────────────
 
-  // Section header: navy bar with number + title, returns new y
+  // Section header: navy bar with number + title, returns new pos.y
   const dsSectionHeader = (num: string, title: string) => {
     checkPageBreak(14);
     doc.setFillColor(...DS.colors.headerBg);
-    doc.rect(margin, y, contentW, 10, "F");
+    doc.rect(margin, pos.y, contentW, 10, "F");
     doc.setFillColor(...DS.colors.accent);
-    doc.rect(margin, y + 10, contentW, 1.5, "F");
+    doc.rect(margin, pos.y + 10, contentW, 1.5, "F");
     doc.setFontSize(7);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...DS.colors.accent);
-    doc.text(num, margin + 4, y + 6.5);
+    doc.text(num, margin + 4, pos.y + 6.5);
     doc.setFontSize(9);
     doc.setTextColor(255, 255, 255);
-    doc.text(title, margin + 14, y + 6.5);
-    y += 13;
+    doc.text(title, margin + 14, pos.y + 6.5);
+    pos.y += 13;
   };
 
-  // Left-border card: draws card box, returns nothing (caller manages y)
+  // Left-border card: draws card box, returns nothing (caller manages pos.y)
   const dsCard = (cx: number, cy: number, cw: number, ch: number, borderColor: [number,number,number]) => {
     doc.setFillColor(...DS.colors.cardBg);
     doc.roundedRect(cx, cy, cw, ch, 2, 2, "F");
@@ -828,7 +828,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     }
   };
 
-  // miniHeader: faixa #1a2e4a com título branco — retorna nova posição y
+  // miniHeader: faixa #1a2e4a com título branco — retorna nova posição pos.y
   const dsMiniHeader = (startY: number, title: string): number => {
     doc.setFillColor(...DS.colors.headerBg);
     doc.rect(margin, startY, contentW, 7, 'F');
@@ -867,22 +867,22 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     const bannerH = padV + 8 + descLines.length * 4 + padV; // padTop + título + linhas desc + padBottom
     checkPageBreak(bannerH + 4);
     doc.setFillColor(255, 251, 235);
-    doc.roundedRect(margin, y, contentW, bannerH, 1.5, 1.5, 'F');
+    doc.roundedRect(margin, pos.y, contentW, bannerH, 1.5, 1.5, 'F');
     doc.setFillColor(...colors.warning);
-    doc.roundedRect(margin, y, 3, bannerH, 0.5, 0.5, 'F');
+    doc.roundedRect(margin, pos.y, 3, bannerH, 0.5, 0.5, 'F');
     // Título — fonte normal, sentence case
     doc.setFontSize(8);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...colors.warning);
-    doc.text('Consulta não realizada', margin + padH, y + padV);
+    doc.text('Consulta não realizada', margin + padH, pos.y + padV);
     // Texto descritivo — fonte normal, sem uppercase
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7);
     doc.setTextColor(120, 80, 0);
     descLines.forEach((l: string, i: number) => {
-      doc.text(l, margin + padH, y + padV + 7 + i * 4);
+      doc.text(l, margin + padH, pos.y + padV + 7 + i * 4);
     });
-    y += bannerH + 4;
+    pos.y += bannerH + 4;
   };
 
 
@@ -970,7 +970,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   {
     checkPageBreak(40);
     const bloco1H = 38;
-    const bloco1Y = y;
+    const bloco1Y = pos.y;
 
     // Fundo navy do bloco inteiro
     doc.setFillColor(...azulInst);
@@ -1044,15 +1044,15 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     doc.setTextColor(160, 185, 220);
     doc.text(decSubtitle, rightX, bloco1Y + 30);
 
-    y = bloco1Y + bloco1H + 5;
+    pos.y = bloco1Y + bloco1H + 5;
   }
 
   // ── Green accent separator ──
   doc.setFillColor(...colors.accent);
-  doc.rect(margin, y, contentW, 0.8, "F");
-  y += 5;
+  doc.rect(margin, pos.y, contentW, 0.8, "F");
+  pos.y += 5;
 
-  // ── Helper: renderInfoRow (positional, does NOT modify global y) ──
+  // ── Helper: renderInfoRow (positional, does NOT modify global pos.y) ──
   const renderInfoRow = (
     rx: number, ry: number, rw: number,
     label: string, value: string,
@@ -1123,7 +1123,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     const col1WSint = (contentW - colGapSint) * 0.47;
     const col2WSint = contentW - col1WSint - colGapSint;
     const col2XSint = margin + col1WSint + colGapSint;
-    const blockYSint = y;
+    const blockYSint = pos.y;
 
     // Column headers
     doc.setFillColor(27, 47, 78);
@@ -1159,7 +1159,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     y2Sint = renderInfoRow(col2XSint, y2Sint, col2WSint, "SCR — Vencido", scrVencSint, vencidosSCR > 0 ? [220, 38, 38] : [22, 163, 74]);
     y2Sint = renderInfoRow(col2XSint, y2Sint, col2WSint, "Alavancagem", alavSint, alavancagem > 4 ? [220, 38, 38] : alavancagem > 2 ? [217, 119, 6] : [22, 163, 74], true);
 
-    y = Math.max(y1Sint, y2Sint) + 6;
+    pos.y = Math.max(y1Sint, y2Sint) + 6;
   }
 
   // ── DRE Resumo ──
@@ -1167,12 +1167,12 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     const anoMaisRecenteSint = data.dre.anos[data.dre.anos.length - 1];
     checkPageBreak(36);
     doc.setFillColor(27, 47, 78);
-    doc.rect(margin, y, contentW, 9, "F");
+    doc.rect(margin, pos.y, contentW, 9, "F");
     doc.setFontSize(7.5);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
-    doc.text("DEMONSTRAÇÃO DE RESULTADO — EXERCÍCIO MAIS RECENTE", margin + 5, y + 6.5);
-    y += 9;
+    doc.text("DEMONSTRAÇÃO DE RESULTADO — EXERCÍCIO MAIS RECENTE", margin + 5, pos.y + 6.5);
+    pos.y += 9;
     const dreColWSint = contentW / 4;
     const dreHSint = 22;
     const tendRawSint = normalizeTendencia(data.dre.tendenciaLucro);
@@ -1186,23 +1186,23 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     dreMetricasSint.forEach((m, i) => {
       const xDSint = margin + i * dreColWSint;
       doc.setFillColor(248, 249, 250);
-      doc.rect(xDSint, y, dreColWSint, dreHSint, "F");
+      doc.rect(xDSint, pos.y, dreColWSint, dreHSint, "F");
       if (i < 3) {
         doc.setDrawColor(229, 231, 235);
         doc.setLineWidth(0.2);
-        doc.line(xDSint + dreColWSint, y + 2, xDSint + dreColWSint, y + dreHSint - 2);
+        doc.line(xDSint + dreColWSint, pos.y + 2, xDSint + dreColWSint, pos.y + dreHSint - 2);
         doc.setLineWidth(0.1);
       }
       doc.setFontSize(7);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(107, 114, 128);
-      doc.text(m.label, xDSint + 5, y + 8);
+      doc.text(m.label, xDSint + 5, pos.y + 8);
       doc.setFontSize(11);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...m.color);
-      doc.text(m.valor, xDSint + 5, y + 18);
+      doc.text(m.valor, xDSint + 5, pos.y + 18);
     });
-    y += dreHSint + 5;
+    pos.y += dreHSint + 5;
   }
 
   // ═══════════════════════════════════════════════════
@@ -1210,31 +1210,31 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   // ═══════════════════════════════════════════════════
   {
     checkPageBreak(30);
-    y += 2;
+    pos.y += 2;
     doc.setFillColor(...azulInst);
-    doc.roundedRect(margin, y, contentW, 7, 1, 1, "F");
+    doc.roundedRect(margin, pos.y, contentW, 7, 1, 1, "F");
     doc.setFontSize(7);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
-    doc.text("ESTABELECIMENTO — STREET VIEW", margin + 4, y + 4.8);
-    y += 9;
+    doc.text("ESTABELECIMENTO — STREET VIEW", margin + 4, pos.y + 4.8);
+    pos.y += 9;
     if (p.streetViewBase64) {
       checkPageBreak(52);
-      doc.addImage(p.streetViewBase64, "JPEG", margin, y, contentW, 48);
-      y += 52;
+      doc.addImage(p.streetViewBase64, "JPEG", margin, pos.y, contentW, 48);
+      pos.y += 52;
     } else {
       checkPageBreak(64);
       doc.setFillColor(...DS.colors.zebraRow);
-      doc.roundedRect(margin, y, contentW, 60, 2, 2, "F");
+      doc.roundedRect(margin, pos.y, contentW, 60, 2, 2, "F");
       doc.setDrawColor(...DS.colors.border);
       doc.setLineWidth(0.25);
-      doc.roundedRect(margin, y, contentW, 60, 2, 2, "D");
+      doc.roundedRect(margin, pos.y, contentW, 60, 2, 2, "D");
       doc.setLineWidth(0.1);
       doc.setFontSize(8);
       doc.setFont("helvetica", "italic");
       doc.setTextColor(...DS.colors.textMuted);
-      doc.text("Foto não disponível", margin + contentW / 2, y + 32, { align: "center" });
-      y += 64;
+      doc.text("Foto não disponível", margin + contentW / 2, pos.y + 32, { align: "center" });
+      pos.y += 64;
     }
   }
 
@@ -1250,16 +1250,16 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   }
 
   if (aiAnalysis?.sinteseExecutiva) {
-    y += 8;
+    pos.y += 8;
 
     // Título da síntese
     doc.setFillColor(...colors.primary);
-    doc.rect(margin, y, contentW, 7, "F");
+    doc.rect(margin, pos.y, contentW, 7, "F");
     doc.setFontSize(7.5);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
-    doc.text("SÍNTESE EXECUTIVA", margin + 3, y + 4.8);
-    y += 10;
+    doc.text("SÍNTESE EXECUTIVA", margin + 3, pos.y + 4.8);
+    pos.y += 10;
 
     // Texto da síntese
     doc.setFontSize(7);
@@ -1270,11 +1270,11 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
     for (const linha of linhasSintese) {
       checkPageBreak(10);
-      doc.text(linha, margin + 3, y);
-      y += 4.5;
+      doc.text(linha, margin + 3, pos.y);
+      pos.y += 4.5;
     }
 
-    y += 6;
+    pos.y += 6;
   }
 
   // ===== SEÇÃO 01 — CARTAO CNPJ (flui se couber na página) =====
@@ -1299,28 +1299,28 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     checkPageBreak(rowH);
     // Left cell
     doc.setFillColor(...colors.surface);
-    doc.roundedRect(margin, y, cnpjColW, rowH, 1, 1, "F");
+    doc.roundedRect(margin, pos.y, cnpjColW, rowH, 1, 1, "F");
     doc.setFontSize(6);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...colors.textMuted);
-    doc.text(left.label.toUpperCase(), margin + 4, y + 4.5);
+    doc.text(left.label.toUpperCase(), margin + 4, pos.y + 4.5);
     doc.setFontSize(8);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...colors.text);
-    doc.text(leftLines, margin + 4, y + 9.5);
+    doc.text(leftLines, margin + 4, pos.y + 9.5);
     // Right cell
     const rx = margin + cnpjColW + 4;
     doc.setFillColor(...colors.surface);
-    doc.roundedRect(rx, y, cnpjColW, rowH, 1, 1, "F");
+    doc.roundedRect(rx, pos.y, cnpjColW, rowH, 1, 1, "F");
     doc.setFontSize(6);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...colors.textMuted);
-    doc.text(right.label.toUpperCase(), rx + 4, y + 4.5);
+    doc.text(right.label.toUpperCase(), rx + 4, pos.y + 4.5);
     doc.setFontSize(8);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...colors.text);
-    doc.text(rightLines, rx + 4, y + 9.5);
-    y += rowH + 2;
+    doc.text(rightLines, rx + 4, pos.y + 9.5);
+    pos.y += rowH + 2;
   };
 
   drawCnpjRow(
@@ -1357,16 +1357,16 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     const endLines = doc.splitTextToSize(endVal, contentW - 8);
     const endBoxH = Math.max(16, endLines.length * 5 + 12);
     doc.setFillColor(...colors.surface);
-    doc.roundedRect(margin, y, contentW, endBoxH, 1, 1, "F");
+    doc.roundedRect(margin, pos.y, contentW, endBoxH, 1, 1, "F");
     doc.setFontSize(6);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...colors.textMuted);
-    doc.text("ENDERECO PRINCIPAL", margin + 4, y + 4.5);
+    doc.text("ENDERECO PRINCIPAL", margin + 4, pos.y + 4.5);
     doc.setFontSize(8);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...colors.text);
-    doc.text(endLines, margin + 4, y + 10);
-    y += endBoxH + 2;
+    doc.text(endLines, margin + 4, pos.y + 10);
+    pos.y += endBoxH + 2;
   }
 
   // Endereços adicionais (Credit Hub)
@@ -1379,15 +1379,15 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         const endLines = doc.splitTextToSize(end, contentW - 8);
         const endBoxH = Math.max(9, endLines.length * 5 + 4);
         doc.setFillColor(248, 250, 252);
-        doc.roundedRect(margin, y, contentW, endBoxH, 1, 1, "F");
+        doc.roundedRect(margin, pos.y, contentW, endBoxH, 1, 1, "F");
         doc.setFontSize(5.5);
         doc.setFont("helvetica", "normal");
         doc.setTextColor(...colors.textMuted);
-        doc.text(`ENDERECO ${idx + 2}`, margin + 4, y + 3.5);
+        doc.text(`ENDERECO ${idx + 2}`, margin + 4, pos.y + 3.5);
         doc.setFontSize(7);
         doc.setTextColor(...colors.textSec);
-        doc.text(endLines, margin + 4, y + 6);
-        y += endBoxH + 2;
+        doc.text(endLines, margin + 4, pos.y + 6);
+        pos.y += endBoxH + 2;
       });
     }
   }
@@ -1406,18 +1406,18 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       const cnaesBoxH = cnaesLines.length * 4 + 14;
       checkPageBreak(cnaesBoxH + 2);
       doc.setFillColor(...colors.surface);
-      doc.roundedRect(margin, y, contentW, cnaesBoxH, 1, 1, "F");
+      doc.roundedRect(margin, pos.y, contentW, cnaesBoxH, 1, 1, "F");
       doc.setFontSize(6);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...colors.textMuted);
-      doc.text("CNAES SECUNDARIOS", margin + 4, y + 5);
+      doc.text("CNAES SECUNDARIOS", margin + 4, pos.y + 5);
       doc.setFontSize(7);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...colors.textMuted);
       cnaesLines.forEach((line: string, i: number) => {
-        doc.text(line, margin + 4, y + 11 + i * 4);
+        doc.text(line, margin + 4, pos.y + 11 + i * 4);
       });
-      y += cnaesBoxH + 2;
+      pos.y += cnaesBoxH + 2;
     }
   }
 
@@ -1514,8 +1514,8 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       doc.setFontSize(7.5);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...colors.text);
-      doc.text("QUADRO SOCIETÁRIO", margin, y + 4);
-      y += 8;
+      doc.text("QUADRO SOCIETÁRIO", margin, pos.y + 4);
+      pos.y += 8;
 
       const gColNome = contentW * 0.24;
       const gColCpf  = contentW * 0.15;
@@ -1529,20 +1529,20 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
       // Header
       doc.setFillColor(...colors.navy);
-      doc.rect(margin, y, contentW, 6, "F");
+      doc.rect(margin, pos.y, contentW, 6, "F");
       doc.setFontSize(4.8);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(255, 255, 255);
       let gx = margin;
-      doc.text("NOME / RAZÃO SOCIAL", gx + 2, y + 4); gx += gColNome;
-      doc.text("CPF/CNPJ", gx + 2, y + 4); gx += gColCpf;
-      doc.text("PART.", gx + gColPart - 1, y + 4, { align: "right" }); gx += gColPart;
-      doc.text("SCR TOTAL", gx + gColScr - 1, y + 4, { align: "right" }); gx += gColScr;
-      doc.text("VENCIDO", gx + gColVenc - 1, y + 4, { align: "right" }); gx += gColVenc;
-      doc.text("PREJUÍZO", gx + gColPrej - 1, y + 4, { align: "right" }); gx += gColPrej;
-      doc.text("PROT.", gx + gColProt - 1, y + 4, { align: "right" }); gx += gColProt;
-      doc.text("PROC.", gx + gColProc - 1, y + 4, { align: "right" });
-      y += 6;
+      doc.text("NOME / RAZÃO SOCIAL", gx + 2, pos.y + 4); gx += gColNome;
+      doc.text("CPF/CNPJ", gx + 2, pos.y + 4); gx += gColCpf;
+      doc.text("PART.", gx + gColPart - 1, pos.y + 4, { align: "right" }); gx += gColPart;
+      doc.text("SCR TOTAL", gx + gColScr - 1, pos.y + 4, { align: "right" }); gx += gColScr;
+      doc.text("VENCIDO", gx + gColVenc - 1, pos.y + 4, { align: "right" }); gx += gColVenc;
+      doc.text("PREJUÍZO", gx + gColPrej - 1, pos.y + 4, { align: "right" }); gx += gColPrej;
+      doc.text("PROT.", gx + gColProt - 1, pos.y + 4, { align: "right" }); gx += gColProt;
+      doc.text("PROC.", gx + gColProc - 1, pos.y + 4, { align: "right" });
+      pos.y += 6;
 
       const toAbbrev = (v: string | undefined) => {
         if (!v || v === "0,00" || v === "") return "—";
@@ -1554,10 +1554,10 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       };
 
       sociosList.forEach((s, idx) => {
-        if (y + gRowH > 275) { newPage(); drawHeader(); }
+        if (pos.y + gRowH > 275) { newPage(); drawHeader(); }
         const bg: [number, number, number] = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
         doc.setFillColor(...bg);
-        doc.rect(margin, y, contentW, gRowH, "F");
+        doc.rect(margin, pos.y, contentW, gRowH, "F");
 
         const scrSocio = data.scrSocios?.find(sc =>
           sc.cpfSocio === s.cpfCnpj || sc.nomeSocio?.toLowerCase() === s.nome.toLowerCase()
@@ -1574,37 +1574,37 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         let gxR = margin;
         const nomeT = s.nome.length > 30 ? s.nome.substring(0, 29) + "…" : s.nome;
         doc.setTextColor(...colors.text);
-        doc.text(nomeT, gxR + 2, y + 4.5);
+        doc.text(nomeT, gxR + 2, pos.y + 4.5);
         gxR += gColNome;
 
         doc.setTextColor(...colors.textSec);
-        doc.text(s.cpfCnpj || "—", gxR + 2, y + 4.5);
+        doc.text(s.cpfCnpj || "—", gxR + 2, pos.y + 4.5);
         gxR += gColCpf;
 
         doc.setTextColor(...colors.text);
-        doc.text(s.participacao || "—", gxR + gColPart - 1, y + 4.5, { align: "right" });
+        doc.text(s.participacao || "—", gxR + gColPart - 1, pos.y + 4.5, { align: "right" });
         gxR += gColPart;
 
-        doc.text(toAbbrev(scrTotal), gxR + gColScr - 1, y + 4.5, { align: "right" });
+        doc.text(toAbbrev(scrTotal), gxR + gColScr - 1, pos.y + 4.5, { align: "right" });
         gxR += gColScr;
 
         doc.setTextColor(...(hasVenc ? [185, 28, 28] as [number, number, number] : colors.textMuted));
-        doc.text(toAbbrev(scrVencido), gxR + gColVenc - 1, y + 4.5, { align: "right" });
+        doc.text(toAbbrev(scrVencido), gxR + gColVenc - 1, pos.y + 4.5, { align: "right" });
         gxR += gColVenc;
 
         doc.setTextColor(...(hasPrej ? [185, 28, 28] as [number, number, number] : colors.textMuted));
-        doc.text(toAbbrev(scrPrejuizo), gxR + gColPrej - 1, y + 4.5, { align: "right" });
+        doc.text(toAbbrev(scrPrejuizo), gxR + gColPrej - 1, pos.y + 4.5, { align: "right" });
         gxR += gColPrej;
 
         doc.setTextColor(...colors.textMuted);
-        doc.text("—", gxR + gColProt - 1, y + 4.5, { align: "right" });
+        doc.text("—", gxR + gColProt - 1, pos.y + 4.5, { align: "right" });
         gxR += gColProt;
-        doc.text("—", gxR + gColProc - 1, y + 4.5, { align: "right" });
+        doc.text("—", gxR + gColProc - 1, pos.y + 4.5, { align: "right" });
         doc.setTextColor(...colors.text);
 
-        y += gRowH;
+        pos.y += gRowH;
       });
-      y += 6;
+      pos.y += 6;
     }
   }
 
@@ -1615,18 +1615,18 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     doc.setFontSize(7.5);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...colors.text);
-    doc.text("EMPRESAS VINCULADAS (GRUPO ECONÔMICO)", margin, y + 4);
-    y += 8;
+    doc.text("EMPRESAS VINCULADAS (GRUPO ECONÔMICO)", margin, pos.y + 4);
+    pos.y += 8;
 
     if (empresasGrupo.length === 0) {
       checkPageBreak(10);
       doc.setFillColor(248, 250, 252);
-      doc.rect(margin, y, contentW, 8, "F");
+      doc.rect(margin, pos.y, contentW, 8, "F");
       doc.setFontSize(6.5);
       doc.setFont("helvetica", "italic");
       doc.setTextColor(...colors.textMuted);
-      doc.text("Nenhuma empresa vinculada identificada", margin + 4, y + 5.5);
-      y += 10;
+      doc.text("Nenhuma empresa vinculada identificada", margin + 4, pos.y + 5.5);
+      pos.y += 10;
     } else {
       const geNome = contentW * 0.30;
       const geCnpj = contentW * 0.18;
@@ -1640,61 +1640,61 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       checkPageBreak(geNeeded);
 
       doc.setFillColor(...colors.navy);
-      doc.rect(margin, y, contentW, 6, "F");
+      doc.rect(margin, pos.y, contentW, 6, "F");
       doc.setFontSize(4.5);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(255, 255, 255);
       let ex = margin;
-      doc.text("RAZÃO SOCIAL", ex + 2, y + 4); ex += geNome;
-      doc.text("CNPJ", ex + 2, y + 4); ex += geCnpj;
-      doc.text("SITUAÇÃO", ex + 2, y + 4); ex += geSit;
-      doc.text("VIA SÓCIO", ex + 2, y + 4); ex += geVia;
-      doc.text("PARTICIPAÇÃO", ex + gePart - 1, y + 4, { align: "right" }); ex += gePart;
-      doc.text("RELAÇÃO", margin + contentW - 1, y + 4, { align: "right" });
-      y += 6;
+      doc.text("RAZÃO SOCIAL", ex + 2, pos.y + 4); ex += geNome;
+      doc.text("CNPJ", ex + 2, pos.y + 4); ex += geCnpj;
+      doc.text("SITUAÇÃO", ex + 2, pos.y + 4); ex += geSit;
+      doc.text("VIA SÓCIO", ex + 2, pos.y + 4); ex += geVia;
+      doc.text("PARTICIPAÇÃO", ex + gePart - 1, pos.y + 4, { align: "right" }); ex += gePart;
+      doc.text("RELAÇÃO", margin + contentW - 1, pos.y + 4, { align: "right" });
+      pos.y += 6;
 
       empresasGrupo.forEach((emp, idx) => {
-        if (y + geRowH > 275) { newPage(); drawHeader(); }
+        if (pos.y + geRowH > 275) { newPage(); drawHeader(); }
         const bg: [number, number, number] = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
         doc.setFillColor(...bg);
-        doc.rect(margin, y, contentW, geRowH, "F");
+        doc.rect(margin, pos.y, contentW, geRowH, "F");
 
         const nomeEmp = (emp.razaoSocial || "").length > 38 ? (emp.razaoSocial || "").substring(0, 37) + "…" : (emp.razaoSocial || "");
         let ex2 = margin;
         doc.setFontSize(4.8);
         doc.setFont("helvetica", "normal");
         doc.setTextColor(...colors.text);
-        doc.text(nomeEmp, ex2 + 2, y + 4.5);
+        doc.text(nomeEmp, ex2 + 2, pos.y + 4.5);
         ex2 += geNome;
 
         doc.setTextColor(...colors.textSec);
-        doc.text(emp.cnpj || "—", ex2 + 2, y + 4.5); ex2 += geCnpj;
+        doc.text(emp.cnpj || "—", ex2 + 2, pos.y + 4.5); ex2 += geCnpj;
 
         // Situação com cor
         const sit = (emp.situacao || "—").toUpperCase();
         const sitColor: [number, number, number] = sit === "ATIVA" ? [22, 163, 74] : sit === "BAIXADA" ? [220, 38, 38] : [217, 119, 6];
         doc.setTextColor(...sitColor);
         doc.setFont("helvetica", "bold");
-        doc.text(sit, ex2 + 2, y + 4.5); ex2 += geSit;
+        doc.text(sit, ex2 + 2, pos.y + 4.5); ex2 += geSit;
 
         // Via sócio
         const viaStr = (emp.socioOrigem || "—").length > 26 ? (emp.socioOrigem || "").substring(0, 25) + "…" : (emp.socioOrigem || "—");
         doc.setFont("helvetica", "normal");
         doc.setFontSize(4.3);
         doc.setTextColor(...colors.textSec);
-        doc.text(viaStr, ex2 + 2, y + 4.5); ex2 += geVia;
+        doc.text(viaStr, ex2 + 2, pos.y + 4.5); ex2 += geVia;
 
         doc.setFontSize(4.8);
         doc.setTextColor(...colors.text);
-        doc.text(emp.participacao || "—", ex2 + gePart - 1, y + 4.5, { align: "right" }); ex2 += gePart;
+        doc.text(emp.participacao || "—", ex2 + gePart - 1, pos.y + 4.5, { align: "right" }); ex2 += gePart;
 
         doc.setTextColor(...colors.textMuted);
-        doc.text(emp.relacao || "—", margin + contentW - 1, y + 4.5, { align: "right" });
+        doc.text(emp.relacao || "—", margin + contentW - 1, pos.y + 4.5, { align: "right" });
         doc.setTextColor(...colors.text);
-        y += geRowH;
+        pos.y += geRowH;
       });
 
-      y += 4;
+      pos.y += 4;
     }
 
     // Bloco de parentesco
@@ -1718,7 +1718,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   // ── Stacked layout ──
   const leftW = contentW;
   const leftX = margin;
-  const sectionY = y;
+  const sectionY = pos.y;
   // Gráfico usa os mesmos 12 meses do FMM
   const chartMeses = mesesFMM;
 
@@ -1726,14 +1726,14 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   let yLeft = sectionY;
 
   if (faturamentoRealmenteZerado) {
-    y = yLeft;
+    pos.y = yLeft;
     drawAlertBox("Faturamento zerado no período — sem receita declarada", "ALTA");
-    yLeft = y;
+    yLeft = pos.y;
   }
   if (!data.faturamento.dadosAtualizados) {
-    y = yLeft;
+    pos.y = yLeft;
     drawAlertBox(`Faturamento desatualizado — último mês com dados: ${data.faturamento.ultimoMesComDados || "N/A"}`, "MODERADA");
-    yLeft = y;
+    yLeft = pos.y;
   }
 
   if (chartMeses.length > 0) {
@@ -1924,9 +1924,9 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   // Alertas determinísticos — Faturamento
   if (alertasFat.length > 0) {
     yLeft += 4;
-    y = yLeft;
+    pos.y = yLeft;
     drawDetAlerts(alertasFat);
-    yLeft = y;
+    yLeft = pos.y;
   }
 
   // ── SCR (stacked below chart) ──
@@ -2190,11 +2190,11 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     yRight += 4;
   }
 
-  // Advance y past SCR
+  // Advance pos.y past SCR
   if (doc.getCurrentPageInfo().pageNumber < currentSCRPage) {
     doc.setPage(currentSCRPage);
   }
-  y = yRight + 6;
+  pos.y = yRight + 6;
 
   // ── SCR Vencimentos — empresa + sócios lado a lado ──
   {
@@ -2267,8 +2267,8 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       doc.setFontSize(7.5);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...colors.text);
-      doc.text("SCR VENCIMENTOS", margin, y + 4);
-      y += 5;
+      doc.text("SCR VENCIMENTOS", margin, pos.y + 4);
+      pos.y += 5;
       doc.setFontSize(5);
       doc.setFont("helvetica", "italic");
       doc.setTextColor(...colors.textMuted);
@@ -2276,21 +2276,21 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         hasFaixaBreakdown
           ? "Distribuicao da carteira por prazo — valores em mil R$ (extraidos do documento SCR enviado)."
           : "Detalhamento por faixa nao disponivel — valores totais extraidos do SCR/Bacen.",
-        margin, y + 4
+        margin, pos.y + 4
       );
-      y += 7;
+      pos.y += 7;
 
       // Cabeçalho
       doc.setFillColor(...colors.navy);
-      doc.rect(margin, y, contentW, 6, "F");
+      doc.rect(margin, pos.y, contentW, 6, "F");
       doc.setFontSize(5);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(255, 255, 255);
-      doc.text(hasFaixaBreakdown ? "FAIXA" : "POSIÇÃO", margin + 2, y + 4);
+      doc.text(hasFaixaBreakdown ? "FAIXA" : "POSIÇÃO", margin + 2, pos.y + 4);
       vencEntities.forEach((ent, i) => {
-        doc.text(ent.label, margin + vColLabel + i * vColData + vColData / 2, y + 4, { align: "center" });
+        doc.text(ent.label, margin + vColLabel + i * vColData + vColData / 2, pos.y + 4, { align: "center" });
       });
-      y += 6;
+      pos.y += 6;
 
       const fmtV = (v: string) => {
         const n = parseMoneyToNumber(v || "0");
@@ -2304,17 +2304,17 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         vals: string[],
         opts: { bold?: boolean; sectionBg?: "blue" | "red"; summaryBg?: "blue" | "red" } = {}
       ) => {
-        if (y + vRowH > 275) { newPage(); drawHeader(); }
+        if (pos.y + vRowH > 275) { newPage(); drawHeader(); }
 
         if (opts.sectionBg) {
           const isBlue = opts.sectionBg === "blue";
           doc.setFillColor(...(isBlue ? [22, 78, 140] as [number,number,number] : [185, 28, 28] as [number,number,number]));
-          doc.rect(margin, y, contentW, vRowH, "F");
+          doc.rect(margin, pos.y, contentW, vRowH, "F");
           doc.setFontSize(5.5);
           doc.setFont("helvetica", "bold");
           doc.setTextColor(255, 255, 255);
-          doc.text(label, margin + 2, y + 3.8);
-          y += vRowH;
+          doc.text(label, margin + 2, pos.y + 3.8);
+          pos.y += vRowH;
           vIdx = 0;
           return;
         }
@@ -2322,36 +2322,36 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         if (opts.summaryBg) {
           const isBlue = opts.summaryBg === "blue";
           doc.setFillColor(...(isBlue ? [215, 237, 255] as [number,number,number] : [255, 220, 220] as [number,number,number]));
-          doc.rect(margin, y, contentW, vRowH, "F");
+          doc.rect(margin, pos.y, contentW, vRowH, "F");
           doc.setFontSize(5.5);
           doc.setFont("helvetica", "bold");
           const summaryColor = isBlue ? colors.primary : [185, 28, 28] as [number,number,number];
           doc.setTextColor(...summaryColor);
-          doc.text(label, margin + 2, y + 3.8);
+          doc.text(label, margin + 2, pos.y + 3.8);
           vals.forEach((v, i) => {
             doc.setTextColor(...summaryColor);
-            doc.text(fmtV(v), margin + vColLabel + i * vColData + vColData - 1, y + 3.8, { align: "right" });
+            doc.text(fmtV(v), margin + vColLabel + i * vColData + vColData - 1, pos.y + 3.8, { align: "right" });
           });
           doc.setTextColor(...colors.text);
-          y += vRowH;
+          pos.y += vRowH;
           return;
         }
 
         const isVencida = opts.bold === false && vals.some(v => parseMoneyToNumber(v) > 0);
         doc.setFillColor(...(vIdx % 2 === 0 ? [248, 250, 252] as [number,number,number] : [255, 255, 255] as [number,number,number]));
-        doc.rect(margin, y, contentW, vRowH, "F");
+        doc.rect(margin, pos.y, contentW, vRowH, "F");
         doc.setFontSize(5.5);
         doc.setFont("helvetica", "normal");
         doc.setTextColor(...colors.textSec);
-        doc.text(label, margin + 2, y + 3.8);
+        doc.text(label, margin + 2, pos.y + 3.8);
         vals.forEach((v, i) => {
           const display = fmtV(v);
           const hasVal = display !== "—";
           doc.setTextColor(...(isVencida && hasVal ? [185, 28, 28] as [number,number,number] : hasVal ? colors.text : colors.textMuted));
-          doc.text(display, margin + vColLabel + i * vColData + vColData - 1, y + 3.8, { align: "right" });
+          doc.text(display, margin + vColLabel + i * vColData + vColData - 1, pos.y + 3.8, { align: "right" });
         });
         doc.setTextColor(...colors.text);
-        y += vRowH;
+        pos.y += vRowH;
         vIdx++;
       };
 
@@ -2380,14 +2380,14 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         drawVRow("Total Vencido",  vencEntities.map(e => e.totalVencido),  { summaryBg: "red"  });
       }
 
-      y += 4;
+      pos.y += 4;
 
       if (!data.scrSocios || data.scrSocios.length === 0) {
         doc.setFontSize(5);
         doc.setFont("helvetica", "italic");
         doc.setTextColor(...colors.textMuted);
-        doc.text("* SCR dos socios nao enviado — apenas dados da empresa exibidos.", margin, y);
-        y += 6;
+        doc.text("* SCR dos socios nao enviado — apenas dados da empresa exibidos.", margin, pos.y);
+        pos.y += 6;
       }
     }
   }
@@ -2400,15 +2400,15 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     const temAntPJ = modPJAnt.length > 0 && hasAnterior;
     const modPJRowH = 6;
     const modPJNeeded = 4 + 8 + 6 + 5 + modPJ.length * modPJRowH + 4;
-    if (y + modPJNeeded > 275) { newPage(); drawHeader(); } else { y += 4; }
+    if (pos.y + modPJNeeded > 275) { newPage(); drawHeader(); } else { pos.y += 4; }
 
     doc.setFontSize(7.5);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...colors.text);
     const razaoFull = data.cnpj?.razaoSocial || "Empresa";
     const cnpjFmt = (data.cnpj?.cnpj || "").replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
-    doc.text(`MODALIDADES SCR — ${razaoFull} — ${cnpjFmt}`, margin, y + 4, { maxWidth: contentW });
-    y += 8;
+    doc.text(`MODALIDADES SCR — ${razaoFull} — ${cnpjFmt}`, margin, pos.y + 4, { maxWidth: contentW });
+    pos.y += 8;
 
     const modColNomePJ = contentW * 0.32;
     const modColGrpPJ = (contentW - modColNomePJ) / (temAntPJ ? 2 : 1);
@@ -2416,35 +2416,35 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
     // Grupo de períodos
     doc.setFillColor(...colors.navy);
-    doc.rect(margin, y, contentW, 6, "F");
+    doc.rect(margin, pos.y, contentW, 6, "F");
     doc.setFontSize(5);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
     if (temAntPJ) {
-      doc.text(periodoAnt, margin + modColNomePJ + modColGrpPJ / 2, y + 4, { align: "center" });
-      doc.text(periodoAt, margin + modColNomePJ + modColGrpPJ + modColGrpPJ / 2, y + 4, { align: "center" });
+      doc.text(periodoAnt, margin + modColNomePJ + modColGrpPJ / 2, pos.y + 4, { align: "center" });
+      doc.text(periodoAt, margin + modColNomePJ + modColGrpPJ + modColGrpPJ / 2, pos.y + 4, { align: "center" });
     } else {
-      doc.text(periodoAt, margin + modColNomePJ + modColGrpPJ / 2, y + 4, { align: "center" });
+      doc.text(periodoAt, margin + modColNomePJ + modColGrpPJ / 2, pos.y + 4, { align: "center" });
     }
-    y += 6;
+    pos.y += 6;
 
     // Sub-cabeçalho
     doc.setFillColor(50, 70, 110);
-    doc.rect(margin, y, contentW, 5, "F");
+    doc.rect(margin, pos.y, contentW, 5, "F");
     doc.setFontSize(4.5);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
-    doc.text("MODALIDADE", margin + 2, y + 3.5);
+    doc.text("MODALIDADE", margin + 2, pos.y + 3.5);
 
     const drawPJSubHeader = (startX: number) => {
-      doc.text("TOTAL", startX + modSubColsPJ[0] - 1, y + 3.5, { align: "right" });
-      doc.text("A VENCER", startX + modSubColsPJ[0] + modSubColsPJ[1] - 1, y + 3.5, { align: "right" });
-      doc.text("VENCIDO", startX + modSubColsPJ[0] + modSubColsPJ[1] + modSubColsPJ[2] - 1, y + 3.5, { align: "right" });
-      doc.text("PART.", startX + modColGrpPJ - 1, y + 3.5, { align: "right" });
+      doc.text("TOTAL", startX + modSubColsPJ[0] - 1, pos.y + 3.5, { align: "right" });
+      doc.text("A VENCER", startX + modSubColsPJ[0] + modSubColsPJ[1] - 1, pos.y + 3.5, { align: "right" });
+      doc.text("VENCIDO", startX + modSubColsPJ[0] + modSubColsPJ[1] + modSubColsPJ[2] - 1, pos.y + 3.5, { align: "right" });
+      doc.text("PART.", startX + modColGrpPJ - 1, pos.y + 3.5, { align: "right" });
     };
     if (temAntPJ) drawPJSubHeader(margin + modColNomePJ);
     drawPJSubHeader(margin + modColNomePJ + (temAntPJ ? modColGrpPJ : 0));
-    y += 5;
+    pos.y += 5;
 
     const normaisPJ = [...modPJ].filter(m => !m.ehContingente).sort((a, b) =>
       parseMoneyToNumber(b.total || "0") - parseMoneyToNumber(a.total || "0")
@@ -2462,19 +2462,19 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     const drawPJCells = (startX: number, mod: (typeof modPJ)[0] | undefined) => {
       if (!mod) {
         doc.setTextColor(...colors.textMuted);
-        doc.text("—", startX + modSubColsPJ[0] - 1, y + 4, { align: "right" });
-        doc.text("—", startX + modSubColsPJ[0] + modSubColsPJ[1] - 1, y + 4, { align: "right" });
-        doc.text("—", startX + modSubColsPJ[0] + modSubColsPJ[1] + modSubColsPJ[2] - 1, y + 4, { align: "right" });
-        doc.text("—", startX + modColGrpPJ - 1, y + 4, { align: "right" });
+        doc.text("—", startX + modSubColsPJ[0] - 1, pos.y + 4, { align: "right" });
+        doc.text("—", startX + modSubColsPJ[0] + modSubColsPJ[1] - 1, pos.y + 4, { align: "right" });
+        doc.text("—", startX + modSubColsPJ[0] + modSubColsPJ[1] + modSubColsPJ[2] - 1, pos.y + 4, { align: "right" });
+        doc.text("—", startX + modColGrpPJ - 1, pos.y + 4, { align: "right" });
       } else {
         const hasVencPJ = mod.vencido && mod.vencido !== "0,00" && mod.vencido !== "—";
         doc.setTextColor(...colors.text);
-        doc.text(toKPJ(mod.total), startX + modSubColsPJ[0] - 1, y + 4, { align: "right" });
-        doc.text(toKPJ(mod.aVencer), startX + modSubColsPJ[0] + modSubColsPJ[1] - 1, y + 4, { align: "right" });
+        doc.text(toKPJ(mod.total), startX + modSubColsPJ[0] - 1, pos.y + 4, { align: "right" });
+        doc.text(toKPJ(mod.aVencer), startX + modSubColsPJ[0] + modSubColsPJ[1] - 1, pos.y + 4, { align: "right" });
         doc.setTextColor(...(hasVencPJ ? [185, 28, 28] as [number, number, number] : colors.textMuted));
-        doc.text(hasVencPJ ? toKPJ(mod.vencido) : "—", startX + modSubColsPJ[0] + modSubColsPJ[1] + modSubColsPJ[2] - 1, y + 4, { align: "right" });
+        doc.text(hasVencPJ ? toKPJ(mod.vencido) : "—", startX + modSubColsPJ[0] + modSubColsPJ[1] + modSubColsPJ[2] - 1, pos.y + 4, { align: "right" });
         doc.setTextColor(...colors.textSec);
-        doc.text(mod.participacao || "—", startX + modColGrpPJ - 1, y + 4, { align: "right" });
+        doc.text(mod.participacao || "—", startX + modColGrpPJ - 1, pos.y + 4, { align: "right" });
       }
     };
 
@@ -2485,26 +2485,26 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       // Linha separadora antes das contingentes
       if (m.ehContingente && !separadorRendered) {
         separadorRendered = true;
-        if (y + modPJRowH + 1 > 275) { newPage(); drawHeader(); }
+        if (pos.y + modPJRowH + 1 > 275) { newPage(); drawHeader(); }
         doc.setFillColor(245, 245, 245);
-        doc.rect(margin, y, contentW, modPJRowH, "F");
+        doc.rect(margin, pos.y, contentW, modPJRowH, "F");
         doc.setFontSize(4.8);
         doc.setFont("helvetica", "italic");
         doc.setTextColor(...colors.textMuted);
-        doc.text("Responsabilidades contingentes / Títulos fora da carteira", margin + 2, y + 4);
-        y += modPJRowH;
+        doc.text("Responsabilidades contingentes / Títulos fora da carteira", margin + 2, pos.y + 4);
+        pos.y += modPJRowH;
         bgIdxPJ = 0;
       }
 
-      if (y + modPJRowH > 275) { newPage(); drawHeader(); }
+      if (pos.y + modPJRowH > 275) { newPage(); drawHeader(); }
       const bg: [number, number, number] = bgIdxPJ % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
       doc.setFillColor(...bg);
-      doc.rect(margin, y, contentW, modPJRowH, "F");
+      doc.rect(margin, pos.y, contentW, modPJRowH, "F");
       doc.setFontSize(5);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...colors.text);
       const nomeT = m.nome.length > 38 ? m.nome.substring(0, 37) + "…" : m.nome;
-      doc.text(nomeT, margin + 2, y + 4);
+      doc.text(nomeT, margin + 2, pos.y + 4);
 
       if (temAntPJ) {
         drawPJCells(margin + modColNomePJ, modPJAnt.find(a => a.nome === m.nome));
@@ -2513,10 +2513,10 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         drawPJCells(margin + modColNomePJ, m);
       }
       doc.setTextColor(...colors.text);
-      y += modPJRowH;
+      pos.y += modPJRowH;
       bgIdxPJ++;
     });
-    y += 4;
+    pos.y += 4;
   }
 
   if (data.scr.instituicoes && data.scr.instituicoes.length > 0) {
@@ -2525,8 +2525,8 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     doc.setFontSize(7.5);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...colors.text);
-    doc.text("INSTITUICOES CREDORAS", margin, y + 4);
-    y += 8;
+    doc.text("INSTITUICOES CREDORAS", margin, pos.y + 4);
+    pos.y += 8;
     const instColW = [contentW * 0.60, contentW * 0.40];
     drawTable(
       ["INSTITUIÇÃO", "VALOR (R$)"],
@@ -2542,20 +2542,20 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       // Verifica espaço na página
       checkPageBreak(80);
 
-      y += 6;
+      pos.y += 6;
 
       // Header do sócio
       doc.setFillColor(...colors.primary);
-      doc.roundedRect(margin, y, contentW, 7, 1, 1, "F");
+      doc.roundedRect(margin, pos.y, contentW, 7, 1, 1, "F");
       doc.setFontSize(7);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(255, 255, 255);
       doc.text(
         `SCR SÓCIO — ${socio.nomeSocio || socio.cpfSocio}`,
         margin + 3,
-        y + 4.8
+        pos.y + 4.8
       );
-      y += 9;
+      pos.y += 9;
 
       // Tabela comparativa igual à da empresa
       const temAnteriorSocio = !!(socio.periodoAnterior?.periodoReferencia);
@@ -2564,7 +2564,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
       // Cabeçalho da tabela
       doc.setFillColor(...colors.primary);
-      doc.roundedRect(margin, y, contentW, 6, 1, 1, "F");
+      doc.roundedRect(margin, pos.y, contentW, 6, 1, 1, "F");
       doc.setFontSize(5.5);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(255, 255, 255);
@@ -2575,13 +2575,13 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       const colVar = contentW * 0.16;
       void colVar;
 
-      doc.text("MÉTRICA", margin + 2, y + 4);
-      doc.text(periodoAtSocio, margin + colMetrica + 2, y + 4);
+      doc.text("MÉTRICA", margin + 2, pos.y + 4);
+      doc.text(periodoAtSocio, margin + colMetrica + 2, pos.y + 4);
       if (temAnteriorSocio) {
-        doc.text(periodoAntSocio, margin + colMetrica + colAt + 2, y + 4);
-        doc.text("VAR.", margin + colMetrica + colAt + colAnt + 2, y + 4);
+        doc.text(periodoAntSocio, margin + colMetrica + colAt + 2, pos.y + 4);
+        doc.text("VAR.", margin + colMetrica + colAt + colAnt + 2, pos.y + 4);
       }
-      y += 6;
+      pos.y += 6;
 
       const fmtSCRSocio = (v: string | undefined) =>
         (v && v !== "0,00" && v !== "") ? `R$ ${fmtMoney(v)}` : "R$ 0,00";
@@ -2598,15 +2598,15 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       linhasSocio.forEach((linha, idx) => {
         const bgColor = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
         doc.setFillColor(...(bgColor as [number, number, number]));
-        doc.rect(margin, y, contentW, 5.5, "F");
+        doc.rect(margin, pos.y, contentW, 5.5, "F");
         doc.setFontSize(5.5);
         doc.setFont("helvetica", (linha as { bold?: boolean }).bold ? "bold" : "normal");
         doc.setTextColor(...colors.text);
-        doc.text(linha.label, margin + 2, y + 3.8);
-        doc.text(linha.at, margin + colMetrica + 2, y + 3.8);
+        doc.text(linha.label, margin + 2, pos.y + 3.8);
+        doc.text(linha.at, margin + colMetrica + 2, pos.y + 3.8);
 
         if (temAnteriorSocio) {
-          doc.text(linha.ant, margin + colMetrica + colAt + 2, y + 3.8);
+          doc.text(linha.ant, margin + colMetrica + colAt + 2, pos.y + 3.8);
 
           const numAt = parseFloat((linha.at || "0").replace(/[^0-9,]/g, "").replace(",", "."));
           const numAnt = parseFloat((linha.ant || "0").replace(/[^0-9,]/g, "").replace(",", "."));
@@ -2621,15 +2621,15 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
               igual ? colors.textMuted[1] : melhorou ? 163 : 38,
               igual ? colors.textMuted[2] : melhorou ? 74 : 38
             );
-            doc.text(varStr, margin + colMetrica + colAt + colAnt + 2, y + 3.8);
+            doc.text(varStr, margin + colMetrica + colAt + colAnt + 2, pos.y + 3.8);
             doc.setTextColor(...colors.text);
           } else {
             doc.setTextColor(...colors.textMuted);
-            doc.text("—", margin + colMetrica + colAt + colAnt + 2, y + 3.8);
+            doc.text("—", margin + colMetrica + colAt + colAnt + 2, pos.y + 3.8);
             doc.setTextColor(...colors.text);
           }
         }
-        y += 5.5;
+        pos.y += 5.5;
       });
 
       // Modalidades do sócio — comparativo
@@ -2639,14 +2639,14 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         const modSRowH = 6;
         const modSNeeded = 8 + 6 + 6 + modS.length * modSRowH + 4;
         checkPageBreak(modSNeeded);
-        y += 4;
+        pos.y += 4;
 
         const labelMod = `MODALIDADES — ${(socio.nomeSocio || socio.cpfSocio || "Sócio").split(" ").slice(0, 2).join(" ")}`;
         doc.setFontSize(7);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(...colors.text);
-        doc.text(labelMod, margin, y + 4);
-        y += 7;
+        doc.text(labelMod, margin, pos.y + 4);
+        pos.y += 7;
 
         // Grupo de período anterior e atual
         const temAntMod = modSAnt.length > 0 && !!socio.periodoAnterior?.periodoReferencia;
@@ -2656,37 +2656,37 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
         // Cabeçalho — grupo de períodos
         doc.setFillColor(...colors.navy);
-        doc.rect(margin, y, contentW, 6, "F");
+        doc.rect(margin, pos.y, contentW, 6, "F");
         doc.setFontSize(5);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(255, 255, 255);
         if (temAntMod) {
           const midAnt = margin + modColNome + modColGrp / 2;
           const midAt = margin + modColNome + modColGrp + modColGrp / 2;
-          doc.text(periodoAtSocio, midAt, y + 4, { align: "center" });
-          doc.text(periodoAntSocio, midAnt, y + 4, { align: "center" });
+          doc.text(periodoAtSocio, midAt, pos.y + 4, { align: "center" });
+          doc.text(periodoAntSocio, midAnt, pos.y + 4, { align: "center" });
         } else {
-          doc.text(periodoAtSocio, margin + modColNome + modColGrp / 2, y + 4, { align: "center" });
+          doc.text(periodoAtSocio, margin + modColNome + modColGrp / 2, pos.y + 4, { align: "center" });
         }
-        y += 6;
+        pos.y += 6;
 
         // Sub-cabeçalho — colunas
         doc.setFillColor(50, 70, 110);
-        doc.rect(margin, y, contentW, 5, "F");
+        doc.rect(margin, pos.y, contentW, 5, "F");
         doc.setFontSize(4.5);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(255, 255, 255);
-        doc.text("MODALIDADE", margin + 2, y + 3.5);
+        doc.text("MODALIDADE", margin + 2, pos.y + 3.5);
 
         const drawModSubHeader = (startX: number) => {
-          doc.text("TOTAL", startX + modSubCols[0] - 1, y + 3.5, { align: "right" });
-          doc.text("A VENCER", startX + modSubCols[0] + modSubCols[1] - 1, y + 3.5, { align: "right" });
-          doc.text("VENCIDO", startX + modSubCols[0] + modSubCols[1] + modSubCols[2] - 1, y + 3.5, { align: "right" });
-          doc.text("PART.", startX + modColGrp - 1, y + 3.5, { align: "right" });
+          doc.text("TOTAL", startX + modSubCols[0] - 1, pos.y + 3.5, { align: "right" });
+          doc.text("A VENCER", startX + modSubCols[0] + modSubCols[1] - 1, pos.y + 3.5, { align: "right" });
+          doc.text("VENCIDO", startX + modSubCols[0] + modSubCols[1] + modSubCols[2] - 1, pos.y + 3.5, { align: "right" });
+          doc.text("PART.", startX + modColGrp - 1, pos.y + 3.5, { align: "right" });
         };
         if (temAntMod) drawModSubHeader(margin + modColNome);
         drawModSubHeader(margin + modColNome + (temAntMod ? modColGrp : 0));
-        y += 5;
+        pos.y += 5;
 
         // Linhas — normais + contingentes com separador
         const normaisS = [...modS].filter(m => !m.ehContingente).sort((a, b) =>
@@ -2707,17 +2707,17 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
             doc.setTextColor(...colors.textMuted);
             ["—", "—", "—", "—"].forEach((v, ci) => {
               const cx = startX + modSubCols.slice(0, ci + 1).reduce((a, b) => a + b, 0) - 1;
-              doc.text(v, cx, y + 4, { align: "right" });
+              doc.text(v, cx, pos.y + 4, { align: "right" });
             });
           } else {
             const hasVenc = mod.vencido && mod.vencido !== "0,00" && mod.vencido !== "—";
             doc.setTextColor(...colors.text);
-            doc.text(toKS(mod.total), startX + modSubCols[0] - 1, y + 4, { align: "right" });
-            doc.text(toKS(mod.aVencer), startX + modSubCols[0] + modSubCols[1] - 1, y + 4, { align: "right" });
+            doc.text(toKS(mod.total), startX + modSubCols[0] - 1, pos.y + 4, { align: "right" });
+            doc.text(toKS(mod.aVencer), startX + modSubCols[0] + modSubCols[1] - 1, pos.y + 4, { align: "right" });
             doc.setTextColor(...(hasVenc ? [185, 28, 28] as [number, number, number] : colors.textMuted));
-            doc.text(hasVenc ? toKS(mod.vencido) : "—", startX + modSubCols[0] + modSubCols[1] + modSubCols[2] - 1, y + 4, { align: "right" });
+            doc.text(hasVenc ? toKS(mod.vencido) : "—", startX + modSubCols[0] + modSubCols[1] + modSubCols[2] - 1, pos.y + 4, { align: "right" });
             doc.setTextColor(...colors.textSec);
-            doc.text(mod.participacao || "—", startX + modColGrp - 1, y + 4, { align: "right" });
+            doc.text(mod.participacao || "—", startX + modColGrp - 1, pos.y + 4, { align: "right" });
           }
         };
 
@@ -2727,25 +2727,25 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         orderedModS.forEach((m) => {
           if (m.ehContingente && !sepRenderedS) {
             sepRenderedS = true;
-            if (y + modSRowH > 275) { newPage(); drawHeader(); }
+            if (pos.y + modSRowH > 275) { newPage(); drawHeader(); }
             doc.setFillColor(245, 245, 245);
-            doc.rect(margin, y, contentW, modSRowH, "F");
+            doc.rect(margin, pos.y, contentW, modSRowH, "F");
             doc.setFontSize(4.8);
             doc.setFont("helvetica", "italic");
             doc.setTextColor(...colors.textMuted);
-            doc.text("Responsabilidades contingentes / Títulos fora da carteira", margin + 2, y + 4);
-            y += modSRowH;
+            doc.text("Responsabilidades contingentes / Títulos fora da carteira", margin + 2, pos.y + 4);
+            pos.y += modSRowH;
             bgIdxS = 0;
           }
-          if (y + modSRowH > 275) { newPage(); drawHeader(); }
+          if (pos.y + modSRowH > 275) { newPage(); drawHeader(); }
           const bg: [number, number, number] = bgIdxS % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
           doc.setFillColor(...bg);
-          doc.rect(margin, y, contentW, modSRowH, "F");
+          doc.rect(margin, pos.y, contentW, modSRowH, "F");
           doc.setFontSize(5);
           doc.setFont("helvetica", "normal");
           doc.setTextColor(...colors.text);
           const nomeT = m.nome.length > 38 ? m.nome.substring(0, 37) + "…" : m.nome;
-          doc.text(nomeT, margin + 2, y + 4);
+          doc.text(nomeT, margin + 2, pos.y + 4);
 
           if (temAntMod) {
             drawModCells(margin + modColNome, modSAnt.find(a => a.nome === m.nome));
@@ -2754,13 +2754,13 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
             drawModCells(margin + modColNome, m);
           }
           doc.setTextColor(...colors.text);
-          y += modSRowH;
+          pos.y += modSRowH;
           bgIdxS++;
         });
-        y += 4;
+        pos.y += 4;
       }
 
-      y += 4;
+      pos.y += 4;
     }
   }
 
@@ -2789,15 +2789,15 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
     // Cabeçalho da tabela
     doc.setFillColor(...colors.primary);
-    doc.rect(margin, y, contentW, 7, "F");
+    doc.rect(margin, pos.y, contentW, 7, "F");
     doc.setFontSize(dreFontSz);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
-    doc.text("METRICA", margin + 2, y + 4.8);
+    doc.text("METRICA", margin + 2, pos.y + 4.8);
     dreAnos.forEach((ano, i) => {
-      doc.text(ano.ano, margin + dreColLabel + i * dreColAno + 2, y + 4.8);
+      doc.text(ano.ano, margin + dreColLabel + i * dreColAno + 2, pos.y + 4.8);
     });
-    y += 7;
+    pos.y += 7;
 
     // Linhas da tabela
     const linhasDRE: { label: string; campo: string; bold: boolean; isPct?: boolean }[] = [
@@ -2814,16 +2814,16 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     linhasDRE.forEach((linha, idx) => {
       const bg: [number, number, number] = idx % 2 === 0 ? DS.colors.zebraRow : DS.colors.cardBg;
       doc.setFillColor(...bg);
-      doc.rect(margin, y, contentW, 6, "F");
+      doc.rect(margin, pos.y, contentW, 6, "F");
       // Borda bottom sutil
       doc.setDrawColor(...DS.colors.border);
       doc.setLineWidth(0.15);
-      doc.line(margin, y + 6, margin + contentW, y + 6);
+      doc.line(margin, pos.y + 6, margin + contentW, pos.y + 6);
       doc.setLineWidth(0.1);
       doc.setFontSize(dreFontSz);
       doc.setFont("helvetica", linha.bold ? "bold" : "normal");
       doc.setTextColor(...DS.colors.textPrimary);
-      doc.text(linha.label, margin + 2, y + 4.2);
+      doc.text(linha.label, margin + 2, pos.y + 4.2);
       dreAnos.forEach((ano, i) => {
         const val = (ano as unknown as Record<string, string>)[linha.campo] || "0,00";
         const numVal = parseFloat(String(val).replace(/\./g, '').replace(',', '.')) || 0;
@@ -2838,30 +2838,30 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
           else if (numVal === 0) valColor = DS.colors.textLight;
         }
         doc.setTextColor(...valColor);
-        doc.text(display, margin + dreColLabel + i * dreColAno + 2, y + 4.2);
+        doc.text(display, margin + dreColLabel + i * dreColAno + 2, pos.y + 4.2);
         doc.setTextColor(...DS.colors.textPrimary);
       });
-      y += 6;
+      pos.y += 6;
     });
 
     // Tendência
-    y += 4;
+    pos.y += 4;
     doc.setFontSize(7);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...colors.primary);
     const tendenciaDRE = normalizeTendencia(data.dre.tendenciaLucro);
-    doc.text(`Tendencia: ${tendenciaDRE} | Crescimento de Receita: ${data.dre.crescimentoReceita}%`, margin + 2, y);
-    y += 6;
+    doc.text(`Tendencia: ${tendenciaDRE} | Crescimento de Receita: ${data.dre.crescimentoReceita}%`, margin + 2, pos.y);
+    pos.y += 6;
 
     if (data.dre.observacoes) {
       doc.setFont("helvetica", "italic");
       doc.setFontSize(6.5);
       doc.setTextColor(...colors.textMuted);
       const obsLines = doc.splitTextToSize(data.dre.observacoes, contentW - 4);
-      obsLines.forEach((l: string) => { doc.text(l, margin + 2, y); y += 4; });
+      obsLines.forEach((l: string) => { doc.text(l, margin + 2, pos.y); pos.y += 4; });
     }
     // Alertas determinísticos — DRE
-    if (alertasDRE.length > 0) { y += 4; drawDetAlerts(alertasDRE); }
+    if (alertasDRE.length > 0) { pos.y += 4; drawDetAlerts(alertasDRE); }
   }
 
   // ── Seção Balanço (flui se couber) ──
@@ -2885,15 +2885,15 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
     // Cabeçalho
     doc.setFillColor(...colors.primary);
-    doc.rect(margin, y, contentW, 7, "F");
+    doc.rect(margin, pos.y, contentW, 7, "F");
     doc.setFontSize(balFontSz);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
-    doc.text("METRICA", margin + 2, y + 4.8);
+    doc.text("METRICA", margin + 2, pos.y + 4.8);
     balAnos.forEach((ano, i) => {
-      doc.text(ano.ano, margin + colLabelB + i * colAnoB + 2, y + 4.8);
+      doc.text(ano.ano, margin + colLabelB + i * colAnoB + 2, pos.y + 4.8);
     });
-    y += 7;
+    pos.y += 7;
 
     const linhasBalanco: { label: string; campo: string; bold: boolean; isIndice?: boolean; isPct?: boolean }[] = [
       { label: "Ativo Total", campo: "ativoTotal", bold: true },
@@ -2911,15 +2911,15 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     linhasBalanco.forEach((linha, idx) => {
       const bg: [number, number, number] = idx % 2 === 0 ? DS.colors.zebraRow : DS.colors.cardBg;
       doc.setFillColor(...bg);
-      doc.rect(margin, y, contentW, 6, "F");
+      doc.rect(margin, pos.y, contentW, 6, "F");
       doc.setDrawColor(...DS.colors.border);
       doc.setLineWidth(0.15);
-      doc.line(margin, y + 6, margin + contentW, y + 6);
+      doc.line(margin, pos.y + 6, margin + contentW, pos.y + 6);
       doc.setLineWidth(0.1);
       doc.setFontSize(balFontSz);
       doc.setFont("helvetica", linha.bold ? "bold" : "normal");
       doc.setTextColor(...DS.colors.textPrimary);
-      doc.text(linha.label, margin + 2, y + 4.2);
+      doc.text(linha.label, margin + 2, pos.y + 4.2);
       balAnos.forEach((ano, i) => {
         const val = (ano as unknown as Record<string, string>)[linha.campo] || "0,00";
         const valClean = String(val).replace(/%/g, "").trim();
@@ -2932,13 +2932,13 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         else if (linha.isIndice && numVal < 1 && numVal > 0) valColor = DS.colors.warn;
         else if (linha.campo === 'liquidezCorrente' && numVal < 1 && numVal > 0) valColor = DS.colors.warn;
         doc.setTextColor(...valColor);
-        doc.text(display, margin + colLabelB + i * colAnoB + 2, y + 4.2);
+        doc.text(display, margin + colLabelB + i * colAnoB + 2, pos.y + 4.2);
         doc.setTextColor(...DS.colors.textPrimary);
       });
-      y += 6;
+      pos.y += 6;
     });
     // Alertas determinísticos — Balanço
-    if (alertasBalanco.length > 0) { y += 4; drawDetAlerts(alertasBalanco); }
+    if (alertasBalanco.length > 0) { pos.y += 4; drawDetAlerts(alertasBalanco); }
   }
 
   // ── Seção Curva ABC (flui se couber) ──
@@ -2959,27 +2959,27 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       const alertaH = 16;
       checkPageBreak(alertaH + 2);
       doc.setFillColor(254, 242, 242);
-      doc.rect(margin, y, contentW, alertaH, "F");
+      doc.rect(margin, pos.y, contentW, alertaH, "F");
       doc.setFillColor(220, 38, 38);
-      doc.rect(margin, y, 2.5, alertaH, "F");
+      doc.rect(margin, pos.y, 2.5, alertaH, "F");
       // Badge
       doc.setFillColor(220, 38, 38);
-      doc.roundedRect(margin + 5, y + 2.5, 12, 5, 1, 1, "F");
+      doc.roundedRect(margin + 5, pos.y + 2.5, 12, 5, 1, 1, "F");
       doc.setFontSize(5);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(255, 255, 255);
-      doc.text("ALTA", margin + 11, y + 5.8, { align: "center" });
+      doc.text("ALTA", margin + 11, pos.y + 5.8, { align: "center" });
       // Linha principal
       doc.setFontSize(7.5);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(153, 27, 27);
-      doc.text(linhaPrincipal, margin + 20, y + 6);
+      doc.text(linhaPrincipal, margin + 20, pos.y + 6);
       // Linha de contexto
       doc.setFontSize(6.5);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(185, 28, 28);
-      doc.text(linhaContexto, margin + 20, y + 12);
-      y += alertaH + 2;
+      doc.text(linhaContexto, margin + 20, pos.y + 12);
+      pos.y += alertaH + 2;
     }
 
     // Resumo de concentração
@@ -2992,8 +2992,8 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     doc.setFontSize(7.5);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...colors.text);
-    doc.text(resumoLines, margin + 2, y);
-    y += resumoLines.length * 5 + 4;
+    doc.text(resumoLines, margin + 2, pos.y);
+    pos.y += resumoLines.length * 5 + 4;
 
     // Tabela de clientes via autoT
     if (data.curvaABC.clientes.length > 0) {
@@ -3045,9 +3045,9 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       { label: 'Regularizados R$',  value: protestosNaoConsultados ? 'N/C' : (regQtdP > 0 ? `R$ ${fmtMoney(data.protestos?.regularizadosValor)}` : '—'), border: regQtdP > 0 ? DS.colors.success : DS.colors.border, valColor: regQtdP > 0 ? DS.colors.success : DS.colors.textLight },
     ];
     kpiDataP.forEach((k, i) => {
-      dsMetricCard(margin + i * (kpiWP + kpiGapP), y, kpiWP, kpiHP, k.label, k.value, undefined, k.border, k.valColor);
+      dsMetricCard(margin + i * (kpiWP + kpiGapP), pos.y, kpiWP, kpiHP, k.label, k.value, undefined, k.border, k.valColor);
     });
-    y += kpiHP + 4;
+    pos.y += kpiHP + 4;
   }
 
   if (protestosNaoConsultados) {
@@ -3067,14 +3067,14 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     drawSpacer(4);
     checkPageBreak(12);
     doc.setFillColor(240, 253, 244);
-    doc.roundedRect(margin, y, contentW, 10, 1, 1, "F");
+    doc.roundedRect(margin, pos.y, contentW, 10, 1, 1, "F");
     doc.setFillColor(22, 163, 74);
-    doc.roundedRect(margin, y, 3, 10, 0.5, 0.5, "F");
+    doc.roundedRect(margin, pos.y, 3, 10, 0.5, 0.5, "F");
     doc.setFontSize(7.5);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(22, 163, 74);
-    doc.text("Nenhum protesto identificado", margin + 8, y + 6.5);
-    y += 14;
+    doc.text("Nenhum protesto identificado", margin + 8, pos.y + 6.5);
+    pos.y += 14;
   } else if (!protestosNaoConsultados) {
     // Helper: parse date string DD/MM/AAAA → Date
     const parseDate = (d: string): Date | null => {
@@ -3139,7 +3139,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       drawSpacer(4);
       checkPageBreak(neededD);
 
-      const yDistStart = y;
+      const yDistStart = pos.y;
       // Headers
       dsMiniHeaderAt(margin, yDistStart, colWD, 'DISTRIBUICAO TEMPORAL', DS.colors.headerBg);
       dsMiniHeaderAt(margin + colWD + colGapD, yDistStart, colWD, 'DISTRIBUICAO POR FAIXA', DS.colors.headerBg);
@@ -3196,7 +3196,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         yR += rowHD;
       });
 
-      y = Math.max(yL, yR) + 4;
+      pos.y = Math.max(yL, yR) + 4;
     }
 
     // Helper: draw protestos detail table via autoT (word-wrap automático, sem truncamento)
@@ -3224,7 +3224,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       // ── BLOCO 4 (simplificado) — Locais dos Protestos ──
       drawSpacer(4);
       checkPageBreak(16);
-      y = dsMiniHeader(y, 'LOCAIS DOS PROTESTOS');
+      pos.y = dsMiniHeader(pos.y, 'LOCAIS DOS PROTESTOS');
       drawProtTable(protestoDetalhes.slice(0, 10));
 
       // Nota de limitação do bureau
@@ -3232,13 +3232,13 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       doc.setFontSize(5.5);
       doc.setFont("helvetica", "italic");
       doc.setTextColor(...DS.colors.textMuted);
-      doc.text("* Detalhes (valor, data, apresentante) nao disponiveis no plano atual do Credit Hub — confirmar diretamente nos cartorios.", margin, y);
-      y += 7;
+      doc.text("* Detalhes (valor, data, apresentante) nao disponiveis no plano atual do Credit Hub — confirmar diretamente nos cartorios.", margin, pos.y);
+      pos.y += 7;
     } else {
       // ── BLOCO 4 — Top 10 Mais Recentes ──
       drawSpacer(4);
       checkPageBreak(16);
-      y = dsMiniHeader(y, 'TOP 10 MAIS RECENTES');
+      pos.y = dsMiniHeader(pos.y, 'TOP 10 MAIS RECENTES');
       const top10Recentes = [...protestoDetalhes]
         .sort((a, b) => {
           const da = parseDate(a.data || "");
@@ -3254,7 +3254,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       // ── BLOCO 5 — Top 10 por Valor ──
       drawSpacer(4);
       checkPageBreak(16);
-      y = dsMiniHeader(y, 'TOP 10 POR VALOR');
+      pos.y = dsMiniHeader(pos.y, 'TOP 10 POR VALOR');
       const top10Valor = [...protestoDetalhes]
         .sort((a, b) => parseProt(b.valor || "0") - parseProt(a.valor || "0"))
         .slice(0, 10);
@@ -3292,10 +3292,10 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     ];
     kpiRowsQ.forEach((row, ri) => {
       row.forEach((k, ci) => {
-        dsMetricCard(margin + ci * (kpiWQ + kpiGapQ), y + ri * (kpiHQ + kpiGapQ), kpiWQ, kpiHQ, k.label, k.value, undefined, k.border, k.valColor);
+        dsMetricCard(margin + ci * (kpiWQ + kpiGapQ), pos.y + ri * (kpiHQ + kpiGapQ), kpiWQ, kpiHQ, k.label, k.value, undefined, k.border, k.valColor);
       });
     });
-    y += kpiHQ * 2 + kpiGapQ * 2 + 4;
+    pos.y += kpiHQ * 2 + kpiGapQ * 2 + 4;
   }
 
   if (processosNaoConsultados) {
@@ -3327,20 +3327,20 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     drawSpacer(4);
     checkPageBreak(12);
     doc.setFillColor(240, 253, 244);
-    doc.roundedRect(margin, y, contentW, 10, 1, 1, "F");
+    doc.roundedRect(margin, pos.y, contentW, 10, 1, 1, "F");
     doc.setFillColor(22, 163, 74);
-    doc.roundedRect(margin, y, 3, 10, 0.5, 0.5, "F");
+    doc.roundedRect(margin, pos.y, 3, 10, 0.5, 0.5, "F");
     doc.setFontSize(7.5);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(22, 163, 74);
-    doc.text("Nenhum processo judicial identificado", margin + 8, y + 6.5);
-    y += 14;
+    doc.text("Nenhum processo judicial identificado", margin + 8, pos.y + 6.5);
+    pos.y += 14;
   } else if (!processosNaoConsultados) {
     // Helper: label de seção de processos
     const drawProcLabel = (title: string) => {
       drawSpacer(4);
       checkPageBreak(14);
-      y = dsMiniHeader(y, title);
+      pos.y = dsMiniHeader(pos.y, title);
     };
 
     // Status color helper
@@ -3594,8 +3594,8 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         doc.setFontSize(7);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(...colors.textMuted);
-        doc.text("OCORRÊNCIAS POR BANCO", margin, y + 4);
-        y += 7;
+        doc.text("OCORRÊNCIAS POR BANCO", margin, pos.y + 4);
+        pos.y += 7;
 
         const temMotivo = ccf.bancos.some(b => b.motivo);
         autoT(
@@ -3622,14 +3622,14 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         drawSpacer(4);
         checkPageBreak(12);
         doc.setFillColor(240, 253, 244);
-        doc.roundedRect(margin, y, contentW, 10, 1, 1, "F");
+        doc.roundedRect(margin, pos.y, contentW, 10, 1, 1, "F");
         doc.setFillColor(22, 163, 74);
-        doc.roundedRect(margin, y, 3, 10, 0.5, 0.5, "F");
+        doc.roundedRect(margin, pos.y, 3, 10, 0.5, 0.5, "F");
         doc.setFontSize(7.5);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(22, 163, 74);
-        doc.text("Nenhuma ocorrência de Cheque sem Fundo identificada", margin + 8, y + 6.5);
-        y += 14;
+        doc.text("Nenhuma ocorrência de Cheque sem Fundo identificada", margin + 8, pos.y + 6.5);
+        pos.y += 14;
       }
     }
   }
@@ -3648,8 +3648,8 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       doc.setFontSize(7);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...colors.textMuted);
-      doc.text(`${hist.length} consulta(s) registrada(s) — mostrando as mais recentes`, margin, y + 4);
-      y += 7;
+      doc.text(`${hist.length} consulta(s) registrada(s) — mostrando as mais recentes`, margin, pos.y + 4);
+      pos.y += 7;
 
       autoT(
         ["INSTITUIÇÃO / USUÁRIO", "DATA DA CONSULTA"],
@@ -3682,20 +3682,20 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       if (idx > 0) {
         doc.setDrawColor(...colors.border);
         doc.setLineWidth(0.3);
-        doc.line(margin, y, margin + contentW, y);
-        y += 6;
+        doc.line(margin, pos.y, margin + contentW, pos.y);
+        pos.y += 6;
       }
 
       // Header do sócio
       doc.setFillColor(240, 246, 255);
-      doc.rect(margin, y, contentW, 8, "F");
+      doc.rect(margin, pos.y, contentW, 8, "F");
       doc.setFontSize(8);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...colors.primary);
       doc.text(
         `Sócio ${idx + 1} — ${ir.nomeSocio || "Nome não informado"}`,
         margin + 3,
-        y + 5.2
+        pos.y + 5.2
       );
       // CPF e ano base no lado direito
       doc.setFontSize(7);
@@ -3704,17 +3704,17 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       const cpfAno = [ir.cpf && `CPF: ${ir.cpf}`, ir.anoBase && `Ano-base: ${ir.anoBase}`]
         .filter(Boolean).join("   |   ");
       if (cpfAno) {
-        doc.text(cpfAno, margin + contentW - 3, y + 5.2, { align: "right" });
+        doc.text(cpfAno, margin + contentW - 3, pos.y + 5.2, { align: "right" });
       }
-      y += 10;
+      pos.y += 10;
 
       // Tipo do documento
       const tipoLabel = ir.tipoDocumento === "declaracao" ? "Declaração Completa" : "Recibo de Entrega";
       doc.setFontSize(6.5);
       doc.setFont("helvetica", "italic");
       doc.setTextColor(...colors.textMuted);
-      doc.text(`Documento: ${tipoLabel}`, margin + 3, y);
-      y += 6;
+      doc.text(`Documento: ${tipoLabel}`, margin + 3, pos.y);
+      pos.y += 6;
 
       // Alertas de malhas e débitos
       if (ir.situacaoMalhas) {
@@ -3746,24 +3746,24 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       linhasIR.forEach((linha, i) => {
         const bg: [number, number, number] = i % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
         doc.setFillColor(...bg);
-        doc.rect(margin, y, contentW, 6, "F");
+        doc.rect(margin, pos.y, contentW, 6, "F");
         doc.setFontSize(7);
         doc.setFont("helvetica", (linha as { label: string; valor: string; bold?: boolean }).bold ? "bold" : "normal");
         doc.setTextColor(...colors.text);
-        doc.text(linha.label, margin + 3, y + 4.2);
-        doc.text(linha.valor, margin + contentW - 3, y + 4.2, { align: "right" });
-        y += 6;
+        doc.text(linha.label, margin + 3, pos.y + 4.2);
+        doc.text(linha.valor, margin + contentW - 3, pos.y + 4.2, { align: "right" });
+        pos.y += 6;
       });
 
-      y += 4;
+      pos.y += 4;
 
       // Participação em outras sociedades
       if (ir.temSociedades && ir.sociedades && ir.sociedades.length > 0) {
         doc.setFontSize(7);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(...colors.primary);
-        doc.text("Participação em outras sociedades:", margin + 3, y);
-        y += 5;
+        doc.text("Participação em outras sociedades:", margin + 3, pos.y);
+        pos.y += 5;
         ir.sociedades.forEach((soc: { razaoSocial?: string; cnpj?: string; participacao?: string }) => {
           doc.setFont("helvetica", "normal");
           doc.setTextColor(...colors.text);
@@ -3771,11 +3771,11 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
           doc.text(
             `• ${soc.razaoSocial || "N/D"}${soc.cnpj ? ` — CNPJ: ${soc.cnpj}` : ""}${soc.participacao ? ` (${soc.participacao})` : ""}`,
             margin + 5,
-            y
+            pos.y
           );
-          y += 4.5;
+          pos.y += 4.5;
         });
-        y += 3;
+        pos.y += 3;
       }
 
       // Indicador de coerência
@@ -3783,12 +3783,12 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       doc.setFont("helvetica", "bold");
       if (ir.coerenciaComEmpresa) {
         doc.setTextColor(22, 163, 74);
-        doc.text("✓ Renda compatível com o porte da empresa", margin + 3, y);
+        doc.text("✓ Renda compatível com o porte da empresa", margin + 3, pos.y);
       } else {
         doc.setTextColor(220, 38, 38);
-        doc.text("⚠ Renda incompatível com o porte da empresa", margin + 3, y);
+        doc.text("⚠ Renda incompatível com o porte da empresa", margin + 3, pos.y);
       }
-      y += 6;
+      pos.y += 6;
 
       // Observações
       if (ir.observacoes) {
@@ -3797,17 +3797,17 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         doc.setTextColor(...colors.textMuted);
         const obsLines = doc.splitTextToSize(ir.observacoes, contentW - 6);
         obsLines.forEach((l: string) => {
-          doc.text(l, margin + 3, y);
-          y += 4;
+          doc.text(l, margin + 3, pos.y);
+          pos.y += 4;
         });
-        y += 2;
+        pos.y += 2;
       }
     }
 
     // Alertas determinísticos — IR Sócios
     if (alertasIR.length > 0) { drawSpacer(4); drawDetAlerts(alertasIR); }
 
-    y += 6;
+    pos.y += 6;
   }
 
   // ── Seção Relatório de Visita (flui se couber) ──
@@ -3828,10 +3828,10 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     doc.setFontSize(7.5);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...colors.text);
-    doc.text(`Data: ${data.relatorioVisita.dataVisita || "—"}   |   Responsavel: ${data.relatorioVisita.responsavelVisita || "—"}   |   Duracao: ${data.relatorioVisita.duracaoVisita || "—"}`, margin + 2, y);
-    y += 6;
-    doc.text(`Local: ${data.relatorioVisita.localVisita || "—"}`, margin + 2, y);
-    y += 8;
+    doc.text(`Data: ${data.relatorioVisita.dataVisita || "—"}   |   Responsavel: ${data.relatorioVisita.responsavelVisita || "—"}   |   Duracao: ${data.relatorioVisita.duracaoVisita || "—"}`, margin + 2, pos.y);
+    pos.y += 6;
+    doc.text(`Local: ${data.relatorioVisita.localVisita || "—"}`, margin + 2, pos.y);
+    pos.y += 8;
 
     // Checklist
     const checklist = [
@@ -3845,33 +3845,33 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     checklist.forEach((item, i) => {
       const bg: [number, number, number] = i % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
       doc.setFillColor(...bg);
-      doc.rect(margin, y, contentW, 6, "F");
+      doc.rect(margin, pos.y, contentW, 6, "F");
       doc.setFontSize(7);
       const itemColor: [number, number, number] = item.ok ? [22, 163, 74] : [220, 38, 38];
       doc.setTextColor(...itemColor);
-      doc.text(item.ok ? "+" : "x", margin + 3, y + 4.2);
+      doc.text(item.ok ? "+" : "x", margin + 3, pos.y + 4.2);
       doc.setTextColor(...colors.text);
-      doc.text(item.label, margin + 10, y + 4.2);
-      y += 6;
+      doc.text(item.label, margin + 10, pos.y + 4.2);
+      pos.y += 6;
     });
 
-    y += 4;
+    pos.y += 4;
 
     // Pontos positivos
     if (data.relatorioVisita.pontosPositivos?.length > 0) {
       doc.setFontSize(7.5);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...colors.primary);
-      doc.text("Pontos Positivos:", margin + 2, y);
-      y += 5;
+      doc.text("Pontos Positivos:", margin + 2, pos.y);
+      pos.y += 5;
       data.relatorioVisita.pontosPositivos.forEach((p: string) => {
         doc.setFont("helvetica", "normal");
         doc.setFontSize(7);
         doc.setTextColor(22, 163, 74);
-        doc.text(`+ ${p}`, margin + 4, y);
-        y += 4.5;
+        doc.text(`+ ${p}`, margin + 4, pos.y);
+        pos.y += 4.5;
       });
-      y += 2;
+      pos.y += 2;
     }
 
     // Pontos de atenção
@@ -3879,48 +3879,48 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       doc.setFontSize(7.5);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...colors.primary);
-      doc.text("Pontos de Atencao:", margin + 2, y);
-      y += 5;
+      doc.text("Pontos de Atencao:", margin + 2, pos.y);
+      pos.y += 5;
       data.relatorioVisita.pontosAtencao.forEach((p: string) => {
         doc.setFont("helvetica", "normal");
         doc.setFontSize(7);
         doc.setTextColor(220, 38, 38);
-        doc.text(`! ${p}`, margin + 4, y);
-        y += 4.5;
+        doc.text(`! ${p}`, margin + 4, pos.y);
+        pos.y += 4.5;
       });
-      y += 2;
+      pos.y += 2;
     }
 
     // Recomendação
-    y += 4;
+    pos.y += 4;
     const recCor: [number, number, number] = data.relatorioVisita.recomendacaoVisitante === "aprovado" ? [22, 163, 74] :
       data.relatorioVisita.recomendacaoVisitante === "condicional" ? [234, 179, 8] : [220, 38, 38];
     doc.setFillColor(...recCor);
-    doc.roundedRect(margin, y, contentW, 9, 1, 1, "F");
+    doc.roundedRect(margin, pos.y, contentW, 9, 1, 1, "F");
     doc.setFontSize(8);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
     const recTexto = data.relatorioVisita.recomendacaoVisitante === "aprovado" ? "Recomendação do visitante: Aprovado" :
       data.relatorioVisita.recomendacaoVisitante === "condicional" ? "Recomendação do visitante: Condicional" :
         "Recomendação do visitante: Reprovado";
-    doc.text(recTexto, margin + 4, y + 6);
-    y += 11;
+    doc.text(recTexto, margin + 4, pos.y + 6);
+    pos.y += 11;
 
     // Observações livres — espaçamento de 12pt entre bloco recomendação e texto
     if (data.relatorioVisita.observacoesLivres) {
-      y += 12;
+      pos.y += 12;
       checkPageBreak(16);
       doc.setFontSize(7.5);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...colors.textMuted);
-      doc.text("Observações:", margin + 2, y);
-      y += 6;
+      doc.text("Observações:", margin + 2, pos.y);
+      pos.y += 6;
       doc.setFont("helvetica", "italic");
       doc.setFontSize(7);
       doc.setTextColor(...colors.text);
       const obsLines = doc.splitTextToSize(data.relatorioVisita.observacoesLivres, contentW - 6);
-      obsLines.forEach((l: string) => { checkPageBreak(5); doc.text(l, margin + 2, y); y += 4.5; });
-      y += 4;
+      obsLines.forEach((l: string) => { checkPageBreak(5); doc.text(l, margin + 2, pos.y); pos.y += 4.5; });
+      pos.y += 4;
     }
 
     // ── Bloco: Parâmetros Operacionais ──
@@ -3945,23 +3945,23 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         checkPageBreak(6);
         const bg: [number,number,number] = i % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
         doc.setFillColor(...bg);
-        doc.rect(margin, y, contentW, 6, "F");
+        doc.rect(margin, pos.y, contentW, 6, "F");
         doc.setFontSize(6.5);
         doc.setFont("helvetica", "normal");
         doc.setTextColor(...colors.textMuted);
-        doc.text(label, margin + 3, y + 4);
+        doc.text(label, margin + 3, pos.y + 4);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(...colors.text);
-        doc.text(value || "—", margin + colLW, y + 4, { maxWidth: colRW - 4 });
-        y += 6;
+        doc.text(value || "—", margin + colLW, pos.y + 4, { maxWidth: colRW - 4 });
+        pos.y += 6;
       });
-      y += 3;
+      pos.y += 3;
     };
 
     if (temParamsOp) {
       checkPageBreak(20);
-      y += 6;
-      y = dsMiniHeader(y, 'PARAMETROS OPERACIONAIS');
+      pos.y += 6;
+      pos.y = dsMiniHeader(pos.y, 'PARAMETROS OPERACIONAIS');
       drawOpTable([
         ["Taxa Convencional", rv.taxaConvencional || ""],
         ["Taxa Comissaria", rv.taxaComissaria || ""],
@@ -3982,8 +3982,8 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
     if (temDadosEmpresa) {
       checkPageBreak(20);
-      y += 2;
-      y = dsMiniHeader(y, 'DADOS DA EMPRESA');
+      pos.y += 2;
+      pos.y = dsMiniHeader(pos.y, 'DADOS DA EMPRESA');
       drawOpTable([
         ["Numero de Funcionarios", String(data.relatorioVisita.funcionariosObservados || "")],
         ["Folha de Pagamento", rv.folhaPagamento ? `R$ ${rv.folhaPagamento}` : ""],
@@ -4028,7 +4028,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   };
   const dc = decisionColors[decision] ?? decisionColors.PENDENTE;
   const heroH = 32;
-  const heroY = y;
+  const heroY = pos.y;
 
   // Hero card background
   doc.setFillColor(255, 255, 255);
@@ -4094,26 +4094,26 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   doc.setTextColor(...dc.text);
   doc.text(decSubtitle, bX2p + bW2p / 2, bY2p + bH2p / 2 + 6.5, { align: "center" });
 
-  y = heroY + heroH + 6;
+  pos.y = heroY + heroH + 6;
 
   if (resumoFinal) {
     checkPageBreak(14);
     // Label for resumo with accent line
     doc.setFillColor(...DS.colors.accent);
-    doc.rect(margin, y, contentW, 0.8, "F");
-    y += 3;
+    doc.rect(margin, pos.y, contentW, 0.8, "F");
+    pos.y += 3;
     doc.setFontSize(8);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...DS.colors.accent);
-    doc.text("RESUMO EXECUTIVO", margin, y + 5);
-    y += 10;
+    doc.text("RESUMO EXECUTIVO", margin, pos.y + 5);
+    pos.y += 10;
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
     doc.setTextColor(...colors.text);
     const rLines = doc.splitTextToSize(resumoFinal, contentW - 4) as string[];
-    rLines.forEach((line: string) => { checkPageBreak(6.5); doc.text(line, margin + 2, y); y += 5.5; });
-    y += 4;
+    rLines.forEach((line: string) => { checkPageBreak(6.5); doc.text(line, margin + 2, pos.y); pos.y += 5.5; });
+    pos.y += 4;
   }
 
   // ── BLOCO 2 — Pontos Fortes e Pontos Fracos ──
@@ -4128,35 +4128,35 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       checkPageBreak(14);
       // Thin accent line + label
       doc.setFillColor(...accentC);
-      doc.rect(margin, y, contentW, 0.8, "F");
-      y += 3;
+      doc.rect(margin, pos.y, contentW, 0.8, "F");
+      pos.y += 3;
       doc.setFontSize(8);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...accentC);
-      doc.text(title.toUpperCase(), margin, y + 5);
-      y += 10;
+      doc.text(title.toUpperCase(), margin, pos.y + 5);
+      pos.y += 10;
 
       items.forEach((item: string) => {
         const lines = doc.splitTextToSize(item, contentW - 10) as string[];
         checkPageBreak(lines.length * 5 + 3);
         doc.setFillColor(255, 255, 255);
         const itemH = lines.length * 5 + 5;
-        doc.rect(margin, y, contentW, itemH, "F");
+        doc.rect(margin, pos.y, contentW, itemH, "F");
         // Dash bullet
         doc.setFont("helvetica", "bold");
         doc.setFontSize(8.5);
         doc.setTextColor(...bulletColor);
-        doc.text("—", margin + 2, y + 5);
+        doc.text("—", margin + 2, pos.y + 5);
         // Text
         doc.setFont("helvetica", "normal");
         doc.setFontSize(8.5);
         doc.setTextColor(...DS.colors.textPrimary);
         lines.forEach((line: string, li: number) => {
-          doc.text(line, margin + 9, y + 5 + li * 5);
+          doc.text(line, margin + 9, pos.y + 5 + li * 5);
         });
-        y += itemH + 2;
+        pos.y += itemH + 2;
       });
-      y += 4;
+      pos.y += 4;
     };
 
     renderBulletListDS("Pontos Fortes", pontosFortesFinal, DS.colors.success, DS.colors.success);
@@ -4167,7 +4167,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   const aiAlertas = aiAnalysis?.alertas ?? [];
   if (aiAlertas.length > 0) {
     checkPageBreak(16);
-    y = dsMiniHeader(y, 'ALERTAS');
+    pos.y = dsMiniHeader(pos.y, 'ALERTAS');
 
     // Tabela de alertas — autotable com overflow:linebreak (sem truncamento, word-wrap real)
     autoT(
@@ -4190,7 +4190,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   // ── BLOCO 4 — Perguntas para Visita ──
   if (perguntasVisita.length > 0) {
     checkPageBreak(14);
-    y = dsMiniHeader(y, 'PERGUNTAS PARA A VISITA');
+    pos.y = dsMiniHeader(pos.y, 'PERGUNTAS PARA A VISITA');
 
     perguntasVisita.forEach((q, i) => {
       const qLines = doc.splitTextToSize(`${i + 1}. ${q.pergunta}`, contentW - 4) as string[];
@@ -4200,16 +4200,16 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(8);
       doc.setTextColor(...colors.text);
-      qLines.forEach((line: string) => { doc.text(line, margin + 2, y); y += 4; });
+      qLines.forEach((line: string) => { doc.text(line, margin + 2, pos.y); pos.y += 4; });
       if (cLines.length > 0) {
         doc.setFont("helvetica", "italic");
         doc.setFontSize(7.5);
         doc.setTextColor(...colors.textMuted);
-        cLines.forEach((line: string) => { doc.text(line, margin + 4, y); y += 3.5; });
+        cLines.forEach((line: string) => { doc.text(line, margin + 4, pos.y); pos.y += 3.5; });
       }
-      y += 3;
+      pos.y += 3;
     });
-    y += 2;
+    pos.y += 2;
   }
 
   // ── BLOCO 5 — Parâmetros Operacionais ──
@@ -4217,20 +4217,20 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   const hasParamOp = paramOp && Object.values(paramOp).some(v => v && v.trim() !== "");
   if (hasParamOp) {
     checkPageBreak(16);
-    y = dsMiniHeader(y, 'PARAMETROS OPERACIONAIS ORIENTATIVOS');
+    pos.y = dsMiniHeader(pos.y, 'PARAMETROS OPERACIONAIS ORIENTATIVOS');
 
     const paramCW = [contentW * 0.30, contentW * 0.35, contentW * 0.35];
 
     // Sub-header das colunas
     doc.setFillColor(50, 70, 110);
-    doc.rect(margin, y, contentW, 5.5, 'F');
+    doc.rect(margin, pos.y, contentW, 5.5, 'F');
     doc.setFontSize(5.5);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
-    doc.text("PARAMETRO", margin + 2, y + 4);
-    doc.text("VALOR SUGERIDO", margin + paramCW[0] + 2, y + 4);
-    doc.text("BASE DE CALCULO", margin + paramCW[0] + paramCW[1] + 2, y + 4);
-    y += 5.5;
+    doc.text("PARAMETRO", margin + 2, pos.y + 4);
+    doc.text("VALOR SUGERIDO", margin + paramCW[0] + 2, pos.y + 4);
+    doc.text("BASE DE CALCULO", margin + paramCW[0] + paramCW[1] + 2, pos.y + 4);
+    pos.y += 5.5;
 
     const paramRows: Array<{ label: string; key: string; base: string }> = [
       { label: "Limite aproximado", key: "limiteAproximado", base: "FMM × fatores de score e risco" },
@@ -4244,29 +4244,29 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       const val = (paramOp as Record<string, string>)[row.key] || "—";
       checkPageBreak(7);
       doc.setFillColor(...(idx % 2 === 0 ? colors.surface : colors.surface2));
-      doc.rect(margin, y, contentW, 6, "F");
+      doc.rect(margin, pos.y, contentW, 6, "F");
       doc.setFont("helvetica", "bold");
       doc.setFontSize(6.5);
       doc.setTextColor(...colors.text);
-      doc.text(row.label, margin + 2, y + 4);
+      doc.text(row.label, margin + 2, pos.y + 4);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...colors.primary);
-      doc.text(val, margin + paramCW[0] + 2, y + 4);
+      doc.text(val, margin + paramCW[0] + 2, pos.y + 4);
       doc.setTextColor(...colors.textMuted);
-      doc.text(row.base, margin + paramCW[0] + paramCW[1] + 2, y + 4);
+      doc.text(row.base, margin + paramCW[0] + paramCW[1] + 2, pos.y + 4);
       doc.setDrawColor(230, 230, 230);
-      doc.line(margin, y + 6, margin + contentW, y + 6);
-      y += 6;
+      doc.line(margin, pos.y + 6, margin + contentW, pos.y + 6);
+      pos.y += 6;
     });
 
     // Footnote
-    y += 3;
+    pos.y += 3;
     checkPageBreak(8);
     doc.setFont("helvetica", "italic");
     doc.setFontSize(6);
     doc.setTextColor(...colors.textMuted);
-    doc.text("Parametros indicativos. Limite e condicoes formais definidos pelo Comite.", margin, y);
-    y += 6;
+    doc.text("Parametros indicativos. Limite e condicoes formais definidos pelo Comite.", margin, pos.y);
+    pos.y += 6;
   }
 
   // ── Observações do analista — dentro do bloco Parecer ──
@@ -4275,37 +4275,37 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     const titleH = 10;
     const lineH = 5;
 
-    y += 4;
+    pos.y += 4;
     checkPageBreak(titleH + 4 + lineH + 4);
 
     // Cabeçalho da subseção (inline, sem chamar drawSectionTitle para evitar double-checkPageBreak)
     doc.setFillColor(...colors.surface2);
-    doc.roundedRect(margin, y, contentW, titleH, 1.5, 1.5, "F");
+    doc.roundedRect(margin, pos.y, contentW, titleH, 1.5, 1.5, "F");
     doc.setFillColor(...colors.navy);
-    doc.roundedRect(margin, y, 3, titleH, 0.5, 0.5, "F");
+    doc.roundedRect(margin, pos.y, 3, titleH, 0.5, 0.5, "F");
     doc.setFontSize(6);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...colors.navy);
-    doc.text("OBS", margin + 7, y + 6.5);
+    doc.text("OBS", margin + 7, pos.y + 6.5);
     doc.setFontSize(8.5);
     doc.setTextColor(...colors.text);
-    doc.text("OBSERVACOES DO ANALISTA", margin + 14, y + 6.5);
-    y += titleH + 4;
+    doc.text("OBSERVACOES DO ANALISTA", margin + 14, pos.y + 6.5);
+    pos.y += titleH + 4;
 
     // Renderiza linha a linha com checkPageBreak por linha (suporte a múltiplas páginas)
     noteLines.forEach((line) => {
       checkPageBreak(lineH + 1);
       doc.setFillColor(...colors.surface);
-      doc.rect(margin, y, contentW, lineH, "F");
+      doc.rect(margin, pos.y, contentW, lineH, "F");
       doc.setFillColor(...colors.accent);
-      doc.rect(margin, y, 2.5, lineH, "F");
+      doc.rect(margin, pos.y, 2.5, lineH, "F");
       doc.setFont("helvetica", "normal");
       doc.setFontSize(7.5);
       doc.setTextColor(...colors.text);
-      doc.text(line, margin + 6, y + lineH - 1.2);
-      y += lineH;
+      doc.text(line, margin + 6, pos.y + lineH - 1.2);
+      pos.y += lineH;
     });
-    y += 6;
+    pos.y += 6;
   }
 
   // Footer on all pages

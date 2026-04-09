@@ -508,6 +508,57 @@ function calcularPreRequisitos(data: Record<string, unknown>, settings: FundSett
     motivoReprovacao.push(`Empresa com ${idadeAnos.toFixed(1)} anos abaixo do minimo de ${settings.idade_minima_anos} anos`);
   }
 
+  // ── CCF — eliminatório fixo ──
+  const protestos = (data.protestos ?? {}) as Record<string, unknown>;
+  const processos = (data.processos ?? {}) as Record<string, unknown>;
+  const scr = (data.scr ?? {}) as Record<string, unknown>;
+
+  const ccfQtd = Number(protestos.ccfQuantidade ?? 0);
+  if (ccfQtd > 0) {
+    motivoReprovacao.push(`CCF: ${ccfQtd} ocorrencia(s) de cheques sem fundos — criterio eliminatorio`);
+  }
+
+  // ── Recuperação Judicial / Falência — eliminatório fixo ──
+  const temRJ = String(processos.temRecuperacaoJudicial ?? "").toLowerCase();
+  const temRJExt = String(processos.temRecuperacaoExtrajudicial ?? "").toLowerCase();
+  if (temRJ === "sim" || temRJ === "true") {
+    motivoReprovacao.push("Recuperacao Judicial ativa — criterio eliminatorio");
+  }
+  if (temRJExt === "sim" || temRJExt === "true") {
+    motivoReprovacao.push("Recuperacao Extrajudicial ativa — criterio eliminatorio");
+  }
+
+  // ── Protestos vigentes — eliminatório configurável ──
+  const protestosVigentes = Number(protestos.quantidadeVigentes ?? protestos.quantidade ?? 0);
+  const protestosMax = settings.protestos_max ?? DEFAULT_FUND_SETTINGS.protestos_max;
+  if (protestosVigentes > protestosMax) {
+    motivoReprovacao.push(`${protestosVigentes} protestos vigentes acima do limite de ${protestosMax}`);
+  }
+
+  // ── Processos passivos — eliminatório configurável ──
+  const processosLista = (processos.processos as Array<Record<string, unknown>>) ?? [];
+  const processosPassivos = processosLista.filter(p =>
+    String(p.tipo ?? "").toLowerCase().includes("passivo") ||
+    String(p.polo ?? "").toLowerCase().includes("passivo") ||
+    String(p.polo ?? "").toLowerCase().includes("reu") ||
+    String(p.polo ?? "").toLowerCase().includes("réu")
+  ).length;
+  const processosMax = settings.processos_passivos_max ?? DEFAULT_FUND_SETTINGS.processos_passivos_max;
+  if (processosPassivos > processosMax) {
+    motivoReprovacao.push(`${processosPassivos} processos passivos acima do limite de ${processosMax}`);
+  }
+
+  // ── SCR vencidos % — eliminatório configurável ──
+  const totalDividas = parseBRL(scr.totalDividasAtivas) || parseBRL(scr.carteiraAVencer) || 0;
+  const vencidosSCR = parseBRL(scr.vencidos) || 0;
+  const scrMaxPct = settings.scr_vencidos_max_pct ?? DEFAULT_FUND_SETTINGS.scr_vencidos_max_pct;
+  if (totalDividas > 0 && vencidosSCR > 0) {
+    const pctVencidos = (vencidosSCR / totalDividas) * 100;
+    if (pctVencidos > scrMaxPct) {
+      motivoReprovacao.push(`SCR vencidos em ${pctVencidos.toFixed(1)}% do total (limite: ${scrMaxPct}%)`);
+    }
+  }
+
   return {
     fmm,
     idadeAnos: Math.round(idadeAnos * 10) / 10,
