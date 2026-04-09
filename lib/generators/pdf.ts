@@ -242,7 +242,7 @@ function gerarAlertasIRSocios(
   irSocios.forEach(ir => {
     if (!ir.nomeSocio && !ir.anoBase) return;
     const nome = ir.nomeSocio || 'Sócio';
-    if (ir.debitosEmAberto) out.push({ nivel: 'alta', mensagem: `Sócio ${nome} com débitos em aberto na Receita Federal` });
+    if (ir.debitosEmAberto) out.push({ nivel: 'alta', mensagem: `Sócio ${nome} — Débitos em aberto perante a Receita Federal / PGFN` });
     if (ir.anoBase) {
       const ano = parseInt(ir.anoBase);
       if (!isNaN(ano) && (anoAtual - ano) > 2) out.push({ nivel: 'media', mensagem: `IR do sócio ${nome} desatualizado — ano-base ${ir.anoBase}` });
@@ -3924,7 +3924,14 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         drawAlertBox(`Sócio ${ir.nomeSocio || ""} — Pendência de malhas fiscais na Receita Federal`.trim(), "ALTA");
       }
       if (ir.debitosEmAberto) {
-        drawAlertBox(`Sócio ${ir.nomeSocio || ""} — Débitos em aberto: ${ir.descricaoDebitos || "confirmado"}`.trim(), "ALTA");
+        const _desc = ir.descricaoDebitos?.trim();
+        // Mostra descricaoDebitos como subtitle apenas se for curto e informativo (não o boilerplate longo da RF)
+        const _debitosSubtitle = _desc && _desc.length < 100 && !_desc.toLowerCase().includes("constavam débitos") ? _desc : undefined;
+        drawAlertBox(
+          `Sócio ${ir.nomeSocio || ""} — Débitos em aberto perante a Receita Federal / PGFN`.trim(),
+          "ALTA",
+          _debitosSubtitle
+        );
       }
 
       // Tabela de dados patrimoniais
