@@ -2204,7 +2204,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
   }
 
-  // ── Tabela SCR Unificada — EVOLUÇÃO SCR ──
+  // ── Tabela SCR Redesenhada — EVOLUÇÃO SCR ──
   {
     const toKu = (v: string | undefined) => {
       const n = parseMoneyToNumber(v || "0");
@@ -2218,49 +2218,75 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       ? fmtBR(parseMoneyToNumber(data.scrAnterior!.totalDividasAtivas || "0") / fmmVal, 2) + "x"
       : "—";
 
-    const cWu = hasAnterior
-      ? [contentW * 0.33, contentW * 0.22, contentW * 0.22, contentW * 0.23]
-      : [contentW * 0.55, contentW * 0.45];
+    // Col widths
+    const cLabel = contentW * 0.38;
+    const cAnt   = contentW * 0.19;
+    const cAt    = contentW * 0.19;
+    const cVar   = contentW * 0.24;
 
-    const scrRowHu = 6;
+    const scrRowH  = 7;
+    const grpRowH  = 5.5;
 
-    const drawSCRHeader = () => {
-      doc.setFillColor(...colors.navy);
-      doc.rect(margin, yRight, contentW, 6, "F");
-      doc.setFontSize(5.5);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(255, 255, 255);
-      doc.text("MÉTRICA (mil R$)", margin + 2, yRight + 4);
-      if (hasAnterior) {
-        doc.text(periodoAnt, margin + cWu[0] + cWu[1] - 1, yRight + 4, { align: "right" });
-        doc.text(periodoAt, margin + cWu[0] + cWu[1] + cWu[2] - 1, yRight + 4, { align: "right" });
-        doc.text("VAR.", margin + contentW - 1, yRight + 4, { align: "right" });
-      } else {
-        doc.text(periodoAt, margin + contentW - 1, yRight + 4, { align: "right" });
-      }
-      yRight += 7;
+    // Var string: "+X,X%" / "-X,X%" / "=" / "—" — sem setas (helvetica não suporta unicode)
+    const buildVar = (atRaw: number, antRaw: number, positiveIsGood: boolean): { str: string; color: [number,number,number] } => {
+      if (antRaw === 0) return { str: "—", color: [160,160,160] };
+      const diff = atRaw - antRaw;
+      if (Math.abs(diff / antRaw) < 0.001) return { str: "=  0%", color: [160,160,160] };
+      const pct = (diff / antRaw) * 100;
+      const str = (pct > 0 ? "+" : "") + fmtBR(pct, 1) + "%";
+      const isGood = (diff > 0 && positiveIsGood) || (diff < 0 && !positiveIsGood);
+      return { str, color: isGood ? [22,163,74] : [220,38,38] };
     };
 
-    type ScrRowU = { label: string; antVal: string; atVal: string; antRaw: number; atRaw: number; positiveIsGood: boolean; bold?: boolean; skipVar?: boolean };
-    const scrRowsU: ScrRowU[] = [
-      { label: "Em Dia", antVal: toKu(data.scrAnterior?.emDia), atVal: toKu(data.scr.emDia), antRaw: parseMoneyToNumber(data.scrAnterior?.emDia || "0"), atRaw: parseMoneyToNumber(data.scr.emDia || "0"), positiveIsGood: true },
-      { label: "Curto Prazo (CP)", antVal: toKu(data.scrAnterior?.carteiraCurtoPrazo), atVal: toKu(data.scr.carteiraCurtoPrazo), antRaw: parseMoneyToNumber(data.scrAnterior?.carteiraCurtoPrazo || "0"), atRaw: parseMoneyToNumber(data.scr.carteiraCurtoPrazo || "0"), positiveIsGood: false },
-      { label: "Longo Prazo (LP)", antVal: toKu(data.scrAnterior?.carteiraLongoPrazo), atVal: toKu(data.scr.carteiraLongoPrazo), antRaw: parseMoneyToNumber(data.scrAnterior?.carteiraLongoPrazo || "0"), atRaw: parseMoneyToNumber(data.scr.carteiraLongoPrazo || "0"), positiveIsGood: false },
-      { label: "Carteira a Vencer", antVal: toKu(data.scrAnterior?.carteiraAVencer), atVal: toKu(data.scr.carteiraAVencer), antRaw: parseMoneyToNumber(data.scrAnterior?.carteiraAVencer || "0"), atRaw: parseMoneyToNumber(data.scr.carteiraAVencer || "0"), positiveIsGood: false },
-      { label: "Total Dívidas", antVal: toKu(data.scrAnterior?.totalDividasAtivas), atVal: toKu(data.scr.totalDividasAtivas), antRaw: parseMoneyToNumber(data.scrAnterior?.totalDividasAtivas || "0"), atRaw: parseMoneyToNumber(data.scr.totalDividasAtivas || "0"), positiveIsGood: false, bold: true },
-      { label: "Vencidos", antVal: toKu(data.scrAnterior?.vencidos), atVal: toKu(data.scr.vencidos), antRaw: parseMoneyToNumber(data.scrAnterior?.vencidos || "0"), atRaw: parseMoneyToNumber(data.scr.vencidos || "0"), positiveIsGood: false },
-      { label: "Prejuízos", antVal: toKu(data.scrAnterior?.prejuizos), atVal: toKu(data.scr.prejuizos), antRaw: parseMoneyToNumber(data.scrAnterior?.prejuizos || "0"), atRaw: parseMoneyToNumber(data.scr.prejuizos || "0"), positiveIsGood: false },
-      { label: "Limite de Crédito", antVal: toKu(data.scrAnterior?.limiteCredito), atVal: toKu(data.scr.limiteCredito), antRaw: parseMoneyToNumber(data.scrAnterior?.limiteCredito || "0"), atRaw: parseMoneyToNumber(data.scr.limiteCredito || "0"), positiveIsGood: true },
-      { label: "Nº Instituições", antVal: data.scrAnterior?.qtdeInstituicoes || data.scrAnterior?.numeroIfs || "—", atVal: data.scr.qtdeInstituicoes || data.scr.numeroIfs || "—", antRaw: parseFloat(data.scrAnterior?.qtdeInstituicoes || data.scrAnterior?.numeroIfs || "0") || 0, atRaw: parseFloat(data.scr.qtdeInstituicoes || data.scr.numeroIfs || "0") || 0, positiveIsGood: true },
-      { label: "Nº Operações", antVal: data.scrAnterior?.qtdeOperacoes || "—", atVal: data.scr.qtdeOperacoes || "—", antRaw: parseFloat(data.scrAnterior?.qtdeOperacoes || "0") || 0, atRaw: parseFloat(data.scr.qtdeOperacoes || "0") || 0, positiveIsGood: true },
-      { label: "Alavancagem / FMM", antVal: alavAntU, atVal: alavAtU, antRaw: 0, atRaw: 0, positiveIsGood: false, skipVar: true, bold: true },
+    type DataRow = { type:"data"; label: string; antVal: string; atVal: string; antRaw: number; atRaw: number; positiveIsGood: boolean; bold?: boolean; skipVar?: boolean };
+    type GrpRow  = { type:"group"; label: string };
+    type ScrRow  = DataRow | GrpRow;
+
+    const allRows: ScrRow[] = [
+      { type:"group", label:"CARTEIRA" },
+      { type:"data", label:"Em Dia",          antVal: toKu(data.scrAnterior?.emDia),              atVal: toKu(data.scr.emDia),              antRaw: parseMoneyToNumber(data.scrAnterior?.emDia||"0"),              atRaw: parseMoneyToNumber(data.scr.emDia||"0"),              positiveIsGood: true  },
+      { type:"data", label:"Curto Prazo",      antVal: toKu(data.scrAnterior?.carteiraCurtoPrazo), atVal: toKu(data.scr.carteiraCurtoPrazo), antRaw: parseMoneyToNumber(data.scrAnterior?.carteiraCurtoPrazo||"0"), atRaw: parseMoneyToNumber(data.scr.carteiraCurtoPrazo||"0"), positiveIsGood: false },
+      { type:"data", label:"Longo Prazo",      antVal: toKu(data.scrAnterior?.carteiraLongoPrazo), atVal: toKu(data.scr.carteiraLongoPrazo), antRaw: parseMoneyToNumber(data.scrAnterior?.carteiraLongoPrazo||"0"), atRaw: parseMoneyToNumber(data.scr.carteiraLongoPrazo||"0"), positiveIsGood: false },
+      { type:"data", label:"A Vencer (total)", antVal: toKu(data.scrAnterior?.carteiraAVencer),    atVal: toKu(data.scr.carteiraAVencer),    antRaw: parseMoneyToNumber(data.scrAnterior?.carteiraAVencer||"0"),    atRaw: parseMoneyToNumber(data.scr.carteiraAVencer||"0"),    positiveIsGood: false },
+      { type:"group", label:"INADIMPLÊNCIA" },
+      { type:"data", label:"Total Dívidas",   antVal: toKu(data.scrAnterior?.totalDividasAtivas), atVal: toKu(data.scr.totalDividasAtivas), antRaw: parseMoneyToNumber(data.scrAnterior?.totalDividasAtivas||"0"), atRaw: parseMoneyToNumber(data.scr.totalDividasAtivas||"0"), positiveIsGood: false, bold: true },
+      { type:"data", label:"Vencidos",         antVal: toKu(data.scrAnterior?.vencidos),           atVal: toKu(data.scr.vencidos),           antRaw: parseMoneyToNumber(data.scrAnterior?.vencidos||"0"),           atRaw: parseMoneyToNumber(data.scr.vencidos||"0"),           positiveIsGood: false },
+      { type:"data", label:"Prejuízos",        antVal: toKu(data.scrAnterior?.prejuizos),          atVal: toKu(data.scr.prejuizos),          antRaw: parseMoneyToNumber(data.scrAnterior?.prejuizos||"0"),          atRaw: parseMoneyToNumber(data.scr.prejuizos||"0"),          positiveIsGood: false },
+      { type:"group", label:"CAPACIDADE BANCÁRIA" },
+      { type:"data", label:"Limite de Crédito", antVal: toKu(data.scrAnterior?.limiteCredito),      atVal: toKu(data.scr.limiteCredito),      antRaw: parseMoneyToNumber(data.scrAnterior?.limiteCredito||"0"),      atRaw: parseMoneyToNumber(data.scr.limiteCredito||"0"),      positiveIsGood: true  },
+      { type:"data", label:"Nº Instituições",  antVal: data.scrAnterior?.qtdeInstituicoes||data.scrAnterior?.numeroIfs||"—", atVal: data.scr.qtdeInstituicoes||data.scr.numeroIfs||"—", antRaw: parseFloat(data.scrAnterior?.qtdeInstituicoes||data.scrAnterior?.numeroIfs||"0")||0, atRaw: parseFloat(data.scr.qtdeInstituicoes||data.scr.numeroIfs||"0")||0, positiveIsGood: true },
+      { type:"data", label:"Nº Operações",     antVal: data.scrAnterior?.qtdeOperacoes||"—",   atVal: data.scr.qtdeOperacoes||"—",   antRaw: parseFloat(data.scrAnterior?.qtdeOperacoes||"0")||0,   atRaw: parseFloat(data.scr.qtdeOperacoes||"0")||0,   positiveIsGood: true  },
+      { type:"group", label:"RESUMO" },
+      { type:"data", label:"Alavancagem / FMM", antVal: alavAntU, atVal: alavAtU, antRaw: 0, atRaw: 0, positiveIsGood: false, skipVar: true, bold: true },
     ];
 
+    // Remove linhas de dados onde ambos atual e anterior são "—" (sem informação)
+    // Mantém grupos mesmo se todas as linhas do grupo forem removidas? Não — filtramos grupos vazios.
+    const filteredRows: ScrRow[] = [];
+    for (let i = 0; i < allRows.length; i++) {
+      const row = allRows[i];
+      if (row.type === "group") {
+        // Verifica se o próximo grupo tem pelo menos uma linha de dados visível
+        let hasData = false;
+        for (let j = i + 1; j < allRows.length; j++) {
+          if (allRows[j].type === "group") break;
+          const dr = allRows[j] as DataRow;
+          if (!(dr.atVal === "—" && dr.antVal === "—")) { hasData = true; break; }
+        }
+        if (hasData) filteredRows.push(row);
+      } else {
+        const dr = row as DataRow;
+        if (!(dr.atVal === "—" && dr.antVal === "—")) filteredRows.push(row);
+      }
+    }
+
     const scrTableTitle = hasAnterior
-      ? `EVOLUÇÃO SCR — ${periodoAnt} → ${periodoAt}`
+      ? `EVOLUÇÃO SCR — ${periodoAnt}  »  ${periodoAt}`
       : `POSIÇÃO SCR — ${periodoAt}`;
 
-    const scrNeeded = 7 + 7 + scrRowHu * scrRowsU.length + 4;
+    const dataRowCount = filteredRows.filter(r => r.type === "data").length;
+    const grpRowCount  = filteredRows.filter(r => r.type === "group").length;
+    const scrNeeded = 16 + grpRowCount * grpRowH + dataRowCount * scrRowH + 4;
     if (yRight + scrNeeded > 220) {
       doc.addPage();
       drawHeader();
@@ -2268,74 +2294,98 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       yRight = 35;
     }
 
+    // Título
     yRight += 4;
-    doc.setFontSize(5.5);
+    doc.setFontSize(6.5);
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(...colors.textMuted);
-    doc.text(scrTableTitle, margin, yRight + 4);
-    yRight += 5;
+    doc.setTextColor(...colors.text);
+    doc.text(scrTableTitle, margin, yRight + 4.5);
+    yRight += 6;
     doc.setFontSize(5);
     doc.setFont("helvetica", "italic");
     doc.setTextColor(...colors.textMuted);
-    doc.text("Métricas de endividamento bancário da empresa — saldos em mil R$, extraídos do Banco Central (SCR/Bacen).", margin, yRight + 4);
+    doc.text("Saldos em mil R$ extraidos do Banco Central (SCR/Bacen). Variação: verde = melhora, vermelho = piora.", margin, yRight + 4);
     yRight += 6;
 
-    drawSCRHeader();
+    // Header da tabela
+    doc.setFillColor(...colors.navy);
+    doc.rect(margin, yRight, contentW, 7, "F");
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("MÉTRICA", margin + 3, yRight + 4.8);
+    if (hasAnterior) {
+      doc.text(periodoAnt, margin + cLabel + cAnt - 2, yRight + 4.8, { align: "right" });
+      doc.text(periodoAt,  margin + cLabel + cAnt + cAt - 2, yRight + 4.8, { align: "right" });
+      doc.text("VARIAÇÃO", margin + contentW - 2, yRight + 4.8, { align: "right" });
+    } else {
+      doc.text(periodoAt, margin + contentW - 2, yRight + 4.8, { align: "right" });
+    }
+    yRight += 8;
 
-    scrRowsU.forEach((row, idx) => {
-      if (yRight + scrRowHu > 275) {
-        doc.addPage();
-        drawHeader();
-        currentSCRPage = doc.getCurrentPageInfo().pageNumber;
-        yRight = 25;
-        drawSCRHeader();
-      }
-
-      doc.setFillColor(...(idx % 2 === 0 ? colors.surface : colors.surface2));
-      doc.rect(margin, yRight, contentW, scrRowHu, "F");
-
-      doc.setFont("helvetica", row.bold ? "bold" : "normal");
-      doc.setFontSize(6.5);
-      doc.setTextColor(...(row.bold ? colors.text : colors.textSec));
-      doc.text(row.label, margin + 2, yRight + 4);
-
-      if (hasAnterior) {
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(...colors.textSec);
-        doc.text(row.antVal, margin + cWu[0] + cWu[1] - 1, yRight + 4, { align: "right" });
-        doc.setFont("helvetica", row.bold ? "bold" : "normal");
-        doc.setTextColor(...colors.text);
-        doc.text(row.atVal, margin + cWu[0] + cWu[1] + cWu[2] - 1, yRight + 4, { align: "right" });
-
-        let varStr = "—";
-        let varColor: [number, number, number] = [150, 150, 150];
-        if (!row.skipVar) {
-          const diff = row.atRaw - row.antRaw;
-          if (diff === 0 && row.atRaw > 0) {
-            varStr = "= 0%";
-          } else if (diff !== 0 && row.antRaw > 0) {
-            const pct = (diff / row.antRaw) * 100;
-            varStr = fmtVar(pct);
-            const isGood = (diff > 0 && row.positiveIsGood) || (diff < 0 && !row.positiveIsGood);
-            varColor = isGood ? [22, 163, 74] : [220, 38, 38];
-          } else if (diff !== 0) {
-            varStr = diff > 0 ? "↑" : "↓";
-            const isGood = (diff > 0 && row.positiveIsGood) || (diff < 0 && !row.positiveIsGood);
-            varColor = isGood ? [22, 163, 74] : [220, 38, 38];
-          }
-        }
-        doc.setFont("helvetica", row.bold ? "bold" : "normal");
-        doc.setTextColor(...varColor);
-        doc.text(varStr, margin + contentW - 1, yRight + 4, { align: "right" });
+    let dataIdx = 0;
+    filteredRows.forEach((row) => {
+      if (row.type === "group") {
+        // Linha separadora de grupo
+        if (yRight + grpRowH > 275) { doc.addPage(); drawHeader(); currentSCRPage = doc.getCurrentPageInfo().pageNumber; yRight = 25; }
+        doc.setFillColor(240, 244, 252);
+        doc.rect(margin, yRight, contentW, grpRowH, "F");
+        doc.setFontSize(5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(30, 58, 138);
+        doc.text(row.label, margin + 3, yRight + 3.8);
+        // linha accent esquerda
+        doc.setFillColor(30, 58, 138);
+        doc.rect(margin, yRight, 2, grpRowH, "F");
+        yRight += grpRowH;
       } else {
-        doc.setFont("helvetica", row.bold ? "bold" : "normal");
-        doc.setTextColor(...colors.text);
-        doc.text(row.atVal, margin + contentW - 1, yRight + 4, { align: "right" });
-      }
+        const dr = row as DataRow;
+        if (yRight + scrRowH > 275) { doc.addPage(); drawHeader(); currentSCRPage = doc.getCurrentPageInfo().pageNumber; yRight = 25; }
 
-      doc.setDrawColor(230, 230, 230);
-      doc.line(margin, yRight + scrRowHu, margin + contentW, yRight + scrRowHu);
-      yRight += scrRowHu;
+        const bg: [number,number,number] = dataIdx % 2 === 0 ? [255,255,255] : [248,250,252];
+        doc.setFillColor(...bg);
+        doc.rect(margin, yRight, contentW, scrRowH, "F");
+
+        // Label
+        doc.setFontSize(6.5);
+        doc.setFont("helvetica", dr.bold ? "bold" : "normal");
+        doc.setTextColor(...(dr.bold ? colors.text : [60,70,90] as [number,number,number]));
+        doc.text((dr.bold ? "  " : "    ") + dr.label, margin + 2, yRight + 4.8);
+
+        if (hasAnterior) {
+          // Anterior (acinzentado)
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(140, 150, 165);
+          doc.text(dr.antVal, margin + cLabel + cAnt - 2, yRight + 4.8, { align: "right" });
+
+          // Atual (destaque)
+          doc.setFont("helvetica", dr.bold ? "bold" : "normal");
+          doc.setTextColor(...colors.text);
+          doc.text(dr.atVal, margin + cLabel + cAnt + cAt - 2, yRight + 4.8, { align: "right" });
+
+          // Variação
+          if (!dr.skipVar) {
+            const { str, color } = buildVar(dr.atRaw, dr.antRaw, dr.positiveIsGood);
+            doc.setFont("helvetica", dr.bold ? "bold" : "normal");
+            doc.setTextColor(...color);
+            doc.text(str, margin + contentW - 2, yRight + 4.8, { align: "right" });
+          } else {
+            doc.setTextColor(140, 150, 165);
+            doc.text(dr.atVal !== "—" ? dr.atVal : "—", margin + contentW - 2, yRight + 4.8, { align: "right" });
+          }
+        } else {
+          doc.setFont("helvetica", dr.bold ? "bold" : "normal");
+          doc.setTextColor(...colors.text);
+          doc.text(dr.atVal, margin + contentW - 2, yRight + 4.8, { align: "right" });
+        }
+
+        // Divider
+        doc.setDrawColor(225, 230, 240);
+        doc.setLineWidth(0.2);
+        doc.line(margin, yRight + scrRowH, margin + contentW, yRight + scrRowH);
+        yRight += scrRowH;
+        dataIdx++;
+      }
     });
     yRight += 4;
   }
