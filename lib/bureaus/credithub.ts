@@ -188,10 +188,12 @@ function parseProcessos(d: any): ProcessosData {
   // Valor das dívidas (campo direto da API)
   const valorDividas = Number(d?.valor_total_dividas ?? 0);
 
-  // Processos ativos (em andamento)
-  const ativos = processos.filter(p =>
-    !p.status || /ativo|andamento|distribuido|pendente/i.test(String(p.status))
-  ).length;
+  // Processos ativos (em andamento) — verifica status, situacao e fase
+  const ativos = processos.filter(p => {
+    const s = String(p.status ?? p.situacao ?? p.situacao_processo ?? p.situacaoProcesso ?? "");
+    const f = String(p.fase_processual ?? p.faseProcessual ?? p.fase ?? "");
+    return !s || /ativo|andamento|distribuido|pendente|em curso|conhecimento|execu[çc]/i.test(s + " " + f);
+  }).length;
 
   // Recuperação judicial
   const temRJ = processos.some(p =>
@@ -240,33 +242,43 @@ function parseProcessos(d: any): ProcessosData {
   const normItem = (p: any): ProcessoItem => {
     const { ativos, passivos } = extractEnvolvidos(p);
     // Número: preferir numero_novo (CNJ), fallback numero_antigo, fallback id
-    const numero = p.numero_novo ?? p.numero ?? p.nrProcesso ?? p.id ?? "";
+    const numero = p.numero_novo ?? p.numero ?? p.nrProcesso ?? p.numeroProcesso ?? p.id ?? "";
     // Tipo/classe
-    const tipo = (p.classe_processual ?? p.tipo ?? p.natureza ?? p.classe ?? "—").toUpperCase();
+    const tipo = (p.classe_processual ?? p.tipo ?? p.natureza ?? p.classe ?? p.tipoAcao ?? "—").toUpperCase();
     // Assunto
-    const assunto = p.assuntos ?? p.assunto ?? p.assuntoPrincipal ?? "";
-    // Data: updated_at (última movimentação), fallback created_at ou data
-    const data = p.updated_at ?? p.data_movimentacoes ?? p.data ?? p.dataDistribuicao ?? p.created_at ?? "";
+    const assunto = p.assuntos ?? p.assunto ?? p.assuntoPrincipal ?? p.descricaoAssunto ?? "";
+    // Data de distribuição: preferir data de distribuição, fallback created_at
+    const data = p.dataDistribuicao ?? p.data_distribuicao ?? p.data ?? p.created_at ?? p.updated_at ?? "";
+    // Data última movimentação
+    const dataUltimoAndamento = p.updated_at ?? p.data_ultima_movimentacao ?? p.dataUltimaMovimentacao ?? p.data_movimentacoes ?? "";
     // Tribunal
-    const tribunal = p.diario_sigla ?? p.diario_nome ?? p.tribunal ?? p.vara ?? "";
+    const tribunal = p.diario_sigla ?? p.diario_nome ?? p.tribunal ?? p.vara ?? p.orgaoJulgador ?? "";
     // UF
-    const uf = p.estado ?? p.uf ?? p.ufTribunal ?? "";
+    const uf = p.estado ?? p.uf ?? p.ufTribunal ?? p.siglaUF ?? "";
+    // Status: tenta todas as variações possíveis da API e monta label composto se necessário
+    const statusRaw = p.status ?? p.situacao ?? p.situacao_processo ?? p.situacaoProcesso
+      ?? p.status_processual ?? p.statusProcessual ?? "";
+    const faseRaw = p.fase_processual ?? p.faseProcessual ?? p.fase ?? p.instancia ?? "";
+    // Compõe status final: "STATUS — Fase" se ambos disponíveis, senão o que tiver
+    const status = statusRaw && faseRaw
+      ? `${statusRaw} — ${faseRaw}`
+      : statusRaw || faseRaw || "—";
 
     return {
       numero,
       tipo,
       assunto: String(assunto),
-      data: data ? data.substring(0, 10) : "", // só a data, sem hora
-      valor: fmtBRL(Number(p.valor ?? p.valorCausa ?? p.valorAcao ?? 0)),
-      valorNum: Number(p.valor ?? p.valorCausa ?? p.valorAcao ?? 0),
-      status: p.status ?? p.situacao ?? "—",
-      partes: ativos || (p.polo_ativo ?? p.parteAtiva ?? p.autor ?? ""),
+      data: data ? data.substring(0, 10) : "",
+      valor: fmtBRL(Number(p.valor ?? p.valorCausa ?? p.valorAcao ?? p.valorDaCausa ?? 0)),
+      valorNum: Number(p.valor ?? p.valorCausa ?? p.valorAcao ?? p.valorDaCausa ?? 0),
+      status,
+      partes: ativos || (p.polo_ativo ?? p.parteAtiva ?? p.autor ?? p.requerente ?? ""),
       tribunal,
-      polo_passivo: passivos || (p.polo_passivo ?? p.partePassiva ?? p.reu ?? ""),
-      fase: p.classe_processual ?? p.fase ?? "",
+      polo_passivo: passivos || (p.polo_passivo ?? p.partePassiva ?? p.reu ?? p.requerido ?? p.executado ?? ""),
+      fase: faseRaw,
       uf,
-      comarca: p.comarca ?? p.municipioTribunal ?? "",
-      dataUltimoAndamento: p.updated_at ? p.updated_at.substring(0, 10) : "",
+      comarca: p.comarca ?? p.municipioTribunal ?? p.municipio ?? "",
+      dataUltimoAndamento: dataUltimoAndamento ? dataUltimoAndamento.substring(0, 10) : "",
     };
   };
 
@@ -411,8 +423,6 @@ function resolveBancoNome(raw: string): string {
 function parseCCF(d: any): CCFData {
   // Tenta múltiplas chaves possíveis da API
   const ccf = d?.ccf ?? d?.chequesSemFundo ?? d?.cheque_sem_fundo ?? d?.ccfData ?? d?.CCF ?? {};
-  console.log("[parseCCF] chaves disponíveis no root:", Object.keys(d ?? {}).join(", "));
-  console.log("[parseCCF] ccf raw:", JSON.stringify(ccf).slice(0, 300));
   const bancos: CCFData["bancos"] = (ccf.bancos ?? ccf.instituicoes ?? ccf.registros ?? []).map((b: any) => {
     const rawNome = b.banco ?? b.nome ?? b.instituicao ?? b.codigoBanco ?? "";
     const nomeResolvido = /^\d+$/.test(String(rawNome).trim())
@@ -443,7 +453,6 @@ function parseCCF(d: any): CCFData {
   }
 
   const qtdRegistros = Number(ccf.qtdRegistros ?? ccf.quantidade ?? ccf.total ?? bancos.length);
-  console.log("[parseCCF] resultado → qtdRegistros:", qtdRegistros, "| bancos:", bancos.length);
   return {
     qtdRegistros,
     bancos,
@@ -693,9 +702,6 @@ export async function consultarCreditHub(cnpj: string): Promise<CreditHubResult>
 
     const raw = await res.json();
     const d = raw?.data ?? raw; // dados aninhados sob raw.data
-    console.log("[CreditHub] status HTTP:", res.status);
-    console.log("[CreditHub] chaves top-level:", Object.keys(d ?? {}).join(", "));
-    console.log("[CreditHub] ccf key exists:", !!d?.ccf, "| chequesSemFundo:", !!d?.chequesSemFundo, "| cheque_sem_fundo:", !!d?.cheque_sem_fundo);
 
     return {
       success: true,

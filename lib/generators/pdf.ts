@@ -3747,37 +3747,21 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     // ── Aviso quando há processos mas sem detalhes disponíveis (inclui caso de dados parciais) ──
     if (parseInt(proc?.passivosTotal || "0") > 0 && procSemDetalhesReais) {
       drawSpacer(4);
-      checkPageBreak(14);
-      doc.setFillColor(255, 251, 235);
-      doc.roundedRect(margin, y, contentW, 12, 1, 1, "F");
-      doc.setFillColor(...colors.warning);
-      doc.roundedRect(margin, y, 3, 12, 0.5, 0.5, "F");
-      doc.setFontSize(7.5);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(...colors.warning);
-      doc.text(`${proc?.passivosTotal} processo(s) identificado(s) — valores e partes nao disponiveis no plano atual`, margin + 8, y + 5);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(...colors.textMuted);
-      doc.text("O Credit Hub retornou apenas a contagem e UF dos processos. Solicitar relatorio detalhado ou consultar diretamente.", margin + 8, y + 9.5);
-      y += 16;
+      drawAlertBox(
+        `${proc?.passivosTotal} processo(s) identificado(s) — valores e partes não disponíveis no plano atual`,
+        "MODERADA",
+        "O Credit Hub retornou apenas a contagem e UF dos processos. Solicitar relatório detalhado ou consultar diretamente."
+      );
     } else if (parseInt(proc?.passivosTotal || "0") > 0
         && (proc?.top10Valor?.length ?? 0) === 0
         && (proc?.top10Recentes?.length ?? 0) === 0
         && distribuicao.length === 0) {
       drawSpacer(4);
-      checkPageBreak(14);
-      doc.setFillColor(255, 251, 235);
-      doc.roundedRect(margin, y, contentW, 12, 1, 1, "F");
-      doc.setFillColor(...colors.warning);
-      doc.roundedRect(margin, y, 3, 12, 0.5, 0.5, "F");
-      doc.setFontSize(7.5);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(...colors.warning);
-      doc.text(`${proc?.passivosTotal} processo(s) identificado(s) — detalhamento nao disponivel`, margin + 8, y + 5);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(...colors.textMuted);
-      doc.text("Consultar diretamente nos tribunais competentes.", margin + 8, y + 9.5);
-      y += 16;
+      drawAlertBox(
+        `${proc?.passivosTotal} processo(s) identificado(s) — detalhamento não disponível`,
+        "MODERADA",
+        "Consultar diretamente nos tribunais competentes."
+      );
     }
   }
 
@@ -3935,29 +3919,12 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       doc.text(`Documento: ${tipoLabel}`, margin + 3, y);
       y += 6;
 
-      // Alertas de malhas e débitos — com word-wrap limitado ao contentWidth
-      if (ir.situacaoMalhas || ir.debitosEmAberto) {
-        const alertaItens = [
-          ir.situacaoMalhas && "Pendência de malhas fiscais",
-          ir.debitosEmAberto && `Débitos em aberto: ${ir.descricaoDebitos || "Sim"}`
-        ].filter(Boolean) as string[];
-        const alertaTexto = `! ${alertaItens.join("  |  ")}`;
-        // Limitar largura ao contentW para evitar overflow horizontal
-        const alertaMaxW = contentW - 10; // margem interna
-        const alertaLines = doc.splitTextToSize(alertaTexto, alertaMaxW);
-        const alertaH = Math.max(8, alertaLines.length * 5 + 6);
-        checkPageBreak(alertaH + 2);
-        doc.setFillColor(254, 242, 242);
-        doc.rect(margin, y, contentW, alertaH, "F");
-        doc.setFillColor(220, 38, 38);
-        doc.rect(margin, y, 2.5, alertaH, "F");
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(220, 38, 38);
-        alertaLines.forEach((l: string, i: number) => {
-          doc.text(l, margin + 5, y + 5 + i * 5);
-        });
-        y += alertaH + 2;
+      // Alertas de malhas e débitos
+      if (ir.situacaoMalhas) {
+        drawAlertBox(`Sócio ${ir.nomeSocio || ""} — Pendência de malhas fiscais na Receita Federal`.trim(), "ALTA");
+      }
+      if (ir.debitosEmAberto) {
+        drawAlertBox(`Sócio ${ir.nomeSocio || ""} — Débitos em aberto: ${ir.descricaoDebitos || "confirmado"}`.trim(), "ALTA");
       }
 
       // Tabela de dados patrimoniais
