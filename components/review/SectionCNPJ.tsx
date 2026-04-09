@@ -1,7 +1,7 @@
 "use client";
-import { Building2 } from "lucide-react";
+// Building2 removed — icon no longer used in SectionCard
 import { CNPJData } from "@/types";
-import { Field, QualityBadge, SectionCard, QualityResult } from "./shared";
+import { Field, QualityBadge, SectionCard, QualityResult, qualityAccent } from "./shared";
 
 interface Props {
   data: CNPJData;
@@ -14,9 +14,9 @@ interface Props {
 export function SectionCNPJ({ data, set, expanded, onToggle, quality }: Props) {
   const pct = quality.pct;
   return (
-    <SectionCard number="01" icon={<Building2 size={16} className="text-cf-navy" />} title="Identificação da Empresa — Cartão CNPJ"
-      iconColor="bg-cf-navy/10" expanded={expanded} onToggle={onToggle}
-      badge={<span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${quality.score === "good" ? "bg-green-100 text-green-700" : quality.score === "warning" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>{pct}%</span>}>
+    <SectionCard number="01" title="Identificação da Empresa — Cartão CNPJ"
+      accentColor={qualityAccent(quality.score)} expanded={expanded} onToggle={onToggle}
+      badge={<span style={{ fontSize: "10px", fontWeight: 700, padding: "2px 8px", borderRadius: "99px", background: quality.score === "good" ? "#dcfce7" : quality.score === "warning" ? "#fef9c3" : "#fee2e2", color: quality.score === "good" ? "#15803d" : quality.score === "warning" ? "#92400e" : "#991b1b" }}>{pct}%</span>}>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Field label="Razão Social" value={data.razaoSocial} onChange={v => set("razaoSocial", v)} span2 />
         <Field label="Nome Fantasia" value={data.nomeFantasia} onChange={v => set("nomeFantasia", v)} />

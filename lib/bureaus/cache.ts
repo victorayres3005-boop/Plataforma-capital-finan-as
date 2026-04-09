@@ -68,6 +68,81 @@ export async function cacheClear(cnpj: string): Promise<void> {
   }
 }
 
+export async function cacheClearAll(): Promise<number> {
+  const db = getClient();
+  if (!db) return 0;
+  try {
+    // Deleta todos os registros (expirados ou não)
+    const { count } = await db
+      .from("bureau_cache")
+      .delete({ count: "exact" })
+      .neq("cnpj", ""); // condição always-true para apagar tudo
+    return count ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+// ─── Protestos persistentes (sem expiração) ─────────────────────────────────
+import type { ProtestosData } from "@/types";
+
+export async function protestosSave(cnpj: string, protestos: ProtestosData): Promise<void> {
+  const db = getClient();
+  if (!db) return;
+  try {
+    await db.from("protestos_cache").upsert({ cnpj, protestos, updated_at: new Date().toISOString() });
+  } catch {
+    // Silencioso
+  }
+}
+
+export async function protestosLoad(cnpj: string): Promise<ProtestosData | null> {
+  const db = getClient();
+  if (!db) return null;
+  try {
+    const { data, error } = await db
+      .from("protestos_cache")
+      .select("protestos, updated_at")
+      .eq("cnpj", cnpj)
+      .single();
+    if (error || !data) return null;
+    console.log(`[protestos-cache] HIT CNPJ=${cnpj} updated_at=${data.updated_at}`);
+    return data.protestos as ProtestosData;
+  } catch {
+    return null;
+  }
+}
+
+// ─── CCF persistente (sem expiração) ────────────────────────────────────────
+import type { CCFData } from "@/types";
+
+export async function ccfSave(cnpj: string, ccf: CCFData): Promise<void> {
+  const db = getClient();
+  if (!db) return;
+  try {
+    await db.from("ccf_cache").upsert({ cnpj, ccf, updated_at: new Date().toISOString() });
+  } catch {
+    // Silencioso
+  }
+}
+
+export async function ccfLoad(cnpj: string): Promise<CCFData | null> {
+  const db = getClient();
+  if (!db) return null;
+  try {
+    const { data, error } = await db
+      .from("ccf_cache")
+      .select("ccf, updated_at")
+      .eq("cnpj", cnpj)
+      .single();
+    if (error || !data) return null;
+    console.log(`[ccf-cache] HIT CNPJ=${cnpj} updated_at=${data.updated_at}`);
+    return data.ccf as CCFData;
+  } catch {
+    return null;
+  }
+}
+
 export async function cacheSize(): Promise<number> {
   const db = getClient();
   if (!db) return 0;

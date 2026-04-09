@@ -5,6 +5,7 @@ import type {
   CCFData, HistoricoConsultaItem, QSAData,
   GrupoEconomicoData, ParentescoDetectado,
 } from "@/types";
+import { protestosSave, protestosLoad, ccfSave, ccfLoad } from "@/lib/bureaus/cache";
 
 const CREDITHUB_API_URL = process.env.CREDITHUB_API_URL || "";
 const CREDITHUB_API_KEY = process.env.CREDITHUB_API_KEY || "";
@@ -73,103 +74,118 @@ function faixaValorLabel(n: number): string {
 }
 
 // ─── Protestos ─────────────────────────────────────────────────────────────
-// Estrutura real:
-//   d.protestos = {
-//     qtdProtestos: number,
-//     cartorios: [{
-//       nome, cidade, uf, telefone, qtdProtestos,
-//       protestos: [{ data, dataProtesto, valor, nomeCedente, nomeApresentante, temAnuencia }]
-//     }]
-//   }
+// A API CreditHub pode retornar protestos em múltiplas estruturas possíveis.
+// Esta função tenta todas antes de desistir.
 function parseProtestos(d: any): ProtestosData {
-  const cartorios: any[] = d?.protestos?.cartorios ?? [];
 
-  // Flatten: cada protesto individual dentro de cada cartório
   type ProtestoFlat = {
     data: string; valor: number; nomeCedente: string;
-    nomeApresentante: string; temAnuencia: boolean;
-    cartorioNome: string; municipio: string; uf: string;
-    regularizado: boolean;
+    nomeApresentante: string; cartorioNome: string;
+    municipio: string; uf: string; regularizado: boolean;
   };
 
   const todos: ProtestoFlat[] = [];
+
+  // ── Resolve onde estão os cartórios ──────────────────────────────────────
+  // A API pode retornar em: d.protestos.cartorios, d.protestos (array),
+  // d.cartorios, d.registros_protestos, etc.
+  const protestosRaiz = d?.protestos ?? d?.registros_protestos ?? d?.protestoData ?? {};
+  const cartorios: any[] = Array.isArray(protestosRaiz)
+    ? protestosRaiz                                               // d.protestos = [...]
+    : Array.isArray(protestosRaiz?.cartorios)
+      ? protestosRaiz.cartorios                                   // d.protestos.cartorios = [...]
+      : Array.isArray(protestosRaiz?.registros)
+        ? protestosRaiz.registros                                 // d.protestos.registros = [...]
+        : Array.isArray(d?.cartorios)
+          ? d.cartorios                                           // d.cartorios = [...]
+          : [];
+
+  console.log(`[credithub][protestos] cartorios encontrados: ${cartorios.length} | chaves raiz: ${Object.keys(d ?? {}).join(",")}`);
+
   cartorios.forEach((c: any) => {
-    const cartorioNome = c.nome ?? c.nomeCartorio ?? c.cartorio ?? "";
-    const municipio = c.cidade ?? c.municipio ?? "";
-    const uf = c.uf ?? c.estado ?? "";
-    const protestosInner: any[] = Array.isArray(c.protestos) ? c.protestos : [];
+    const cartorioNome = c.nome ?? c.nomeCartorio ?? c.cartorio ?? c.nomeCartorios ?? "";
+    const municipio    = c.cidade ?? c.municipio ?? c.localidade ?? "";
+    const uf           = c.uf ?? c.estado ?? c.siglaUF ?? "";
+
+    // Nível interno: cada cartório pode ter um array de protestos individuais
+    const protestosInner: any[] = Array.isArray(c.protestos)
+      ? c.protestos
+      : Array.isArray(c.titulos)
+        ? c.titulos
+        : Array.isArray(c.registros)
+          ? c.registros
+          : [];
 
     if (protestosInner.length > 0) {
       protestosInner.forEach((p: any) => {
         todos.push({
-          data: p.dataProtesto ?? p.data ?? "",
-          valor: Number(p.valor ?? p.valorProtestado ?? 0),
-          nomeCedente: p.nomeCedente ?? p.cedente ?? "",
+          data:             p.dataProtesto ?? p.data ?? p.dataOcorrencia ?? "",
+          valor:            Number(p.valor ?? p.valorProtestado ?? p.valorTitulo ?? 0),
+          nomeCedente:      p.nomeCedente ?? p.cedente ?? p.credor ?? "",
           nomeApresentante: p.nomeApresentante ?? p.apresentante ?? "",
-          temAnuencia: !!p.temAnuencia,
-          cartorioNome,
-          municipio,
-          uf,
-          regularizado: !!p.temAnuencia || !!p.regularizado,
+          cartorioNome, municipio, uf,
+          regularizado: !!p.temAnuencia || !!p.regularizado || !!p.anuencia,
         });
       });
     } else {
-      // Fallback: cartório sem array de protestos interno
+      // Cartório sem array interno — o próprio objeto do cartório é o protesto
       todos.push({
-        data: c.data ?? c.dataProtesto ?? "",
-        valor: Number(c.valor ?? 0),
-        nomeCedente: c.nomeCedente ?? c.cedente ?? "",
+        data:             c.data ?? c.dataProtesto ?? "",
+        valor:            Number(c.valor ?? c.valorProtestado ?? 0),
+        nomeCedente:      c.nomeCedente ?? c.cedente ?? c.credor ?? "",
         nomeApresentante: c.nomeApresentante ?? c.apresentante ?? "",
-        temAnuencia: false,
-        cartorioNome,
-        municipio,
-        uf,
-        regularizado: !!c.regularizado,
+        cartorioNome, municipio, uf,
+        regularizado: !!(c.regularizado || c.temAnuencia),
       });
     }
   });
 
-  // Deduplica por chave: data + valor + cedente/apresentante (API pode repetir o mesmo protesto em múltiplos cartórios)
+  // ── Deduplicação: inclui cartório na chave para não eliminar protestos
+  //    legítimos em cartórios diferentes com mesmo valor/data/cedente ────────
   const vistos = new Set<string>();
   const todosUniq = todos.filter(p => {
-    const key = `${p.data}|${p.valor}|${(p.nomeCedente || p.nomeApresentante || "").toLowerCase().trim()}`;
+    const cedente = (p.nomeCedente || p.nomeApresentante || "").toLowerCase().trim();
+    const key = `${p.data}|${p.valor}|${cedente}|${p.cartorioNome.toLowerCase().trim()}`;
     if (vistos.has(key)) return false;
     vistos.add(key);
     return true;
   });
 
-  const vigentes = todosUniq.filter(p => !p.regularizado);
+  const vigentes     = todosUniq.filter(p => !p.regularizado);
   const regularizados = todosUniq.filter(p => p.regularizado);
 
-  const vigentesValor = vigentes.reduce((s, p) => s + p.valor, 0);
+  const vigentesValor     = vigentes.reduce((s, p) => s + p.valor, 0);
   const regularizadosValor = regularizados.reduce((s, p) => s + p.valor, 0);
 
-  // Fallback para qtd se não encontrou itens individuais
-  const vigentesQtd = vigentes.length > 0
+  // Qtd: usa detalhes encontrados; fallback para campo numérico da API apenas
+  // quando NENHUM cartório foi encontrado (evita mismatch qtd≠detalhes)
+  const vigentesQtd = todosUniq.length > 0
     ? vigentes.length
-    : Number(d?.protestos?.qtdProtestos ?? 0);
+    : Number(protestosRaiz?.qtdProtestos ?? protestosRaiz?.total ?? protestosRaiz?.quantidade ?? 0);
+
+  console.log(`[credithub][protestos] vigentes=${vigentesQtd} regularizados=${regularizados.length} detalhes=${todosUniq.length}`);
 
   const detalhes: ProtestosData["detalhes"] = todosUniq.map((p) => {
     const credorDisplay = p.cartorioNome
       ? [p.cartorioNome, p.municipio, p.uf].filter(Boolean).join(" — ")
       : [p.municipio, p.uf].filter(Boolean).join(" / ") || "—";
     return {
-      data: p.data,
-      credor: credorDisplay,
-      valor: fmtBRL(p.valor),
+      data:         p.data,
+      credor:       credorDisplay,
+      valor:        fmtBRL(p.valor),
       regularizado: p.regularizado,
       apresentante: p.nomeCedente || p.nomeApresentante || "",
-      municipio: p.municipio,
-      uf: p.uf,
-      especie: "",
-      numero: "",
+      municipio:    p.municipio,
+      uf:           p.uf,
+      especie:      "",
+      numero:       "",
       dataVencimento: "",
     };
   });
 
   return {
-    vigentesQtd: String(vigentesQtd),
-    vigentesValor: fmtBRL(vigentesValor),
+    vigentesQtd:      String(vigentesQtd),
+    vigentesValor:    fmtBRL(vigentesValor),
     regularizadosQtd: String(regularizados.length),
     regularizadosValor: fmtBRL(regularizadosValor),
     detalhes,
@@ -195,6 +211,49 @@ function parseProcessos(d: any): ProcessosData {
     return !s || /ativo|andamento|distribuido|pendente|em curso|conhecimento|execu[çc]/i.test(s + " " + f);
   }).length;
 
+  // ── Polo processual: identifica se a empresa é autora (polo ativo) ou ré (polo passivo) ──
+  // Usa o nome da empresa (razaoSocial) para encontrar o envolvido correto
+  const razaoSocial = String(d?.razaoSocial ?? d?.razao_social ?? "").toUpperCase().trim();
+  // Palavras distintivas do nome (>4 chars, ignora termos genéricos)
+  const stopWords = new Set(["LTDA", "EIRELI", "INDUSTRIA", "COMERCIO", "SERVICOS", "EMPRESA", "BRASIL", "NACIONAL", "SOLUCOES", "ALIMENTOS", "S/A", "S.A", "ME", "EPP"]);
+  const palavrasDistintivas = razaoSocial
+    .replace(/[^A-Z0-9\s]/g, "")
+    .split(/\s+/)
+    .filter(w => w.length > 4 && !stopWords.has(w))
+    .slice(0, 3); // usa até 3 palavras para match
+
+  function nomeMatchEmpresa(nome: string): boolean {
+    const nomeUp = nome.toUpperCase().replace(/[^A-Z0-9\s]/g, "");
+    return palavrasDistintivas.some(w => nomeUp.includes(w));
+  }
+
+  let poloAtivoQtd = 0;
+  let poloPassivoQtd = 0;
+  let temFalencia = false;
+
+  processos.forEach(p => {
+    // Detecta pedido de falência
+    if (/fal[eê]ncia/i.test(String(p.classe_processual ?? p.tipo ?? p.natureza ?? ""))) {
+      temFalencia = true;
+    }
+
+    const envs: any[] = p.envolvidos_ultima_movimentacao ?? [];
+    // Tenta primeiro tipo_envolvido do próprio processo
+    const tipoDir = String(p.tipo_envolvido ?? "").toLowerCase();
+    if (tipoDir === "ativo") { poloAtivoQtd++; return; }
+    if (tipoDir === "passivo") { poloPassivoQtd++; return; }
+
+    // Fallback: busca o envolvido que corresponde à empresa consultada
+    const envEmpresa = envs.find(e =>
+      /^(ativo|passivo)$/i.test(String(e.envolvido_tipo ?? "")) &&
+      nomeMatchEmpresa(String(e.nome ?? ""))
+    );
+    if (envEmpresa) {
+      if (/ativo/i.test(envEmpresa.envolvido_tipo)) poloAtivoQtd++;
+      else poloPassivoQtd++;
+    }
+  });
+
   // Recuperação judicial
   const temRJ = processos.some(p =>
     /recupera[çc]|rj\b/i.test(String(p.tipo ?? p.natureza ?? p.assunto ?? ""))
@@ -203,7 +262,8 @@ function parseProcessos(d: any): ProcessosData {
   // ── Distribuição por tipo ──
   const tipoMap = new Map<string, number>();
   processos.forEach(p => {
-    const t = (p.tipo ?? p.natureza ?? p.classe ?? "OUTROS").toUpperCase().trim();
+    // Credit Hub usa classe_processual; fallback para outros campos comuns
+    const t = (p.classe_processual ?? p.tipo ?? p.natureza ?? p.classe ?? "OUTROS").toUpperCase().trim();
     tipoMap.set(t, (tipoMap.get(t) ?? 0) + 1);
   });
   // Remove "OUTROS" puro se todos forem OUTROS (API não retornou tipos) → substituir por distribuição por UF
@@ -347,11 +407,16 @@ function parseProcessos(d: any): ProcessosData {
     })
     .slice(0, 10);
 
+  console.log(`[credithub] processos polo ativo=${poloAtivoQtd} polo passivo=${poloPassivoQtd} falência=${temFalencia}`);
+
   return {
     passivosTotal: String(processos.length + dividas.length),
     ativosTotal: String(ativos),
     valorTotalEstimado: fmtBRL(valorProcessos + valorDividas),
     temRJ,
+    temFalencia,
+    poloAtivoQtd: String(poloAtivoQtd),
+    poloPassivoQtd: String(poloPassivoQtd),
     distribuicao,
     bancarios: [],
     fiscais: [],
@@ -421,9 +486,18 @@ function resolveBancoNome(raw: string): string {
 
 // ─── CCF ────────────────────────────────────────────────────────────────────
 function parseCCF(d: any): CCFData {
-  // Tenta múltiplas chaves possíveis da API
-  const ccf = d?.ccf ?? d?.chequesSemFundo ?? d?.cheque_sem_fundo ?? d?.ccfData ?? d?.CCF ?? {};
-  const bancos: CCFData["bancos"] = (ccf.bancos ?? ccf.instituicoes ?? ccf.registros ?? []).map((b: any) => {
+  // Tenta múltiplas chaves possíveis da API Credit Hub
+  const ccf = d?.ccf ?? d?.chequesSemFundo ?? d?.cheque_sem_fundo ?? d?.ccfData ?? d?.CCF
+    ?? d?.cheques ?? d?.ocorrencias_ccf ?? d?.chequesSemCobertura
+    ?? d?.restricoes?.ccf ?? d?.negativacoes?.ccf ?? d?.retorno?.ccf
+    ?? d?.chequeSemFundo ?? d?.Cheques_Sem_Fundo ?? d?.cheque
+    ?? {};
+
+  // Log diagnóstico — ajuda a identificar key real da API
+  const ccfKeys = Object.keys(ccf ?? {}).join(", ");
+  console.log(`[parseCCF] keys encontradas no objeto CCF: "${ccfKeys}" | qtdRegistros_raw=${ccf?.qtdRegistros ?? ccf?.quantidade ?? ccf?.total ?? "N/A"} | bancos_raw=${JSON.stringify(ccf?.bancos ?? ccf?.instituicoes ?? ccf?.registros ?? ccf?.ocorrencias ?? []).substring(0, 300)}`);
+
+  const bancos: CCFData["bancos"] = (ccf.bancos ?? ccf.instituicoes ?? ccf.registros ?? ccf.ocorrencias ?? []).map((b: any) => {
     const rawNome = b.banco ?? b.nome ?? b.instituicao ?? b.codigoBanco ?? "";
     const nomeResolvido = /^\d+$/.test(String(rawNome).trim())
       ? resolveBancoNome(rawNome)
@@ -691,36 +765,73 @@ export async function consultarCreditHub(cnpj: string): Promise<CreditHubResult>
   const cnpjNum = cnpj.replace(/\D/g, "");
   const url = `${CREDITHUB_API_URL}/simples/${CREDITHUB_API_KEY}/${cnpjNum}`;
 
+  // Chamada única — Credit Hub é real-time, retries com delay não trazem mais dados
+  let d: any = null;
   try {
-    const res = await fetch(url, {
-      headers: { "Content-Type": "application/json" },
-      next: { revalidate: 0 },
-    });
-
+    const res = await fetch(url, { headers: { "Content-Type": "application/json" }, next: { revalidate: 0 } });
     if (!res.ok) {
-      const err = await res.text();
-      return { success: false, mock: false, error: `Credit Hub ${res.status}: ${err}` };
+      const errText = (await res.text()).substring(0, 200);
+      return { success: false, mock: false, error: `Credit Hub ${res.status}: ${errText}` };
     }
-
     const raw = await res.json();
-    const d = raw?.data ?? raw; // dados aninhados sob raw.data
-
-    return {
-      success: true,
-      mock: false,
-      protestos: parseProtestos(d),
-      processos: parseProcessos(d),
-      ccf: parseCCF(d),
-      historicoConsultas: parseHistoricoConsultas(d),
-      cnpjEnrichment: parseCNPJEnrichment(d),
-      qsaEnrichment: parseQSAEnrichment(d),
-      score: {
-        consultadoEm: new Date().toISOString(),
-        protestosIntegrados: true,
-        processosIntegrados: true,
-      },
-    };
+    d = raw?.data ?? raw;
+    const temProtestos = !!d?.protestos;
+    const temProcessos = Array.isArray(d?.processos) ? d.processos.length : 0;
+    const topKeys = Object.keys(d ?? {}).join(", ");
+    const temCCFKey = !!(d?.ccf ?? d?.chequesSemFundo ?? d?.cheque_sem_fundo ?? d?.ccfData ?? d?.CCF ?? d?.cheques ?? d?.ocorrencias_ccf ?? d?.chequesSemCobertura ?? d?.chequeSemFundo ?? d?.restricoes?.ccf ?? d?.negativacoes?.ccf);
+    console.log(`[credithub] CNPJ=${cnpjNum} protestos=${temProtestos} processos=${temProcessos} ccf=${temCCFKey}`);
+    console.log(`[credithub] API top-level keys: ${topKeys}`);
+    // Log CCF bruto para diagnóstico
+    const ccfRaw = d?.ccf ?? d?.chequesSemFundo ?? d?.cheque_sem_fundo ?? d?.ccfData ?? d?.CCF ?? d?.cheques ?? d?.ocorrencias_ccf ?? d?.chequesSemCobertura ?? d?.chequeSemFundo ?? null;
+    console.log(`[credithub] CCF raw: ${JSON.stringify(ccfRaw).substring(0, 500)}`);
   } catch (err: any) {
     return { success: false, mock: false, error: String(err?.message ?? err) };
   }
+
+  if (!d) {
+    return { success: false, mock: false, error: "Sem resposta da API" };
+  }
+
+  // Protestos: usa API se retornou dados, senão busca Supabase como fallback
+  let protestos: ProtestosData | undefined;
+  if (d?.protestos) {
+    protestos = parseProtestos(d);
+    // Salva no Supabase para uso futuro quando a API não retornar
+    if (Number(protestos.vigentesQtd) > 0 || Number(protestos.regularizadosQtd) > 0 || (protestos.detalhes?.length ?? 0) > 0) {
+      protestosSave(cnpjNum, protestos).catch(() => {});
+      console.log(`[credithub] protestos salvos no Supabase CNPJ=${cnpjNum}`);
+    }
+  } else {
+    // API não retornou protestos — tenta Supabase
+    const cached = await protestosLoad(cnpjNum);
+    if (cached) {
+      protestos = cached;
+      console.log(`[credithub] protestos recuperados do Supabase CNPJ=${cnpjNum}`);
+    }
+  }
+
+  // CCF: salva no cache e usa fallback Supabase se não vier da API
+  const ccfParsed = parseCCF(d);
+  const ccfTemDados = ccfParsed.qtdRegistros > 0 || ccfParsed.bancos.length > 0;
+  if (ccfTemDados) {
+    ccfSave(cnpjNum, ccfParsed).catch(() => {});
+    console.log(`[credithub] CCF salvo no cache CNPJ=${cnpjNum}`);
+  }
+  const ccfFinal = ccfTemDados ? ccfParsed : (await ccfLoad(cnpjNum)) ?? ccfParsed;
+
+  return {
+    success: true,
+    mock: false,
+    protestos,
+    processos: parseProcessos(d),
+    ccf: ccfFinal,
+    historicoConsultas: parseHistoricoConsultas(d),
+    cnpjEnrichment: parseCNPJEnrichment(d),
+    qsaEnrichment: parseQSAEnrichment(d),
+    score: {
+      consultadoEm: new Date().toISOString(),
+      protestosIntegrados: true,
+      processosIntegrados: true,
+    },
+  };
 }

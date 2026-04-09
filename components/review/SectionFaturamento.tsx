@@ -1,7 +1,7 @@
 "use client";
-import { TrendingUp, Plus, Trash2, AlertCircle, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, AlertCircle, AlertTriangle } from "lucide-react";
 import { FaturamentoData, FaturamentoMensal } from "@/types";
-import { QualityBadge, SectionCard, QualityResult } from "./shared";
+import { QualityBadge, SectionCard, QualityResult, qualityAccent } from "./shared";
 
 interface Props {
   data: FaturamentoData;
@@ -14,17 +14,21 @@ interface Props {
 }
 
 export function SectionFaturamento({ data, setMes, addMes, removeMes, expanded, onToggle, quality }: Props) {
+  // Recomputa dos meses reais — não confia no flag armazenado (default é true)
+  const parseFatVal = (v: string) => parseFloat((v || "0").replace(/\./g, "").replace(",", ".")) || 0;
+  const fatZeradoReal = (data.meses?.length ?? 0) > 0 && data.meses!.every(m => parseFatVal(m.valor) === 0);
+
   return (
-    <SectionCard number="04" icon={<TrendingUp size={16} className="text-emerald-600" />} title="Faturamento"
-      iconColor="bg-emerald-100" expanded={expanded} onToggle={onToggle}
-      badge={<>
-        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${quality.score === "good" ? "bg-green-100 text-green-700" : quality.score === "warning" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>{quality.pct}%</span>
-        {data.faturamentoZerado
-          ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded-full border border-red-200"><AlertCircle size={10} /> Zerado</span>
+    <SectionCard number="04" title="Faturamento"
+      accentColor={qualityAccent(quality.score)} expanded={expanded} onToggle={onToggle}
+      badge={<div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+        <span style={{ fontSize: "10px", fontWeight: 700, padding: "2px 8px", borderRadius: "99px", background: quality.score === "good" ? "#dcfce7" : quality.score === "warning" ? "#fef9c3" : "#fee2e2", color: quality.score === "good" ? "#15803d" : quality.score === "warning" ? "#92400e" : "#991b1b" }}>{quality.pct}%</span>
+        {fatZeradoReal
+          ? <span style={{ display: "inline-flex", alignItems: "center", gap: "3px", fontSize: "10px", fontWeight: 700, color: "#991b1b", background: "#fee2e2", padding: "2px 7px", borderRadius: "99px" }}><AlertCircle size={9} /> Zerado</span>
           : !data.dadosAtualizados
-            ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-cf-warning bg-cf-warning-bg px-2 py-0.5 rounded-full border border-cf-warning/20"><AlertTriangle size={10} /> Desatualizado</span>
+            ? <span style={{ display: "inline-flex", alignItems: "center", gap: "3px", fontSize: "10px", fontWeight: 700, color: "#92400e", background: "#fef9c3", padding: "2px 7px", borderRadius: "99px" }}><AlertTriangle size={9} /> Desatualizado</span>
             : null}
-      </>}>
+      </div>}>
       <div className="space-y-4">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="bg-cf-surface rounded-xl p-3 border border-cf-border">

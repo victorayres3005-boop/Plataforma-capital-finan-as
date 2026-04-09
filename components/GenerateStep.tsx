@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { ArrowLeft, Loader2, CheckCircle2, AlertTriangle, AlertCircle, Pencil, Check, X as XIcon, RotateCcw } from "lucide-react";
+import { ArrowLeft, Loader2, CheckCircle2, AlertTriangle, Pencil, Check, RotateCcw } from "lucide-react";
 import Image from "next/image";
 import { buildHTMLReport } from "@/lib/generators/html";
 import { buildDOCXReport } from "@/lib/generators/docx";
@@ -12,7 +12,7 @@ import { createClient } from "@/lib/supabase/client";
 import { uploadFile } from "@/lib/storage";
 import GoalfyButton from "@/components/GoalfyButton";
 import AlertList from "@/components/AlertList";
-import { ExtractedData, CollectionDocument, DocumentCollection, FundSettings, DEFAULT_FUND_SETTINGS, AIAnalysis } from "@/types";
+import { ExtractedData, CollectionDocument, DocumentCollection, FundSettings, DEFAULT_FUND_SETTINGS, AIAnalysis, FundCriterion, FundValidationResult, CriterionStatus } from "@/types";
 import type { OriginalFiles } from "@/components/UploadStep";
 
 type Format = "pdf" | "docx" | "xlsx" | "html";
@@ -71,6 +71,178 @@ interface ValidationResult {
   };
 }
 
+// ── Fund Parameter Validation ──────────────────────────────────────────────
+
+function parseMoney(v: string): number {
+  return parseFloat((v || "0").replace(/\./g, "").replace(",", ".")) || 0;
+}
+
+function fmtMoney(n: number): string {
+  return `R$ ${n.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+}
+
+function getAgeYears(dataAbertura: string): number | null {
+  if (!dataAbertura) return null;
+  const parts = dataAbertura.split("/");
+  let year: number;
+  if (parts.length === 3) {
+    year = parseInt(parts[2], 10);
+  } else {
+    const dash = dataAbertura.split("-");
+    year = parseInt(dash[0], 10);
+  }
+  if (isNaN(year) || year < 1900 || year > new Date().getFullYear()) return null;
+  return new Date().getFullYear() - year;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function validarContraParametros(data: ExtractedData, settings: FundSettings): FundValidationResult {
+  const criteria: FundCriterion[] = [];
+
+  // ── 1. Situação Cadastral ─────────────────────────────────────────────────
+  const situacao = data.cnpj.situacaoCadastral?.toUpperCase().trim() || "";
+  const situacaoOk = situacao.includes("ATIVA");
+  criteria.push({
+    id: "situacao",
+    label: "Situação Cadastral",
+    threshold: "ATIVA",
+    actual: situacao || "Não informada",
+    status: !situacao ? "unknown" : situacaoOk ? "ok" : "error",
+    eliminatoria: true,
+    detail: !situacaoOk && situacao ? `Situação: ${situacao}` : undefined,
+  });
+
+  // ── 2. FMM Mínimo ──────────────────────────────────────────────────────────
+  const fmmStr = data.faturamento.fmm12m || data.faturamento.mediaAno || "";
+  const fmmVal = parseMoney(fmmStr);
+  const fmmOk = fmmVal >= settings.fmm_minimo;
+  criteria.push({
+    id: "fmm",
+    label: "Faturamento Médio Mensal (FMM)",
+    threshold: `≥ ${fmtMoney(settings.fmm_minimo)}/mês`,
+    actual: fmmVal > 0 ? `${fmtMoney(fmmVal)}/mês` : "Não informado",
+    status: fmmVal === 0 ? "unknown" : fmmOk ? "ok" : "error",
+    eliminatoria: true,
+    detail: !fmmOk && fmmVal > 0 ? `Déficit: ${fmtMoney(settings.fmm_minimo - fmmVal)}` : undefined,
+  });
+
+  // ── 3. Idade Mínima ────────────────────────────────────────────────────────
+  const ageYears = getAgeYears(data.cnpj.dataAbertura);
+  const idadeOk = ageYears !== null && ageYears >= settings.idade_minima_anos;
+  criteria.push({
+    id: "idade",
+    label: "Idade da Empresa",
+    threshold: `≥ ${settings.idade_minima_anos} ano${settings.idade_minima_anos !== 1 ? "s" : ""}`,
+    actual: ageYears !== null ? `${ageYears} ano${ageYears !== 1 ? "s" : ""}` : "Não informada",
+    status: ageYears === null ? "unknown" : idadeOk ? "ok" : "error",
+    eliminatoria: true,
+    detail: ageYears !== null && !idadeOk ? `Faltam ${settings.idade_minima_anos - ageYears} ano(s)` : undefined,
+  });
+
+  // ── 4. Alavancagem ────────────────────────────────────────────────────────
+  const dividaTotal = parseMoney(data.scr.totalDividasAtivas);
+  const alavancagem = fmmVal > 0 && dividaTotal > 0 ? dividaTotal / fmmVal : 0;
+  const alavStr = fmmVal > 0 && dividaTotal > 0 ? `${alavancagem.toFixed(1)}x FMM` : dividaTotal === 0 ? "Sem dívida" : "Sem FMM";
+  const alavStatus: CriterionStatus =
+    fmmVal === 0 ? "unknown" :
+    dividaTotal === 0 ? "ok" :
+    alavancagem <= settings.alavancagem_saudavel ? "ok" :
+    alavancagem <= settings.alavancagem_maxima ? "warning" : "error";
+  criteria.push({
+    id: "alavancagem",
+    label: "Alavancagem (Dívida / FMM)",
+    threshold: `Saudável ≤ ${settings.alavancagem_saudavel}x · Máx ≤ ${settings.alavancagem_maxima}x`,
+    actual: alavStr,
+    status: alavStatus,
+    eliminatoria: alavStatus === "error",
+    detail: alavStatus === "warning" ? "Acima do saudável, dentro do limite máximo" : undefined,
+  });
+
+  // ── 5. SCR Vencidos % ─────────────────────────────────────────────────────
+  const vencidosVal = parseMoney(data.scr.vencidos);
+  const carteira = parseMoney(data.scr.carteiraAVencer) || dividaTotal;
+  const vencidosPct = carteira > 0 && vencidosVal > 0 ? (vencidosVal / carteira) * 100 : 0;
+  const vencidosStr = carteira > 0
+    ? (vencidosVal === 0 ? "0%" : `${vencidosPct.toFixed(1)}% (${fmtMoney(vencidosVal)})`)
+    : dividaTotal === 0 ? "Sem dívida" : "Sem carteira";
+  const vencidosStatus: CriterionStatus =
+    carteira === 0 && dividaTotal === 0 ? "ok" :
+    carteira === 0 ? "unknown" :
+    vencidosPct <= settings.scr_vencidos_max_pct ? "ok" : "error";
+  criteria.push({
+    id: "scr_vencidos",
+    label: "SCR — Vencidos",
+    threshold: `≤ ${settings.scr_vencidos_max_pct}% da carteira`,
+    actual: vencidosStr,
+    status: vencidosStatus,
+    eliminatoria: true,
+  });
+
+  // ── 6. Prejuízos SCR ──────────────────────────────────────────────────────
+  const prejVal = parseMoney(data.scr.prejuizos);
+  criteria.push({
+    id: "prejuizos",
+    label: "SCR — Prejuízos",
+    threshold: "Ausentes (R$ 0)",
+    actual: prejVal > 0 ? fmtMoney(prejVal) : "R$ 0",
+    status: prejVal > 0 ? "error" : "ok",
+    eliminatoria: false,
+  });
+
+  // ── 7. Protestos ─────────────────────────────────────────────────────────
+  const protestosN = parseInt(data.protestos?.vigentesQtd || "0", 10) || 0;
+  const protestosOk = protestosN <= settings.protestos_max;
+  criteria.push({
+    id: "protestos",
+    label: "Protestos Vigentes",
+    threshold: `≤ ${settings.protestos_max}`,
+    actual: String(protestosN),
+    status: protestosOk ? "ok" : "error",
+    eliminatoria: true,
+    detail: !protestosOk ? `Excede o limite em ${protestosN - settings.protestos_max} protesto(s)` : undefined,
+  });
+
+  // ── 8. Processos Passivos ─────────────────────────────────────────────────
+  const passivosN = parseInt(data.processos?.passivosTotal || data.processos?.poloPassivoQtd || "0", 10) || 0;
+  const passivosOk = passivosN <= settings.processos_passivos_max;
+  const passivosStatus: CriterionStatus = passivosN === 0 ? "ok" : passivosOk ? "warning" : "error";
+  criteria.push({
+    id: "processos",
+    label: "Processos Passivos",
+    threshold: `≤ ${settings.processos_passivos_max}`,
+    actual: String(passivosN),
+    status: passivosStatus,
+    eliminatoria: false,
+    detail: passivosN > 0 && passivosOk ? "Dentro do limite — monitorar" : !passivosOk ? `Excede em ${passivosN - settings.processos_passivos_max}` : undefined,
+  });
+
+  // ── 9. Recuperação Judicial ───────────────────────────────────────────────
+  const temRJ = data.processos?.temRJ === true;
+  criteria.push({
+    id: "rj",
+    label: "Recuperação Judicial",
+    threshold: "Não detectada",
+    actual: temRJ ? "ATIVA" : "Não detectada",
+    status: temRJ ? "error" : "ok",
+    eliminatoria: true,
+  });
+
+  const passCount   = criteria.filter(c => c.status === "ok").length;
+  const warnCount   = criteria.filter(c => c.status === "warning").length;
+  const failCount   = criteria.filter(c => c.status === "error").length;
+  const unknownCount = criteria.filter(c => c.status === "unknown").length;
+  const hasEliminatoria = criteria.some(c => c.eliminatoria && c.status === "error");
+
+  return { criteria, passCount, warnCount, failCount, unknownCount, hasEliminatoria };
+}
+
+// Recomputa faturamentoZerado dos meses reais (nunca confia no flag armazenado)
+function calcFaturamentoZerado(fat: ExtractedData["faturamento"]): boolean {
+  if (!fat.meses || fat.meses.length === 0) return false; // sem meses = falta de doc, não zero
+  const parseFat = (v: string) => parseFloat((v || "0").replace(/\./g, "").replace(",", ".")) || 0;
+  return fat.meses.every(m => parseFat(m.valor) === 0);
+}
+
 function validateExtractedData(data: ExtractedData): ValidationResult {
   const errors: ValidationIssue[] = [];
   const warnings: ValidationIssue[] = [];
@@ -123,7 +295,7 @@ function validateExtractedData(data: ExtractedData): ValidationResult {
   if (data.faturamento.meses.length > 0 && data.faturamento.meses.length < 6) {
     warnings.push({ field: "meses", document: "faturamento", message: `Apenas ${data.faturamento.meses.length} meses — ideal ter 6+`, severity: "warning" });
   }
-  if (data.faturamento.faturamentoZerado) {
+  if (calcFaturamentoZerado(data.faturamento)) {
     warnings.push({ field: "faturamentoZerado", document: "faturamento", message: "Faturamento zerado no período", severity: "warning" });
   }
 
@@ -185,8 +357,8 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   const setSCR = (k: keyof typeof data.scr, v: string) => setData(p => ({ ...p, scr: { ...p.scr, [k]: v } }));
   const setResumoRisco = (v: string) => setData(p => ({ ...p, resumoRisco: v }));
 
-  // ── Data Validation ──
-  const validation = validateExtractedData(data);
+  // ── Data Validation (mantido para uso interno, card removido da UI) ──
+  void validateExtractedData(data);
 
   // ── Collection ID (needed by cache logic below) ──
   const [collectionId, setCollectionId] = useState<string | null>(null);
@@ -675,8 +847,8 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     const a: Alert[] = [];
     if (vencidosSCR > 0 || vencidas > 0) a.push({ message: "SCR com operações vencidas", severity: "ALTA" });
     if (prejuizosVal > 0) a.push({ message: "SCR com prejuízos registrados", severity: "ALTA" });
-    if (data.faturamento.faturamentoZerado) a.push({ message: "Faturamento zerado no período", severity: "ALTA" });
-    if (!data.faturamento.dadosAtualizados) a.push({ message: "Faturamento desatualizado", severity: "MODERADA" });
+    if (calcFaturamentoZerado(data.faturamento)) a.push({ message: "Faturamento zerado no período", severity: "ALTA" });
+    if (data.faturamento.meses.length > 0 && !data.faturamento.dadosAtualizados) a.push({ message: "Faturamento desatualizado", severity: "MODERADA" });
     const rl = data.scr.classificacaoRisco?.toUpperCase();
     if (rl && ["D", "E", "F", "G", "H"].includes(rl)) a.push({ message: `Classificação de risco ${rl}`, severity: "MODERADA" });
     if (atraso > 0) a.push({ message: "Operações em atraso no SCR", severity: "MODERADA" });
@@ -734,6 +906,9 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     }
     return "";
   })();
+
+  // ── Fund parameter validation ──
+  const fundValidation = validarContraParametros(data, fundSettings);
 
   // ═══════════════════════════════════════════════════
   // PDF Generation
@@ -872,11 +1047,15 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       {/* ══════════════════════════════════════════════════════
           CARD 00 — SUMARIO EXECUTIVO
           ══════════════════════════════════════════════════════ */}
-      <div className="bg-white rounded-xl border border-[#E5E7EB]" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-        <div className="flex items-center gap-3 px-5 py-3.5 bg-[#F8FAFC] border-b border-[#E5E7EB] rounded-t-xl">
-          <div className="w-1 h-8 rounded-full bg-[#F59E0B]" />
-          <span className="text-xs font-bold text-[#1E3A5F] uppercase tracking-[0.08em]">00</span>
-          <span className="text-sm font-bold text-[#111827]">Sumario Executivo</span>
+      <div className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #2d4f8a", boxShadow: "0 4px 20px rgba(32,59,136,0.12)" }}>
+        <div className="px-5 py-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg, #192f5d 0%, #1e3a7a 100%)" }}>
+          <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0 border border-white/20">
+            <span className="text-sm font-bold text-white">00</span>
+          </div>
+          <div>
+            <p className="text-[10px] font-bold text-white/50 uppercase tracking-[0.12em]">Sumário Executivo</p>
+            <p className="text-sm font-bold text-white">Análise de Crédito</p>
+          </div>
         </div>
 
         <div className="p-5 space-y-5">
@@ -1030,7 +1209,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           </div>
 
           {/* Grid row 3 */}
-          <div className="grid grid-cols-4 gap-5">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-5">
             <div>
               <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Em Atraso</p>
               <p className="text-[14px]"><MutedValue v={data.scr.operacoesEmAtraso ? `R$ ${data.scr.operacoesEmAtraso}` : ""} /></p>
@@ -1048,17 +1227,164 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
               <p className="text-[14px] font-semibold text-[#111827]">{data.scr.classificacaoRisco || "—"}</p>
             </div>
           </div>
+
+          {/* Grid row 4 — Processos (Credit Hub) */}
+          {data.processos && (parseInt(data.processos.passivosTotal || "0") > 0 || parseInt(data.processos.ativosTotal || "0") > 0 || data.processos.temRJ) && (() => {
+            const passivosN = parseInt(data.processos!.passivosTotal || "0");
+            return (
+              <div className="border-t border-[#F3F4F6] pt-4">
+                <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] font-bold mb-3">Processos Judiciais — Credit Hub</p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-5">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Total Processos</p>
+                    <p className={`text-[20px] font-bold ${passivosN > 0 ? "text-[#D97706]" : "text-[#111827]"}`}>{passivosN}</p>
+                    <p className="text-[10px] text-[#9CA3AF] mt-0.5">todos os polos</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Polo Ativo</p>
+                    <p className="text-[20px] font-bold text-[#1D4ED8]">{parseInt(data.processos!.poloAtivoQtd || "0") || "—"}</p>
+                    <p className="text-[10px] text-[#9CA3AF] mt-0.5">empresa autora</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Polo Passivo</p>
+                    <p className={`text-[20px] font-bold ${parseInt(data.processos!.poloPassivoQtd || "0") > 0 ? "text-[#D97706]" : "text-[#111827]"}`}>{parseInt(data.processos!.poloPassivoQtd || "0") || "—"}</p>
+                    <p className="text-[10px] text-[#9CA3AF] mt-0.5">empresa ré</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Alertas</p>
+                    <p className="text-[14px] font-semibold flex flex-wrap gap-1">
+                      {data.processos!.temFalencia && <span className="text-[11px] font-bold text-white bg-[#DC2626] px-1.5 py-0.5 rounded">FALÊNCIA</span>}
+                      {data.processos!.temRJ && <span className="text-[11px] font-bold text-white bg-[#D97706] px-1.5 py-0.5 rounded">RJ</span>}
+                      {!data.processos!.temFalencia && !data.processos!.temRJ && <span className="text-[#9CA3AF]">—</span>}
+                    </p>
+                  </div>
+                </div>
+                {data.processos!.distribuicao?.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {data.processos!.distribuicao.slice(0, 6).map((d, i) => (
+                      <span key={i} className="inline-flex items-center gap-1 text-[11px] bg-[#FFF7ED] border border-[#FED7AA] text-[#9A3412] rounded-full px-2.5 py-0.5 font-medium">
+                        {d.tipo} <span className="font-bold">({d.qtd})</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+      </div>
+
+      {/* ══════════════════════════════════════════════════════
+          CARD FS — PARÂMETROS DO FUNDO
+          ══════════════════════════════════════════════════════ */}
+      <div className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #2d4f8a", boxShadow: "0 4px 20px rgba(32,59,136,0.12)" }}>
+        {/* Header */}
+        <div className="px-5 py-4 flex items-center justify-between" style={{ background: "linear-gradient(135deg, #192f5d 0%, #1e3a7a 100%)" }}>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0 border border-white/20">
+              <span className="text-sm font-bold text-white">FS</span>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-white/50 uppercase tracking-[0.12em]">Critérios de Elegibilidade</p>
+              <p className="text-sm font-bold text-white">Parâmetros do Fundo</p>
+            </div>
+          </div>
+          {/* Summary badge */}
+          <div className="flex items-center gap-2">
+            {fundValidation.failCount > 0 && (
+              <span style={{ fontSize: "11px", fontWeight: 700, padding: "3px 10px", borderRadius: "99px", background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca" }}>
+                {fundValidation.failCount} reprovado{fundValidation.failCount !== 1 ? "s" : ""}
+              </span>
+            )}
+            {fundValidation.warnCount > 0 && (
+              <span style={{ fontSize: "11px", fontWeight: 700, padding: "3px 10px", borderRadius: "99px", background: "#fffbeb", color: "#d97706", border: "1px solid #fde68a" }}>
+                {fundValidation.warnCount} atenção
+              </span>
+            )}
+            <span style={{
+              fontSize: "11px", fontWeight: 700, padding: "3px 10px", borderRadius: "99px",
+              background: fundValidation.failCount > 0 ? "rgba(220,38,38,0.15)" : fundValidation.warnCount > 0 ? "rgba(217,119,6,0.15)" : "rgba(22,163,74,0.2)",
+              color: fundValidation.failCount > 0 ? "#fca5a5" : fundValidation.warnCount > 0 ? "#fcd34d" : "#86efac",
+              border: "1px solid rgba(255,255,255,0.2)",
+            }}>
+              {fundValidation.passCount}/{fundValidation.criteria.length} critérios
+            </span>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="divide-y divide-[#F3F4F6]">
+          {fundValidation.criteria.map(c => {
+            const icon = c.status === "ok" ? "✓" : c.status === "warning" ? "!" : c.status === "error" ? "✕" : "?";
+            const iconBg = c.status === "ok" ? "#f0fdf4" : c.status === "warning" ? "#fffbeb" : c.status === "error" ? "#fef2f2" : "#f9fafb";
+            const iconColor = c.status === "ok" ? "#16a34a" : c.status === "warning" ? "#d97706" : c.status === "error" ? "#dc2626" : "#9ca3af";
+            const iconBorder = c.status === "ok" ? "#bbf7d0" : c.status === "warning" ? "#fde68a" : c.status === "error" ? "#fecaca" : "#e5e7eb";
+            const rowBg = c.status === "error" ? "#fffafa" : c.status === "warning" ? "#fffdf5" : "white";
+
+            return (
+              <div key={c.id} style={{ display: "grid", gridTemplateColumns: "40px 1fr 1fr 1fr", alignItems: "center", gap: "12px", padding: "12px 20px", background: rowBg }}>
+                {/* Icon */}
+                <div style={{ width: "28px", height: "28px", borderRadius: "99px", display: "flex", alignItems: "center", justifyContent: "center", background: iconBg, border: `1px solid ${iconBorder}`, flexShrink: 0, fontSize: "12px", fontWeight: 700, color: iconColor }}>
+                  {icon}
+                </div>
+
+                {/* Label */}
+                <div>
+                  <p style={{ fontSize: "12px", fontWeight: 600, color: "#111827", marginBottom: "1px" }}>{c.label}</p>
+                  {c.eliminatoria && c.status === "error" && (
+                    <span style={{ fontSize: "9px", fontWeight: 700, letterSpacing: "0.06em", color: "#dc2626", background: "#fee2e2", padding: "1px 5px", borderRadius: "4px" }}>ELIMINATÓRIO</span>
+                  )}
+                  {c.detail && c.status !== "error" && (
+                    <p style={{ fontSize: "10px", color: "#6b7280", marginTop: "1px" }}>{c.detail}</p>
+                  )}
+                </div>
+
+                {/* Threshold */}
+                <div>
+                  <p style={{ fontSize: "10px", color: "#9ca3af", marginBottom: "2px", textTransform: "uppercase", letterSpacing: "0.04em" }}>Limite do Fundo</p>
+                  <p style={{ fontSize: "12px", fontWeight: 500, color: "#374151" }}>{c.threshold}</p>
+                </div>
+
+                {/* Actual */}
+                <div>
+                  <p style={{ fontSize: "10px", color: "#9ca3af", marginBottom: "2px", textTransform: "uppercase", letterSpacing: "0.04em" }}>Apurado</p>
+                  <p style={{ fontSize: "13px", fontWeight: 700, color: iconColor }}>{c.actual}</p>
+                  {c.detail && c.status === "error" && (
+                    <p style={{ fontSize: "10px", color: iconColor, opacity: 0.8, marginTop: "1px" }}>{c.detail}</p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: "10px 20px", borderTop: "1px solid #F3F4F6", background: "#F8FAFC", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <p style={{ fontSize: "11px", color: "#6b7280" }}>
+            {fundValidation.hasEliminatoria
+              ? "⚠ Critério eliminatório não atendido — aprovação impedida pelos parâmetros do fundo."
+              : fundValidation.warnCount > 0
+                ? "Critérios de atenção identificados — análise condicional recomendada."
+                : "Todos os critérios atendidos."}
+          </p>
+          <a href="/configuracoes" target="_blank" rel="noopener noreferrer" style={{ fontSize: "11px", fontWeight: 600, color: "#203b88", textDecoration: "none" }}>
+            Editar parâmetros →
+          </a>
         </div>
       </div>
 
       {/* ══════════════════════════════════════════════════════
           CARD 05 — PERFIL DE CREDITO SCR/BACEN
           ══════════════════════════════════════════════════════ */}
-      <div className="bg-white rounded-xl border border-[#E5E7EB]" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-        <div className="flex items-center gap-3 px-5 py-3.5 bg-[#F8FAFC] border-b border-[#E5E7EB] rounded-t-xl">
-          <div className="w-1 h-8 rounded-full bg-[#F59E0B]" />
-          <span className="text-xs font-bold text-[#1E3A5F] uppercase tracking-[0.08em]">05</span>
-          <span className="text-sm font-bold text-[#111827]">Perfil de Credito — SCR / BACEN</span>
+      <div className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #2d4f8a", boxShadow: "0 4px 20px rgba(32,59,136,0.12)" }}>
+        <div className="px-5 py-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg, #192f5d 0%, #1e3a7a 100%)" }}>
+          <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0 border border-white/20">
+            <span className="text-sm font-bold text-white">05</span>
+          </div>
+          <div>
+            <p className="text-[10px] font-bold text-white/50 uppercase tracking-[0.12em]">Perfil de Crédito</p>
+            <p className="text-sm font-bold text-white">SCR / BACEN</p>
+          </div>
         </div>
 
         <div className="p-5 space-y-5">
@@ -1201,14 +1527,150 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       </div>
 
       {/* ══════════════════════════════════════════════════════
+          CARD 07 — PROCESSOS JUDICIAIS (Credit Hub)
+          ══════════════════════════════════════════════════════ */}
+      {data.processos && (parseInt(data.processos.passivosTotal || "0") > 0 || data.processos.temRJ || data.processos.distribuicao?.length > 0) && (() => {
+        const proc = data.processos!;
+        const passivosN = parseInt(proc.passivosTotal || "0");
+        const ativosN   = parseInt(proc.ativosTotal   || "0");
+        const dividasN  = parseInt(proc.dividasQtd    || "0");
+        const semDados  = passivosN === 0 && ativosN === 0 && !proc.temRJ;
+        if (semDados) return null;
+        return (
+          <div className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #f87171", boxShadow: "0 4px 20px rgba(220,38,38,0.12)" }}>
+            <div className="px-5 py-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%)" }}>
+              <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0 border border-white/20">
+                <span className="text-sm font-bold text-white">07</span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-bold text-white/50 uppercase tracking-[0.12em]">Processos Judiciais</p>
+                <p className="text-sm font-bold text-white">Credit Hub</p>
+              </div>
+              {proc.temRJ && (
+                <span className="text-[10px] font-bold text-white bg-white/20 border border-white/30 px-2.5 py-1 rounded-full">RECUPERAÇÃO JUDICIAL</span>
+              )}
+            </div>
+            <div className="p-5 space-y-5">
+
+              {/* KPIs */}
+              {(() => {
+                const poloAtivoN  = parseInt(proc.poloAtivoQtd  || "0");
+                const poloPassN   = parseInt(proc.poloPassivoQtd || "0");
+                const kpis = [
+                  { label: "Total Processos",   value: passivosN, danger: passivosN > 0,  sub: "todos os polos" },
+                  { label: "Polo Ativo",         value: poloAtivoN, danger: false,          sub: "empresa autora/exequente", color: "text-[#1D4ED8]", bg: "bg-blue-50 border-blue-200" },
+                  { label: "Polo Passivo",       value: poloPassN,  danger: poloPassN > 0,  sub: "empresa ré/executada" },
+                  { label: "Dívidas",            value: dividasN,   danger: dividasN > 0,   sub: "vencidas" },
+                ];
+                return (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    {kpis.map(k => (
+                      <div key={k.label} className={`rounded-xl border px-4 py-3 ${k.bg ?? (k.danger ? "bg-[#FFFBEB] border-[#FDE68A]" : "bg-[#F8FAFC] border-[#E5E7EB]")}`}>
+                        <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">{k.label}</p>
+                        <p className={`text-[22px] font-bold ${k.color ?? (k.danger ? "text-[#D97706]" : "text-[#6B7280]")}`}>{k.value > 0 ? k.value : "—"}</p>
+                        <p className="text-[10px] text-[#9CA3AF] mt-0.5">{k.sub}</p>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              {/* Valor total estimado */}
+              {proc.valorTotalEstimado && proc.valorTotalEstimado !== "0,00" && (
+                <div className="flex items-center justify-between bg-[#FFF7ED] border border-[#FED7AA] rounded-xl px-5 py-3">
+                  <p className="text-[11px] uppercase tracking-[0.08em] text-[#9A3412] font-bold">Valor Total Estimado</p>
+                  <p className="text-[20px] font-bold text-[#D97706]">R$ {proc.valorTotalEstimado}</p>
+                </div>
+              )}
+
+              {/* Distribuição por tipo */}
+              {proc.distribuicao?.length > 0 && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-2 font-bold">Distribuição por Tipo</p>
+                  <div className="space-y-2">
+                    {proc.distribuicao.slice(0, 8).map((d, i) => (
+                      <div key={i} className="flex items-center gap-3">
+                        <span className="text-[11px] text-[#374151] w-44 flex-shrink-0 truncate font-medium">{d.tipo}</span>
+                        <div className="flex-1 bg-[#F3F4F6] rounded-full h-2">
+                          <div className="h-2 rounded-full bg-[#D97706] transition-all duration-500" style={{ width: `${d.pct}%` }} />
+                        </div>
+                        <span className="text-[11px] font-bold text-[#374151] w-5 text-right">{d.qtd}</span>
+                        <span className="text-[10px] text-[#9CA3AF] w-8 text-right">{d.pct}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Distribuição temporal */}
+              {proc.distribuicaoTemporal && proc.distribuicaoTemporal.length > 0 && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-2 font-bold">Antiguidade dos Processos</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {proc.distribuicaoTemporal.map((dt, i) => (
+                      <div key={i} className="bg-[#F8FAFC] border border-[#E5E7EB] rounded-lg px-3 py-2 text-center">
+                        <p className="text-[10px] text-[#6B7280] mb-0.5">{dt.periodo}</p>
+                        <p className="text-[16px] font-bold text-[#374151]">{dt.qtd}</p>
+                        <p className="text-[10px] text-[#9CA3AF]">R$ {dt.valor}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Top processos por valor */}
+              {proc.top10Valor && proc.top10Valor.filter(p => p.numero || p.tipo).length > 0 && (() => {
+                const reais = proc.top10Valor!.filter(p => (p.numero || p.tipo) && p.tipo !== "DÍVIDA");
+                if (reais.length === 0) return null;
+                return (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-2 font-bold">Maiores Processos por Valor</p>
+                    <div className="border border-[#E5E7EB] rounded-lg overflow-hidden">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="bg-[#D97706] text-white">
+                            <th className="text-left px-3 py-2 font-semibold">Número</th>
+                            <th className="text-left px-3 py-2 font-semibold">Tipo</th>
+                            <th className="text-left px-3 py-2 font-semibold">Data</th>
+                            <th className="text-left px-3 py-2 font-semibold">Valor</th>
+                            <th className="text-left px-3 py-2 font-semibold">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {reais.slice(0, 5).map((p, i) => (
+                            <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-[#F8FAFC]"}>
+                              <td className="px-3 py-2 text-[#111827] font-mono text-[10px] max-w-[120px] truncate">{p.numero || "—"}</td>
+                              <td className="px-3 py-2 text-[#374151]">{p.tipo || "—"}</td>
+                              <td className="px-3 py-2 text-[#6B7280]">{p.data || "—"}</td>
+                              <td className="px-3 py-2 font-semibold text-[#D97706]">R$ {p.valor}</td>
+                              <td className="px-3 py-2 text-[#6B7280] max-w-[100px] truncate">{p.status || "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
+
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ══════════════════════════════════════════════════════
           CARD — PARAMETROS OPERACIONAIS (Relatório de Visita)
           ══════════════════════════════════════════════════════ */}
       {data.relatorioVisita && (
-        <div className="bg-white rounded-xl border border-[#E5E7EB]" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-          <div className="flex items-center gap-3 px-5 py-3.5 bg-[#F8FAFC] border-b border-[#E5E7EB] rounded-t-xl">
-            <div className="w-1 h-8 rounded-full bg-[#1E3A5F]" />
-            <span className="text-xs font-bold text-[#1E3A5F] uppercase tracking-[0.08em]">OP</span>
-            <span className="text-sm font-bold text-[#111827]">Parametros Operacionais</span>
+        <div className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #2d4f8a", boxShadow: "0 4px 20px rgba(32,59,136,0.12)" }}>
+          <div className="px-5 py-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg, #192f5d 0%, #1e3a7a 100%)" }}>
+            <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0 border border-white/20">
+              <span className="text-sm font-bold text-white">OP</span>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-white/50 uppercase tracking-[0.12em]">Parâmetros Operacionais</p>
+              <p className="text-sm font-bold text-white">Relatório de Visita</p>
+            </div>
           </div>
           <div className="p-5 space-y-5">
 
@@ -1287,19 +1749,28 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       )}
 
       {/* ── Editar dados do relatorio ── */}
-      <div className="card overflow-hidden">
+      <div className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
         <button onClick={() => setEditing(p => !p)}
-          className="w-full flex items-center justify-between px-5 py-4 hover:bg-cf-bg transition-colors text-left group">
+          className="w-full flex items-center justify-between px-5 py-4 hover:bg-[#F8FAFC] transition-colors text-left group">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-cf-surface flex items-center justify-center group-hover:bg-cf-navy/10 transition-colors">
-              <Pencil size={14} className="text-cf-navy" />
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors" style={{ background: editing ? "#1a3560" : "#EFF6FF", border: "1.5px solid #DBEAFE" }}>
+              <Pencil size={14} style={{ color: editing ? "white" : "#203b88" }} />
             </div>
             <div>
-              <span className="text-sm font-semibold text-cf-text-1 block">Editar dados do relatorio</span>
-              <span className="text-[11px] text-cf-text-3">Ajuste os campos antes de gerar</span>
+              <span className="text-sm font-semibold text-[#111827] block">Editar dados do relatório</span>
+              <span className="text-[11px] text-[#9CA3AF]">Ajuste os campos antes de gerar</span>
             </div>
           </div>
-          <span className="text-xs font-semibold text-cf-navy bg-cf-surface px-3 py-1.5 rounded-full group-hover:bg-cf-navy group-hover:text-white transition-all">{editing ? "Fechar" : "Abrir"}</span>
+          <span
+            className="text-xs font-bold px-3 py-1.5 rounded-full transition-all"
+            style={{
+              background: editing ? "#1a3560" : "#EFF6FF",
+              color: editing ? "white" : "#203b88",
+              border: "1.5px solid #DBEAFE",
+            }}
+          >
+            {editing ? "Fechar" : "Abrir"}
+          </span>
         </button>
         {editing && (
           <div className="border-t border-cf-border px-5 pb-5 pt-4 space-y-5 animate-fade-in">
@@ -1374,125 +1845,18 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         )}
       </div>
 
-      {/* ── Conteudo do relatorio ── */}
-      <div className="card overflow-hidden">
-        <div className="px-5 py-4 border-b border-cf-border bg-cf-bg/50">
-          <p className="text-[11px] font-bold text-cf-text-3 uppercase tracking-widest">Conteudo do relatorio</p>
-        </div>
-        <div className="p-4 space-y-2">
-          {[
-            { n: "01", title: "Identificacao da Empresa", desc: "Dados do Cartao CNPJ", color: "bg-cf-navy", bgLight: "bg-cf-navy/5" },
-            { n: "02", title: "Quadro Societario (QSA)", desc: "Dados do QSA", color: "bg-cf-green", bgLight: "bg-cf-green/5" },
-            { n: "03", title: "Contrato Social", desc: "Dados do Contrato Social", color: "bg-cf-navy", bgLight: "bg-cf-navy/5" },
-            { n: "04", title: "Faturamento", desc: "Faturamento mensal e anual", color: "bg-cf-green", bgLight: "bg-cf-green/5" },
-            { n: "05", title: "Perfil de Credito", desc: "Dados do SCR/Bacen", color: "bg-cf-warning", bgLight: "bg-cf-warning/5" },
-            { n: "06", title: "Protestos", desc: "Protestos vigentes e regularizados", color: "bg-[#DC2626]", bgLight: "bg-red-50" },
-            { n: "07", title: "Processos Judiciais", desc: "Processos ativos e bancarios", color: "bg-cf-warning", bgLight: "bg-cf-warning/5" },
-            { n: "08", title: "Grupo Economico", desc: "Empresas do grupo", color: "bg-cf-navy", bgLight: "bg-cf-navy/5" },
-            { n: "09", title: "Parecer Final", desc: "Decisao e resumo do risco", color: "bg-cf-navy", bgLight: "bg-cf-navy/5" },
-          ].map(s => (
-            <div key={s.n} className={`flex items-center gap-4 rounded-xl px-4 py-3.5 border border-cf-border/60 ${s.bgLight} transition-all hover:border-cf-border`}>
-              <div className={`w-8 h-8 rounded-lg ${s.color} flex items-center justify-center flex-shrink-0`}>
-                <span className="text-xs font-bold text-white">{s.n}</span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-cf-text-1">{s.title}</p>
-                <p className="text-xs text-cf-text-3">{s.desc}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Conferencia de dados ── */}
-      <div className="card overflow-hidden">
-        <div className="px-5 py-4 border-b border-cf-border bg-cf-bg/50">
-          <p className="text-[11px] font-bold text-cf-text-3 uppercase tracking-widest">Conferencia dos dados</p>
-        </div>
-        <div className="p-4 space-y-3">
-          {/* Coverage bar */}
-          <div className="flex items-center gap-3">
-            <div className="flex-1 h-2 bg-cf-border rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ${
-                  validation.coverage.pct >= 70 ? "bg-cf-green" : validation.coverage.pct >= 40 ? "bg-amber-400" : "bg-red-400"
-                }`}
-                style={{ width: `${validation.coverage.pct}%` }}
-              />
-            </div>
-            <span className="text-xs font-bold text-cf-text-2 w-12 text-right">{validation.coverage.pct}%</span>
-          </div>
-
-          {/* Blocked */}
-          {validation.coverage.pct < 40 && (
-            <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
-              <AlertCircle size={15} className="text-red-500 flex-shrink-0 mt-0.5" />
-              <p className="text-xs font-semibold text-red-600">
-                Dados insuficientes para analise confiavel ({validation.coverage.pct}% preenchido). Revise os documentos enviados.
-              </p>
-            </div>
-          )}
-
-          {/* Errors */}
-          {validation.errors.length > 0 && (
-            <div className="space-y-1.5">
-              {validation.errors.map((e, i) => (
-                <div key={`err-${i}`} className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-lg px-3.5 py-2.5">
-                  <XIcon size={13} className="text-red-500 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-xs font-semibold text-red-700">{e.message}</p>
-                    <p className="text-[10px] text-red-400 mt-0.5">{e.document.toUpperCase()} — {e.field}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Warnings */}
-          {validation.warnings.length > 0 && (
-            <div className="space-y-1.5">
-              {validation.warnings.map((w, i) => (
-                <div key={`warn-${i}`} className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-lg px-3.5 py-2.5">
-                  <AlertTriangle size={13} className="text-amber-500 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-xs font-semibold text-amber-700">{w.message}</p>
-                    <p className="text-[10px] text-amber-400 mt-0.5">{w.document.toUpperCase()} — {w.field}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* All good */}
-          {validation.errors.length === 0 && validation.warnings.length === 0 && (
-            <div className="flex items-center gap-2.5 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
-              <CheckCircle2 size={15} className="text-green-600 flex-shrink-0" />
-              <p className="text-xs font-semibold text-green-700">
-                Dados validados — {validation.coverage.pct}% dos campos preenchidos
-              </p>
-            </div>
-          )}
-
-          {/* Summary when has issues but valid */}
-          {validation.errors.length === 0 && validation.warnings.length > 0 && validation.coverage.pct >= 40 && (
-            <div className="flex items-center gap-2.5 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5">
-              <CheckCircle2 size={14} className="text-green-600 flex-shrink-0" />
-              <p className="text-[11px] font-medium text-green-700">
-                {validation.coverage.pct}% preenchido — analise pode prosseguir com os alertas acima
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
 
       {/* ── Observações do Analista ── */}
-      <div className="card overflow-hidden">
-        <div className="px-5 py-4 border-b border-cf-border bg-cf-bg/50 flex items-center justify-between">
-          <div>
-            <p className="text-[11px] font-bold text-cf-text-3 uppercase tracking-widest">Observacoes do analista</p>
-            <p className="text-[10px] text-cf-text-4 mt-0.5">Anotacoes livres que aparecem no PDF e ficam salvas na coleta</p>
+      <div className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #2d4f8a", boxShadow: "0 4px 20px rgba(32,59,136,0.12)" }}>
+        <div className="px-5 py-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg, #192f5d 0%, #1e3a7a 100%)" }}>
+          <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0 border border-white/20">
+            <span className="text-sm font-bold text-white">✎</span>
           </div>
-          {savingNotes && <span className="text-[10px] text-cf-text-4 animate-pulse">Salvando...</span>}
+          <div className="flex-1">
+            <p className="text-[10px] font-bold text-white/50 uppercase tracking-[0.12em]">Observações do Analista</p>
+            <p className="text-sm font-bold text-white">Anotações livres no PDF</p>
+          </div>
+          {savingNotes && <span className="text-[10px] font-medium text-white/50 animate-pulse">Salvando...</span>}
         </div>
         <div className="p-4">
           <textarea
@@ -1509,52 +1873,64 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       {/* ── Download & Acoes ── */}
       <div className="space-y-4 pt-1">
         {generatedFormats.size > 0 && (
-          <div className="flex items-center justify-center gap-2 py-2.5 bg-cf-green/5 rounded-xl border border-cf-green/20">
-            <CheckCircle2 size={16} className="text-cf-green" />
-            <span className="text-sm font-semibold text-cf-green">Relatorio gerado com sucesso!</span>
+          <div className="flex items-center justify-center gap-2.5 py-3 rounded-xl border"
+            style={{ background: "linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)", borderColor: "#86efac" }}>
+            <CheckCircle2 size={16} style={{ color: "#16a34a" }} />
+            <span className="text-sm font-semibold" style={{ color: "#15803d" }}>
+              Relatório gerado com sucesso!
+            </span>
           </div>
         )}
 
-        <div className="card overflow-hidden">
-          <div className="px-5 py-4 border-b border-cf-border bg-cf-bg/50">
-            <p className="text-[11px] font-bold text-cf-text-3 uppercase tracking-widest">Formato de download</p>
+        <div className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+          <div className="px-5 py-4 border-b border-[#E5E7EB]" style={{ background: "linear-gradient(135deg, #1a3560 0%, #203b88 100%)" }}>
+            <p className="text-[10px] font-bold text-white/60 uppercase tracking-[0.12em]">Exportar Relatório</p>
+            <p className="text-sm font-bold text-white mt-0.5">Selecione o formato de download</p>
           </div>
           <div className="p-4">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {([
-                { fmt: "pdf" as Format, label: "PDF", sub: "Baixar PDF", fn: generatePDF,
-                  logo: <svg viewBox="0 0 24 24" width="36" height="36" fill="#FF0000"><path d="M7.998 17.5c-.21 0-.42-.072-.588-.218-.397-.345-.44-.95-.095-1.348.862-.993 2.13-2.543 2.13-2.543s-1.07-3.475-.544-4.95c.218-.609.613-1.066 1.16-1.14.263-.035.672.007.89.3.367.498.377 1.267.027 2.42-.223.738-.532 1.576-.891 2.422.452.97 1.09 1.877 1.618 2.46.88-.12 1.64-.143 2.18-.015.509.12.889.439.989.836.108.427-.045.893-.413 1.26-.382.38-.897.488-1.35.288-.56-.247-1.164-.76-1.735-1.376-.898.236-1.884.568-2.756.923-.506.9-.996 1.584-1.47 1.87a.797.797 0 0 1-.452.141l.1-.03zm.558-1.04s-.005.008-.01.013l.01-.014zm6.553-2.865-.029-.006.036.01-.007-.004zm-3.3-6.47-.005.02.009-.028-.004.009z"/></svg> },
-                { fmt: "docx" as Format, label: "Word", sub: "Gerar Word", fn: generateDOCX,
-                  logo: <Image src="/logos/word.jpg" alt="Word" width={48} height={48} className="rounded-lg object-contain" /> },
-                { fmt: "xlsx" as Format, label: "Excel", sub: "Baixar Excel", fn: generateExcel,
-                  logo: <Image src="/logos/excel.jpg" alt="Excel" width={48} height={48} className="rounded-lg object-contain" /> },
-                { fmt: "html" as Format, label: "HTML", sub: "Gerar HTML", fn: generateHTML,
-                  logo: <svg viewBox="0 0 24 24" width="36" height="36" fill="#E34F26"><path d="M4.136 3.012h15.729l-1.431 16.15L11.991 21l-6.436-1.838L4.136 3.012zM7.266 9.76l-.186-2.166h9.835l-.191 2.166H12.17l.204 2.256h4.345l-.543 5.508L12 18.903v.012l-.008.002-4.161-1.162-.287-3.166h2.147l.149 1.62 2.16.573 2.148-.57.237-2.529H7.46L7.266 9.76z"/></svg> },
-              ]).map(({ fmt, label, sub, fn, logo }) => {
+                { fmt: "pdf" as Format, label: "PDF", sub: "Baixar PDF", fn: generatePDF, ext: ".pdf", color: "#FF0000",
+                  logo: <svg viewBox="0 0 24 24" width="28" height="28" fill="#FF0000"><path d="M7.998 17.5c-.21 0-.42-.072-.588-.218-.397-.345-.44-.95-.095-1.348.862-.993 2.13-2.543 2.13-2.543s-1.07-3.475-.544-4.95c.218-.609.613-1.066 1.16-1.14.263-.035.672.007.89.3.367.498.377 1.267.027 2.42-.223.738-.532 1.576-.891 2.422.452.97 1.09 1.877 1.618 2.46.88-.12 1.64-.143 2.18-.015.509.12.889.439.989.836.108.427-.045.893-.413 1.26-.382.38-.897.488-1.35.288-.56-.247-1.164-.76-1.735-1.376-.898.236-1.884.568-2.756.923-.506.9-.996 1.584-1.47 1.87a.797.797 0 0 1-.452.141l.1-.03zm.558-1.04s-.005.008-.01.013l.01-.014zm6.553-2.865-.029-.006.036.01-.007-.004zm-3.3-6.47-.005.02.009-.028-.004.009z"/></svg> },
+                { fmt: "docx" as Format, label: "Word", sub: "Gerar Word", fn: generateDOCX, ext: ".docx", color: "#2B5EB7",
+                  logo: <Image src="/logos/word.jpg" alt="Word" width={36} height={36} className="rounded object-contain" /> },
+                { fmt: "xlsx" as Format, label: "Excel", sub: "Baixar Excel", fn: generateExcel, ext: ".xlsx", color: "#1D6F42",
+                  logo: <Image src="/logos/excel.jpg" alt="Excel" width={36} height={36} className="rounded object-contain" /> },
+                { fmt: "html" as Format, label: "HTML", sub: "Gerar HTML", fn: generateHTML, ext: ".html", color: "#E34F26",
+                  logo: <svg viewBox="0 0 24 24" width="28" height="28" fill="#E34F26"><path d="M4.136 3.012h15.729l-1.431 16.15L11.991 21l-6.436-1.838L4.136 3.012zM7.266 9.76l-.186-2.166h9.835l-.191 2.166H12.17l.204 2.256h4.345l-.543 5.508L12 18.903v.012l-.008.002-4.161-1.162-.287-3.166h2.147l.149 1.62 2.16.573 2.148-.57.237-2.529H7.46L7.266 9.76z"/></svg> },
+              ]).map(({ fmt, label, sub, fn, ext, color, logo }) => {
                 const done = generatedFormats.has(fmt);
                 const loading = generatingFormat === fmt;
                 return (
-                  <button key={fmt} onClick={fn} disabled={!!generatingFormat}
-                    className={`relative flex flex-col items-center gap-3 py-5 px-3 rounded-xl border-2 transition-all duration-200
+                  <button
+                    key={fmt}
+                    onClick={fn}
+                    disabled={!!generatingFormat}
+                    className={`relative flex flex-col items-center gap-2.5 py-5 px-3 rounded-xl border-2 transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed group
                       ${done
-                        ? "border-cf-green/30 bg-cf-green/5 hover:bg-cf-green/10"
-                        : "border-cf-border hover:border-cf-navy/30 bg-white hover:bg-cf-bg"
-                      }
-                      disabled:opacity-50 disabled:cursor-not-allowed active:scale-95`}>
-                    <div className="w-12 h-12 flex items-center justify-center">
-                      {loading ? <Loader2 size={24} className="animate-spin text-cf-navy" /> : logo}
+                        ? "border-[#73b815]/40 bg-[#f0fdf4]"
+                        : "border-[#E5E7EB] bg-white hover:border-[#203b88]/20 hover:bg-[#F8FAFC]"
+                      }`}
+                  >
+                    {/* Ícone com fundo colorido */}
+                    <div
+                      className="w-12 h-12 rounded-xl flex items-center justify-center transition-all"
+                      style={{ backgroundColor: done ? "#f0fdf4" : `${color}10`, border: `1.5px solid ${done ? "#73b815" : color}22` }}
+                    >
+                      {loading
+                        ? <Loader2 size={22} className="animate-spin" style={{ color }} />
+                        : done
+                        ? <CheckCircle2 size={22} style={{ color: "#73b815" }} />
+                        : logo}
                     </div>
+                    {/* Texto */}
                     <div className="text-center">
-                      <p className="text-sm font-bold text-cf-text-1">{label}</p>
-                      <p className="text-[11px] text-cf-text-3 mt-0.5">
-                        {loading ? "Gerando..." : done ? "Pronto!" : sub}
-                      </p>
+                      <p className="text-sm font-bold text-[#111827]">{label}</p>
+                      <p className="text-[10px] text-[#9CA3AF] mt-0.5 font-mono">{ext}</p>
                     </div>
-                    {done && (
-                      <div className="absolute top-2 right-2">
-                        <CheckCircle2 size={14} className="text-cf-green" />
-                      </div>
-                    )}
+                    <p className="text-[11px] font-semibold" style={{ color: done ? "#73b815" : loading ? color : "#6B7280" }}>
+                      {loading ? "Gerando..." : done ? "Pronto!" : sub}
+                    </p>
                   </button>
                 );
               })}
@@ -1563,50 +1939,56 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         </div>
 
         {/* Acoes finais */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1 border-t border-cf-border">
-          {/* Esquerda: navegação */}
-          <div className="flex items-center gap-2">
-            <button onClick={onBack} className="btn-secondary text-xs" style={{ minHeight: "auto", padding: "6px 12px" }}>
-              <ArrowLeft size={13} /> Voltar
-            </button>
-            {onReset && (
-              <button onClick={() => { try { localStorage.removeItem(NOTES_KEY); } catch { /* ignore */ } onReset(); }}
-                className="text-xs font-medium text-cf-text-3 hover:text-cf-navy transition-colors px-2 py-1.5"
-                style={{ minHeight: "auto" }}>
-                <RotateCcw size={12} className="inline mr-1" /> Recomeçar
+        <div className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+          <div className="px-5 py-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+            {/* Esquerda: navegação */}
+            <div className="flex items-center gap-2">
+              <button onClick={onBack} className="btn-secondary" style={{ minHeight: "auto", padding: "8px 16px", fontSize: "13px" }}>
+                <ArrowLeft size={13} /> Voltar
               </button>
-            )}
-            {savedFeedback && (
-              <span className="flex items-center gap-1 text-[11px] font-medium text-cf-green">
-                <Check size={12} /> Salvo
-              </span>
-            )}
-          </div>
+              {onReset && (
+                <button
+                  onClick={() => { try { localStorage.removeItem(NOTES_KEY); } catch { /* ignore */ } onReset(); }}
+                  className="flex items-center gap-1.5 text-xs font-medium text-[#9CA3AF] hover:text-[#374151] transition-colors px-2 py-1.5 rounded-lg hover:bg-[#F3F4F6]"
+                  style={{ minHeight: "auto" }}
+                >
+                  <RotateCcw size={12} /> Recomeçar
+                </button>
+              )}
+              {savedFeedback && (
+                <span className="flex items-center gap-1 text-[11px] font-semibold text-[#73b815]">
+                  <Check size={12} /> Salvo
+                </span>
+              )}
+            </div>
 
-          {/* Direita: ações principais */}
-          <div className="flex items-center gap-2">
-            {/* Goalfy */}
-            <GoalfyButton data={data} aiAnalysis={aiAnalysis} settings={fundSettings} disabled={!aiAnalysis} />
+            {/* Direita: ações principais */}
+            <div className="flex items-center gap-2.5">
+              <GoalfyButton data={data} aiAnalysis={aiAnalysis} settings={fundSettings} disabled={!aiAnalysis} />
 
-            {/* Finalizar — sempre visível */}
-            {!confirmFinish ? (
-              <button
-                onClick={() => setConfirmFinish(true)}
-                disabled={finishing}
-                className="inline-flex items-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-lg border border-cf-green/30 text-cf-green hover:bg-cf-green/5 transition-colors disabled:opacity-50"
-                style={{ minHeight: "auto" }}
-              >
-                {finishing ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-                {finishing ? "Finalizando..." : "Finalizar coleta"}
-              </button>
-            ) : (
-              <div className="flex items-center gap-1.5 border border-cf-green/30 rounded-lg px-3 py-1.5 bg-cf-green/5">
-                <span className="text-xs text-cf-text-2">Confirmar?</span>
-                <button onClick={handleFinish} className="text-xs font-semibold text-cf-green hover:underline" style={{ minHeight: "auto" }}>Sim</button>
-                <span className="text-cf-text-4 text-xs">·</span>
-                <button onClick={() => setConfirmFinish(false)} className="text-xs text-cf-text-3 hover:underline" style={{ minHeight: "auto" }}>Não</button>
-              </div>
-            )}
+              {!confirmFinish ? (
+                <button
+                  onClick={() => setConfirmFinish(true)}
+                  disabled={finishing}
+                  className="inline-flex items-center gap-1.5 text-sm font-semibold px-5 py-2.5 rounded-lg text-white active:scale-95 transition-all duration-150 disabled:opacity-50"
+                  style={{
+                    background: "linear-gradient(135deg, #5a9010 0%, #73b815 100%)",
+                    boxShadow: "0 4px 14px rgba(115,184,21,0.35)",
+                    minHeight: "auto",
+                  }}
+                >
+                  {finishing ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                  {finishing ? "Finalizando..." : "Finalizar coleta"}
+                </button>
+              ) : (
+                <div className="flex items-center gap-1.5 border border-[#73b815]/30 rounded-lg px-3.5 py-2 bg-[#f0fdf4]">
+                  <span className="text-xs text-[#374151] font-medium">Confirmar?</span>
+                  <button onClick={handleFinish} className="text-xs font-bold text-[#73b815] hover:underline" style={{ minHeight: "auto" }}>Sim</button>
+                  <span className="text-[#9CA3AF] text-xs">·</span>
+                  <button onClick={() => setConfirmFinish(false)} className="text-xs text-[#6B7280] hover:underline" style={{ minHeight: "auto" }}>Não</button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

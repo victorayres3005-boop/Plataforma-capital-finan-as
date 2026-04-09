@@ -8,7 +8,7 @@ import { consultarSPC } from "@/lib/bureaus/spc";
 import { consultarQuod } from "@/lib/bureaus/quod";
 import { mergeBureauResults } from "@/lib/bureaus/merger";
 import { enrichProcessosWithDataJud } from "@/lib/bureaus/datajud";
-import { cacheGet, cacheSet, cacheClear, cacheSize } from "@/lib/bureaus/cache";
+import { cacheGet, cacheSet, cacheClear, cacheClearAll, cacheSize } from "@/lib/bureaus/cache";
 import type { ExtractedData } from "@/types";
 import type { CreditHubResult } from "@/lib/bureaus/credithub";
 
@@ -126,10 +126,14 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// Permite invalidar cache via GET /api/bureaus?cnpj=XX&action=clear
+// Permite invalidar cache via GET /api/bureaus?cnpj=XX&action=clear ou ?action=clear_all
 export async function GET(req: NextRequest) {
   const cnpj = req.nextUrl.searchParams.get("cnpj")?.replace(/\D/g, "") || "";
   const action = req.nextUrl.searchParams.get("action");
+  if (action === "clear_all") {
+    const deleted = await cacheClearAll();
+    return NextResponse.json({ success: true, message: `Cache totalmente limpo — ${deleted} registro(s) removidos` });
+  }
   if (action === "clear" && cnpj) {
     await cacheClear(cnpj);
     return NextResponse.json({ success: true, message: `Cache limpo para ${cnpj}` });

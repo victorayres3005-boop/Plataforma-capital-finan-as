@@ -1,7 +1,7 @@
 "use client";
-import { BarChart3, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { SCRData, SCRModalidade, SCRInstituicao } from "@/types";
-import { Field, QualityBadge, SectionCard, QualityResult } from "./shared";
+import { Field, QualityBadge, SectionCard, QualityResult, qualityAccent } from "./shared";
 
 interface Props {
   data: SCRData;
@@ -24,9 +24,9 @@ export function SectionSCR({ data, anterior, set, setMod, addMod, removeMod, set
   const parse = (v: string) => parseFloat((v || "0").replace(/\./g, "").replace(",", ".")) || 0;
 
   return (
-    <SectionCard number="05" icon={<BarChart3 size={16} className="text-cf-warning" />} title="SCR / Bacen — Perfil de Crédito"
-      iconColor="bg-cf-warning/10" expanded={expanded} onToggle={onToggle}
-      badge={<span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${quality.score === "good" ? "bg-green-100 text-green-700" : quality.score === "warning" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>{quality.pct}%</span>}>
+    <SectionCard number="05" title="SCR / Bacen — Perfil de Crédito"
+      accentColor={qualityAccent(quality.score)} expanded={expanded} onToggle={onToggle}
+      badge={<span style={{ fontSize: "10px", fontWeight: 700, padding: "2px 8px", borderRadius: "99px", background: quality.score === "good" ? "#dcfce7" : quality.score === "warning" ? "#fef9c3" : "#fee2e2", color: quality.score === "good" ? "#15803d" : quality.score === "warning" ? "#92400e" : "#991b1b" }}>{quality.pct}%</span>}>
       <div className="space-y-5">
         {data.semHistorico && (
           <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">

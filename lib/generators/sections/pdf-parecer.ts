@@ -155,6 +155,8 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
       pos.y += 10;
 
       items.forEach((item: string) => {
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8.5);
         const lines = doc.splitTextToSize(item, contentW - 10) as string[];
         checkPageBreak(lines.length * 5 + 3);
         doc.setFillColor(255, 255, 255);
@@ -208,7 +210,12 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
     pos.y = dsMiniHeader(pos.y, "PERGUNTAS PARA A VISITA");
 
     perguntasVisita.forEach((q, i) => {
+      // Seta fonte antes do split para garantir cálculo de largura correto
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
       const qLines = doc.splitTextToSize(`${i + 1}. ${q.pergunta}`, contentW - 4) as string[];
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(7.5);
       const cLines = q.contexto ? (doc.splitTextToSize("Contexto: " + q.contexto, contentW - 8) as string[]) : [];
       const needed = qLines.length * 4 + cLines.length * 3.5 + 5;
       checkPageBreak(needed);
@@ -290,6 +297,9 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
 
   // ── Observações do analista ──
   if (observacoes && observacoes.trim()) {
+    // Define fonte ANTES do splitTextToSize para que a largura seja calculada corretamente
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
     const noteLines = doc.splitTextToSize(observacoes.trim(), contentW - 8) as string[];
     const titleH = 10;
     const lineH = 5;

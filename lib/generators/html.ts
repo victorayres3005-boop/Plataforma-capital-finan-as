@@ -57,7 +57,7 @@ export function buildHTMLReport(p: HTMLReportParams): string {
 
   // Fix: faturamento zerado — recalcula corretamente
   const meses = d.faturamento?.meses || [];
-  const faturamentoRealmenteZerado = fmmNum === 0 || meses.length === 0 || meses.every(m => parseMoney(m.valor) === 0);
+  const faturamentoRealmenteZerado = meses.length === 0 || meses.every(m => parseMoney(m.valor) === 0);
 
   // Fix: ordenar meses cronologicamente
   const mesesOrdenados = [...meses].filter(m => m.mes).sort((a, b) => {

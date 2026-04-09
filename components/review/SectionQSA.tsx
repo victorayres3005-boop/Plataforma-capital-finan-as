@@ -1,7 +1,7 @@
 "use client";
-import { Users, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, AlertTriangle } from "lucide-react";
 import { QSAData, QSASocio } from "@/types";
-import { Field, QualityBadge, SectionCard, QualityResult } from "./shared";
+import { Field, QualityBadge, SectionCard, QualityResult, qualityAccent } from "./shared";
 
 interface Props {
   data: QSAData;
@@ -16,51 +16,105 @@ interface Props {
 
 export function SectionQSA({ data, setField, setSocio, addSocio, removeSocio, expanded, onToggle, quality }: Props) {
   return (
-    <SectionCard number="02" icon={<Users size={16} className="text-indigo-600" />} title="Quadro de Sócios e Administradores — QSA"
-      iconColor="bg-indigo-100" expanded={expanded} onToggle={onToggle}
-      badge={<span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${quality.score === "good" ? "bg-green-100 text-green-700" : quality.score === "warning" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>{quality.pct}%</span>}>
-      <div className="space-y-4">
+    <SectionCard
+      number="02"
+      title="Quadro de Sócios e Administradores — QSA"
+      accentColor={qualityAccent(quality.score)}
+      expanded={expanded}
+      onToggle={onToggle}
+      badge={
+        <span style={{ fontSize: "10px", fontWeight: 700, padding: "2px 8px", borderRadius: "99px", background: quality.score === "good" ? "#dcfce7" : quality.score === "warning" ? "#fef9c3" : "#fee2e2", color: quality.score === "good" ? "#15803d" : quality.score === "warning" ? "#92400e" : "#991b1b" }}>
+          {quality.pct}%
+        </span>
+      }
+    >
+      <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
         <Field label="Capital Social" value={data.capitalSocial} onChange={v => setField("capitalSocial", v)} />
+
         <div>
-          <div className="flex items-center justify-between mb-2">
-            <span className="section-label">Quadro Societário</span>
-            <button onClick={addSocio} className="inline-flex items-center gap-1.5 text-xs font-semibold text-cf-navy hover:bg-cf-surface border border-cf-border hover:border-cf-navy rounded-lg px-2.5 py-1.5 transition-colors">
-              <Plus size={12} /> Adicionar
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
+            <span style={{ fontSize: "11px", fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: "#6B7280" }}>Quadro Societário</span>
+            <button
+              onClick={addSocio}
+              style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", fontWeight: 600, color: "#203b88", background: "white", border: "1px solid #E5E7EB", borderRadius: "8px", padding: "6px 12px", cursor: "pointer", transition: "all 0.15s" }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = "#203b88"; (e.currentTarget as HTMLElement).style.background = "#EFF6FF"; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = "#E5E7EB"; (e.currentTarget as HTMLElement).style.background = "white"; }}
+            >
+              <Plus size={12} /> Adicionar sócio
             </button>
           </div>
-          <div className="rounded-xl border border-cf-border overflow-hidden">
-            <div className="hidden sm:block">
-              <div className="grid grid-cols-[1fr_150px_140px_80px_36px] bg-cf-surface px-3 py-2 gap-2">
-                {["Nome","CPF/CNPJ","Qualificação","Part.",""].map((h, i) => (
-                  <span key={i} className="text-[11px] font-semibold text-cf-text-3 uppercase tracking-wide">{h}</span>
-                ))}
-              </div>
-              {data.quadroSocietario.map((s, i) => (
-                <div key={i} className={`grid grid-cols-[1fr_150px_140px_80px_36px] px-3 py-2 gap-2 items-center ${i > 0 ? "border-t border-cf-border" : ""}`}>
-                  <input value={s.nome} onChange={e => setSocio(i,"nome",e.target.value)} placeholder="Nome completo" className="input-field py-1.5 text-xs" />
-                  <input value={s.cpfCnpj} onChange={e => setSocio(i,"cpfCnpj",e.target.value)} placeholder="000.000.000-00" className="input-field py-1.5 text-xs" />
-                  <input value={s.qualificacao} onChange={e => setSocio(i,"qualificacao",e.target.value)} placeholder="Sócio-Admin." className="input-field py-1.5 text-xs" />
-                  <input value={s.participacao} onChange={e => setSocio(i,"participacao",e.target.value)} placeholder="50%" className="input-field py-1.5 text-xs" />
-                  <button onClick={() => removeSocio(i)} className="w-8 h-8 flex items-center justify-center text-cf-text-3 hover:text-cf-danger hover:bg-cf-danger-bg rounded-lg transition-colors"><Trash2 size={13} /></button>
-                </div>
-              ))}
-            </div>
-            <div className="sm:hidden divide-y divide-cf-border">
-              {data.quadroSocietario.map((s, i) => (
-                <div key={i} className="p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-cf-text-3 uppercase">Sócio {i + 1}</span>
-                    <button onClick={() => removeSocio(i)} className="w-7 h-7 flex items-center justify-center text-cf-text-3 hover:text-cf-danger rounded-lg"><Trash2 size={12} /></button>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            {data.quadroSocietario.map((s, i) => {
+              const initial = s.nome ? s.nome.trim().charAt(0).toUpperCase() : String(i + 1);
+              const hasCPF = s.cpfCnpj && s.cpfCnpj.trim();
+              return (
+                <div
+                  key={i}
+                  style={{ display: "flex", alignItems: "flex-start", gap: "12px", background: "#F8FAFC", border: "1px solid #E5E7EB", borderRadius: "12px", padding: "14px" }}
+                >
+                  {/* Avatar */}
+                  <div style={{ width: "40px", height: "40px", borderRadius: "99px", background: "linear-gradient(135deg, #1a3560 0%, #203b88 100%)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "white", fontSize: "15px", fontWeight: 700 }}>
+                    {initial}
                   </div>
-                  <input value={s.nome} onChange={e => setSocio(i,"nome",e.target.value)} placeholder="Nome" className="input-field py-2 text-sm" />
-                  <div className="grid grid-cols-2 gap-2">
-                    <input value={s.cpfCnpj} onChange={e => setSocio(i,"cpfCnpj",e.target.value)} placeholder="CPF/CNPJ" className="input-field py-2 text-sm" />
-                    <input value={s.qualificacao} onChange={e => setSocio(i,"qualificacao",e.target.value)} placeholder="Qualificação" className="input-field py-2 text-sm" />
+
+                  {/* Campos */}
+                  <div style={{ flex: 1, minWidth: 0, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                    <div style={{ gridColumn: "1 / -1" }}>
+                      <input
+                        value={s.nome}
+                        onChange={e => setSocio(i, "nome", e.target.value)}
+                        placeholder="Nome completo"
+                        style={{ width: "100%", borderRadius: "8px", padding: "7px 11px", fontSize: "13px", fontWeight: 600, border: "1px solid #E5E7EB", background: "white", outline: "none", fontFamily: "inherit" }}
+                        onFocus={e => { e.currentTarget.style.borderColor = "#203b88"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(32,59,136,0.10)"; }}
+                        onBlur={e => { e.currentTarget.style.borderColor = "#E5E7EB"; e.currentTarget.style.boxShadow = "none"; }}
+                      />
+                    </div>
+                    <div>
+                      <input
+                        value={s.cpfCnpj}
+                        onChange={e => setSocio(i, "cpfCnpj", e.target.value)}
+                        placeholder="CPF / CNPJ"
+                        style={{ width: "100%", borderRadius: "8px", padding: "7px 11px", fontSize: "12px", border: `1px solid ${hasCPF ? "#E5E7EB" : "#fcd34d"}`, background: hasCPF ? "white" : "#fffbeb", outline: "none", fontFamily: "inherit" }}
+                        onFocus={e => { e.currentTarget.style.borderColor = "#203b88"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(32,59,136,0.10)"; }}
+                        onBlur={e => { e.currentTarget.style.borderColor = hasCPF ? "#E5E7EB" : "#fcd34d"; e.currentTarget.style.boxShadow = "none"; }}
+                      />
+                      {!hasCPF && (
+                        <p style={{ fontSize: "10px", color: "#d97706", marginTop: "3px", display: "flex", alignItems: "center", gap: "3px" }}>
+                          <AlertTriangle size={9} /> CPF/CNPJ ausente
+                        </p>
+                      )}
+                    </div>
+                    <input
+                      value={s.qualificacao}
+                      onChange={e => setSocio(i, "qualificacao", e.target.value)}
+                      placeholder="Qualificação"
+                      style={{ width: "100%", borderRadius: "8px", padding: "7px 11px", fontSize: "12px", border: "1px solid #E5E7EB", background: "white", outline: "none", fontFamily: "inherit" }}
+                      onFocus={e => { e.currentTarget.style.borderColor = "#203b88"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(32,59,136,0.10)"; }}
+                      onBlur={e => { e.currentTarget.style.borderColor = "#E5E7EB"; e.currentTarget.style.boxShadow = "none"; }}
+                    />
+                    <input
+                      value={s.participacao}
+                      onChange={e => setSocio(i, "participacao", e.target.value)}
+                      placeholder="Participação %"
+                      style={{ width: "100%", borderRadius: "8px", padding: "7px 11px", fontSize: "12px", border: "1px solid #E5E7EB", background: "white", outline: "none", fontFamily: "inherit" }}
+                      onFocus={e => { e.currentTarget.style.borderColor = "#203b88"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(32,59,136,0.10)"; }}
+                      onBlur={e => { e.currentTarget.style.borderColor = "#E5E7EB"; e.currentTarget.style.boxShadow = "none"; }}
+                    />
                   </div>
-                  <input value={s.participacao} onChange={e => setSocio(i,"participacao",e.target.value)} placeholder="Participação %" className="input-field py-2 text-sm" />
+
+                  {/* Remover */}
+                  <button
+                    onClick={() => removeSocio(i)}
+                    style={{ width: "28px", height: "28px", display: "flex", alignItems: "center", justifyContent: "center", background: "white", border: "1px solid #E5E7EB", borderRadius: "8px", cursor: "pointer", color: "#9CA3AF", flexShrink: 0, transition: "all 0.15s" }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "#dc2626"; (e.currentTarget as HTMLElement).style.borderColor = "#fca5a5"; (e.currentTarget as HTMLElement).style.background = "#fef2f2"; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "#9CA3AF"; (e.currentTarget as HTMLElement).style.borderColor = "#E5E7EB"; (e.currentTarget as HTMLElement).style.background = "white"; }}
+                  >
+                    <Trash2 size={13} />
+                  </button>
                 </div>
-              ))}
-            </div>
+              );
+            })}
           </div>
         </div>
       </div>

@@ -15,7 +15,7 @@ const GEMINI_API_KEYS = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_K
   .map(k => k.trim())
   .filter(Boolean);
 
-const GEMINI_MODELS = ["gemini-2.0-flash"];
+const GEMINI_MODELS = ["gemini-2.0-flash", "gemini-1.5-flash-8b"];
 
 const OPENROUTER_API_KEYS = (process.env.OPENROUTER_API_KEYS || process.env.OPENROUTER_API_KEY || "")
   .split(",").map(k => k.trim()).filter(Boolean);
@@ -287,7 +287,7 @@ Regras:
 - qualificacao: "Sócio", "Sócio-Administrador", "Administrador" conforme o contrato
 - NÃO inclua testemunhas, advogados, cônjuges (a menos que sejam sócios), notários
 - capitalSocial: valor total em reais (ex: "R$ 220.000,00")
-- objetoSocial: resumo em até 3 frases do que a empresa faz — extraia da cláusula de objeto social
+- objetoSocial: extraia as atividades da cláusula de objeto social e reescreva em Título Case (não MAIÚSCULAS), texto corrido, separando atividades por vírgula, sem ponto-e-vírgula — máximo 300 caracteres. Ex: "Comércio atacadista de produtos alimentícios, fabricação de alimentos congelados, transporte de cargas"
 - dataConstituicao: data de constituição/registro em DD/MM/YYYY
 - temAlteracoes: true se o documento for uma Alteração Contratual ou Consolidação (não o contrato original)
 - ultimaAlteracao: data da última alteração em DD/MM/YYYY (se temAlteracoes=true)
@@ -600,7 +600,7 @@ Dados da empresa (coletados na visita — buscar em campos rotulados):
 // ─────────────────────────────────────────
 // PROVEDOR 1: Gemini (primário — melhor qualidade)
 // ─────────────────────────────────────────
-async function callGemini(prompt: string, content: string | { mimeType: string; base64: string }): Promise<string> {
+async function callGemini(prompt: string, content: string | { mimeType: string; base64: string }, maxOutputTokens = 2048): Promise<string> {
   const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
 
   if (typeof content === "string") {
@@ -610,7 +610,9 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
     parts.push({ text: prompt });
   }
 
-  for (const apiKey of GEMINI_API_KEYS) {
+  const startIdx = Math.floor(Math.random() * GEMINI_API_KEYS.length);
+  const rotatedKeys = [...GEMINI_API_KEYS.slice(startIdx), ...GEMINI_API_KEYS.slice(0, startIdx)];
+  for (const apiKey of rotatedKeys) {
     for (const model of GEMINI_MODELS) {
       for (let attempt = 0; attempt < 1; attempt++) {
         try {
@@ -625,7 +627,7 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
               contents: [{ parts }],
               generationConfig: {
                 temperature: 0.1,
-                maxOutputTokens: 8192,
+                maxOutputTokens,
                 responseMimeType: "application/json",
               },
             }),
@@ -705,6 +707,7 @@ async function callAI(
   prompt: string,
   textContent: string,
   imageContent?: { mimeType: string; base64: string },
+  maxOutputTokens = 2048,
 ): Promise<string> {
   const content: string | { mimeType: string; base64: string } = imageContent ?? textContent;
 
@@ -715,7 +718,7 @@ async function callAI(
 
   const aiCall = async (): Promise<string> => {
     try {
-      return await callGemini(prompt, content);
+      return await callGemini(prompt, content, maxOutputTokens);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (imageContent || OPENROUTER_API_KEYS.length === 0) throw err;
@@ -1184,11 +1187,11 @@ export async function POST(request: NextRequest) {
 
     if (textContent) {
       const maxChars: Record<string, number> = {
-        cnpj: 6000, qsa: 10000, contrato: 25000, faturamento: 15000, scr: 25000,
-        protestos: 15000, processos: 20000, grupoEconomico: 15000,
-        curva_abc: 8000, dre: 20000, balanco: 20000, ir_socio: 6000, relatorio_visita: 10000,
+        cnpj: 4000, qsa: 6000, contrato: 12000, faturamento: 10000, scr: 15000,
+        protestos: 8000, processos: 12000, grupoEconomico: 8000,
+        curva_abc: 6000, dre: 12000, balanco: 12000, ir_socio: 5000, relatorio_visita: 8000,
       };
-      textContent = textContent.substring(0, maxChars[docType] || 15000);
+      textContent = textContent.substring(0, maxChars[docType] || 10000);
     }
 
     console.log(`[extract] ${file.name} | type=${docType} | ext=${ext} | textLen=${textContent.length} | hasImage=${!!imageContent}`);
@@ -1204,6 +1207,12 @@ export async function POST(request: NextRequest) {
     const _imageContent = imageContent;
     const _docType = docType;
     const _isImage = isImage;
+    const maxOutputTokensMap: Record<string, number> = {
+      cnpj: 1024, qsa: 1024, contrato: 1024, faturamento: 1536, scr: 3072,
+      protestos: 1536, processos: 1536, grupoEconomico: 1024,
+      curva_abc: 2048, dre: 2048, balanco: 2048, ir_socio: 2048, relatorio_visita: 1024,
+    };
+    const _maxOutputTokens = maxOutputTokensMap[docType] ?? 2048;
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -1215,7 +1224,7 @@ export async function POST(request: NextRequest) {
           _send(controller, "status", { message: "Processando documento...", inputMode, textLen: _textContent.length, docType: _docType });
 
           try {
-            const aiResponse = await callAI(_prompt, _textContent, _imageContent);
+            const aiResponse = await callAI(_prompt, _textContent, _imageContent, _maxOutputTokens);
             console.log(`[extract] AI response length: ${aiResponse.length}`);
             console.log(`[extract] AI raw response (first 1000 chars):`, aiResponse.substring(0, 1000));
             const parsed = parseJSON<Record<string, unknown>>(aiResponse);

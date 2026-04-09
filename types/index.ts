@@ -243,8 +243,8 @@ export interface DistribuicaoPorFaixa {
 }
 
 export interface ProcessosData {
-  passivosTotal: string;
-  ativosTotal: string;
+  passivosTotal: string;   // total de processos (todos os polos)
+  ativosTotal: string;     // processos em andamento (por status)
   valorTotalEstimado: string;
   temRJ: boolean;
   distribuicao: ProcessoDistribuicao[];
@@ -252,6 +252,10 @@ export interface ProcessosData {
   fiscais: ProcessoFiscal[];
   fornecedores: ProcessoFornecedor[];
   outros: ProcessoOutro[];
+  // Polo processual (Credit Hub — quem processa quem)
+  poloAtivoQtd?: string;   // empresa no polo ATIVO (autora/exequente)
+  poloPassivoQtd?: string; // empresa no polo PASSIVO (ré/executada)
+  temFalencia?: boolean;   // pedido de falência identificado
   // Análise analítica (Credit Hub)
   dividasQtd?: string;
   dividasValor?: string;
@@ -700,3 +704,25 @@ export const DEFAULT_FUND_SETTINGS: FundSettings = {
   processos_passivos_max: 15,
   scr_vencidos_max_pct: 10,
 };
+
+// ── Fund Validation Result ─────────────────────────────────────────────────────
+export type CriterionStatus = "ok" | "warning" | "error" | "unknown";
+
+export interface FundCriterion {
+  id: string;
+  label: string;
+  threshold: string;
+  actual: string;
+  status: CriterionStatus;
+  eliminatoria: boolean;
+  detail?: string;
+}
+
+export interface FundValidationResult {
+  criteria: FundCriterion[];
+  passCount: number;
+  warnCount: number;
+  failCount: number;
+  unknownCount: number;
+  hasEliminatoria: boolean;
+}

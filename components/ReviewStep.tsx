@@ -1,7 +1,7 @@
 "use client";
 // v2
 import { useState, useCallback, useEffect, useRef } from "react";
-import { ArrowRight, ArrowLeft, AlertTriangle, AlertCircle, RefreshCw } from "lucide-react";
+import { ArrowRight, ArrowLeft, AlertTriangle, AlertCircle, RefreshCw, CheckCircle2, ShieldCheck, ClipboardList } from "lucide-react";
 import { ExtractedData, Socio, QSASocio, FaturamentoMensal, SCRModalidade, SCRInstituicao, SCRData, IRSocioData } from "@/types";
 import { avaliarQualidade, podeAvancar, getAvisos } from "./review/shared";
 import { SectionCNPJ } from "./review/SectionCNPJ";
@@ -39,10 +39,13 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
     const qFat = avaliarQualidade("faturamento", data.faturamento as unknown as Record<string, unknown>);
     const qScr = avaliarQualidade("scr", data.scr as unknown as Record<string, unknown>);
     const qContrato = avaliarQualidade("contrato", data.contrato as unknown as Record<string, unknown>);
+    const qCnpj = avaliarQualidade("cnpj", data.cnpj as unknown as Record<string, unknown>);
+    const qQsa  = avaliarQualidade("qsa",  data.qsa  as unknown as Record<string, unknown>);
     return {
-      cnpj: true, qsa: true,
+      cnpj: qCnpj.score !== "good",
+      qsa:  qQsa.score  !== "good",
       contrato: qContrato.score !== "good",
-      faturamento: true,
+      faturamento: qFat.score !== "good",
       scr: qScr.score !== "good" || qFat.score === "error",
       dre: false, balanco: false, curvaABC: false, irSocios: false, relatorioVisita: false,
     };
@@ -206,46 +209,93 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="animate-slide-up space-y-4">
-      {savedAt && (
-        <div className="flex items-center justify-end gap-1.5 text-[10px] text-cf-text-3">
-          <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-          Rascunho salvo às {savedAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-        </div>
-      )}
+    <div className="animate-slide-up" style={{ display: "flex", flexDirection: "column", gap: "10px", paddingBottom: "80px" }}>
 
-      {/* Quality banner */}
-      {!pode && !forcarAvancar ? (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-          <div className="flex items-start gap-3">
-            <AlertCircle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-semibold text-red-700 mb-1">Nao e possivel prosseguir</p>
-              <ul className="space-y-1">{motivos.map((m, i) => <li key={i} className="text-xs text-red-600 flex items-start gap-1"><span className="mt-0.5">→</span>{m}</li>)}</ul>
-              <p className="text-[10px] text-red-400 mt-2">Corrija os campos destacados em vermelho ou reenvie os documentos com problema.</p>
+      {/* ── Cabeçalho unificado: identidade + qualidade ── */}
+      <div style={{ background: "white", borderRadius: "14px", overflow: "hidden", border: "1px solid #E2E8F0", boxShadow: "0 2px 12px rgba(32,59,136,0.09)" }}>
+        {/* Faixa principal navy */}
+        <div style={{ padding: "24px", background: "linear-gradient(135deg, #192f5d 0%, #1e3a7a 100%)" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px" }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
+                <ClipboardList size={12} style={{ color: "rgba(255,255,255,0.5)", flexShrink: 0 }} />
+                <p style={{ fontSize: "10px", fontWeight: 700, color: "rgba(255,255,255,0.5)", textTransform: "uppercase", letterSpacing: "0.12em", margin: 0 }}>Revisão de Dados</p>
+              </div>
+              <p style={{ fontSize: "18px", fontWeight: 600, color: "white", margin: 0, lineHeight: 1.3 }} className="truncate">
+                {form.cnpj?.razaoSocial || "Empresa"}
+              </p>
+              {form.cnpj?.cnpj && (
+                <p style={{ fontSize: "12px", color: "rgba(255,255,255,0.6)", fontFamily: "monospace", margin: "4px 0 0" }}>{form.cnpj.cnpj}</p>
+              )}
+            </div>
+            {savedAt && (
+              <p style={{ fontSize: "11px", color: "rgba(255,255,255,0.55)", flexShrink: 0, marginTop: "2px" }}>
+                Salvo {savedAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+              </p>
+            )}
+          </div>
+          {/* Chips de qualidade */}
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "16px" }}>
+            {goodCount > 0 && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "12px", fontWeight: 700, padding: "5px 12px", borderRadius: "99px", background: "#22c55e", color: "white" }}>
+                <CheckCircle2 size={11} /> {goodCount} OK
+              </span>
+            )}
+            {warningCount > 0 && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "12px", fontWeight: 700, padding: "5px 12px", borderRadius: "99px", background: "rgba(245,158,11,0.25)", color: "#fcd34d", border: "1px solid rgba(245,158,11,0.3)" }}>
+                <AlertTriangle size={11} /> {warningCount} Atenção
+              </span>
+            )}
+            {errorCount > 0 && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "12px", fontWeight: 700, padding: "5px 12px", borderRadius: "99px", background: "rgba(239,68,68,0.25)", color: "#fca5a5", border: "1px solid rgba(239,68,68,0.3)" }}>
+                <AlertCircle size={11} /> {errorCount} Erro
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Barra de status */}
+        {!pode && !forcarAvancar ? (
+          <div style={{ padding: "12px 24px", background: "#fef2f2", borderTop: "1px solid #fecaca" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
+              <AlertCircle size={14} style={{ color: "#ef4444", flexShrink: 0, marginTop: "1px" }} />
+              <div>
+                <p style={{ fontSize: "12px", fontWeight: 600, color: "#991b1b", margin: "0 0 4px" }}>Não é possível prosseguir</p>
+                <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                  {motivos.map((m, i) => (
+                    <li key={i} style={{ fontSize: "11px", color: "#dc2626", display: "flex", alignItems: "flex-start", gap: "4px" }}>
+                      <span style={{ flexShrink: 0 }}>→</span><span>{m}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
           </div>
-        </div>
-      ) : pode && avisos.length > 0 ? (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-          <div className="flex items-start gap-3">
-            <AlertTriangle size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-semibold text-amber-700 mb-1">Dados incompletos — revise antes de prosseguir</p>
-              <ul className="space-y-1">{avisos.map((a, i) => <li key={i} className="text-xs text-amber-600 flex items-start gap-1"><span className="mt-0.5">→</span>{a}</li>)}</ul>
-              <p className="text-[10px] text-amber-400 mt-2">Voce pode prosseguir, mas o relatorio pode ficar incompleto.</p>
+        ) : pode && avisos.length > 0 ? (
+          <div style={{ padding: "12px 24px", background: "#fffbeb", borderTop: "1px solid #fde68a" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
+              <AlertTriangle size={14} style={{ color: "#f59e0b", flexShrink: 0, marginTop: "1px" }} />
+              <div>
+                <p style={{ fontSize: "12px", fontWeight: 600, color: "#92400e", margin: "0 0 4px" }}>Dados incompletos — revise antes de prosseguir</p>
+                <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+                  {avisos.map((a, i) => (
+                    <li key={i} style={{ fontSize: "11px", color: "#b45309", display: "flex", alignItems: "flex-start", gap: "4px" }}>
+                      <span style={{ flexShrink: 0 }}>→</span><span>{a}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
           </div>
-        </div>
-      ) : errorCount === 0 && warningCount === 0 ? (
-        <div className="flex items-start gap-3 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
-          <AlertCircle size={15} className="text-green-500 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-xs font-semibold text-green-700">Todos os {goodCount} documentos foram extraidos com boa qualidade</p>
-            <p className="text-[10px] text-green-500 mt-0.5">Revise os dados e prossiga para gerar o relatorio</p>
+        ) : errorCount === 0 && warningCount === 0 ? (
+          <div style={{ padding: "10px 24px", background: "#f0fdf4", borderTop: "1px solid #bbf7d0", display: "flex", alignItems: "center", gap: "10px" }}>
+            <ShieldCheck size={14} style={{ color: "#16a34a", flexShrink: 0 }} />
+            <p style={{ fontSize: "12px", fontWeight: 600, color: "#15803d", margin: 0 }}>
+              {goodCount} documentos extraídos com boa qualidade — revise e prossiga
+            </p>
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
 
       {/* Sections */}
       <SectionCNPJ data={form.cnpj} set={setCNPJ} expanded={open.cnpj} onToggle={() => toggle("cnpj")} quality={qualityMap.cnpj} />
@@ -259,29 +309,84 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
       {form.irSocios !== undefined && <SectionIRSocios data={form.irSocios!} set={setIRSocio} add={addIRSocio} remove={removeIRSocio} expanded={open.irSocios} onToggle={() => toggle("irSocios")} />}
       {form.relatorioVisita && <SectionRelatorioVisita data={form.relatorioVisita} set={setVisita} setLista={setVisitaLista} addLista={addVisitaLista} removeLista={removeVisitaLista} expanded={open.relatorioVisita} onToggle={() => toggle("relatorioVisita")} />}
 
-      {/* Navigation */}
-      <div className="flex items-center justify-between pt-1">
-        <button onClick={onBack} className="btn-secondary"><ArrowLeft size={15} /> Voltar</button>
-        <div className="flex items-center gap-3">
-          <div className="flex flex-col items-end gap-1">
-            <button onClick={reconsultarBuros} disabled={bureauStatus === "loading"}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-all ${bureauStatus === "loading" ? "border-cf-border text-cf-text-3 cursor-not-allowed" : bureauStatus === "done" ? "border-green-300 text-green-700 bg-green-50 hover:bg-green-100" : bureauStatus === "error" ? "border-red-300 text-red-700 bg-red-50 hover:bg-red-100" : "border-cf-border text-cf-text-2 bg-white hover:bg-cf-surface"}`}>
-              <RefreshCw size={13} className={bureauStatus === "loading" ? "animate-spin" : ""} />
-              {bureauStatus === "loading" ? "Consultando..." : "Re-consultar Birôs"}
-            </button>
-            {bureauMsg && <span className={`text-[10px] ${bureauStatus === "error" ? "text-red-500" : "text-green-600"}`}>{bureauMsg}</span>}
-          </div>
-          <div className="flex flex-col items-end gap-1">
-            <button onClick={() => onComplete(form)} disabled={!pode && !forcarAvancar}
-              title={!pode && !forcarAvancar ? "Corrija os erros criticos antes de prosseguir" : undefined}
-              className={`btn-primary ${!pode && !forcarAvancar ? "opacity-50 cursor-not-allowed" : ""}`}>
-              {pode || forcarAvancar ? "Gerar Relatorio" : "Corrija os erros primeiro"} <ArrowRight size={15} />
-            </button>
-            {!pode && !forcarAvancar && (
-              <button onClick={() => setForcarAvancar(true)} className="text-[10px] text-cf-text-4 hover:text-cf-text-2 underline transition-colors" style={{ minHeight: "auto" }}>
-                Prosseguir mesmo assim
+      {/* Spacer sections já estão com pb-20 no container */}
+
+      {/* ── Barra fixa inferior ── */}
+      <div
+        style={{
+          position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 30,
+          background: "white",
+          borderTop: "1px solid #E5E7EB",
+          boxShadow: "0 -4px 20px rgba(0,0,0,0.09)",
+          padding: "12px 20px",
+        }}
+      >
+        <div style={{ maxWidth: "720px", margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+          {/* Esquerda */}
+          <button
+            onClick={onBack}
+            style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "9px 18px", borderRadius: "10px", fontSize: "13px", fontWeight: 600, color: "#374151", background: "white", border: "1px solid #E5E7EB", cursor: "pointer", transition: "all 0.15s" }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = "#203b88"; (e.currentTarget as HTMLElement).style.background = "#F8FAFC"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = "#E5E7EB"; (e.currentTarget as HTMLElement).style.background = "white"; }}
+          >
+            <ArrowLeft size={14} /> Voltar
+          </button>
+
+          {/* Direita */}
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            {/* Re-consultar */}
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "3px" }}>
+              <button
+                onClick={reconsultarBuros}
+                disabled={bureauStatus === "loading"}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: "6px",
+                  padding: "9px 16px", borderRadius: "10px", fontSize: "12px", fontWeight: 600, cursor: "pointer",
+                  border: bureauStatus === "done" ? "1px solid #86efac" : bureauStatus === "error" ? "1px solid #fca5a5" : "1px solid #E5E7EB",
+                  color: bureauStatus === "done" ? "#15803d" : bureauStatus === "error" ? "#991b1b" : "#374151",
+                  background: bureauStatus === "done" ? "#f0fdf4" : bureauStatus === "error" ? "#fef2f2" : "white",
+                  opacity: bureauStatus === "loading" ? 0.6 : 1,
+                  transition: "all 0.15s",
+                }}
+              >
+                <RefreshCw size={13} className={bureauStatus === "loading" ? "animate-spin" : ""} />
+                {bureauStatus === "loading" ? "Consultando..." : "Re-consultar Birôs"}
               </button>
-            )}
+              {bureauMsg && (
+                <span style={{ fontSize: "10px", fontWeight: 500, color: bureauStatus === "error" ? "#ef4444" : "#16a34a" }}>
+                  {bureauMsg}
+                </span>
+              )}
+            </div>
+
+            {/* Gerar Relatório */}
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "3px" }}>
+              <button
+                onClick={() => onComplete(form)}
+                disabled={!pode && !forcarAvancar}
+                title={!pode && !forcarAvancar ? "Corrija os erros críticos antes de prosseguir" : undefined}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: "8px",
+                  padding: "10px 22px", borderRadius: "10px", fontSize: "14px", fontWeight: 700, color: "white",
+                  background: pode || forcarAvancar ? "linear-gradient(135deg, #192f5d 0%, #1e3a7a 100%)" : "#9CA3AF",
+                  boxShadow: pode || forcarAvancar ? "0 4px 16px rgba(32,59,136,0.35)" : "none",
+                  opacity: !pode && !forcarAvancar ? 0.7 : 1,
+                  cursor: !pode && !forcarAvancar ? "not-allowed" : "pointer",
+                  border: "none", transition: "all 0.15s",
+                }}
+              >
+                {pode || forcarAvancar ? "Gerar Relatório" : "Corrija os erros"}
+                <ArrowRight size={16} />
+              </button>
+              {!pode && !forcarAvancar && (
+                <button
+                  onClick={() => setForcarAvancar(true)}
+                  style={{ fontSize: "10px", color: "#9CA3AF", background: "none", border: "none", textDecoration: "underline", cursor: "pointer", padding: 0 }}
+                >
+                  Prosseguir mesmo assim
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>

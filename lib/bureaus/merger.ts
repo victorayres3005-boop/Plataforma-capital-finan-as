@@ -25,7 +25,11 @@ export function mergeBureauResults(
   if (results.credithub?.success && !results.credithub.mock) {
     bureausConsultados.push("Credit Hub");
     if (results.credithub.score) score.credithub = results.credithub.score;
-    if (results.credithub.protestos) protestos = results.credithub.protestos;
+    // Só sobrescreve protestos se Credit Hub retornou dados reais (não objeto vazio)
+    const chp = results.credithub.protestos;
+    if (chp && (Number(chp.vigentesQtd) > 0 || Number(chp.regularizadosQtd) > 0 || (chp.detalhes?.length ?? 0) > 0)) {
+      protestos = chp;
+    }
     if (results.credithub.processos) processos = results.credithub.processos;
 
     // CCF

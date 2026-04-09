@@ -162,7 +162,70 @@ const DOC_FIELDS: Record<string, { key: string; label: string; type: "text" | "s
   ],
 };
 
-function CollectionCard({ col, highlight, onDelete, onUpdate, userId }: { col: DocumentCollection; highlight: boolean; onDelete: (id: string) => void; onUpdate: (docs: CollectionDocument[]) => void; userId?: string }) {
+function derivarSetor(cnaePrincipal?: string): string {
+  if (!cnaePrincipal) return "";
+  const match = cnaePrincipal.match(/^(\d{2})/);
+  if (match) {
+    const c = parseInt(match[1]);
+    if (c <= 3)             return "Agronegócio";
+    if (c <= 9)             return "Indústria";
+    if (c <= 12)            return "Alimentício";
+    if (c <= 18)            return "Têxtil";
+    if (c <= 25)            return "Indústria";
+    if (c <= 27)            return "Tecnologia";
+    if (c <= 33)            return "Indústria";
+    if (c === 35)           return "Energia";
+    if (c <= 39)            return "Saneamento";
+    if (c <= 43)            return "Construção";
+    if (c <= 47)            return "Comércio";
+    if (c <= 53)            return "Transporte";
+    if (c <= 56)            return "Alimentício";
+    if (c <= 63)            return "Tecnologia";
+    if (c <= 66)            return "Financeiro";
+    if (c === 68)           return "Imobiliário";
+    if (c <= 75)            return "Serviços";
+    if (c <= 82)            return "Serviços";
+    if (c === 84)           return "Governo";
+    if (c === 85)           return "Educação";
+    if (c <= 88)            return "Saúde";
+    if (c <= 93)            return "Cultura";
+    if (c <= 99)            return "Serviços";
+  }
+  const t = cnaePrincipal.toLowerCase();
+  if (/saúde|médic|hospital|farmácia|clínica|odontol/.test(t)) return "Saúde";
+  if (/tecnologia|software|informátic|internet|dados|ti /.test(t))  return "Tecnologia";
+  if (/aliment|bebida|restaurante|padaria|food/.test(t))             return "Alimentício";
+  if (/construção|engenharia|obras|incorpora/.test(t))               return "Construção";
+  if (/transporte|logística|frete|cargas/.test(t))                   return "Transporte";
+  if (/educação|escola|ensino|curso|treinamento/.test(t))            return "Educação";
+  if (/financeiro|banco|crédito|seguro|factoring/.test(t))           return "Financeiro";
+  if (/comércio|varejo|atacado/.test(t))                             return "Comércio";
+  if (/agro|agrícol|pecuária|rural|lavoura/.test(t))                 return "Agronegócio";
+  if (/imóvel|imobiliária|locação|aluguel/.test(t))                  return "Imobiliário";
+  return "Serviços";
+}
+
+const DECISAO_STYLE: Record<string, { label: string; bg: string; text: string; border: string }> = {
+  APROVADO:              { label: "Aprovado",     bg: "#f0fdf4", text: "#16a34a", border: "#bbf7d0" },
+  APROVACAO_CONDICIONAL: { label: "Condicional",  bg: "#fffbeb", text: "#d97706", border: "#fde68a" },
+  PENDENTE:              { label: "Pendente",     bg: "#f8fafc", text: "#64748b", border: "#e2e8f0" },
+  REPROVADO:             { label: "Reprovado",    bg: "#fef2f2", text: "#dc2626", border: "#fecaca" },
+};
+
+function ratingColor(r: number): string {
+  if (r >= 8) return "#16a34a";
+  if (r >= 6) return "#2563eb";
+  if (r >= 4) return "#d97706";
+  return "#dc2626";
+}
+
+function CollectionCard({ col, highlight, onDelete, onUpdate, userId }: {
+  col: DocumentCollection;
+  highlight: boolean;
+  onDelete: (id: string) => void;
+  onUpdate: (docs: CollectionDocument[]) => void;
+  userId?: string;
+}) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [generatingReport, setGeneratingReport] = useState(false);
@@ -205,6 +268,7 @@ function CollectionCard({ col, highlight, onDelete, onUpdate, userId }: { col: D
       setGeneratingReport(false);
     }
   };
+
   const [storedFiles, setStoredFiles] = useState<{ originals: { name: string; path: string }[]; reports: { name: string; path: string }[] }>({ originals: [], reports: [] });
   const [filesLoaded, setFilesLoaded] = useState(false);
 
@@ -251,6 +315,7 @@ function CollectionCard({ col, highlight, onDelete, onUpdate, userId }: { col: D
     } catch { toast.error("Erro ao excluir"); }
     finally { setDeleting(false); setConfirmDelete(false); }
   };
+
   const [expanded, setExpanded] = useState(false);
   const [editingLabel, setEditingLabel] = useState(false);
   const [label, setLabel] = useState(col.label || "");
@@ -260,7 +325,6 @@ function CollectionCard({ col, highlight, onDelete, onUpdate, userId }: { col: D
   const [savingNotes, setSavingNotes] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  // ── Inline doc editing ──
   const [editingDoc, setEditingDoc] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<Record<string, unknown>>({});
   const [savingDoc, setSavingDoc] = useState(false);
@@ -293,7 +357,6 @@ function CollectionCard({ col, highlight, onDelete, onUpdate, userId }: { col: D
       const updatedDocs = docs.map(d => {
         if (d.type !== docType) return d;
         const newData: Record<string, unknown> = { ...d.extracted_data, ...editValues, _editedManually: true };
-        // Recalculate faturamento average if applicable
         if (docType === "faturamento" && Array.isArray(editValues.meses)) {
           const meses = editValues.meses as { mes: string; valor: string }[];
           const vals = meses.map(m => parseFloat((m.valor || "0").replace(/\./g, "").replace(",", ".")) || 0);
@@ -352,122 +415,183 @@ function CollectionCard({ col, highlight, onDelete, onUpdate, userId }: { col: D
   };
 
   const isFinished = col.status === "finished";
-  const date = new Date(col.created_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  const date = new Date(col.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
   const docs = (col.documents || []) as CollectionDocument[];
 
+  // ── Setor: extraído do CNPJ já salvo nos documentos da coleta ──
+  const cnpjDoc = docs.find(d => d.type === "cnpj");
+  const cnaePrincipal = cnpjDoc?.extracted_data?.cnaePrincipal as string | undefined;
+  const setor = derivarSetor(cnaePrincipal);
+
+  // ── Rating e Decisão ──
+  const rating = col.rating;
+  const decisao = col.decisao;
+  const decisaoStyle = decisao ? DECISAO_STYLE[decisao] : null;
+
   return (
-    <div ref={ref} className={`card overflow-hidden transition-all duration-500 ${highlight ? "ring-2 ring-cf-green ring-offset-2" : ""}`}>
-      <div className="p-5">
-        {/* Linha 1: data + status */}
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs text-cf-text-3 font-medium">{date}</span>
-          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${
-            isFinished
-              ? "text-cf-green bg-cf-green/5 border-cf-green/20"
-              : "text-cf-warning bg-cf-warning-bg border-cf-warning/20"
-          }`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${isFinished ? "bg-cf-green" : "bg-cf-warning animate-pulse"}`} />
-            {isFinished ? "Finalizada" : "Em andamento"}
-          </div>
-        </div>
-
-        {/* Linha 2: label editável */}
-        <div className="flex items-center gap-2 mb-2">
-          {editingLabel ? (
-            <div className="flex items-center gap-2 flex-1">
-              <input value={label} onChange={e => setLabel(e.target.value)} onKeyDown={e => e.key === "Enter" && saveLabel()}
-                autoFocus placeholder="Título da coleta" className="input-field py-1 text-sm flex-1" />
-              <button onClick={saveLabel} disabled={saving} className="w-7 h-7 rounded-lg bg-cf-green/10 flex items-center justify-center text-cf-green hover:bg-cf-green/20 transition-colors">
-                {saving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-              </button>
-            </div>
-          ) : (
-            <>
-              <h3 className="text-sm font-bold text-cf-text-1">{label || "Coleta sem título"}</h3>
-              <button onClick={() => setEditingLabel(true)} className="text-cf-text-4 hover:text-cf-navy transition-colors">
-                <Pencil size={12} />
-              </button>
-            </>
-          )}
-        </div>
-
-        {/* Linha 2b: observações */}
-        {editingNotes ? (
-          <div className="mb-2">
-            <textarea
-              value={observacoes}
-              onChange={e => setObservacoes(e.target.value)}
-              autoFocus
-              rows={3}
-              placeholder="Observações do analista..."
-              className="w-full text-xs text-cf-text-1 bg-cf-bg border border-cf-border rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-cf-navy/20 placeholder:text-cf-text-4"
-            />
-            <div className="flex items-center gap-2 mt-1.5">
-              <button onClick={saveNotes} disabled={savingNotes} className="inline-flex items-center gap-1 text-[11px] font-semibold text-cf-green hover:bg-cf-green/5 border border-cf-green/20 rounded-lg px-2.5 py-1 transition-colors">
-                {savingNotes ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />} Salvar
-              </button>
-              <button onClick={() => { setObservacoes(col.observacoes || ""); setEditingNotes(false); }} className="text-[11px] text-cf-text-4 hover:text-cf-text-2 px-2 py-1 transition-colors">
-                Cancelar
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="mb-2 flex items-start gap-1.5">
-            {observacoes ? (
-              <p className="text-xs text-cf-text-3 flex-1 leading-relaxed line-clamp-2">{observacoes}</p>
+    <div
+      ref={ref}
+      className={`bg-white rounded-xl border overflow-hidden transition-all duration-300 ${
+        highlight ? "border-cf-green ring-2 ring-cf-green/20" : "border-cf-border"
+      }`}
+    >
+      {/* ── Main row ── */}
+      <div className="px-5 py-4">
+        <div className="flex items-start gap-3">
+          {/* Left: name + meta */}
+          <div className="flex-1 min-w-0">
+            {editingLabel ? (
+              <div className="flex items-center gap-2 mb-0.5">
+                <input
+                  value={label}
+                  onChange={e => setLabel(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") saveLabel(); if (e.key === "Escape") setEditingLabel(false); }}
+                  autoFocus
+                  placeholder="Título da coleta"
+                  className="text-sm font-bold text-cf-text-1 bg-cf-bg border border-cf-border rounded-lg px-2.5 py-1 flex-1 focus:outline-none focus:ring-1 focus:ring-cf-navy/20"
+                />
+                <button onClick={saveLabel} disabled={saving} className="w-7 h-7 rounded-lg flex items-center justify-center text-cf-green hover:bg-cf-green/10 transition-colors">
+                  {saving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                </button>
+                <button onClick={() => { setLabel(col.label || ""); setEditingLabel(false); }} className="w-7 h-7 rounded-lg flex items-center justify-center text-cf-text-3 hover:text-cf-text-1 transition-colors text-sm">✕</button>
+              </div>
             ) : (
-              <p className="text-xs text-cf-text-4 flex-1 italic">Sem observações</p>
+              <button
+                onClick={() => setEditingLabel(true)}
+                className="group flex items-center gap-1.5 text-left w-full mb-0.5"
+              >
+                <span className="text-sm font-bold text-cf-text-1 group-hover:text-cf-navy transition-colors leading-snug">
+                  {label || col.company_name || "Coleta sem título"}
+                </span>
+                <Pencil size={11} className="text-cf-text-4 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+              </button>
             )}
-            <button onClick={() => setEditingNotes(true)} className="text-cf-text-4 hover:text-cf-navy transition-colors flex-shrink-0 mt-0.5" title="Editar observações">
-              <Pencil size={11} />
-            </button>
+            <p className="text-[11px] text-cf-text-4">
+              {date} · {docs.length} documento{docs.length !== 1 ? "s" : ""}
+            </p>
           </div>
-        )}
 
-        {/* Linha 3: info + botões */}
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-cf-text-3">{docs.length} documento{docs.length !== 1 ? "s" : ""} salvo{docs.length !== 1 ? "s" : ""}</span>
-          <div className="flex items-center gap-2">
+          {/* Right: status + actions */}
+          <div className="flex items-center gap-1.5 flex-shrink-0 mt-0.5">
+            {/* Status pill */}
+            <span className={`flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-full border ${
+              isFinished
+                ? "text-cf-green bg-cf-green/5 border-cf-green/20"
+                : "text-cf-warning bg-cf-warning-bg border-cf-warning/20"
+            }`}>
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isFinished ? "bg-cf-green" : "bg-cf-warning animate-pulse"}`} />
+              {isFinished ? "Finalizada" : "Em andamento"}
+            </span>
+
+            {/* Generate report */}
+            {docs.length > 0 && (
+              <button
+                onClick={handleGenerateReport}
+                disabled={generatingReport}
+                title="Gerar relatório"
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-cf-text-3 hover:text-cf-navy hover:bg-cf-surface border border-cf-border transition-colors disabled:opacity-40"
+              >
+                {generatingReport ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+              </button>
+            )}
+
+            {/* Retomar / Reabrir */}
             {!isFinished ? (
-              <Link href={`/?resume=${col.id}`} className="inline-flex items-center gap-1.5 text-xs font-semibold text-cf-green hover:bg-cf-green/5 border border-cf-green/20 rounded-lg px-3 py-1.5 transition-colors">
-                <RotateCcw size={12} /> Retomar
+              <Link
+                href={`/?resume=${col.id}`}
+                title="Retomar coleta"
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-cf-text-3 hover:text-cf-green hover:bg-cf-green/5 border border-cf-border transition-colors"
+              >
+                <RotateCcw size={14} />
               </Link>
             ) : (
-              <button onClick={handleReopen} disabled={reopening} className="inline-flex items-center gap-1.5 text-xs font-semibold text-cf-text-3 hover:text-cf-navy hover:bg-cf-bg border border-cf-border rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50">
-                {reopening ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
-                Reabrir edição
+              <button
+                onClick={handleReopen}
+                disabled={reopening}
+                title="Reabrir edição"
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-cf-text-3 hover:text-cf-navy hover:bg-cf-surface border border-cf-border transition-colors disabled:opacity-40"
+              >
+                {reopening ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
               </button>
             )}
-            {docs.length > 0 && (
-              <button onClick={handleGenerateReport} disabled={generatingReport} className="inline-flex items-center gap-1.5 text-xs font-semibold text-cf-text-2 hover:bg-cf-bg border border-cf-border rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50">
-                {generatingReport ? <><Loader2 size={12} className="animate-spin" /> Gerando...</> : <><Download size={12} /> Relatorio</>}
-              </button>
-            )}
-            {reportError && <span className="text-[10px] text-cf-danger">{reportError}</span>}
-            <button onClick={() => { setExpanded(p => !p); loadFiles(); }} className="inline-flex items-center gap-1.5 text-xs font-semibold text-cf-navy hover:bg-cf-navy/5 border border-cf-navy/15 rounded-lg px-3 py-1.5 transition-colors">
-              {expanded ? <><ChevronUp size={12} /> Fechar</> : <><ChevronDown size={12} /> Ver detalhes</>}
+
+            {/* Expand */}
+            <button
+              onClick={() => { setExpanded(p => !p); if (!expanded) loadFiles(); }}
+              title={expanded ? "Fechar detalhes" : "Ver detalhes"}
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-cf-text-3 hover:text-cf-navy hover:bg-cf-surface border border-cf-border transition-colors"
+            >
+              {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             </button>
+
+            {/* Delete */}
             {!confirmDelete ? (
-              <button onClick={() => setConfirmDelete(true)} className="inline-flex items-center gap-1.5 text-xs font-semibold text-cf-text-4 hover:text-cf-danger hover:bg-cf-danger-bg border border-cf-border rounded-lg px-2.5 py-1.5 transition-colors" title="Excluir coleta">
-                <Trash2 size={12} />
+              <button
+                onClick={() => setConfirmDelete(true)}
+                title="Excluir coleta"
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-cf-text-4 hover:text-cf-danger hover:bg-red-50 border border-cf-border transition-colors"
+              >
+                <Trash2 size={14} />
               </button>
             ) : (
               <div className="flex items-center gap-1">
-                <button onClick={handleDelete} disabled={deleting} className="inline-flex items-center gap-1 text-[11px] font-semibold text-white bg-cf-danger hover:bg-red-700 rounded-lg px-2.5 py-1.5 transition-colors">
+                <button
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="h-8 text-[11px] font-semibold text-white bg-cf-danger hover:bg-red-700 rounded-lg px-3 transition-colors"
+                >
                   {deleting ? <Loader2 size={11} className="animate-spin" /> : "Excluir"}
                 </button>
-                <button onClick={() => setConfirmDelete(false)} className="text-[11px] font-semibold text-cf-text-3 hover:text-cf-text-1 px-2 py-1.5 transition-colors">
-                  Cancelar
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  className="h-8 text-[11px] font-semibold text-cf-text-3 hover:text-cf-text-1 px-2 transition-colors"
+                >
+                  Não
                 </button>
               </div>
             )}
           </div>
         </div>
+
+        {/* Observações */}
+        <div className="mt-2">
+          {editingNotes ? (
+            <div>
+              <textarea
+                value={observacoes}
+                onChange={e => setObservacoes(e.target.value)}
+                autoFocus
+                rows={2}
+                placeholder="Observações do analista..."
+                className="w-full text-xs text-cf-text-1 bg-cf-bg border border-cf-border rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-cf-navy/20 placeholder:text-cf-text-4"
+              />
+              <div className="flex items-center gap-2 mt-1.5">
+                <button onClick={saveNotes} disabled={savingNotes} className="text-[11px] font-semibold text-cf-green border border-cf-green/20 rounded-lg px-2.5 py-1 hover:bg-cf-green/5 transition-colors inline-flex items-center gap-1">
+                  {savingNotes ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />} Salvar
+                </button>
+                <button onClick={() => { setObservacoes(col.observacoes || ""); setEditingNotes(false); }} className="text-[11px] text-cf-text-4 hover:text-cf-text-2 px-2 py-1 transition-colors">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          ) : observacoes ? (
+            <button onClick={() => setEditingNotes(true)} className="group flex items-start gap-1.5 w-full text-left">
+              <p className="text-[11px] text-cf-text-3 flex-1 leading-relaxed line-clamp-1 group-hover:text-cf-text-2 transition-colors italic">{observacoes}</p>
+              <Pencil size={10} className="text-cf-text-4 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 mt-0.5" />
+            </button>
+          ) : (
+            <button onClick={() => setEditingNotes(true)} className="text-[11px] text-cf-text-4 hover:text-cf-text-3 transition-colors">
+              + Adicionar observação
+            </button>
+          )}
+        </div>
+
+        {reportError && <p className="text-[10px] text-cf-danger mt-2">{reportError}</p>}
       </div>
 
-      {/* Accordion: documentos */}
+      {/* ── Accordion: documentos ── */}
       {expanded && (
-        <div className="border-t border-cf-border px-5 pb-5 pt-3 space-y-3 animate-fade-in">
+        <div className="border-t border-cf-border px-5 pb-5 pt-4 space-y-3 animate-fade-in">
           {docs.length === 0 ? (
             <p className="text-xs text-cf-text-3 italic">Nenhum documento nesta coleta.</p>
           ) : docs.map((doc, i) => {
@@ -477,176 +601,166 @@ function CollectionCard({ col, highlight, onDelete, onUpdate, userId }: { col: D
             const wasEdited = !!(doc.extracted_data as Record<string, unknown>)?._editedManually;
 
             return (
-            <div key={i} className="bg-cf-bg rounded-xl border border-cf-border overflow-hidden">
-              {/* Doc header */}
-              <div className="flex items-center gap-3 px-4 py-3">
-                <div className="w-7 h-7 rounded-lg bg-white border border-cf-border flex items-center justify-center flex-shrink-0">
-                  {docIcon[doc.type] || docIcon.outro}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-cf-text-1">{docLabel[doc.type] || doc.type}</p>
-                    {wasEdited && (
-                      <span className="text-[9px] font-semibold text-cf-navy bg-cf-navy/10 px-1.5 py-0.5 rounded">Editado</span>
-                    )}
+              <div key={i} className="bg-cf-bg rounded-xl border border-cf-border overflow-hidden">
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <div className="w-7 h-7 rounded-lg bg-white border border-cf-border flex items-center justify-center flex-shrink-0">
+                    {docIcon[doc.type] || docIcon.outro}
                   </div>
-                  <p className="text-xs text-cf-text-3 truncate">{doc.filename} — {new Date(doc.uploaded_at).toLocaleDateString("pt-BR")}</p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold text-cf-text-1">{docLabel[doc.type] || doc.type}</p>
+                      {wasEdited && (
+                        <span className="text-[9px] font-semibold text-cf-navy bg-cf-navy/10 px-1.5 py-0.5 rounded">Editado</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-cf-text-3 truncate">{doc.filename} — {new Date(doc.uploaded_at).toLocaleDateString("pt-BR")}</p>
+                  </div>
+                  <span className="text-[10px] font-bold text-cf-text-3 bg-cf-surface px-2 py-0.5 rounded-full">
+                    {Object.keys(doc.extracted_data || {}).length} campos
+                  </span>
+                  {!isEditing && (
+                    <button onClick={() => startEditing(doc)} className="inline-flex items-center gap-1 text-[11px] font-semibold text-cf-text-4 hover:text-cf-navy transition-colors" style={{ minHeight: "auto" }}>
+                      <Pencil size={11} /> Editar
+                    </button>
+                  )}
                 </div>
-                <span className="text-[10px] font-bold text-cf-text-3 bg-cf-surface px-2 py-0.5 rounded-full">
-                  {Object.keys(doc.extracted_data || {}).length} campos
-                </span>
-                {!isEditing && (
-                  <button onClick={() => startEditing(doc)} className="inline-flex items-center gap-1 text-[11px] font-semibold text-cf-text-4 hover:text-cf-navy transition-colors" style={{ minHeight: "auto" }}>
-                    <Pencil size={11} /> Editar
-                  </button>
+
+                {!isEditing && fields && (
+                  <div className="px-4 pb-3 grid grid-cols-2 gap-x-4 gap-y-1.5">
+                    {fields.slice(0, 4).map(f => {
+                      const val = String((data as Record<string, unknown>)[f.key] || "");
+                      return (
+                        <div key={f.key}>
+                          <p className="text-[10px] text-cf-text-4 uppercase tracking-wide">{f.label}</p>
+                          <p className="text-xs text-cf-text-1 font-medium truncate">{val || "—"}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {!isEditing && doc.type === "qsa" && (
+                  <div className="px-4 pb-3">
+                    {Array.isArray((data as Record<string, unknown>).quadroSocietario) &&
+                      ((data as Record<string, unknown>).quadroSocietario as { nome: string; cpfCnpj: string }[]).filter(s => s.nome).slice(0, 3).map((s, si) => (
+                        <p key={si} className="text-xs text-cf-text-1"><span className="text-cf-text-4">{si + 1}.</span> {s.nome} <span className="text-cf-text-4 font-mono text-[10px]">{s.cpfCnpj}</span></p>
+                      ))
+                    }
+                  </div>
+                )}
+
+                {!isEditing && doc.type === "faturamento" && (
+                  <div className="px-4 pb-3 grid grid-cols-2 gap-x-4 gap-y-1">
+                    <div>
+                      <p className="text-[10px] text-cf-text-4 uppercase tracking-wide">Media Mensal</p>
+                      <p className="text-xs text-cf-text-1 font-medium">{String((data as Record<string, unknown>).mediaAno || "—")}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-cf-text-4 uppercase tracking-wide">Somatoria Anual</p>
+                      <p className="text-xs text-cf-text-1 font-medium">{String((data as Record<string, unknown>).somatoriaAno || "—")}</p>
+                    </div>
+                  </div>
+                )}
+
+                {isEditing && (
+                  <div className="px-4 pb-4 space-y-3 animate-fade-in border-t border-cf-border pt-3">
+                    {fields ? (
+                      <div className="grid grid-cols-2 gap-3">
+                        {fields.map(f => (
+                          <div key={f.key} className={f.type === "textarea" ? "col-span-2" : ""}>
+                            <label className="text-[10px] text-cf-text-4 uppercase tracking-wide mb-1 block">{f.label}</label>
+                            {f.type === "readonly" ? (
+                              <input value={String((editValues as Record<string, unknown>)[f.key] || "")} readOnly className="border border-cf-border rounded-lg px-2.5 py-1.5 text-xs w-full bg-cf-surface text-cf-text-3" />
+                            ) : f.type === "select" ? (
+                              <select value={String((editValues as Record<string, unknown>)[f.key] || "")} onChange={e => updateField(f.key, e.target.value)} className="border border-cf-border rounded-lg px-2.5 py-1.5 text-xs w-full bg-white">
+                                <option value="">—</option>
+                                {f.options?.map(o => <option key={o} value={o}>{o}</option>)}
+                              </select>
+                            ) : f.type === "textarea" ? (
+                              <textarea value={String((editValues as Record<string, unknown>)[f.key] || "")} onChange={e => updateField(f.key, e.target.value)} rows={3} className="border border-cf-border rounded-lg px-2.5 py-1.5 text-xs w-full resize-none" />
+                            ) : (
+                              <input value={String((editValues as Record<string, unknown>)[f.key] || "")} onChange={e => updateField(f.key, e.target.value)} className="border border-cf-border rounded-lg px-2.5 py-1.5 text-xs w-full" />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : doc.type === "qsa" ? (
+                      <div className="space-y-3">
+                        <p className="text-[10px] text-cf-text-4 uppercase tracking-wide font-bold">Socios</p>
+                        {Array.isArray(editValues.quadroSocietario) && (editValues.quadroSocietario as { nome: string; cpfCnpj: string; qualificacao: string }[]).map((s, si) => (
+                          <div key={si} className="grid grid-cols-3 gap-2 bg-white rounded-lg p-2 border border-cf-border">
+                            <div>
+                              <label className="text-[10px] text-cf-text-4 mb-0.5 block">Nome</label>
+                              <input value={s.nome || ""} onChange={e => {
+                                const arr = [...(editValues.quadroSocietario as Record<string, string>[])];
+                                arr[si] = { ...arr[si], nome: e.target.value };
+                                updateField("quadroSocietario", arr);
+                              }} className="border border-cf-border rounded-lg px-2 py-1 text-xs w-full" />
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-cf-text-4 mb-0.5 block">CPF/CNPJ</label>
+                              <input value={s.cpfCnpj || ""} onChange={e => {
+                                const arr = [...(editValues.quadroSocietario as Record<string, string>[])];
+                                arr[si] = { ...arr[si], cpfCnpj: e.target.value };
+                                updateField("quadroSocietario", arr);
+                              }} className="border border-cf-border rounded-lg px-2 py-1 text-xs w-full" />
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-cf-text-4 mb-0.5 block">Qualificacao</label>
+                              <input value={s.qualificacao || ""} onChange={e => {
+                                const arr = [...(editValues.quadroSocietario as Record<string, string>[])];
+                                arr[si] = { ...arr[si], qualificacao: e.target.value };
+                                updateField("quadroSocietario", arr);
+                              }} className="border border-cf-border rounded-lg px-2 py-1 text-xs w-full" />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : doc.type === "faturamento" ? (
+                      <div className="space-y-2">
+                        <p className="text-[10px] text-cf-text-4 uppercase tracking-wide font-bold">Meses</p>
+                        {Array.isArray(editValues.meses) && (editValues.meses as { mes: string; valor: string }[]).map((m, mi) => (
+                          <div key={mi} className="flex items-center gap-2">
+                            <span className="text-xs text-cf-text-3 w-20 flex-shrink-0">{m.mes}</span>
+                            <input value={m.valor || ""} onChange={e => {
+                              const arr = [...(editValues.meses as { mes: string; valor: string }[])];
+                              arr[mi] = { ...arr[mi], valor: e.target.value };
+                              updateField("meses", arr);
+                            }} className="border border-cf-border rounded-lg px-2 py-1 text-xs flex-1" placeholder="0,00" />
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="text-[10px] text-cf-text-4 uppercase tracking-wide mb-1 block">Dados (JSON)</label>
+                        <textarea
+                          value={JSON.stringify(editValues, null, 2)}
+                          onChange={e => {
+                            try { setEditValues(JSON.parse(e.target.value)); setSaveError(null); }
+                            catch { setSaveError("JSON invalido"); }
+                          }}
+                          rows={8}
+                          className="border border-cf-border rounded-lg px-2.5 py-1.5 text-xs w-full font-mono resize-none"
+                        />
+                      </div>
+                    )}
+
+                    {saveError && <p className="text-[11px] text-cf-danger font-medium">{saveError}</p>}
+                    <div className="flex items-center gap-2 pt-1">
+                      <button onClick={() => handleSaveDoc(doc.type)} disabled={savingDoc} className="inline-flex items-center gap-1.5 bg-cf-green text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-green-600 transition-colors">
+                        {savingDoc ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Salvar
+                      </button>
+                      <button onClick={cancelEditing} disabled={savingDoc} className="border border-cf-border text-xs font-semibold text-cf-text-3 px-3 py-1.5 rounded-lg hover:bg-cf-bg transition-colors">
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
-
-              {/* Fields — read mode (always show key fields) */}
-              {!isEditing && fields && (
-                <div className="px-4 pb-3 grid grid-cols-2 gap-x-4 gap-y-1.5">
-                  {fields.slice(0, 4).map(f => {
-                    const val = String((data as Record<string, unknown>)[f.key] || "");
-                    return (
-                      <div key={f.key}>
-                        <p className="text-[10px] text-cf-text-4 uppercase tracking-wide">{f.label}</p>
-                        <p className="text-xs text-cf-text-1 font-medium truncate">{val || "—"}</p>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Fields — read mode for QSA (show sócios) */}
-              {!isEditing && doc.type === "qsa" && (
-                <div className="px-4 pb-3">
-                  {Array.isArray((data as Record<string, unknown>).quadroSocietario) &&
-                    ((data as Record<string, unknown>).quadroSocietario as { nome: string; cpfCnpj: string }[]).filter(s => s.nome).slice(0, 3).map((s, si) => (
-                      <p key={si} className="text-xs text-cf-text-1"><span className="text-cf-text-4">{si + 1}.</span> {s.nome} <span className="text-cf-text-4 font-mono text-[10px]">{s.cpfCnpj}</span></p>
-                    ))
-                  }
-                </div>
-              )}
-
-              {/* Fields — read mode for faturamento (show meses) */}
-              {!isEditing && doc.type === "faturamento" && (
-                <div className="px-4 pb-3 grid grid-cols-2 gap-x-4 gap-y-1">
-                  <div>
-                    <p className="text-[10px] text-cf-text-4 uppercase tracking-wide">Media Mensal</p>
-                    <p className="text-xs text-cf-text-1 font-medium">{String((data as Record<string, unknown>).mediaAno || "—")}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-cf-text-4 uppercase tracking-wide">Somatoria Anual</p>
-                    <p className="text-xs text-cf-text-1 font-medium">{String((data as Record<string, unknown>).somatoriaAno || "—")}</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Edit mode */}
-              {isEditing && (
-                <div className="px-4 pb-4 space-y-3 animate-fade-in border-t border-cf-border pt-3">
-                  {/* Typed fields */}
-                  {fields ? (
-                    <div className="grid grid-cols-2 gap-3">
-                      {fields.map(f => (
-                        <div key={f.key} className={f.type === "textarea" ? "col-span-2" : ""}>
-                          <label className="text-[10px] text-cf-text-4 uppercase tracking-wide mb-1 block">{f.label}</label>
-                          {f.type === "readonly" ? (
-                            <input value={String((editValues as Record<string, unknown>)[f.key] || "")} readOnly className="border border-cf-border rounded-lg px-2.5 py-1.5 text-xs w-full bg-cf-surface text-cf-text-3" />
-                          ) : f.type === "select" ? (
-                            <select value={String((editValues as Record<string, unknown>)[f.key] || "")} onChange={e => updateField(f.key, e.target.value)} className="border border-cf-border rounded-lg px-2.5 py-1.5 text-xs w-full bg-white">
-                              <option value="">—</option>
-                              {f.options?.map(o => <option key={o} value={o}>{o}</option>)}
-                            </select>
-                          ) : f.type === "textarea" ? (
-                            <textarea value={String((editValues as Record<string, unknown>)[f.key] || "")} onChange={e => updateField(f.key, e.target.value)} rows={3} className="border border-cf-border rounded-lg px-2.5 py-1.5 text-xs w-full resize-none" />
-                          ) : (
-                            <input value={String((editValues as Record<string, unknown>)[f.key] || "")} onChange={e => updateField(f.key, e.target.value)} className="border border-cf-border rounded-lg px-2.5 py-1.5 text-xs w-full" />
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ) : doc.type === "qsa" ? (
-                    /* QSA: edit each sócio */
-                    <div className="space-y-3">
-                      <p className="text-[10px] text-cf-text-4 uppercase tracking-wide font-bold">Socios</p>
-                      {Array.isArray(editValues.quadroSocietario) && (editValues.quadroSocietario as { nome: string; cpfCnpj: string; qualificacao: string }[]).map((s, si) => (
-                        <div key={si} className="grid grid-cols-3 gap-2 bg-white rounded-lg p-2 border border-cf-border">
-                          <div>
-                            <label className="text-[10px] text-cf-text-4 mb-0.5 block">Nome</label>
-                            <input value={s.nome || ""} onChange={e => {
-                              const arr = [...(editValues.quadroSocietario as Record<string, string>[])];
-                              arr[si] = { ...arr[si], nome: e.target.value };
-                              updateField("quadroSocietario", arr);
-                            }} className="border border-cf-border rounded-lg px-2 py-1 text-xs w-full" />
-                          </div>
-                          <div>
-                            <label className="text-[10px] text-cf-text-4 mb-0.5 block">CPF/CNPJ</label>
-                            <input value={s.cpfCnpj || ""} onChange={e => {
-                              const arr = [...(editValues.quadroSocietario as Record<string, string>[])];
-                              arr[si] = { ...arr[si], cpfCnpj: e.target.value };
-                              updateField("quadroSocietario", arr);
-                            }} className="border border-cf-border rounded-lg px-2 py-1 text-xs w-full" />
-                          </div>
-                          <div>
-                            <label className="text-[10px] text-cf-text-4 mb-0.5 block">Qualificacao</label>
-                            <input value={s.qualificacao || ""} onChange={e => {
-                              const arr = [...(editValues.quadroSocietario as Record<string, string>[])];
-                              arr[si] = { ...arr[si], qualificacao: e.target.value };
-                              updateField("quadroSocietario", arr);
-                            }} className="border border-cf-border rounded-lg px-2 py-1 text-xs w-full" />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : doc.type === "faturamento" ? (
-                    /* Faturamento: edit meses */
-                    <div className="space-y-2">
-                      <p className="text-[10px] text-cf-text-4 uppercase tracking-wide font-bold">Meses</p>
-                      {Array.isArray(editValues.meses) && (editValues.meses as { mes: string; valor: string }[]).map((m, mi) => (
-                        <div key={mi} className="flex items-center gap-2">
-                          <span className="text-xs text-cf-text-3 w-20 flex-shrink-0">{m.mes}</span>
-                          <input value={m.valor || ""} onChange={e => {
-                            const arr = [...(editValues.meses as { mes: string; valor: string }[])];
-                            arr[mi] = { ...arr[mi], valor: e.target.value };
-                            updateField("meses", arr);
-                          }} className="border border-cf-border rounded-lg px-2 py-1 text-xs flex-1" placeholder="0,00" />
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    /* Fallback: JSON editor */
-                    <div>
-                      <label className="text-[10px] text-cf-text-4 uppercase tracking-wide mb-1 block">Dados (JSON)</label>
-                      <textarea
-                        value={JSON.stringify(editValues, null, 2)}
-                        onChange={e => {
-                          try { setEditValues(JSON.parse(e.target.value)); setSaveError(null); }
-                          catch { setSaveError("JSON invalido"); }
-                        }}
-                        rows={8}
-                        className="border border-cf-border rounded-lg px-2.5 py-1.5 text-xs w-full font-mono resize-none"
-                      />
-                    </div>
-                  )}
-
-                  {/* Save/Cancel */}
-                  {saveError && <p className="text-[11px] text-cf-danger font-medium">{saveError}</p>}
-                  <div className="flex items-center gap-2 pt-1">
-                    <button onClick={() => handleSaveDoc(doc.type)} disabled={savingDoc} className="inline-flex items-center gap-1.5 bg-cf-green text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-green-600 transition-colors">
-                      {savingDoc ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Salvar
-                    </button>
-                    <button onClick={cancelEditing} disabled={savingDoc} className="border border-cf-border text-xs font-semibold text-cf-text-3 px-3 py-1.5 rounded-lg hover:bg-cf-bg transition-colors">
-                      Cancelar
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
             );
           })}
 
-          {/* Arquivos salvos — originais + relatórios */}
+          {/* Arquivos salvos */}
           {filesLoaded && (storedFiles.originals.length > 0 || storedFiles.reports.length > 0) && (
             <div className="mt-4 pt-4 border-t border-cf-border space-y-3">
               {storedFiles.originals.length > 0 && (
@@ -688,7 +802,15 @@ function CollectionCard({ col, highlight, onDelete, onUpdate, userId }: { col: D
 }
 
 export default function HistoricoPage() {
-  return <Suspense fallback={<div className="min-h-screen bg-cf-bg flex items-center justify-center"><Loader2 size={24} className="text-cf-navy animate-spin" /></div>}><HistoricoContent /></Suspense>;
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-cf-bg flex items-center justify-center">
+        <Loader2 size={24} className="text-cf-navy animate-spin" />
+      </div>
+    }>
+      <HistoricoContent />
+    </Suspense>
+  );
 }
 
 function HistoricoContent() {
@@ -708,9 +830,12 @@ function HistoricoContent() {
           setCollections([]);
           return;
         }
-        const query = supabase.from("document_collections").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
+        const { data, error } = await supabase
+          .from("document_collections")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false });
 
-        const { data, error } = await query;
         if (error) throw error;
         setCollections((data || []) as DocumentCollection[]);
       } catch (err) {
@@ -729,7 +854,7 @@ function HistoricoContent() {
         <div className="max-w-6xl mx-auto px-5 sm:px-8 h-16 grid grid-cols-3 items-center">
           <Link href="/"><Logo light={false} /></Link>
           <div className="hidden sm:flex justify-center">
-            <span className="text-sm font-semibold text-cf-navy">Histórico de Coletas</span>
+            <span className="text-sm font-semibold text-cf-navy">Relatórios</span>
           </div>
           <div className="flex justify-end gap-3 items-center">
             {!authLoading && user ? (
@@ -748,64 +873,76 @@ function HistoricoContent() {
         </div>
       </header>
 
-      {/* Hero */}
-      <div className="bg-hero-gradient">
-        <div className="max-w-6xl mx-auto px-5 sm:px-8 py-10">
-          <div className="text-center">
-            <h1 className="text-2xl sm:text-3xl font-bold text-white">Histórico de Coletas</h1>
-            <p className="text-blue-200 mt-2 text-sm max-w-md mx-auto">Consulte todas as coletas realizadas anteriormente</p>
-          </div>
-        </div>
-        <div className="relative h-10 -mb-px">
-          <svg viewBox="0 0 1440 40" fill="none" xmlns="http://www.w3.org/2000/svg" className="absolute bottom-0 w-full" preserveAspectRatio="none">
-            <path d="M0,20 C240,40 480,0 720,20 C960,40 1200,0 1440,20 L1440,40 L0,40 Z" fill="#f5f7fb" />
-          </svg>
-        </div>
-      </div>
-
       {/* Content */}
       <main className="flex-1 max-w-3xl mx-auto w-full px-5 sm:px-8 py-8">
+        {/* Page header */}
         <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-lg font-bold text-cf-text-1">Relatórios</h1>
+            {!loading && (
+              <p className="text-xs text-cf-text-4 mt-0.5">
+                {collections.length} coleta{collections.length !== 1 ? "s" : ""} salva{collections.length !== 1 ? "s" : ""}
+              </p>
+            )}
+          </div>
           <Link href="/" className="btn-secondary text-xs">
-            <ArrowLeft size={14} /> Voltar ao consolidador
+            <ArrowLeft size={13} /> Voltar
           </Link>
-          <span className="text-xs text-cf-text-3 font-medium">{collections.length} coleta{collections.length !== 1 ? "s" : ""}</span>
         </div>
 
+        {/* States */}
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-20 gap-3">
-            <Loader2 size={24} className="text-cf-navy animate-spin" />
-            <p className="text-sm text-cf-text-3">Carregando histórico...</p>
+          <div className="space-y-2">
+            {[0, 1, 2].map(i => (
+              <div key={i} className="bg-white rounded-xl border border-cf-border px-5 py-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 space-y-2">
+                    <div className="skeleton h-4 w-48 rounded" />
+                    <div className="skeleton h-3 w-32 rounded" />
+                    <div className="skeleton h-3 w-24 rounded" />
+                  </div>
+                  <div className="flex gap-1.5">
+                    <div className="skeleton h-8 w-20 rounded-full" />
+                    <div className="skeleton h-8 w-8 rounded-lg" />
+                    <div className="skeleton h-8 w-8 rounded-lg" />
+                    <div className="skeleton h-8 w-8 rounded-lg" />
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         ) : collections.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 gap-4 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-cf-surface flex items-center justify-center">
-              <Inbox size={28} className="text-cf-text-4" />
+          <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-cf-surface flex items-center justify-center">
+              <Inbox size={24} className="text-cf-text-4" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-cf-text-1 mb-1">Nenhuma coleta salva ainda</h3>
+              <h3 className="text-base font-bold text-cf-text-1 mb-1">Nenhuma coleta salva ainda</h3>
               <p className="text-sm text-cf-text-3">Finalize uma coleta para vê-la aqui.</p>
             </div>
             <Link href="/" className="btn-green mt-2">Ir para o consolidador</Link>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-2">
             {collections.map(col => (
-              <CollectionCard key={col.id} col={col} highlight={col.id === highlightId} userId={user?.id} onDelete={(id) => setCollections(prev => prev.filter(c => c.id !== id))} onUpdate={(docs) => setCollections(prev => prev.map(c => c.id === col.id ? { ...c, documents: docs } : c))} />
+              <CollectionCard
+                key={col.id}
+                col={col}
+                highlight={col.id === highlightId}
+                userId={user?.id}
+                onDelete={(id) => setCollections(prev => prev.filter(c => c.id !== id))}
+                onUpdate={(docs) => setCollections(prev => prev.map(c => c.id === col.id ? { ...c, documents: docs } : c))}
+              />
             ))}
           </div>
         )}
       </main>
 
       {/* Footer */}
-      <footer className="bg-cf-dark mt-12">
-        <div className="max-w-6xl mx-auto px-5 sm:px-8 py-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <Logo light={true} />
-          <div className="text-center sm:text-right">
-            <p className="text-xs text-white/40">&copy; {new Date().getFullYear()} Capital Finanças. Todos os direitos reservados.</p>
-            <p className="text-xs text-white/25 mt-0.5">Documentos processados localmente com segurança</p>
-          </div>
-        </div>
+      <footer className="border-t border-cf-border mt-16 py-6">
+        <p className="text-center text-[11px] text-cf-text-4">
+          &copy; {new Date().getFullYear()} Capital Finanças — Documentos processados com segurança
+        </p>
       </footer>
     </div>
   );

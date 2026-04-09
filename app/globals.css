@@ -122,3 +122,15 @@
   .text-balance { text-wrap: balance; }
   .bg-hero-gradient { background: linear-gradient(135deg, #0f1f5c 0%, #203b88 60%, #1a4fa8 100%); }
 }
+
+/* ── Skeleton shimmer ── */
+@keyframes shimmer {
+  0%   { background-position: -600px 0; }
+  100% { background-position:  600px 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, #edf2fb 25%, #dce8f8 50%, #edf2fb 75%);
+  background-size: 600px 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: 6px;
+}

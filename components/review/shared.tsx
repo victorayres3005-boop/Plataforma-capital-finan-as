@@ -10,23 +10,37 @@ export function Field({ label, value, onChange, multiline = false, span2 = false
 }) {
   const isEmpty = !value || value === "" || value === "0" || value === "0,00";
   const isSuspicious = !isEmpty && SUSPICIOUS_VALUES.has(value.trim());
-  const inputCls = isSuspicious
-    ? "input-field border-orange-300 bg-orange-50/40"
-    : isEmpty
-    ? "input-field border-amber-200 bg-amber-50/30"
-    : "input-field";
+
+  const baseBorder = isSuspicious ? "#fb923c" : isEmpty ? "#fcd34d" : "#E5E7EB";
+  const baseBg    = isSuspicious ? "#fff7ed" : isEmpty ? "#fffbeb" : "#ffffff";
+
   return (
     <div className={span2 ? "col-span-2" : ""}>
-      <label className="section-label flex items-center gap-1.5 mb-1.5">
+      <label style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px", fontSize: "11px", fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: "#6B7280" }}>
         {label}
         {isSuspicious && (
-          <span className="text-[9px] font-bold text-orange-600 bg-orange-100 px-1.5 py-0.5 rounded-full leading-none">⚠ verificar</span>
+          <span style={{ fontSize: "9px", fontWeight: 700, color: "#ea580c", background: "#ffedd5", padding: "1px 6px", borderRadius: "99px" }}>⚠ verificar</span>
         )}
       </label>
-      {multiline
-        ? <textarea value={value} onChange={e => onChange(e.target.value)} rows={4} className={`${inputCls} resize-none`} />
-        : <input type="text" value={value} onChange={e => onChange(e.target.value)} className={inputCls} />
-      }
+      {multiline ? (
+        <textarea
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          rows={3}
+          style={{ width: "100%", borderRadius: "8px", padding: "8px 12px", fontSize: "13px", border: `1px solid ${baseBorder}`, background: baseBg, outline: "none", resize: "none", fontFamily: "inherit", lineHeight: "1.5", transition: "border-color 0.15s, box-shadow 0.15s" }}
+          onFocus={e => { e.currentTarget.style.borderColor = "#203b88"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(32,59,136,0.10)"; }}
+          onBlur={e => { e.currentTarget.style.borderColor = baseBorder; e.currentTarget.style.boxShadow = "none"; }}
+        />
+      ) : (
+        <input
+          type="text"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          style={{ width: "100%", borderRadius: "8px", padding: "8px 12px", fontSize: "13px", border: `1px solid ${baseBorder}`, background: baseBg, outline: "none", fontFamily: "inherit", transition: "border-color 0.15s, box-shadow 0.15s" }}
+          onFocus={e => { e.currentTarget.style.borderColor = "#203b88"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(32,59,136,0.10)"; }}
+          onBlur={e => { e.currentTarget.style.borderColor = baseBorder; e.currentTarget.style.boxShadow = "none"; }}
+        />
+      )}
     </div>
   );
 }
@@ -42,26 +56,24 @@ export interface QualityResult {
 
 export function QualityBadge({ quality }: { quality: QualityResult }) {
   const cfg = {
-    good:    { bg: "bg-green-50", border: "border-green-200", text: "text-green-700",  icon: "✓", label: "Boa qualidade" },
-    warning: { bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-700",  icon: "⚠", label: "Revisar campos" },
-    error:   { bg: "bg-red-50",   border: "border-red-200",   text: "text-red-700",    icon: "✕", label: "Dados incompletos" },
+    good:    { bg: "#f0fdf4", border: "#bbf7d0", text: "#15803d",  bar: "#22c55e", label: "Boa qualidade" },
+    warning: { bg: "#fffbeb", border: "#fde68a", text: "#92400e",  bar: "#f59e0b", label: "Revisar" },
+    error:   { bg: "#fef2f2", border: "#fecaca", text: "#991b1b",  bar: "#ef4444", label: "Incompleto" },
   };
   const c = cfg[quality.score];
   return (
-    <div className={`${c.bg} ${c.border} border rounded-lg p-3 mt-2`}>
-      <div className="flex items-center justify-between mb-1.5">
-        <span className={`text-[11px] font-semibold ${c.text} flex items-center gap-1`}>
-          <span>{c.icon}</span> {c.label} — {quality.pct}% extraido
-        </span>
+    <div style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: "10px", padding: "10px 14px", marginTop: "12px" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
+        <span style={{ fontSize: "11px", fontWeight: 600, color: c.text }}>{c.label} — {quality.pct}%</span>
       </div>
-      <div className="w-full bg-gray-200 rounded-full h-1.5 mb-2">
-        <div className={`h-1.5 rounded-full transition-all ${quality.score === "good" ? "bg-green-500" : quality.score === "warning" ? "bg-amber-500" : "bg-red-500"}`} style={{ width: `${quality.pct}%` }} />
+      <div style={{ height: "4px", borderRadius: "99px", background: "#e5e7eb", overflow: "hidden" }}>
+        <div style={{ height: "100%", borderRadius: "99px", background: c.bar, width: `${quality.pct}%`, transition: "width 0.4s ease" }} />
       </div>
       {quality.issues.length > 0 && (
-        <ul className="space-y-0.5">
+        <ul style={{ marginTop: "6px" }}>
           {quality.issues.map((issue, i) => (
-            <li key={i} className={`text-[10px] ${c.text} opacity-80 flex items-start gap-1`}>
-              <span className="mt-0.5 flex-shrink-0">→</span>{issue}
+            <li key={i} style={{ fontSize: "10px", color: c.text, opacity: 0.85, display: "flex", alignItems: "flex-start", gap: "4px" }}>
+              <span style={{ marginTop: "1px", flexShrink: 0 }}>→</span>{issue}
             </li>
           ))}
         </ul>
@@ -72,26 +84,79 @@ export function QualityBadge({ quality }: { quality: QualityResult }) {
 
 // ── SectionCard ───────────────────────────────────────────────────────────────
 export function SectionCard({
-  number, icon, title, iconColor, children, expanded, onToggle, badge
+  number, title, children, expanded, onToggle, badge, accentColor = "#9CA3AF"
 }: {
-  number: string; icon: React.ReactNode; title: string; iconColor: string;
-  children: React.ReactNode; expanded: boolean; onToggle: () => void; badge?: React.ReactNode;
+  number: string; icon?: React.ReactNode; title: string; iconColor?: string;
+  children: React.ReactNode; expanded: boolean; onToggle: () => void;
+  badge?: React.ReactNode; accentColor?: string;
 }) {
   return (
-    <div className="card overflow-hidden">
-      <button onClick={onToggle} className="w-full flex items-center gap-3 px-5 py-4 hover:bg-cf-bg transition-colors text-left">
-        <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${iconColor}`}>{icon}</div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-bold text-cf-text-3 uppercase tracking-widest">Seção {number}</span>
-            {badge}
-          </div>
-          <p className="text-sm font-semibold text-cf-text-1 leading-tight">{title}</p>
+    <div
+      style={{
+        background: "white",
+        borderRadius: "12px",
+        overflow: "hidden",
+        border: "1px solid #E5E7EB",
+        borderLeft: `3px solid ${accentColor}`,
+        boxShadow: "0 1px 4px rgba(0,0,0,0.05)",
+        transition: "box-shadow 0.2s",
+      }}
+    >
+      <button
+        onClick={onToggle}
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          gap: "12px",
+          padding: "14px 16px",
+          textAlign: "left",
+          background: expanded ? "#F8FAFC" : "white",
+          cursor: "pointer",
+          border: "none",
+          transition: "background 0.15s",
+        }}
+        onMouseEnter={e => { if (!expanded) (e.currentTarget as HTMLElement).style.background = "#F8FAFC"; }}
+        onMouseLeave={e => { if (!expanded) (e.currentTarget as HTMLElement).style.background = "white"; }}
+      >
+        {/* Pill número */}
+        <div
+          style={{
+            width: "24px",
+            height: "24px",
+            borderRadius: "99px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+            fontSize: "10px",
+            fontWeight: 700,
+            color: "white",
+            background: accentColor,
+          }}
+        >
+          {number}
         </div>
-        {expanded ? <ChevronUp size={15} className="text-cf-text-3 flex-shrink-0" /> : <ChevronDown size={15} className="text-cf-text-3 flex-shrink-0" />}
+
+        {/* Título */}
+        <p style={{ flex: 1, fontSize: "13px", fontWeight: 600, color: "#111827", lineHeight: "1.4", margin: 0 }}>
+          {title}
+        </p>
+
+        {/* Badge */}
+        {badge && <div style={{ flexShrink: 0 }}>{badge}</div>}
+
+        {/* Chevron */}
+        <div style={{ flexShrink: 0, color: "#9CA3AF" }}>
+          {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </div>
       </button>
+
       {expanded && (
-        <div className="border-t border-cf-border px-5 pb-5 pt-4 animate-fade-in">
+        <div
+          style={{ padding: "20px 20px 20px", background: "white", borderTop: "1px solid #F3F4F6", animationName: "fadeIn", animationDuration: "0.15s" }}
+          className="animate-fade-in"
+        >
           {children}
         </div>
       )}
@@ -144,7 +209,11 @@ export function avaliarQualidade(type: string, data: Record<string, unknown>): Q
         else if (m.length < 6) { issues.push(`Apenas ${m.length} meses — ideal 12+`); filled += 0.5; }
         else filled++;
       }
-      if (data.faturamentoZerado) issues.push("Faturamento zerado no periodo");
+      // Recomputa a partir dos meses reais — não confia no flag armazenado (pode ser default true)
+      const mesesFat = (data.meses || []) as { valor: string }[];
+      const parseFatVal = (v: string) => parseFloat((v || "0").replace(/\./g, "").replace(",", ".")) || 0;
+      const fatZeradoReal = mesesFat.length > 0 && mesesFat.every(m => parseFatVal(m.valor) === 0);
+      if (fatZeradoReal) issues.push("Faturamento zerado no periodo");
       break;
     case "scr":
       check(data.periodoReferencia, "Periodo de Referencia", true);
@@ -176,4 +245,9 @@ export function getAvisos(qm: Record<string, QualityResult>): string[] {
   return Object.entries(qm)
     .filter(([, q]) => q.score === "warning")
     .map(([type, q]) => `${labels[type] || type}: ${q.issues[0] || "dados incompletos"}`);
+}
+
+// ── Helper: accent color from quality score ───────────────────────────────────
+export function qualityAccent(score: QualityResult["score"]): string {
+  return score === "good" ? "#16a34a" : score === "warning" ? "#d97706" : "#dc2626";
 }

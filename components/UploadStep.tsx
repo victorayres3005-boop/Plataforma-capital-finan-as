@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, AlertCircle, Info, GitCompareArrows, Receipt, Scale, PieChart, FileKey, ClipboardList, Loader2 } from "lucide-react";
+import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, Info, GitCompareArrows, Receipt, Scale, PieChart, FileKey, ClipboardList, Loader2 } from "lucide-react";
 import UploadArea from "./UploadArea";
 import { CNPJData, QSAData, ContratoSocialData, FaturamentoData, SCRData, SCRSocioData, ProtestosData, ProcessosData, GrupoEconomicoData, ExtractedData, IRSocioData, CollectionDocument } from "@/types";
 
@@ -71,34 +71,6 @@ async function readExtractSSE(res: Response): Promise<Record<string, unknown>> {
   throw new Error("Stream encerrado sem resultado");
 }
 
-function getErrorFeedback(errorType?: string, docLabel?: string): { title: string; detail: string; action: string } {
-  switch (errorType) {
-    case "quota":
-      return {
-        title: `${docLabel}: falha na extracao`,
-        detail: "API temporariamente indisponivel (limite de uso atingido).",
-        action: "Tente novamente em alguns minutos.",
-      };
-    case "parse":
-      return {
-        title: `${docLabel}: falha na leitura`,
-        detail: "Nao foi possivel interpretar o conteudo do documento.",
-        action: "Verifique se o arquivo nao esta corrompido e tente novamente.",
-      };
-    case "empty":
-      return {
-        title: `${docLabel}: documento sem conteudo`,
-        detail: "O arquivo parece estar vazio ou ilegivel.",
-        action: "Envie um arquivo com conteudo valido.",
-      };
-    default:
-      return {
-        title: `${docLabel}: erro na extracao`,
-        detail: "Ocorreu um erro inesperado ao processar o documento.",
-        action: "Tente novamente ou envie um formato diferente (PDF, DOCX).",
-      };
-  }
-}
 
 export interface OriginalFiles {
   cnpj: File[];
@@ -167,6 +139,34 @@ const SECTIONS: SectionConfig[] = [
 ];
 
 const REQUIRED_KEYS: DocKey[] = ['cnpj', 'qsa', 'contrato', 'faturamento', 'scr'];
+
+// ─── GroupHeader ───
+
+function GroupHeader({ label, count, total, optional }: { label: string; count?: number; total?: number; optional?: boolean }) {
+  const done = count ?? 0;
+  const all  = total ?? 0;
+  const allDone = !optional && done === all && all > 0;
+  return (
+    <div className="flex items-center gap-3 mb-2.5">
+      <span style={{ fontSize: "11px", fontWeight: 600, letterSpacing: "0.08em", color: "#94A3B8", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+        {label}
+      </span>
+      <div className="flex-1 h-px bg-cf-border" />
+      {!optional ? (
+        <span style={{
+          fontSize: "10px", fontWeight: 700, padding: "2px 10px", borderRadius: "99px", flexShrink: 0,
+          background: allDone ? "#dcfce7" : "#F1F5F9",
+          color: allDone ? "#15803d" : "#64748B",
+          transition: "background 0.3s, color 0.3s",
+        }}>
+          {done}/{all} enviados
+        </span>
+      ) : (
+        <span style={{ fontSize: "10px", fontWeight: 500, color: "#94A3B8", flexShrink: 0 }}>opcional</span>
+      )}
+    </div>
+  );
+}
 
 // ─── Component ───
 
@@ -566,180 +566,181 @@ export default function UploadStep({
     onComplete(extracted, files);
   };
 
-  return (
-    <div className="animate-slide-up space-y-4">
+  const requiredSections = SECTIONS.filter(s => s.required);
+  const optionalSections = SECTIONS.filter(s => !s.required);
+  const optionalDoneCount = optionalSections.filter(s => sections[s.key].processedCount > 0).length;
 
-      {/* Info banner */}
+  return (
+    <div className="animate-slide-up">
+
+      {/* ── Info banner ── */}
       {resumedDocs && resumedDocs.length > 0 ? (
-        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4">
           <Info size={15} className="text-amber-600 flex-shrink-0 mt-0.5" />
           <p className="text-xs text-amber-800 leading-relaxed">
-            Coleta retomada — os documentos enviados anteriormente estão listados abaixo. Você pode adicionar novos documentos ou prosseguir para revisão.
+            Coleta retomada — os documentos enviados anteriormente estão listados abaixo. Adicione novos ou prossiga.
           </p>
         </div>
       ) : (
-        <div className="flex items-start gap-3 bg-cf-navy/5 border border-cf-navy/15 rounded-xl px-4 py-3">
+        <div className="flex items-start gap-3 bg-cf-navy/5 border border-cf-navy/15 rounded-xl px-4 py-3 mb-4">
           <Info size={15} className="text-cf-navy flex-shrink-0 mt-0.5" />
           <p className="text-xs text-cf-text-2 leading-relaxed">
-            Envie os 5 documentos obrigatórios + o SCR anterior (opcional, para comparativo).
-            Cada seção aceita múltiplos arquivos. Aceita PDF, Word, Excel (.xlsx) e imagens. A extração é automática.
+            Envie os 5 documentos obrigatórios. Os complementares são opcionais e enriquecem o relatório. Aceita PDF, Word, Excel e imagens — extração automática.
           </p>
         </div>
       )}
 
-      {/* Upload areas */}
-      <div className="card p-5 space-y-4">
-        {SECTIONS.map((section, idx) => (
-          <div key={section.key}>
-            {idx > 0 && (
-              <div className={`border-t ${section.required ? 'border-cf-border' : 'border-cf-border border-dashed'} mb-4`} />
-            )}
-            {sections[section.key].resumedFilenames && sections[section.key].resumedFilenames!.length > 0 && (
-              <div className="mb-2 flex flex-wrap gap-1.5">
-                {sections[section.key].resumedFilenames!.map((name, i) => (
-                  <span key={i} className="inline-flex items-center gap-1.5 text-xs bg-cf-green/10 text-cf-green border border-cf-green/20 rounded-lg px-2.5 py-1 font-medium">
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><circle cx="5" cy="5" r="4" fill="currentColor" opacity=".3"/><path d="M3 5l1.5 1.5L7 3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                    {name}
-                  </span>
-                ))}
-              </div>
-            )}
-            <UploadArea
-              stepNumber={section.stepNumber}
-              title={section.title}
-              description={section.description}
-              files={sections[section.key].files}
-              onAddFiles={handleAddFiles(section.key)}
-              onRemoveFile={handleRemoveFile(section.key)}
-              processing={sections[section.key].processing}
-              doneCount={sections[section.key].processedCount}
-              errorCount={sections[section.key].errorCount}
-              icon={section.icon}
-              docKey={section.key}
-            />
+      {/* ── Sticky progress bar ── */}
+      <div
+        className="sticky top-16 z-20 bg-white border-b border-cf-border mb-4 rounded-b-xl"
+        style={{ boxShadow: "0 2px 8px rgba(32,59,136,0.06)" }}
+      >
+        <div className="px-4 py-2.5 flex items-center gap-4">
+          <div className="flex-1 flex items-center gap-3 min-w-0">
+            <div className="flex-1 h-1.5 rounded-full bg-cf-border overflow-hidden">
+              <div
+                style={{ width: `${(requiredDoneCount / totalRequired) * 100}%`, transition: "width 0.5s ease-out" }}
+                className={`h-full rounded-full ${requiredDoneCount === totalRequired ? "bg-cf-green" : "bg-cf-navy"}`}
+              />
+            </div>
+            <span className="text-[11px] font-semibold text-cf-text-3 whitespace-nowrap">
+              {requiredDoneCount}/{totalRequired} obrigatórios
+              {scrAnteriorDone && <span className="text-blue-400 ml-1">+ comparativo</span>}
+            </span>
           </div>
-        ))}
+          {bureauStatus === "loading" && (
+            <div className="flex items-center gap-1.5 text-[10px] text-blue-600 bg-blue-50 rounded-lg px-2.5 py-1 border border-blue-200 flex-shrink-0">
+              <Loader2 size={10} className="animate-spin" />
+              Consultando birôs...
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Errors summary */}
-      {Object.entries(sections).some(([, s]) => s.errorCount > 0) && (
-        <div className="space-y-2">
-          {Object.entries(sections)
-            .filter(([, s]) => s.errorCount > 0)
-            .map(([k, s]) => {
-              const label = k === "scrAnterior" ? "SCR Anterior" : SECTIONS.find(sec => sec.key === k)?.title || k.toUpperCase();
-              const feedback = getErrorFeedback(s.errorType, label);
-              return (
-                <div key={k} className="bg-cf-danger-bg border border-cf-danger/20 rounded-xl p-3">
-                  <p className="text-sm font-medium text-cf-danger flex items-center gap-2">
-                    <AlertCircle size={14} />
-                    {feedback.title}
-                  </p>
-                  <p className="text-xs text-cf-danger/80 mt-1 ml-[22px]">{feedback.detail}</p>
-                  <p className="text-xs text-cf-danger/60 mt-0.5 ml-[22px]">{feedback.action}</p>
-                  {s.errorMessage && <p className="text-xs text-cf-danger/50 mt-0.5 ml-[22px] font-mono break-all">[debug] {s.errorMessage}</p>}
-                  {s.lastFailedFile && s.errorType !== "empty" && (
-                    <button
-                      onClick={() => handleRetry(k as DocKey)}
-                      disabled={s.retrying}
-                      className="mt-2 ml-[22px] flex items-center gap-1.5 text-xs font-semibold text-cf-danger border border-cf-danger/30 rounded-lg px-3 py-1.5 hover:bg-cf-danger/5 transition-colors disabled:opacity-50"
-                      style={{ minHeight: "auto" }}
-                    >
-                      {s.retrying ? <><span className="animate-spin inline-block">↻</span> Tentando novamente...</> : <><span>↻</span> Tentar novamente</>}
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-        </div>
-      )}
+      {/* ── Document cards ── */}
+      <div className="space-y-6 pb-20">
 
-      {/* Progress + CTA */}
-      <div className="card p-4 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1">
-            {Array.from({ length: totalRequired }).map((_, i) => (
-              <div
-                key={i}
-                className={`h-1.5 w-8 rounded-full transition-all duration-300 ${
+        {/* Group 1 — Obrigatórios */}
+        <div>
+          <GroupHeader label="Documentos Obrigatórios" count={requiredDoneCount} total={totalRequired} />
+          <div className="space-y-2">
+            {requiredSections.map(section => (
+              <UploadArea
+                key={section.key}
+                title={section.title}
+                description={section.description}
+                icon={section.icon}
+                docKey={section.key}
+                files={sections[section.key].files}
+                onAddFiles={handleAddFiles(section.key)}
+                onRemoveFile={handleRemoveFile(section.key)}
+                processing={sections[section.key].processing}
+                doneCount={sections[section.key].processedCount}
+                errorCount={sections[section.key].errorCount}
+                errorType={sections[section.key].errorType}
+                onRetry={sections[section.key].lastFailedFile ? () => handleRetry(section.key) : undefined}
+                resumedFilenames={sections[section.key].resumedFilenames}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* Group 2 — Complementares */}
+        <div>
+          <GroupHeader label="Documentos Complementares" count={optionalDoneCount} optional />
+          <div className="space-y-2">
+            {optionalSections.map(section => (
+              <UploadArea
+                key={section.key}
+                title={section.title}
+                description={section.description}
+                icon={section.icon}
+                docKey={section.key}
+                files={sections[section.key].files}
+                onAddFiles={handleAddFiles(section.key)}
+                onRemoveFile={handleRemoveFile(section.key)}
+                processing={sections[section.key].processing}
+                doneCount={sections[section.key].processedCount}
+                errorCount={sections[section.key].errorCount}
+                errorType={sections[section.key].errorType}
+                onRetry={sections[section.key].lastFailedFile ? () => handleRetry(section.key) : undefined}
+                resumedFilenames={sections[section.key].resumedFilenames}
+              />
+            ))}
+          </div>
+        </div>
+
+      </div>
+
+      {/* ── Sticky footer ── */}
+      <div
+        className="sticky bottom-0 z-20 bg-white border-t border-cf-border"
+        style={{ boxShadow: "0 -4px 16px rgba(32,59,136,0.07)" }}
+      >
+        <div className="px-4 py-3 flex items-center justify-between gap-4">
+
+          {/* Left: dots + bureau badges */}
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-1">
+              {Array.from({ length: totalRequired }).map((_, i) => (
+                <div key={i} className={`h-1.5 w-7 rounded-full transition-all duration-300 ${
                   i < requiredDoneCount
                     ? "bg-cf-green"
                     : i === requiredDoneCount && anyProcessing
                       ? "bg-cf-navy animate-pulse"
                       : "bg-cf-border"
-                }`}
-              />
-            ))}
-            {/* SCR Anterior indicator (optional) */}
-            <div className={`h-1.5 w-4 rounded-full transition-all duration-300 ml-1 ${scrAnteriorDone ? "bg-blue-400" : "bg-cf-border/50"}`} />
-          </div>
-          <span className="text-xs text-cf-text-3 font-medium">
-            {requiredDoneCount}/{totalRequired}
-            {scrAnteriorDone && " + comparativo"}
-          </span>
-        </div>
-
-        <div className="flex flex-col items-end gap-1">
-          {bureauStatus === "loading" && (
-            <div className="flex items-center gap-1.5 text-[10px] text-blue-600 bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-1">
-              <Loader2 size={11} className="animate-spin" />
-              Consultando birôs de crédito...
+                }`} />
+              ))}
+              <div className={`h-1.5 w-3 rounded-full ml-1 transition-all duration-300 ${scrAnteriorDone ? "bg-blue-400" : "bg-cf-border/40"}`} />
             </div>
-          )}
-          {bureauStatus === "done" && Object.keys(bureauDetail).length > 0 && (
-            <div className="flex items-center gap-1.5 flex-wrap justify-end">
-              {(["credithub", "serasa", "spc", "quod"] as const).map(key => {
-                const b = bureauDetail[key];
-                if (!b) return null;
-                const label = key === "credithub" ? "Credit Hub" : key.toUpperCase();
-                if (b.mock || !b.success) {
+            {(anyProcessing || anyRetrying) && (() => {
+              const pc = Object.values(sections).filter(s => s.processing || s.retrying).length;
+              const tw = Object.values(sections).filter(s => s.files.length > 0).length;
+              return <p className="text-[10px] text-cf-text-4">Extraindo {pc} de {tw} documento{tw !== 1 ? "s" : ""}...</p>;
+            })()}
+            {bureauStatus === "done" && Object.keys(bureauDetail).length > 0 && (
+              <div className="flex items-center gap-1 flex-wrap">
+                {(["credithub", "serasa", "spc", "quod"] as const).map(key => {
+                  const b = bureauDetail[key];
+                  if (!b) return null;
+                  const lbl = key === "credithub" ? "Credit Hub" : key.toUpperCase();
                   return (
-                    <div key={key} title={b.error || "Não consultado"} className="flex items-center gap-1 text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-0.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />
-                      {label}
+                    <div key={key} title={b.error} className={`flex items-center gap-1 text-[10px] rounded-md px-2 py-0.5 border ${
+                      b.mock || !b.success ? "text-amber-700 bg-amber-50 border-amber-200" : "text-green-700 bg-green-50 border-green-200"
+                    }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full inline-block ${b.mock || !b.success ? "bg-amber-400" : "bg-green-500"}`} />
+                      {lbl}
                     </div>
                   );
-                }
-                return (
-                  <div key={key} className="flex items-center gap-1 text-[10px] text-green-700 bg-green-50 border border-green-200 rounded-md px-2 py-0.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
-                    {label}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          <button
-            onClick={handleSubmit}
-            disabled={!canProceed}
-            title={!canProceed && !forcarAvancar ? "Aguarde a extracao ou corrija os erros" : undefined}
-            className={`btn-primary ${!canProceed ? "opacity-50 cursor-not-allowed" : ""}`}
-          >
-            {canProceed ? "Prosseguir para Revisao" : anyProcessing || anyRetrying ? "Extraindo..." : "Corrija os erros primeiro"}
-            <ArrowRight size={15} />
-          </button>
-          {(anyProcessing || anyRetrying) && (() => {
-            const processingCount = Object.values(sections).filter(s => s.processing || s.retrying).length;
-            const totalWithFiles = Object.values(sections).filter(s => s.files.length > 0).length;
-            const estSec = processingCount * 15;
-            return (
-              <p className="text-[10px] text-cf-text-4">
-                Processando {processingCount} de {totalWithFiles} documento{totalWithFiles !== 1 ? "s" : ""} • ~{estSec} seg restantes
-              </p>
-            );
-          })()}
-          {!allRequiredDone && !anyProcessing && !anyRetrying && !forcarAvancar && (
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Right: CTA */}
+          <div className="flex flex-col items-end gap-1.5">
             <button
-              onClick={() => setForcarAvancar(true)}
-              className="flex items-center gap-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-300 rounded-lg px-3 py-1.5 hover:bg-amber-100 transition-colors"
-              style={{ minHeight: "auto" }}
+              onClick={handleSubmit}
+              disabled={!canProceed}
+              className={`btn-primary ${!canProceed ? "opacity-50 cursor-not-allowed" : ""}`}
             >
-              <AlertCircle size={13} />
-              Prosseguir com dados incompletos
+              {anyProcessing || anyRetrying ? "Extraindo..." : canProceed ? "Prosseguir para Revisão" : "Aguardando documentos"}
+              <ArrowRight size={15} />
             </button>
-          )}
+            {!allRequiredDone && !anyProcessing && !anyRetrying && !forcarAvancar && requiredDoneCount >= 1 && (
+              <button
+                onClick={() => setForcarAvancar(true)}
+                className="text-[11px] text-cf-text-4 hover:text-amber-600 transition-colors"
+                style={{ minHeight: "auto" }}
+              >
+                Prosseguir com dados incompletos
+              </button>
+            )}
+          </div>
+
         </div>
       </div>
+
     </div>
   );
 }

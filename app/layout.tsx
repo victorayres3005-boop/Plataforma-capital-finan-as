@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Open_Sans, DM_Sans } from "next/font/google";
 import { Toaster } from "sonner";
+import PageTransition from "@/components/PageTransition";
 import "./globals.css";
 
 const openSans = Open_Sans({
@@ -34,9 +35,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="pt-BR">
       <head>
         <meta name="theme-color" content="#203b88" />
+        {/* Disable browser scroll restoration so pages always start at top */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `history.scrollRestoration = 'manual'; window.scrollTo(0, 0);`,
+          }}
+        />
       </head>
       <body className={`${openSans.variable} ${dmSans.variable} ${openSans.className} antialiased`}>
-        {children}
+        <PageTransition>{children}</PageTransition>
         <Toaster richColors position="top-right" />
       </body>
     </html>
