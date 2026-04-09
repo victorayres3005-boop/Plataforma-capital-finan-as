@@ -283,6 +283,7 @@ Retorne APENAS um JSON válido com esta estrutura exata:
 === SISTEMA DE ALERTAS ===
 
 Use OBRIGATORIAMENTE os códigos abaixo. Inclua todos os alertas que se aplicam aos dados fornecidos.
+NÃO gere alertas sobre concentração de clientes/sacados (Curva ABC) — esses alertas são gerados automaticamente pelo sistema com formato próprio.
 
 Critérios para [ALTA] — severidade "ALTA":
 — CCF_REGISTRADO: qualquer registro de CCF (Cheque Sem Fundo) identificado — CRÍTICO: indica inadimplência intencional com o sistema bancário, sinal de gestão financeira gravemente comprometida
@@ -308,10 +309,6 @@ Critérios para [MODERADA] — severidade "MODERADA":
 — PROC_TRABALHISTA: processos trabalhistas identificados
 — PROC_BANCO: processos bancários identificados
 — PROC_FISCAL: processos fiscais identificados
-
-— ABC_CONCENTRACAO_ALTA: maior cliente concentra acima do limite de 30% da receita
-  descricao: "{Nome do cliente} representa {X}% da receita total"
-  impacto: "Limite de concentração: 30% · Período: {período}"
 
 Critérios para [INFO] — severidade "INFO":
 — SCR_REDUCAO_DIVIDA: redução expressiva de dívida (pode indicar renegociação)
@@ -815,17 +812,34 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, analysis });
     }
 
-    // ──── Alerta automático: meses com faturamento zero ────
+    // ──── Alertas determinísticos ────
     const fatData = (body.data?.faturamento ?? {}) as Record<string, unknown>;
-    const alertasMesesZerados: Array<{ severidade: string; descricao: string; impacto: string; mitigacao: string }> = [];
+    const alertasDeterministicos: Array<{ codigo: string; severidade: string; descricao: string; impacto: string; mitigacao: string }> = [];
+
+    // Meses com faturamento zero
     if (fatData.temMesesZerados === true) {
       const qtd = Number(fatData.quantidadeMesesZerados || 0);
       const lista = ((fatData.mesesZerados as Array<{ mes: string }>) || []).map(m => m.mes).join(", ");
-      alertasMesesZerados.push({
+      alertasDeterministicos.push({
+        codigo: "FAT_ZERADO",
         severidade: "MODERADA",
         descricao: `${qtd} mês(es) com faturamento zero: ${lista}`,
         impacto: "FMM pode estar subestimado — verificar sazonalidade ou interrupção operacional",
         mitigacao: "Solicitar extrato bancário ou NF-e dos meses zerados para confirmar",
+      });
+    }
+
+    // Concentração de receita por cliente
+    const abcData = (body.data?.curvaABC ?? {}) as Record<string, unknown>;
+    if (abcData.alertaConcentracao === true && abcData.maiorCliente) {
+      const periodo = (abcData.periodoReferencia as string) || "—";
+      const pct = (abcData.maiorClientePct as string) || "—";
+      alertasDeterministicos.push({
+        codigo: "ABC_CONCENTRACAO_ALTA",
+        severidade: "ALTA",
+        descricao: `${abcData.maiorCliente} representa ${pct}% da receita total`,
+        impacto: `Limite de concentração: 30% · Período: ${periodo}`,
+        mitigacao: "Avaliar dependência operacional do cliente e estratégia de diversificação",
       });
     }
 
@@ -860,7 +874,7 @@ export async function POST(request: NextRequest) {
 
     // captura variáveis do escopo externo para uso dentro do stream
     const _preReq = preReq; const _alav = alav;
-    const _alertas = alertasMesesZerados; const _body = body;
+    const _alertas = alertasDeterministicos; const _body = body;
     const _settings = settings; const _cacheKey = cacheKey;
 
     const stream = new ReadableStream({
@@ -943,8 +957,15 @@ Dívida total SCR: R$ ${_alav.totalDivida.toLocaleString("pt-BR", { minimumFract
           if (!cleaned.startsWith("{")) { const m = cleaned.match(/\{[\s\S]*\}/); if (m) cleaned = m[0]; }
           const analysis = JSON.parse(cleaned);
 
-          // Alertas determinísticos
-          if (_alertas.length > 0) analysis.alertas = [..._alertas, ...(analysis.alertas ?? [])];
+          // Alertas determinísticos — têm prioridade sobre os da IA
+          // Remove da IA qualquer alerta cujo código já existe nos determinísticos
+          const codigosDeterministicos = new Set(_alertas.map((a: { codigo: string }) => a.codigo));
+          const alertasIA = (analysis.alertas ?? []).filter((a: Record<string, string>) => {
+            const cod = (a.codigo ?? "").toUpperCase();
+            // Remove duplicatas e qualquer variante de concentração gerada livremente pela IA
+            return !codigosDeterministicos.has(cod) && !cod.includes("CONCENTRACAO") && !cod.includes("ABC");
+          });
+          analysis.alertas = [..._alertas, ...alertasIA];
 
           // Defaults
           analysis.rating = analysis.rating ?? 0;
