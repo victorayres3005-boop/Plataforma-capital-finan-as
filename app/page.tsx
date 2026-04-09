@@ -198,7 +198,26 @@ function calcularMetricasDashboard(collections: DocumentCollection[], periodoAnt
   const deltaColetas = periodoAnterior ? collections.length - periodoAnterior.length : null;
   const deltaTaxa = periodoAnterior ? taxaAprovacao - antTaxaAprovacao : null;
 
-  return { porDecisao, fmmMedio, fmmTotal, semanas, serieTemporal, taxaAprovacao, totalFinalizadas: finalizadas.length, deltaColetas, deltaTaxa };
+  // Rating médio
+  const comRating = finalizadas.filter(c => c.rating != null && c.rating > 0);
+  const ratingMedio = comRating.length > 0 ? comRating.reduce((s, c) => s + (c.rating || 0), 0) / comRating.length : 0;
+  const antComRating = antFinalizadas.filter(c => c.rating != null && c.rating > 0);
+  const antRatingMedio = antComRating.length > 0 ? antComRating.reduce((s, c) => s + (c.rating || 0), 0) / antComRating.length : 0;
+  const deltaRating = periodoAnterior && comRating.length > 0 && antComRating.length > 0
+    ? Math.round((ratingMedio - antRatingMedio) * 10) / 10
+    : null;
+  const totalComRating = comRating.length;
+  const ratingDistribuicao = [
+    { label: "Excelente", faixa: "8 – 10",  min: 8,   max: 10,    color: "#22c55e" },
+    { label: "Bom",       faixa: "6 – 7,9", min: 6,   max: 7.999, color: "#73b815" },
+    { label: "Regular",   faixa: "4 – 5,9", min: 4,   max: 5.999, color: "#f59e0b" },
+    { label: "Crítico",   faixa: "0 – 3,9", min: 0,   max: 3.999, color: "#ef4444" },
+  ].map(f => ({
+    ...f,
+    count: comRating.filter(c => (c.rating || 0) >= f.min && (c.rating || 0) <= f.max).length,
+  }));
+
+  return { porDecisao, fmmMedio, fmmTotal, semanas, serieTemporal, taxaAprovacao, totalFinalizadas: finalizadas.length, deltaColetas, deltaTaxa, ratingMedio, totalComRating, deltaRating, ratingDistribuicao };
 }
 
 
@@ -926,14 +945,16 @@ export default function HomePage() {
                 if (delta < 0) return { icon: <TrendingDown size={11} />, text: `${delta} vs período ant.`, cls: "text-red-500" };
                 return { icon: <Minus size={11} />, text: "igual ao período ant.", cls: "text-cf-text-4" };
               };
+              const ratingClr = metricas.ratingMedio >= 7 ? "#22c55e" : metricas.ratingMedio >= 5 ? "#f59e0b" : "#ef4444";
               const kpis = [
-                { label: "Total de Coletas", value: totalColetas, sub: `${empresas} empresa(s) únicas`, delta: metricas.deltaColetas, accent: "#203b88", fmt: (v: number) => String(v), emptyLabel: null },
-                { label: "Finalizadas", value: finalizadasFilt, sub: finalizadasFilt === 0 ? "Nenhuma análise concluída" : `${emAndamento} em andamento`, delta: null, accent: "#73b815", fmt: (v: number) => String(v), emptyLabel: finalizadasFilt === 0 ? "Nenhuma análise concluída" : null },
-                { label: "Taxa de Aprovação", value: metricas.taxaAprovacao, sub: metricas.totalFinalizadas === 0 ? "Sem dados suficientes" : `de ${metricas.totalFinalizadas} finalizadas`, delta: metricas.deltaTaxa, accent: "#0ea5e9", fmt: (v: number) => metricas.totalFinalizadas === 0 ? "—" : `${v}%`, emptyLabel: metricas.totalFinalizadas === 0 ? "Sem dados suficientes" : null },
-                { label: "FMM Total Aprovado", value: fmmTotalFilt, sub: fmmTotalFilt === 0 ? "Sem aprovações com FMM" : "soma das aprovadas/cond.", delta: null, accent: "#8b5cf6", fmt: (v: number) => v === 0 ? "—" : fmtFmm(v), emptyLabel: fmmTotalFilt === 0 ? "Sem aprovações com FMM" : null },
+                { label: "Total de Coletas",  value: totalColetas,           sub: `${empresas} empresa(s) únicas`,                                                                             delta: metricas.deltaColetas, accent: "#203b88", fmt: (v: number) => String(v),                                                                                             emptyLabel: null,                                                 bar: undefined },
+                { label: "Finalizadas",       value: finalizadasFilt,        sub: finalizadasFilt === 0 ? "Nenhuma análise concluída" : `${emAndamento} em andamento`,                         delta: null,                  accent: "#73b815", fmt: (v: number) => String(v),                                                                                             emptyLabel: finalizadasFilt === 0 ? "Nenhuma análise concluída" : null, bar: undefined },
+                { label: "Taxa de Aprovação", value: metricas.taxaAprovacao, sub: metricas.totalFinalizadas === 0 ? "Sem dados suficientes" : `de ${metricas.totalFinalizadas} finalizadas`,  delta: metricas.deltaTaxa,    accent: "#0ea5e9", fmt: (v: number) => metricas.totalFinalizadas === 0 ? "—" : `${v}%`,                                                           emptyLabel: metricas.totalFinalizadas === 0 ? "Sem dados suficientes" : null, bar: undefined },
+                { label: "FMM Total Aprovado",value: fmmTotalFilt,           sub: fmmTotalFilt === 0 ? "Sem aprovações com FMM" : "soma das aprovadas/cond.",                                  delta: null,                  accent: "#8b5cf6", fmt: (v: number) => v === 0 ? "—" : fmtFmm(v),                                                                                   emptyLabel: fmmTotalFilt === 0 ? "Sem aprovações com FMM" : null, bar: undefined },
+                { label: "Rating Médio",      value: metricas.ratingMedio,   sub: metricas.totalComRating === 0 ? "Sem análises com rating" : `de ${metricas.totalComRating} análise(s)`,     delta: metricas.deltaRating,  accent: ratingClr, fmt: (v: number) => metricas.totalComRating === 0 ? "—" : v.toFixed(1).replace(".", ",") + "/10",                             emptyLabel: metricas.totalComRating === 0 ? "Sem análises com rating" : null, bar: metricas.totalComRating > 0 ? (metricas.ratingMedio / 10) * 100 : undefined },
               ];
               return (
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
+                <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-8">
                   {kpis.map((k, i) => {
                     const dl = deltaLabel(k.delta ?? null);
                     return (
@@ -947,8 +968,15 @@ export default function HomePage() {
                           </div>
                         ) : (
                           <>
-                            <p className="text-2xl sm:text-3xl font-bold text-cf-text-1 pl-2">{k.fmt(k.value)}</p>
+                            <p className="text-2xl sm:text-3xl font-bold pl-2" style={{ color: k.bar !== undefined ? k.accent : undefined }}>{k.fmt(k.value)}</p>
                             <p className={`text-[11px] mt-1 pl-2 ${k.emptyLabel ? "text-orange-500 font-semibold" : "text-cf-text-4"}`}>{k.sub}</p>
+                            {k.bar !== undefined && (
+                              <div className="pl-2 pr-1 mt-2">
+                                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                  <div className="h-full rounded-full transition-all duration-700" style={{ width: `${k.bar}%`, backgroundColor: k.accent }} />
+                                </div>
+                              </div>
+                            )}
                           </>
                         )}
                         {dl && (
@@ -1082,6 +1110,43 @@ export default function HomePage() {
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
+
+                {/* Distribuição de Rating */}
+                {metricas.totalComRating > 0 && (
+                  <div className="bg-white rounded-2xl border border-[#e5e7eb] p-5">
+                    <div className="flex items-center justify-between mb-4">
+                      <p className="text-[11px] text-cf-text-4 uppercase tracking-wider font-bold">Distribuição de Rating</p>
+                      <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg" style={{
+                        color: metricas.ratingMedio >= 7 ? "#166534" : metricas.ratingMedio >= 5 ? "#92400e" : "#991b1b",
+                        background: metricas.ratingMedio >= 7 ? "#dcfce7" : metricas.ratingMedio >= 5 ? "#fef3c7" : "#fee2e2",
+                      }}>
+                        Média {metricas.ratingMedio.toFixed(1).replace(".", ",")}/10
+                      </span>
+                    </div>
+                    <div className="space-y-3">
+                      {metricas.ratingDistribuicao.map(f => (
+                        <div key={f.label} className="flex items-center gap-3">
+                          <div className="w-16 flex-shrink-0">
+                            <span className="text-[11px] font-bold text-cf-text-2">{f.label}</span>
+                          </div>
+                          <div className="w-12 flex-shrink-0">
+                            <span className="text-[10px] text-cf-text-4">{f.faixa}</span>
+                          </div>
+                          <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all duration-700"
+                              style={{ width: `${Math.round((f.count / metricas.totalComRating) * 100)}%`, backgroundColor: f.color }}
+                            />
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-shrink-0 w-14 justify-end">
+                            <span className="text-[11px] font-bold" style={{ color: f.color }}>{f.count}</span>
+                            <span className="text-[10px] text-cf-text-4">({Math.round((f.count / metricas.totalComRating) * 100)}%)</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
