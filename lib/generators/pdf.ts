@@ -2444,29 +2444,48 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     );
 
     if (hasVencData) {
-      // 35% para label, restante dividido igualmente entre entidades
       const vColLabel = contentW * 0.35;
-      const vColData = (contentW - vColLabel) / vencEntities.length;
-      const vRowH = 5.5;
-      const totalRows = 1 + 6 + 1 + 1 + 6 + 1; // header + faixas + total + sep + faixas + total
+      const vColData  = (contentW - vColLabel) / vencEntities.length;
+      const vRowH     = 5.5;
+
+      // Detecta se há detalhamento por faixa em alguma entidade
+      const hasFaixaBreakdown = vencEntities.some(e =>
+        faixaKeys.some(k => parseMoneyToNumber((e.aVencer as Record<string,string> | undefined)?.[k] || "0") > 0
+                         || parseMoneyToNumber((e.vencidos as Record<string,string> | undefined)?.[k] || "0") > 0)
+      );
+
+      const totalRows = hasFaixaBreakdown
+        ? 1 + 6 + 1 + 1 + 6 + 1   // header + faixas aVencer + total + sep + faixas vencidos + total
+        : 1 + 2;                    // header + total aVencer + total vencido
       const vNeeded = 10 + 6 + totalRows * vRowH + 4;
 
       drawSpacer(6);
       checkPageBreak(vNeeded);
 
+      // Título
       doc.setFontSize(7.5);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...colors.text);
       doc.text("SCR VENCIMENTOS", margin, y + 4);
-      y += 8;
+      y += 5;
+      doc.setFontSize(5);
+      doc.setFont("helvetica", "italic");
+      doc.setTextColor(...colors.textMuted);
+      doc.text(
+        hasFaixaBreakdown
+          ? "Distribuicao da carteira por prazo — valores em mil R$ (extraidos do documento SCR enviado)."
+          : "Detalhamento por faixa nao disponivel — valores totais extraidos do SCR/Bacen.",
+        margin, y + 4
+      );
+      y += 7;
 
-      // Cabeçalho: FAIXA | col por entidade
+      // Cabeçalho
       doc.setFillColor(...colors.navy);
       doc.rect(margin, y, contentW, 6, "F");
       doc.setFontSize(5);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(255, 255, 255);
-      doc.text("FAIXA", margin + 2, y + 4);
+      doc.text(hasFaixaBreakdown ? "FAIXA" : "POSIÇÃO", margin + 2, y + 4);
       vencEntities.forEach((ent, i) => {
         doc.text(ent.label, margin + vColLabel + i * vColData + vColData / 2, y + 4, { align: "center" });
       });
@@ -2475,7 +2494,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       const fmtV = (v: string) => {
         const n = parseMoneyToNumber(v || "0");
         if (n === 0) return "—";
-        return n.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+        return (n / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 });
       };
 
       let vIdx = 0;
@@ -2505,12 +2524,12 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
           doc.rect(margin, y, contentW, vRowH, "F");
           doc.setFontSize(5.5);
           doc.setFont("helvetica", "bold");
-          doc.setTextColor(...(isBlue ? colors.primary : [185, 28, 28] as [number,number,number]));
+          const summaryColor = isBlue ? colors.primary : [185, 28, 28] as [number,number,number];
+          doc.setTextColor(...summaryColor);
           doc.text(label, margin + 2, y + 3.8);
           vals.forEach((v, i) => {
-            const display = fmtV(v);
-            doc.setTextColor(...(isBlue ? colors.primary : [185, 28, 28] as [number,number,number]));
-            doc.text(display, margin + vColLabel + i * vColData + vColData - 1, y + 3.8, { align: "right" });
+            doc.setTextColor(...summaryColor);
+            doc.text(fmtV(v), margin + vColLabel + i * vColData + vColData - 1, y + 3.8, { align: "right" });
           });
           doc.setTextColor(...colors.text);
           y += vRowH;
@@ -2518,8 +2537,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         }
 
         const isVencida = opts.bold === false && vals.some(v => parseMoneyToNumber(v) > 0);
-        const bg: [number, number, number] = vIdx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
-        doc.setFillColor(...bg);
+        doc.setFillColor(...(vIdx % 2 === 0 ? [248, 250, 252] as [number,number,number] : [255, 255, 255] as [number,number,number]));
         doc.rect(margin, y, contentW, vRowH, "F");
         doc.setFontSize(5.5);
         doc.setFont("helvetica", "normal");
@@ -2536,23 +2554,38 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         vIdx++;
       };
 
-      // A VENCER
-      drawVRow("A VENCER", [], { sectionBg: "blue" });
-      faixaKeys.forEach(key => drawVRow(faixaKeyLabels[key], vencEntities.map(e => e.aVencer?.[key] || "0,00")));
-      drawVRow("Total a Vencer", vencEntities.map(e => e.totalAVencer), { summaryBg: "blue" });
+      if (hasFaixaBreakdown) {
+        // Detalhamento completo por faixa
+        drawVRow("A VENCER", [], { sectionBg: "blue" });
+        faixaKeys.forEach(key => {
+          const vals = vencEntities.map(e => (e.aVencer as Record<string,string> | undefined)?.[key] || "0,00");
+          if (vals.some(v => parseMoneyToNumber(v) > 0)) {
+            drawVRow(faixaKeyLabels[key], vals);
+          }
+        });
+        drawVRow("Total a Vencer", vencEntities.map(e => e.totalAVencer), { summaryBg: "blue" });
 
-      // VENCIDOS
-      drawVRow("VENCIDOS", [], { sectionBg: "red" });
-      faixaKeys.forEach(key => drawVRow(faixaKeyLabels[key], vencEntities.map(e => e.vencidos?.[key] || "0,00"), { bold: false }));
-      drawVRow("Total Vencido", vencEntities.map(e => e.totalVencido), { summaryBg: "red" });
+        drawVRow("VENCIDOS", [], { sectionBg: "red" });
+        faixaKeys.forEach(key => {
+          const vals = vencEntities.map(e => (e.vencidos as Record<string,string> | undefined)?.[key] || "0,00");
+          if (vals.some(v => parseMoneyToNumber(v) > 0)) {
+            drawVRow(faixaKeyLabels[key], vals, { bold: false });
+          }
+        });
+        drawVRow("Total Vencido", vencEntities.map(e => e.totalVencido), { summaryBg: "red" });
+      } else {
+        // Apenas totais quando faixas não disponíveis
+        drawVRow("Total a Vencer", vencEntities.map(e => e.totalAVencer), { summaryBg: "blue" });
+        drawVRow("Total Vencido",  vencEntities.map(e => e.totalVencido),  { summaryBg: "red"  });
+      }
 
       y += 4;
 
       if (!data.scrSocios || data.scrSocios.length === 0) {
-        doc.setFontSize(5.5);
+        doc.setFontSize(5);
         doc.setFont("helvetica", "italic");
         doc.setTextColor(...colors.textMuted);
-        doc.text("* SCR dos sócios não enviado — apenas dados da empresa disponíveis.", margin, y);
+        doc.text("* SCR dos socios nao enviado — apenas dados da empresa exibidos.", margin, y);
         y += 6;
       }
     }
