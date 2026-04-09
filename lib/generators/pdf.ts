@@ -957,83 +957,12 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
   // ── Design tokens ──
   const azulInst:   [number,number,number] = [27, 47, 78];
-  const cinzaLabel: [number,number,number] = [107, 114, 128];
-  const pretoValor: [number,number,number] = [17, 24, 39];
   const vermelho:   [number,number,number] = [220, 38, 38];
   const amarelo:    [number,number,number] = [217, 119, 6];
   const verde:      [number,number,number] = [22, 163, 74];
-  const fundoPage:  [number,number,number] = [248, 249, 250];
-  const bordaCard:  [number,number,number] = [229, 231, 235];
 
   // Cor dinâmica de score
   const scoreColor: [number,number,number] = finalRating >= 7.5 ? verde : finalRating >= 6 ? amarelo : vermelho;
-
-  // ── Helper: drawSinteseCard ──
-  type SinteseField = { label: string; value: string; valueColor?: [number,number,number]; badge?: boolean; badgeText?: string; badgeBg?: [number,number,number]; badgeTextColor?: [number,number,number] };
-  const drawSinteseCard = (
-    cx: number, cy: number, cw: number, ch: number,
-    title: string, accentColor: [number,number,number],
-    fields: SinteseField[]
-  ) => {
-    // Card fundo branco, borda 0.3pt
-    doc.setFillColor(255, 255, 255);
-    doc.roundedRect(cx, cy, cw, ch, 2, 2, "F");
-    doc.setDrawColor(...bordaCard);
-    doc.setLineWidth(0.3);
-    doc.roundedRect(cx, cy, cw, ch, 2, 2, "D");
-    doc.setLineWidth(0.1);
-    // Acento esquerdo 2pt
-    doc.setFillColor(...accentColor);
-    doc.rect(cx, cy, 2, ch, "F");
-    // Header interno
-    doc.setFontSize(7);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...accentColor);
-    doc.text(title, cx + 5.5, cy + 6);
-    // Linha separadora
-    doc.setDrawColor(...bordaCard);
-    doc.setLineWidth(0.2);
-    doc.line(cx + 2, cy + 10, cx + cw, cy + 10);
-    doc.setLineWidth(0.1);
-    // Grid 2×N de campos
-    const gridX = cx + 4;
-    const colW2 = (cw - 6) / 2;
-    const fieldH = (ch - 12) / Math.max(1, Math.ceil(fields.length / 2));
-    fields.forEach((f, i) => {
-      const col = i % 2;
-      const row = Math.floor(i / 2);
-      const fx = gridX + col * colW2;
-      const fy = cy + 12 + row * fieldH;
-      doc.setFontSize(6.5);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(...cinzaLabel);
-      doc.text(f.label.toUpperCase(), fx, fy + 4.5);
-      if (f.badge && f.badgeText) {
-        // Badge inline
-        doc.setFontSize(6);
-        doc.setFont("helvetica", "bold");
-        const bw = doc.getTextWidth(f.badgeText) + 6;
-        doc.setFillColor(...(f.badgeBg ?? [229, 231, 235]));
-        doc.roundedRect(fx, fy + 5.5, bw, 5.5, 1, 1, "F");
-        doc.setTextColor(...(f.badgeTextColor ?? pretoValor));
-        doc.text(f.badgeText, fx + 3, fy + 9.5);
-      } else {
-        doc.setFontSize(8.5);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...(f.valueColor ?? pretoValor));
-        const maxC = Math.floor(colW2 / 2.0);
-        const disp = f.value.length > maxC ? f.value.substring(0, maxC) + "…" : f.value;
-        doc.text(disp, fx, fy + 12);
-      }
-    });
-  };
-
-  // ── Helper: getSeveridadeBadge ──
-  const getSeveridadeBadge = (qtd: number): { text: string; bg: [number,number,number]; textColor: [number,number,number] } => {
-    if (qtd === 0) return { text: "SEM RESTRICAO", bg: [220, 252, 231], textColor: [21, 128, 61] };
-    if (qtd <= 3)  return { text: "MODERADO",      bg: [254, 243, 199], textColor: [180, 83, 9]  };
-    return             { text: "ALTA",             bg: [254, 226, 226], textColor: [220, 38, 38] };
-  };
 
   // ═══════════════════════════════════════════════════
   // BLOCO 1 — Score + Status (largura total, ~28mm)
@@ -1130,23 +1059,23 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     valueColor?: [number, number, number],
     isLast = false
   ): number => {
-    const rH = 11;
+    const rH = 16;
     doc.setFillColor(248, 249, 250);
     doc.rect(rx, ry, rw, rH, "F");
-    doc.setFontSize(5.8);
+    doc.setFontSize(7);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(107, 114, 128);
-    doc.text(label.toUpperCase(), rx + 4, ry + 4.5);
-    doc.setFontSize(7.5);
+    doc.text(label.toUpperCase(), rx + 5, ry + 6);
+    doc.setFontSize(9.5);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...(valueColor ?? ([17, 24, 39] as [number, number, number])));
-    const maxCh = Math.floor((rw - 8) / 1.85);
+    const maxCh = Math.floor((rw - 10) / 2.1);
     const disp = value.length > maxCh ? value.substring(0, maxCh) + "\u2026" : value;
-    doc.text(disp, rx + 4, ry + 9.8);
+    doc.text(disp, rx + 5, ry + 13.5);
     if (!isLast) {
       doc.setDrawColor(229, 231, 235);
-      doc.setLineWidth(0.15);
-      doc.line(rx + 2, ry + rH, rx + rw - 2, ry + rH);
+      doc.setLineWidth(0.2);
+      doc.line(rx + 3, ry + rH, rx + rw - 3, ry + rH);
       doc.setLineWidth(0.1);
     }
     return ry + rH;
@@ -1189,8 +1118,8 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
   // ── Two-column data layout ──
   {
-    checkPageBreak(95);
-    const colGapSint = 4;
+    checkPageBreak(140);
+    const colGapSint = 5;
     const col1WSint = (contentW - colGapSint) * 0.47;
     const col2WSint = contentW - col1WSint - colGapSint;
     const col2XSint = margin + col1WSint + colGapSint;
@@ -1198,21 +1127,21 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
     // Column headers
     doc.setFillColor(27, 47, 78);
-    doc.rect(margin, blockYSint, col1WSint, 7, "F");
-    doc.setFontSize(6.5);
+    doc.rect(margin, blockYSint, col1WSint, 9, "F");
+    doc.setFontSize(7.5);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
-    doc.text("PERFIL & OPERACIONAL", margin + 4, blockYSint + 5);
+    doc.text("PERFIL & OPERACIONAL", margin + 5, blockYSint + 6.5);
 
     doc.setFillColor(27, 47, 78);
-    doc.rect(col2XSint, blockYSint, col2WSint, 7, "F");
-    doc.setFontSize(6.5);
+    doc.rect(col2XSint, blockYSint, col2WSint, 9, "F");
+    doc.setFontSize(7.5);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
-    doc.text("INDICADORES DE RISCO", col2XSint + 4, blockYSint + 5);
+    doc.text("INDICADORES DE RISCO", col2XSint + 5, blockYSint + 6.5);
 
-    let y1Sint = blockYSint + 7;
-    let y2Sint = blockYSint + 7;
+    let y1Sint = blockYSint + 9;
+    let y2Sint = blockYSint + 9;
 
     // Column 1 — Profile & Operational
     y1Sint = renderInfoRow(margin, y1Sint, col1WSint, "Idade da Empresa", idadeEmpSint);
@@ -1236,16 +1165,16 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   // ── DRE Resumo ──
   if (data.dre && data.dre.anos && data.dre.anos.length > 0) {
     const anoMaisRecenteSint = data.dre.anos[data.dre.anos.length - 1];
-    checkPageBreak(28);
+    checkPageBreak(36);
     doc.setFillColor(27, 47, 78);
-    doc.rect(margin, y, contentW, 7, "F");
-    doc.setFontSize(6.5);
+    doc.rect(margin, y, contentW, 9, "F");
+    doc.setFontSize(7.5);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
-    doc.text("DEMONSTRAÇÃO DE RESULTADO — EXERCÍCIO MAIS RECENTE", margin + 4, y + 5);
-    y += 7;
+    doc.text("DEMONSTRAÇÃO DE RESULTADO — EXERCÍCIO MAIS RECENTE", margin + 5, y + 6.5);
+    y += 9;
     const dreColWSint = contentW / 4;
-    const dreHSint = 16;
+    const dreHSint = 22;
     const tendRawSint = normalizeTendencia(data.dre.tendenciaLucro);
     const tendColorSint: [number, number, number] = tendRawSint.startsWith("\u2191") ? [22, 163, 74] : tendRawSint.startsWith("\u2193") ? [220, 38, 38] : [107, 114, 128];
     const dreMetricasSint = [
@@ -1264,14 +1193,14 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         doc.line(xDSint + dreColWSint, y + 2, xDSint + dreColWSint, y + dreHSint - 2);
         doc.setLineWidth(0.1);
       }
-      doc.setFontSize(6);
+      doc.setFontSize(7);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(107, 114, 128);
-      doc.text(m.label, xDSint + 4, y + 6);
-      doc.setFontSize(9);
+      doc.text(m.label, xDSint + 5, y + 8);
+      doc.setFontSize(11);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...m.color);
-      doc.text(m.valor, xDSint + 4, y + 13);
+      doc.text(m.valor, xDSint + 5, y + 18);
     });
     y += dreHSint + 5;
   }
@@ -1541,16 +1470,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   dsSectionHeader("03", "CONTRATO SOCIAL");
 
   if (data.contrato.temAlteracoes) {
-    checkPageBreak(12);
-    doc.setFillColor(254, 243, 199);
-    doc.roundedRect(margin, y, contentW, 10, 1, 1, "F");
-    doc.setFillColor(...colors.warning);
-    doc.roundedRect(margin, y, 3, 10, 0.5, 0.5, "F");
-    doc.setFontSize(7.5);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...colors.warning);
-    doc.text("ATENCAO: Documento com alteracoes societarias recentes", margin + 8, y + 6.5);
-    y += 14;
+    drawAlertBox("Contrato Social com alterações societárias recentes — verificar impacto na estrutura de controle", "MODERADA");
   }
 
   if (data.contrato.objetoSocial) drawMultilineField("Objeto Social", data.contrato.objetoSocial, 5);
@@ -1779,26 +1699,13 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
     // Bloco de parentesco
     const geParentescosPdf = data.grupoEconomico?.parentescosDetectados || [];
-    if (geParentescosPdf.length > 0) {
-      checkPageBreak(10 + geParentescosPdf.length * 6);
-      doc.setFillColor(254, 243, 199); // amarelo claro
-      doc.rect(margin, y, contentW, 6 + geParentescosPdf.length * 6, "F");
-      doc.setDrawColor(217, 119, 6);
-      doc.rect(margin, y, 2, 6 + geParentescosPdf.length * 6, "F");
-      doc.setFontSize(6);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(146, 64, 14);
-      doc.text("Alerta: Possivel Parentesco entre Socios", margin + 5, y + 4.5);
-      y += 7;
-      geParentescosPdf.forEach(pt => {
-        doc.setFontSize(5.5);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(120, 53, 15);
-        doc.text(`${pt.socio1} e ${pt.socio2} — sobrenome em comum: ${pt.sobrenomeComum}`, margin + 5, y + 4);
-        y += 6;
-      });
-      y += 4;
-    }
+    geParentescosPdf.forEach(pt => {
+      drawAlertBox(
+        `Possível parentesco entre sócios: ${pt.socio1} e ${pt.socio2}`,
+        "MODERADA",
+        `Sobrenome em comum: ${pt.sobrenomeComum}`
+      );
+    });
   }
 
   // ===== PAGE 3 — FATURAMENTO / SCR =====
@@ -3047,18 +2954,31 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
     // Alerta de concentração
     if (data.curvaABC.alertaConcentracao) {
-      const alertaTexto = `! Cliente "${data.curvaABC.maiorCliente}" concentra ${data.curvaABC.maiorClientePct}% da receita — acima do limite de 30%`;
-      const alertaLines = doc.splitTextToSize(alertaTexto, contentW - 10);
-      const alertaH = Math.max(8, alertaLines.length * 5 + 4);
+      const linhaPrincipal = `${data.curvaABC.maiorCliente} representa ${data.curvaABC.maiorClientePct}% da receita total`;
+      const linhaContexto = `Limite de concentração: 30%  ·  Período: ${data.curvaABC.periodoReferencia || "—"}`;
+      const alertaH = 16;
       checkPageBreak(alertaH + 2);
       doc.setFillColor(254, 242, 242);
       doc.rect(margin, y, contentW, alertaH, "F");
       doc.setFillColor(220, 38, 38);
       doc.rect(margin, y, 2.5, alertaH, "F");
+      // Badge
+      doc.setFillColor(220, 38, 38);
+      doc.roundedRect(margin + 5, y + 2.5, 12, 5, 1, 1, "F");
+      doc.setFontSize(5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(255, 255, 255);
+      doc.text("ALTA", margin + 11, y + 5.8, { align: "center" });
+      // Linha principal
       doc.setFontSize(7.5);
       doc.setFont("helvetica", "bold");
-      doc.setTextColor(220, 38, 38);
-      alertaLines.forEach((l: string, i: number) => doc.text(l, margin + 5, y + 5 + i * 5));
+      doc.setTextColor(153, 27, 27);
+      doc.text(linhaPrincipal, margin + 20, y + 6);
+      // Linha de contexto
+      doc.setFontSize(6.5);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(185, 28, 28);
+      doc.text(linhaContexto, margin + 20, y + 12);
       y += alertaH + 2;
     }
 

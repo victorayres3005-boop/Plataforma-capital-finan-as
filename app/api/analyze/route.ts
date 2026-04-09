@@ -309,6 +309,10 @@ Critérios para [MODERADA] — severidade "MODERADA":
 — PROC_BANCO: processos bancários identificados
 — PROC_FISCAL: processos fiscais identificados
 
+— ABC_CONCENTRACAO_ALTA: maior cliente concentra acima do limite de 30% da receita
+  descricao: "{Nome do cliente} representa {X}% da receita total"
+  impacto: "Limite de concentração: 30% · Período: {período}"
+
 Critérios para [INFO] — severidade "INFO":
 — SCR_REDUCAO_DIVIDA: redução expressiva de dívida (pode indicar renegociação)
 — SCR_REDUCAO_IFS: saída de IFs no SCR (redução de crédito disponível)
