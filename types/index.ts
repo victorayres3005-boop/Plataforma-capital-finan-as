@@ -324,7 +324,7 @@ export interface IRSocioData {
   nomeSocio: string;
   cpf: string;
   anoBase: string;
-  tipoDocumento?: "recibo" | "declaracao";
+  tipoDocumento?: "recibo" | "declaracao" | "extrato";
   numeroRecibo?: string;
   dataEntrega?: string;
   situacaoMalhas?: boolean;
@@ -587,10 +587,29 @@ export interface DocumentCollection {
 }
 
 // ─── Análise de IA ───
+export interface DocumentoCobertura {
+  tipo: string;
+  label: string;
+  presente: boolean;
+  obrigatorio: boolean;
+  automatico: boolean;
+  peso: number; // % do score total
+}
+
+export interface CoberturaAnalise {
+  documentos: DocumentoCobertura[];
+  totalPresentes: number;
+  totalPossivel: number;
+  percentual: number;       // 0-100
+  pesoAtingido: number;     // % do score coberto por dados reais
+  nivel: "completa" | "parcial" | "minima";
+}
+
 export interface AIAnalysis {
   rating: number;
   ratingMax: number;
   decisao: "APROVADO" | "APROVACAO_CONDICIONAL" | "PENDENTE" | "REPROVADO";
+  coberturaAnalise?: CoberturaAnalise;
   alertas: Array<{
     severidade: "ALTA" | "MODERADA" | "INFO";
     descricao: string;
@@ -660,6 +679,10 @@ export interface FundSettings {
   fator_limite_base: number;
   revisao_aprovado_dias: number;
   revisao_condicional_dias: number;
+  // Restrições adicionais (eliminatórias configuráveis)
+  protestos_max: number;
+  processos_passivos_max: number;
+  scr_vencidos_max_pct: number;
 }
 
 export const DEFAULT_FUND_SETTINGS: FundSettings = {
@@ -673,4 +696,7 @@ export const DEFAULT_FUND_SETTINGS: FundSettings = {
   fator_limite_base: 0.5,
   revisao_aprovado_dias: 90,
   revisao_condicional_dias: 60,
+  protestos_max: 2,
+  processos_passivos_max: 15,
+  scr_vencidos_max_pct: 10,
 };

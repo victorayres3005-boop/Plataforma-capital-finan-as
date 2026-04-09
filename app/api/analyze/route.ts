@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { FundSettings, ExtractedData } from "@/types";
 import { DEFAULT_FUND_SETTINGS } from "@/types";
+import { calcularCobertura } from "@/lib/generators/helpers";
 
 export const runtime = "nodejs";
 export const maxDuration = 90;
@@ -893,7 +894,26 @@ export async function POST(request: NextRequest) {
           const balanco = d.balanco as { anos?: Array<Record<string, string>>; tendenciaPatrimonio?: string } | undefined;
           const curvaABC = d.curvaABC as { concentracaoTop3?: string; concentracaoTop5?: string; maiorClientePct?: string; alertaConcentracao?: boolean; totalClientesNaBase?: number } | undefined;
 
-          let extras = "";
+          // Cobertura — informa à IA o que está presente/ausente
+          const _data = _body.data as ExtractedData;
+          const temSCR = !!(_data.scr?.periodoReferencia);
+          const temFat = !!(_data.faturamento && !_data.faturamento.faturamentoZerado && (_data.faturamento.meses?.length ?? 0) > 0);
+          const temDRE = (_data.dre?.anos?.length ?? 0) > 0;
+          const temBal = (_data.balanco?.anos?.length ?? 0) > 0;
+          const temIR  = (_data.irSocios?.length ?? 0) > 0;
+          const temABC = (_data.curvaABC?.clientes?.length ?? 0) > 0;
+          const temBureau = (_data.bureausConsultados?.length ?? 0) > 0;
+          const ausentes = [
+            !temSCR && "SCR/Bacen",
+            !temFat && "Faturamento",
+            !temBureau && "Bureaus (CCF/Protestos/Processos)",
+            !temDRE && "DRE",
+            !temBal && "Balanço",
+            !temIR  && "IR dos Sócios",
+            !temABC && "Curva ABC",
+          ].filter(Boolean).join(", ");
+
+          let extras = `\nCOBERTURA DA ANÁLISE: ${ausentes ? `Documentos ausentes — ${ausentes}. Para componentes sem dados, use a nota neutra conforme o prompt (não penalize além do previsto).` : "Todos os documentos relevantes foram informados."}`;
           if (dre?.anos && dre.anos.length > 0) {
             const a = dre.anos[dre.anos.length - 1];
             extras += `\nDRE (${a.ano ?? ""}): Receita R$ ${a.receitaBruta ?? "—"}, Lucro R$ ${a.lucroLiquido ?? "—"}, Margem ${a.margemLiquida ?? "—"}, EBITDA R$ ${a.ebitda ?? "—"}. Tendência: ${dre.tendenciaLucro ?? "—"}. Crescimento: ${dre.crescimentoReceita ?? "—"}.`;
@@ -966,6 +986,9 @@ Dívida total SCR: R$ ${_alav.totalDivida.toLocaleString("pt-BR", { minimumFract
             return !codigosDeterministicos.has(cod) && !cod.includes("CONCENTRACAO") && !cod.includes("ABC");
           });
           analysis.alertas = [..._alertas, ...alertasIA];
+
+          // Cobertura determinística
+          analysis.coberturaAnalise = calcularCobertura(_body.data as ExtractedData);
 
           // Defaults
           analysis.rating = analysis.rating ?? 0;

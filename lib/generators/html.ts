@@ -1,4 +1,5 @@
 import type { ExtractedData, AIAnalysis } from "@/types";
+import { calcularCobertura } from "@/lib/generators/helpers";
 
 interface Alert {
   message: string;
@@ -69,6 +70,13 @@ export function buildHTMLReport(p: HTMLReportParams): string {
   const distArr = d.processos?.distribuicao || [];
   const bancArr = d.processos?.bancarios || [];
   const geArr = d.grupoEconomico?.empresas || [];
+
+  // Cobertura da análise
+  const cobertura = calcularCobertura(d);
+  const coberturaColor = cobertura.nivel === "completa" ? "#16a34a" : cobertura.nivel === "parcial" ? "#d97706" : "#dc2626";
+  const coberturaLabel = cobertura.nivel === "completa" ? "Completa" : cobertura.nivel === "parcial" ? "Parcial" : "Mínima";
+  const ausentes = cobertura.documentos.filter(doc => !doc.presente && !doc.automatico).map(doc => doc.label);
+  const coberturaBarW = Math.round((cobertura.totalPresentes / cobertura.totalPossivel) * 100);
 
   // Helpers
   const row = (label: string, value: string) => {
@@ -174,6 +182,15 @@ export function buildHTMLReport(p: HTMLReportParams): string {
 <span class="rating-big" style="color:${decision === "APROVADO" ? "#16a34a" : decision === "REPROVADO" ? "#dc2626" : "#d97706"}">${finalRating}/10</span>
 <span class="decision-badge ${decisionClass}">${esc(decision)}</span>
 ${motivoPreRequisito ? `<span style="font-size:11px;color:#dc2626">${esc(motivoPreRequisito)}</span>` : ""}
+</div>
+<div style="margin:8px 0 12px">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+    <div style="width:160px;height:5px;background:#e5e5e5;border-radius:3px;overflow:hidden;flex-shrink:0">
+      <div style="height:100%;width:${coberturaBarW}%;background:${coberturaColor};border-radius:3px"></div>
+    </div>
+    <span style="font-size:11px;color:#555">Base da análise: <strong>${cobertura.totalPresentes} de ${cobertura.totalPossivel}</strong> documentos &nbsp;·&nbsp; <span style="color:${coberturaColor};font-weight:600">${coberturaLabel}</span> (${cobertura.pesoAtingido}% do score coberto)</span>
+  </div>
+  ${ausentes.length > 0 ? `<div style="font-size:10px;color:#999">Não incluídos: ${ausentes.map(a => esc(a)).join(" · ")}</div>` : ""}
 </div>
 <div class="sintese-meta">CNPJ ${esc(d.cnpj.cnpj)} &nbsp;|&nbsp; ${companyAge ? companyAge + " de operacao &nbsp;|&nbsp; " : ""}${esc(d.cnpj.situacaoCadastral || "")} &nbsp;|&nbsp; ${genDt}</div>
 </div>

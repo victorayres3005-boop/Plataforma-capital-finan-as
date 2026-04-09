@@ -1,5 +1,37 @@
-import type { ExtractedData } from "@/types";
+import type { ExtractedData, CoberturaAnalise, DocumentoCobertura } from "@/types";
 import type { AIAnalysis, Alert, AlertSeverity, GeneratorContext } from "./types";
+
+export function calcularCobertura(data: ExtractedData): CoberturaAnalise {
+  const bureaus = data.bureausConsultados || [];
+  const temBureau = bureaus.length > 0;
+
+  const temSCR = !!(data.scr?.periodoReferencia && data.scr.periodoReferencia !== "");
+  const temFat = !!(data.faturamento && !data.faturamento.faturamentoZerado && (data.faturamento.meses?.length ?? 0) > 0);
+  const temDRE = (data.dre?.anos?.length ?? 0) > 0;
+  const temBalanco = (data.balanco?.anos?.length ?? 0) > 0;
+  const temIR = (data.irSocios?.length ?? 0) > 0;
+  const temCurvaABC = (data.curvaABC?.clientes?.length ?? 0) > 0;
+
+  const documentos: DocumentoCobertura[] = [
+    { tipo: "scr",       label: "SCR / Bacen",       presente: temSCR,      obrigatorio: true,  automatico: false, peso: 25 },
+    { tipo: "faturamento", label: "Faturamento",      presente: temFat,      obrigatorio: true,  automatico: false, peso: 20 },
+    { tipo: "ccf",       label: "CCF",                presente: temBureau,   obrigatorio: false, automatico: true,  peso: 15 },
+    { tipo: "protestos", label: "Protestos",          presente: temBureau,   obrigatorio: false, automatico: true,  peso: 15 },
+    { tipo: "processos", label: "Processos",          presente: temBureau,   obrigatorio: false, automatico: true,  peso: 10 },
+    { tipo: "dre",       label: "DRE",                presente: temDRE,      obrigatorio: false, automatico: false, peso: 5  },
+    { tipo: "balanco",   label: "Balanço",            presente: temBalanco,  obrigatorio: false, automatico: false, peso: 5  },
+    { tipo: "ir_socios", label: "IR dos Sócios",      presente: temIR,       obrigatorio: false, automatico: false, peso: 3  },
+    { tipo: "curva_abc", label: "Curva ABC",          presente: temCurvaABC, obrigatorio: false, automatico: false, peso: 2  },
+  ];
+
+  const totalPresentes = documentos.filter(d => d.presente).length;
+  const totalPossivel  = documentos.length;
+  const percentual     = Math.round((totalPresentes / totalPossivel) * 100);
+  const pesoAtingido   = documentos.filter(d => d.presente).reduce((s, d) => s + d.peso, 0);
+  const nivel: CoberturaAnalise["nivel"] = percentual >= 78 ? "completa" : percentual >= 45 ? "parcial" : "minima";
+
+  return { documentos, totalPresentes, totalPossivel, percentual, pesoAtingido, nivel };
+}
 
 export function parseMoneyToNumber(val: string): number {
   if (!val) return 0;
