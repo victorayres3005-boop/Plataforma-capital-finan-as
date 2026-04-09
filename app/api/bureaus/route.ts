@@ -7,6 +7,7 @@ import { consultarSerasa } from "@/lib/bureaus/serasa";
 import { consultarSPC } from "@/lib/bureaus/spc";
 import { consultarQuod } from "@/lib/bureaus/quod";
 import { mergeBureauResults } from "@/lib/bureaus/merger";
+import { enrichProcessosWithDataJud } from "@/lib/bureaus/datajud";
 import type { ExtractedData } from "@/types";
 import type { CreditHubResult } from "@/lib/bureaus/credithub";
 
@@ -89,6 +90,26 @@ export async function POST(req: NextRequest) {
     ].filter(Boolean);
 
     const merged = mergeBureauResults(data, results);
+
+    // Enriquece processos com status do DataJud (CNJ)
+    if (merged.processos?.top10Valor?.length || merged.processos?.top10Recentes?.length) {
+      const allProcs = [
+        ...(merged.processos.top10Valor ?? []),
+        ...(merged.processos.top10Recentes ?? []),
+      ];
+      // Deduplica por número antes de consultar
+      const seen = new Set<string>();
+      const unique = allProcs.filter(p => p.numero && !seen.has(p.numero) && seen.add(p.numero));
+      const enriched = await enrichProcessosWithDataJud(unique);
+      // Aplica enriquecimento de volta nos arrays originais
+      const enrichMap = new Map(enriched.map(p => [p.numero, p]));
+      if (merged.processos.top10Valor) {
+        merged.processos.top10Valor = merged.processos.top10Valor.map(p => enrichMap.get(p.numero) ?? p);
+      }
+      if (merged.processos.top10Recentes) {
+        merged.processos.top10Recentes = merged.processos.top10Recentes.map(p => enrichMap.get(p.numero) ?? p);
+      }
+    }
 
     console.log("[bureaus] Credit Hub:", results.credithub?.success ? "ok" : results.credithub?.error);
     console.log("[bureaus] Consultados:", bureausConsultados);

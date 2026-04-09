@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 import { useState } from "react";
-import Image from "next/image";
+import { Loader2, CheckCircle2, AlertCircle, Send } from "lucide-react";
 
 interface GoalfyButtonProps {
   data: any;
@@ -15,7 +15,9 @@ export default function GoalfyButton({ data, aiAnalysis, settings, disabled }: G
   const [message, setMessage] = useState("");
 
   async function handleEnviar() {
+    if (status === "loading" || status === "success") return;
     setStatus("loading");
+    setMessage("");
     try {
       const res = await fetch("/api/goalfy", {
         method: "POST",
@@ -25,7 +27,7 @@ export default function GoalfyButton({ data, aiAnalysis, settings, disabled }: G
       const json = await res.json();
       if (json.success) {
         setStatus("success");
-        setMessage(json.mock ? "Modo mock — configure GOALFY_WEBHOOK_URL para ativar" : "Enviado com sucesso!");
+        setMessage(json.mock ? "Webhook não configurado" : "Enviado!");
       } else {
         setStatus("error");
         setMessage(json.error || "Erro ao enviar");
@@ -36,35 +38,33 @@ export default function GoalfyButton({ data, aiAnalysis, settings, disabled }: G
     }
   }
 
+  const icon =
+    status === "loading" ? <Loader2 size={13} className="animate-spin" /> :
+    status === "success" ? <CheckCircle2 size={13} /> :
+    status === "error"   ? <AlertCircle size={13} /> :
+                           <Send size={13} />;
+
+  const label =
+    status === "loading" ? "Enviando..." :
+    status === "success" ? (message || "Enviado!") :
+    status === "error"   ? "Tentar novamente" :
+                           "Enviar ao Goalfy";
+
+  const cls =
+    status === "success" ? "text-green-600 border-green-200 hover:bg-green-50" :
+    status === "error"   ? "text-red-500 border-red-200 hover:bg-red-50" :
+                           "text-cf-text-2 border-cf-border hover:bg-cf-bg hover:text-cf-navy";
+
   return (
-    <div className="flex flex-col gap-2">
-      <button
-        onClick={handleEnviar}
-        disabled={disabled || status === "loading" || status === "success"}
-        className={`
-          flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all
-          ${status === "success" ? "bg-green-100 text-green-700 cursor-default" :
-            status === "error" ? "bg-red-100 text-red-700" :
-            status === "loading" ? "bg-blue-50 text-blue-500 cursor-wait" :
-            "bg-blue-600 text-white hover:bg-blue-700"}
-        `}
-      >
-        {status === "loading" && <span className="animate-spin">⟳</span>}
-        {status === "success" && "✅"}
-        {status === "error" && "⚠️"}
-        {status === "idle" && (
-          <Image src="/logos/goalfy.svg" alt="Goalfy" width={52} height={18} className="object-contain" />
-        )}
-        {status === "loading" ? "Enviando para Goalfy..." :
-         status === "success" ? "Enviado para Goalfy" :
-         status === "error" ? "Tentar novamente" :
-         "Enviar para Goalfy"}
-      </button>
-      {message && (
-        <p className={`text-xs ${status === "success" ? "text-green-600" : "text-red-500"}`}>
-          {message}
-        </p>
-      )}
-    </div>
+    <button
+      onClick={handleEnviar}
+      disabled={disabled || status === "loading" || status === "success"}
+      title={status === "success" && message ? message : undefined}
+      className={`inline-flex items-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-default ${cls}`}
+      style={{ minHeight: "auto" }}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }

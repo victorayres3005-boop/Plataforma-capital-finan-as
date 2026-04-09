@@ -414,10 +414,11 @@ export async function buildExcelReport(p: ExcelReportParams): Promise<Blob> {
       // ======= SECAO 08: GRUPO ECONOMICO =======
       secTitle("08", "GRUPO ECONOMICO", NAVY);
       const geXl = data.grupoEconomico?.empresas || [];
+      const geParentescosXl = data.grupoEconomico?.parentescosDetectados || [];
       if (geXl.length > 0) {
         xlTable(
-          ["RAZAO SOCIAL", "CNPJ", "RELACAO", "SCR (R$)"],
-          geXl.map(e => [e.razaoSocial, e.cnpj, e.relacao, e.scrTotal || "—"]),
+          ["RAZAO SOCIAL", "CNPJ", "SITUACAO", "VIA SOCIO", "PARTICIPACAO", "RELACAO"],
+          geXl.map(e => [e.razaoSocial, e.cnpj, e.situacao || "—", e.socioOrigem || "—", e.participacao || "—", e.relacao]),
           NAVY,
         );
       } else {
@@ -425,6 +426,18 @@ export async function buildExcelReport(p: ExcelReportParams): Promise<Blob> {
         ws.getRow(r).getCell(2).value = "Nenhuma empresa identificada no grupo economico";
         ws.getRow(r).getCell(2).font = { size: 10, italic: true, color: { argb: MUTED }, name: "Arial" };
         r++;
+      }
+      if (geParentescosXl.length > 0) {
+        r++;
+        ws.mergeCells(r, 2, r, 5);
+        ws.getRow(r).getCell(2).value = "⚠ Alerta: Possivel Parentesco entre Socios";
+        ws.getRow(r).getCell(2).font = { size: 10, bold: true, color: { argb: "FF92400E" }, name: "Arial" };
+        r++;
+        xlTable(
+          ["SOCIO 1", "SOCIO 2", "SOBRENOME COMUM"],
+          geParentescosXl.map(p => [p.socio1, p.socio2, p.sobrenomeComum]),
+          "D97706",
+        );
       }
 
       xlSpacer(); xlSpacer();

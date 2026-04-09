@@ -1118,299 +1118,162 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     y = bloco1Y + bloco1H + 5;
   }
 
-  // ═══════════════════════════════════════════════════
-  // BLOCO 2 — 6 KPI Cards (2 linhas × 3 colunas)
-  // ═══════════════════════════════════════════════════
-  {
-    checkPageBreak(50);
-    const kpiGap = 4;
-    const kpiW = (contentW - kpiGap * 2) / 3;
-    const kpiH = 20;
+  // ── Green accent separator ──
+  doc.setFillColor(...colors.accent);
+  doc.rect(margin, y, contentW, 0.8, "F");
+  y += 5;
 
-    // Dados dos KPI
-    const vigQtdKpi = parseInt(data.protestos?.vigentesQtd || "0");
-    const passivosKpi = parseInt(data.processos?.passivosTotal || "0");
-    const temRJKpi = !!data.processos?.temRJ;
-    const alavKpi = alavancagem;
-
-    const kpiCards = [
-      {
-        label: "PROTESTOS",
-        value: protestosNaoConsultados ? "N/C" : vigQtdKpi > 0 ? `${vigQtdKpi} reg.` : "—",
-        critico: vigQtdKpi > 0,
-      },
-      {
-        label: "PROCESSOS",
-        value: processosNaoConsultados ? "N/C" : passivosKpi > 0 ? String(passivosKpi) : "—",
-        critico: passivosKpi > 5,
-      },
-      {
-        label: "SCR VENCIDO",
-        value: vencidosSCR > 0 ? (data.scr?.vencidos || "Sim") : "—",
-        critico: vencidosSCR > 0,
-      },
-      {
-        label: "SCR PREJUIZO",
-        value: prejuizosVal > 0 ? (data.scr?.prejuizos || "Sim") : "—",
-        critico: prejuizosVal > 0,
-      },
-      {
-        label: "REC. JUDICIAL",
-        value: temRJKpi ? "Sim" : "—",
-        critico: temRJKpi,
-      },
-      {
-        label: "ALAVANCAGEM",
-        value: alavKpi > 0 ? fmtBR(alavKpi, 2) + "x" : "—",
-        critico: alavKpi > 4,
-      },
-    ];
-
-    kpiCards.forEach((card, i) => {
-      const col = i % 3;
-      const row = Math.floor(i / 3);
-      const kx = margin + col * (kpiW + kpiGap);
-      const ky = y + row * (kpiH + kpiGap);
-      const accentC: [number,number,number] = card.critico ? vermelho : [209, 213, 219];
-      const valorC: [number,number,number] = card.critico ? vermelho : pretoValor;
-
-      // Card
-      doc.setFillColor(255, 255, 255);
-      doc.roundedRect(kx, ky, kpiW, kpiH, 2, 2, "F");
-      doc.setDrawColor(...bordaCard);
-      doc.setLineWidth(0.3);
-      doc.roundedRect(kx, ky, kpiW, kpiH, 2, 2, "D");
+  // ── Helper: renderInfoRow (positional, does NOT modify global y) ──
+  const renderInfoRow = (
+    rx: number, ry: number, rw: number,
+    label: string, value: string,
+    valueColor?: [number, number, number],
+    isLast = false
+  ): number => {
+    const rH = 11;
+    doc.setFillColor(248, 249, 250);
+    doc.rect(rx, ry, rw, rH, "F");
+    doc.setFontSize(5.8);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(107, 114, 128);
+    doc.text(label.toUpperCase(), rx + 4, ry + 4.5);
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...(valueColor ?? ([17, 24, 39] as [number, number, number])));
+    const maxCh = Math.floor((rw - 8) / 1.85);
+    const disp = value.length > maxCh ? value.substring(0, maxCh) + "\u2026" : value;
+    doc.text(disp, rx + 4, ry + 9.8);
+    if (!isLast) {
+      doc.setDrawColor(229, 231, 235);
+      doc.setLineWidth(0.15);
+      doc.line(rx + 2, ry + rH, rx + rw - 2, ry + rH);
       doc.setLineWidth(0.1);
-      // Acento esquerdo
-      doc.setFillColor(...accentC);
-      doc.rect(kx, ky, 2, kpiH, "F");
-      // Label
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(...cinzaLabel);
-      doc.text(card.label, kx + 4, ky + 6);
-      // Valor
-      doc.setFontSize(11);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(...valorC);
-      const maxKpiC = Math.floor((kpiW - 6) / 2.5);
-      const kpiDisp = card.value.length > maxKpiC ? card.value.substring(0, maxKpiC) + "…" : card.value;
-      doc.text(kpiDisp, kx + 4, ky + 15);
-    });
+    }
+    return ry + rH;
+  };
 
-    y += kpiH * 2 + kpiGap + 6;
-  }
+  // ── Prepare data ──
+  const anoAbSint = data.cnpj?.dataAbertura ? new Date(data.cnpj.dataAbertura).getFullYear() : null;
+  const idadeEmpSint = anoAbSint && !isNaN(anoAbSint) ? `${new Date().getFullYear() - anoAbSint} anos` : "—";
+  const fmmSint = data.faturamento?.fmm12m
+    ? `R$ ${fmtMoney(data.faturamento.fmm12m)}`
+    : data.faturamento?.mediaAno ? `R$ ${fmtMoney(data.faturamento.mediaAno)}` : "—";
+  const pleitoSint = data.relatorioVisita?.pleito ? `R$ ${fmtMoney(data.relatorioVisita.pleito)}` : "—";
+  const grupoQtdSint = data.grupoEconomico?.empresas?.length ?? 0;
+  const grupoSint = grupoQtdSint > 0 ? `Sim — ${grupoQtdSint} empresa(s)` : "Não identificado";
+  const refComSint = (data.relatorioVisita as { referenciaComercial?: string } | undefined)?.referenciaComercial || "—";
+  const modalSint = data.relatorioVisita?.modalidade
+    ? ({ comissaria: "Comissária", convencional: "Convencional", hibrida: "Híbrida", outra: "Outra" } as Record<string, string>)[data.relatorioVisita.modalidade] ?? "—"
+    : "—";
+  const concTop3Sint = data.curvaABC?.concentracaoTop3 ? `${data.curvaABC.concentracaoTop3}%` : "—";
 
-  // ═══════════════════════════════════════════════════
-  // BLOCO 3 — DRE Resumo (largura total, ~24mm)
-  // ═══════════════════════════════════════════════════
-  if (data.dre && data.dre.anos && data.dre.anos.length > 0) {
-    const anoMaisRecente = data.dre.anos[data.dre.anos.length - 1];
-    checkPageBreak(30);
-    // Header fundo azul
-    doc.setFillColor(...azulInst);
-    doc.roundedRect(margin, y, contentW, 7, 1, 1, "F");
-    doc.setFontSize(7);
+  const vigQtdSint = parseInt(data.protestos?.vigentesQtd || "0");
+  const vigValSint = data.protestos?.vigentesValor || "0";
+  const protOrdSint = [...(data.protestos?.detalhes ?? [])].filter(d => d.data).sort((a, b) => (b.data ?? "").localeCompare(a.data ?? ""));
+  const protRecenteSint = protOrdSint[0]?.data ?? null;
+  const protestoSint = vigQtdSint > 0
+    ? `${vigQtdSint} reg. | R$ ${fmtMoney(vigValSint)}${protRecenteSint ? ` | Rec: ${protRecenteSint}` : ""}`
+    : "Nenhum registro";
+
+  const totalOcorrSint = data.ccf?.qtdRegistros || 0;
+  const ccfSint = totalOcorrSint > 0 ? `${totalOcorrSint} ocorrência(s)` : "Nenhuma ocorrência";
+
+  const passivostSint = parseInt(data.processos?.passivosTotal || "0");
+  const procRec = data.processos?.top10Recentes?.[0];
+  const processoSint = passivostSint > 0
+    ? `${passivostSint} total${procRec?.data ? ` | Rec: ${procRec.data}` : ""}`
+    : "Nenhum processo";
+
+  const scrVencSint = vencidosSCR > 0 ? (data.scr?.vencidos || "Sim") : "Nenhum";
+  const alavSint = alavancagem > 0 ? `${fmtBR(alavancagem, 2)}x` : "—";
+
+  // ── Two-column data layout ──
+  {
+    checkPageBreak(95);
+    const colGapSint = 4;
+    const col1WSint = (contentW - colGapSint) * 0.47;
+    const col2WSint = contentW - col1WSint - colGapSint;
+    const col2XSint = margin + col1WSint + colGapSint;
+    const blockYSint = y;
+
+    // Column headers
+    doc.setFillColor(27, 47, 78);
+    doc.rect(margin, blockYSint, col1WSint, 7, "F");
+    doc.setFontSize(6.5);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
-    doc.text("DEMONSTRACAO DE RESULTADO (RESUMO)", margin + 4, y + 4.8);
-    y += 7;
+    doc.text("PERFIL & OPERACIONAL", margin + 4, blockYSint + 5);
 
-    const dreColW = contentW / 4;
-    const dreH = 17;
-    const tendRaw = normalizeTendencia(data.dre.tendenciaLucro);
-    const tendColor: [number,number,number] = tendRaw.startsWith("↑") ? verde : tendRaw.startsWith("↓") ? vermelho : cinzaLabel;
-    const dreMetricas = [
-      { label: "RECEITA BRUTA",       valor: `R$ ${fmtMoney(anoMaisRecente.receitaBruta) || "N/D"}`, color: pretoValor },
-      { label: "MARGEM LIQUIDA",      valor: `${anoMaisRecente.margemLiquida || "0"}%`,              color: pretoValor },
-      { label: "TENDENCIA",           valor: tendRaw,                                                color: tendColor  },
-      { label: "CRESCIMENTO RECEITA", valor: `${data.dre.crescimentoReceita || "0"}%`,               color: pretoValor },
+    doc.setFillColor(27, 47, 78);
+    doc.rect(col2XSint, blockYSint, col2WSint, 7, "F");
+    doc.setFontSize(6.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("INDICADORES DE RISCO", col2XSint + 4, blockYSint + 5);
+
+    let y1Sint = blockYSint + 7;
+    let y2Sint = blockYSint + 7;
+
+    // Column 1 — Profile & Operational
+    y1Sint = renderInfoRow(margin, y1Sint, col1WSint, "Idade da Empresa", idadeEmpSint);
+    y1Sint = renderInfoRow(margin, y1Sint, col1WSint, "Faturamento Médio (12M)", fmmSint);
+    y1Sint = renderInfoRow(margin, y1Sint, col1WSint, "Pleito", pleitoSint);
+    y1Sint = renderInfoRow(margin, y1Sint, col1WSint, "Grupo Econômico", grupoSint);
+    y1Sint = renderInfoRow(margin, y1Sint, col1WSint, "Referência Comercial", refComSint);
+    y1Sint = renderInfoRow(margin, y1Sint, col1WSint, "Modalidade", modalSint);
+    y1Sint = renderInfoRow(margin, y1Sint, col1WSint, "ABC — Concentração Top 3", concTop3Sint, undefined, true);
+
+    // Column 2 — Risk Indicators
+    y2Sint = renderInfoRow(col2XSint, y2Sint, col2WSint, "Protestos", protestoSint, vigQtdSint > 0 ? [220, 38, 38] : [22, 163, 74]);
+    y2Sint = renderInfoRow(col2XSint, y2Sint, col2WSint, "CCF — Cheques Sem Fundo", ccfSint, totalOcorrSint > 0 ? [220, 38, 38] : [22, 163, 74]);
+    y2Sint = renderInfoRow(col2XSint, y2Sint, col2WSint, "Processos Judiciais", processoSint, passivostSint > 0 ? [217, 119, 6] : [22, 163, 74]);
+    y2Sint = renderInfoRow(col2XSint, y2Sint, col2WSint, "SCR — Vencido", scrVencSint, vencidosSCR > 0 ? [220, 38, 38] : [22, 163, 74]);
+    y2Sint = renderInfoRow(col2XSint, y2Sint, col2WSint, "Alavancagem", alavSint, alavancagem > 4 ? [220, 38, 38] : alavancagem > 2 ? [217, 119, 6] : [22, 163, 74], true);
+
+    y = Math.max(y1Sint, y2Sint) + 6;
+  }
+
+  // ── DRE Resumo ──
+  if (data.dre && data.dre.anos && data.dre.anos.length > 0) {
+    const anoMaisRecenteSint = data.dre.anos[data.dre.anos.length - 1];
+    checkPageBreak(28);
+    doc.setFillColor(27, 47, 78);
+    doc.rect(margin, y, contentW, 7, "F");
+    doc.setFontSize(6.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("DEMONSTRAÇÃO DE RESULTADO — EXERCÍCIO MAIS RECENTE", margin + 4, y + 5);
+    y += 7;
+    const dreColWSint = contentW / 4;
+    const dreHSint = 16;
+    const tendRawSint = normalizeTendencia(data.dre.tendenciaLucro);
+    const tendColorSint: [number, number, number] = tendRawSint.startsWith("\u2191") ? [22, 163, 74] : tendRawSint.startsWith("\u2193") ? [220, 38, 38] : [107, 114, 128];
+    const dreMetricasSint = [
+      { label: "RECEITA BRUTA",       valor: `R$ ${fmtMoney(anoMaisRecenteSint.receitaBruta) || "N/D"}`, color: [17, 24, 39] as [number, number, number] },
+      { label: "MARGEM LÍQUIDA",      valor: `${anoMaisRecenteSint.margemLiquida || "0"}%`,               color: [17, 24, 39] as [number, number, number] },
+      { label: "TENDÊNCIA",           valor: tendRawSint,                                                  color: tendColorSint },
+      { label: "CRESCIMENTO RECEITA", valor: `${data.dre.crescimentoReceita || "0"}%`,                    color: [17, 24, 39] as [number, number, number] },
     ];
-    dreMetricas.forEach((m, i) => {
-      const xD = margin + i * dreColW;
-      doc.setFillColor(...fundoPage);
-      doc.rect(xD, y, dreColW, dreH, "F");
+    dreMetricasSint.forEach((m, i) => {
+      const xDSint = margin + i * dreColWSint;
+      doc.setFillColor(248, 249, 250);
+      doc.rect(xDSint, y, dreColWSint, dreHSint, "F");
+      if (i < 3) {
+        doc.setDrawColor(229, 231, 235);
+        doc.setLineWidth(0.2);
+        doc.line(xDSint + dreColWSint, y + 2, xDSint + dreColWSint, y + dreHSint - 2);
+        doc.setLineWidth(0.1);
+      }
       doc.setFontSize(6);
       doc.setFont("helvetica", "normal");
-      doc.setTextColor(...cinzaLabel);
-      doc.text(m.label, xD + 4, y + 5.5);
+      doc.setTextColor(107, 114, 128);
+      doc.text(m.label, xDSint + 4, y + 6);
       doc.setFontSize(9);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...m.color);
-      doc.text(m.valor, xD + 4, y + 13.5);
+      doc.text(m.valor, xDSint + 4, y + 13);
     });
-    y += dreH + 5;
-  }
-
-  // ═══════════════════════════════════════════════════
-  // BLOCOS 4 & 5 — Cards operacionais 2×2 + 1×2
-  // ═══════════════════════════════════════════════════
-  const OP_GAP = 4;
-  const opColW = (contentW - OP_GAP) / 2;
-  const opCardH = 46;
-  const opColL = margin;
-  const opColR = margin + opColW + OP_GAP;
-
-  // Pré-calcular dados dos cards operacionais
-
-  // Card A — Perfil
-  const anoAberturaOp = data.cnpj?.dataAbertura ? new Date(data.cnpj.dataAbertura).getFullYear() : null;
-  const idadeEmpresaOp = anoAberturaOp && !isNaN(anoAberturaOp) ? `${new Date().getFullYear() - anoAberturaOp} anos` : "—";
-  const fmm12mValOp = data.faturamento?.fmm12m
-    ? `R$ ${fmtMoney(data.faturamento.fmm12m)}`
-    : data.faturamento?.mediaAno ? `R$ ${fmtMoney(data.faturamento.mediaAno)}` : "—";
-  const grupoQtdOp = data.grupoEconomico?.empresas?.length ?? 0;
-  const grupoTextoOp = grupoQtdOp > 0 ? `Sim — ${grupoQtdOp} emp.` : "Nao identificado";
-  const pleitoValOp = data.relatorioVisita?.pleito ? `R$ ${fmtMoney(data.relatorioVisita.pleito)}` : "Nao informado";
-
-  // Card B — Curva ABC
-  const alertaConc = !!data.curvaABC?.alertaConcentracao;
-  const abcAccentColor: [number,number,number] = alertaConc ? vermelho : verde;
-  const clientesABC = data.curvaABC?.clientes || [];
-  const concTop3Op = data.curvaABC?.concentracaoTop3 ? `${data.curvaABC.concentracaoTop3}%` : "—";
-  const modalidadeOp = data.relatorioVisita?.modalidade
-    ? ({ comissaria: "Comissaria", convencional: "Convencional", hibrida: "Hibrida", outra: "Outra" }[data.relatorioVisita.modalidade] ?? "—")
-    : "—";
-  const top1Sacado = clientesABC[0]
-    ? `${clientesABC[0].nome.substring(0, 18)} (${clientesABC[0].percentualReceita || "—"}%)`
-    : "—";
-  const top2Sacado = clientesABC[1]
-    ? `${clientesABC[1].nome.substring(0, 18)} (${clientesABC[1].percentualReceita || "—"}%)`
-    : "—";
-
-  // Card C — Protestos
-  const vigQtdOp = parseInt(data.protestos?.vigentesQtd || "0");
-  const vigValOp = data.protestos?.vigentesValor || "0";
-  const protestosOrdenados = [...(data.protestos?.detalhes ?? [])]
-    .filter(d => d.data)
-    .sort((a, b) => (b.data ?? "").localeCompare(a.data ?? ""));
-  const maisRecenteOp = protestosOrdenados[0]?.data ?? "—";
-  const hojeOp = new Date();
-  const h30bOp = new Date(hojeOp.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const ult30Op = protestosOrdenados.filter(d => {
-    if (!d.data) return false;
-    const pts = d.data.split("/");
-    if (pts.length !== 3) return false;
-    return new Date(parseInt(pts[2]), parseInt(pts[1]) - 1, parseInt(pts[0])) >= h30bOp;
-  }).length;
-  const protAccentOp: [number,number,number] = vigQtdOp > 0 ? vermelho : verde;
-  const protSevBadge = getSeveridadeBadge(vigQtdOp);
-
-  // Card D — CCF
-  const totalOcorrOp = data.ccf?.qtdRegistros || 0;
-  const bancosRegOp = (data.ccf?.bancos || []).filter(b => b.quantidade > 0).sort((a, b) => b.quantidade - a.quantidade);
-  const maiorBancoOp = bancosRegOp[0];
-  // CCF (Cheque Sem Fundo) é extremamente decisivo: qualquer registro é CRÍTICO (ALTA), não moderado
-  const ccfAccentOp: [number,number,number] = totalOcorrOp > 0 ? vermelho : verde;
-  const ccfSeveridade = totalOcorrOp > 0 ? "ALTA" : "NENHUMA";
-
-  // Card E — Processos
-  const passivosOp = data.processos?.passivosTotal || "0";
-  const ativosOp = data.processos?.ativosTotal || "0";
-  const valorEstOp = data.processos?.valorTotalEstimado || "—";
-  const distOp = data.processos?.distribuicao || [];
-  const bancariosOp = distOp.filter(d => /banco|financ/i.test(d.tipo || "")).reduce((s, d) => s + parseInt(d.qtd || "0"), 0);
-  const trabalhistasOp = distOp.filter(d => /trabalh/i.test(d.tipo || "")).reduce((s, d) => s + parseInt(d.qtd || "0"), 0);
-  const outrosOp = parseInt(passivosOp) - bancariosOp - trabalhistasOp;
-  const procAccentOp: [number,number,number] = parseInt(passivosOp) > 0 ? amarelo : verde;
-
-  // Card F — Visita
-  const visitaRecOp = data.relatorioVisita?.recomendacaoVisitante;
-  const visitaAccentOp: [number,number,number] = data.relatorioVisita ? verde : [156, 163, 175];
-  const visitaRecTextoOp = visitaRecOp === "aprovado" ? "Aprovado" : visitaRecOp === "condicional" ? "Condicional" : visitaRecOp === "reprovado" ? "Reprovado" : "—";
-  const pontosAtencaoOp = (data.relatorioVisita?.pontosAtencao || []);
-  const primeiroPA = pontosAtencaoOp[0]?.substring(0, 35) || "—";
-  const nivelConfOp = data.relatorioVisita?.nivelConfiancaVisita
-    ? data.relatorioVisita.nivelConfiancaVisita.charAt(0).toUpperCase() + data.relatorioVisita.nivelConfiancaVisita.slice(1)
-    : "—";
-
-  // ── Par 1: Card A (Perfil) + Card B (Curva ABC) ──
-  {
-    checkPageBreak(opCardH + 10);
-    const yPar1Op = y;
-
-    // Card A — Perfil
-    drawSinteseCard(opColL, yPar1Op, opColW, opCardH, "PERFIL DA EMPRESA", azulInst, [
-      { label: "IDADE",           value: idadeEmpresaOp },
-      { label: "FMM 12M",         value: fmm12mValOp    },
-      { label: "GRUPO ECONOMICO", value: grupoTextoOp   },
-      { label: "PLEITO",          value: pleitoValOp    },
-    ]);
-
-    // Card B — Curva ABC
-    const abcFields: SinteseField[] = [
-      { label: "MODALIDADE",   value: modalidadeOp },
-      { label: "CONC. TOP 3", value: concTop3Op   },
-      { label: "TOP 1 SACADO", value: top1Sacado  },
-      { label: "TOP 2 SACADO", value: top2Sacado  },
-    ];
-    if (alertaConc) {
-      abcFields.push({
-        label: "",
-        value: "",
-        badge: true,
-        badgeText: "ALTA CONCENTRACAO",
-        badgeBg: [254, 226, 226],
-        badgeTextColor: vermelho,
-      });
-    }
-    if (data.curvaABC) {
-      drawSinteseCard(opColR, yPar1Op, opColW, opCardH, "CURVA ABC / SACADOS", abcAccentColor, abcFields);
-    }
-
-    y = yPar1Op + opCardH + OP_GAP;
-  }
-
-  // ── Par 2: Card C (Protestos) + Card D (CCF) ──
-  {
-    checkPageBreak(opCardH + 10);
-    const yPar2Op = y;
-
-    // Card C — Protestos
-    drawSinteseCard(opColL, yPar2Op, opColW, opCardH, "PROTESTOS", protAccentOp, [
-      { label: "VIGENTES (QTD)",   value: String(vigQtdOp),                                     valueColor: vigQtdOp > 0 ? vermelho : pretoValor },
-      { label: "VIGENTES (VALOR)", value: vigQtdOp > 0 ? `R$ ${fmtMoney(vigValOp)}` : "—",    valueColor: vigQtdOp > 0 ? vermelho : pretoValor },
-      { label: "MAIS RECENTE",     value: maisRecenteOp },
-      { label: "ULTIMOS 30 DIAS",  value: String(ult30Op), badge: true, badgeText: protSevBadge.text, badgeBg: protSevBadge.bg, badgeTextColor: protSevBadge.textColor },
-    ]);
-
-    // Card D — CCF
-    if (data.ccf) {
-      drawSinteseCard(opColR, yPar2Op, opColW, opCardH, "CCF — CHEQUES SEM FUNDO", ccfAccentOp, [
-        { label: "TOTAL OCORRENCIAS",  value: String(totalOcorrOp),                                                                        valueColor: totalOcorrOp > 0 ? vermelho : pretoValor },
-        { label: "BANCOS C/ REGISTRO", value: String(bancosRegOp.length)                                                                                                                       },
-        { label: "MAIOR CONC.",        value: maiorBancoOp ? `${maiorBancoOp.banco} (${maiorBancoOp.quantidade})` : "—"                                                                       },
-        { label: "SEVERIDADE",         value: ccfSeveridade,                                                                               valueColor: totalOcorrOp > 0 ? vermelho : verde },
-      ]);
-    }
-
-    y = yPar2Op + opCardH + OP_GAP;
-  }
-
-  // ── Par 3: Card E (Processos) + Card F (Visita) ──
-  {
-    checkPageBreak(opCardH + 10);
-    const yPar3Op = y;
-
-    // Card E — Processos
-    drawSinteseCard(opColL, yPar3Op, opColW, opCardH, "PROCESSOS JUDICIAIS", procAccentOp, [
-      { label: "PASSIVOS / ATIVOS",       value: `${passivosOp} / ${ativosOp}` },
-      { label: "VALOR ESTIMADO",          value: valorEstOp !== "—" ? `R$ ${fmtMoney(valorEstOp)}` : "—", valueColor: parseInt(passivosOp) > 0 ? amarelo : pretoValor },
-      { label: "BANCARIOS / TRABALHISTAS",value: `${bancariosOp} / ${trabalhistasOp}`,                    valueColor: bancariosOp > 0 ? vermelho : pretoValor },
-      { label: "OUTROS",                  value: String(Math.max(0, outrosOp)) },
-    ]);
-
-    // Card F — Visita
-    if (data.relatorioVisita) {
-      drawSinteseCard(opColR, yPar3Op, opColW, opCardH, "VISITA COMERCIAL", visitaAccentOp, [
-        { label: "STATUS",            value: "Realizada",       valueColor: verde  },
-        { label: "RECOMENDACAO",      value: visitaRecTextoOp  },
-        { label: "PONTO DE ATENCAO", value: primeiroPA        },
-        { label: "NIVEL CONFIANCA",  value: nivelConfOp       },
-      ]);
-    }
-
-    y = yPar3Op + opCardH + OP_GAP;
+    y += dreHSint + 5;
   }
 
   // ═══════════════════════════════════════════════════
@@ -1845,14 +1708,12 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       doc.text("Nenhuma empresa vinculada identificada", margin + 4, y + 5.5);
       y += 10;
     } else {
-      const geNome = contentW * 0.28;
-      const geCnpj = contentW * 0.17;
-      const geScr  = contentW * 0.13;
-      const geAl   = contentW * 0.10;
-      const geVenc = contentW * 0.10;
-      const gePrej = contentW * 0.09;
-      const geProt = contentW * 0.07;
-      void (contentW * 0.06); // geProc — largura implícita (resto até margem direita)
+      const geNome = contentW * 0.30;
+      const geCnpj = contentW * 0.18;
+      const geSit  = contentW * 0.12;
+      const geVia  = contentW * 0.22;
+      const gePart = contentW * 0.10;
+      // geRelacao — resto (contentW * 0.08)
       const geRowH = 7;
 
       const geNeeded = 6 + empresasGrupo.length * geRowH + 8;
@@ -1864,14 +1725,12 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       doc.setFont("helvetica", "bold");
       doc.setTextColor(255, 255, 255);
       let ex = margin;
-      doc.text("RAZÃO SOCIAL / RELAÇÃO", ex + 2, y + 4); ex += geNome;
+      doc.text("RAZÃO SOCIAL", ex + 2, y + 4); ex += geNome;
       doc.text("CNPJ", ex + 2, y + 4); ex += geCnpj;
-      doc.text("SCR", ex + geScr - 1, y + 4, { align: "right" }); ex += geScr;
-      doc.text("ALAV.", ex + geAl - 1, y + 4, { align: "right" }); ex += geAl;
-      doc.text("VENCIDO", ex + geVenc - 1, y + 4, { align: "right" }); ex += geVenc;
-      doc.text("PREJUÍZO", ex + gePrej - 1, y + 4, { align: "right" }); ex += gePrej;
-      doc.text("PROT.", ex + geProt - 1, y + 4, { align: "right" }); ex += geProt;
-      doc.text("PROC.", margin + contentW - 1, y + 4, { align: "right" });
+      doc.text("SITUAÇÃO", ex + 2, y + 4); ex += geSit;
+      doc.text("VIA SÓCIO", ex + 2, y + 4); ex += geVia;
+      doc.text("PARTICIPAÇÃO", ex + gePart - 1, y + 4, { align: "right" }); ex += gePart;
+      doc.text("RELAÇÃO", margin + contentW - 1, y + 4, { align: "right" });
       y += 6;
 
       empresasGrupo.forEach((emp, idx) => {
@@ -1880,47 +1739,65 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         doc.setFillColor(...bg);
         doc.rect(margin, y, contentW, geRowH, "F");
 
-        const nomeEmp = (emp.razaoSocial || "").length > 34 ? (emp.razaoSocial || "").substring(0, 33) + "…" : (emp.razaoSocial || "");
+        const nomeEmp = (emp.razaoSocial || "").length > 38 ? (emp.razaoSocial || "").substring(0, 37) + "…" : (emp.razaoSocial || "");
         let ex2 = margin;
         doc.setFontSize(4.8);
         doc.setFont("helvetica", "normal");
         doc.setTextColor(...colors.text);
-        doc.text(nomeEmp, ex2 + 2, y + 3.5);
-        if (emp.relacao) {
-          doc.setFontSize(4);
-          doc.setTextColor(...colors.textMuted);
-          doc.text(emp.relacao, ex2 + 2, y + 6);
-          doc.setFontSize(4.8);
-        }
+        doc.text(nomeEmp, ex2 + 2, y + 4.5);
         ex2 += geNome;
 
         doc.setTextColor(...colors.textSec);
         doc.text(emp.cnpj || "—", ex2 + 2, y + 4.5); ex2 += geCnpj;
 
+        // Situação com cor
+        const sit = (emp.situacao || "—").toUpperCase();
+        const sitColor: [number, number, number] = sit === "ATIVA" ? [22, 163, 74] : sit === "BAIXADA" ? [220, 38, 38] : [217, 119, 6];
+        doc.setTextColor(...sitColor);
+        doc.setFont("helvetica", "bold");
+        doc.text(sit, ex2 + 2, y + 4.5); ex2 += geSit;
+
+        // Via sócio
+        const viaStr = (emp.socioOrigem || "—").length > 26 ? (emp.socioOrigem || "").substring(0, 25) + "…" : (emp.socioOrigem || "—");
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(4.3);
+        doc.setTextColor(...colors.textSec);
+        doc.text(viaStr, ex2 + 2, y + 4.5); ex2 += geVia;
+
+        doc.setFontSize(4.8);
         doc.setTextColor(...colors.text);
-        doc.text(emp.scrTotal || "—", ex2 + geScr - 1, y + 4.5, { align: "right" }); ex2 += geScr;
+        doc.text(emp.participacao || "—", ex2 + gePart - 1, y + 4.5, { align: "right" }); ex2 += gePart;
 
         doc.setTextColor(...colors.textMuted);
-        doc.text("—", ex2 + geAl - 1, y + 4.5, { align: "right" }); ex2 += geAl;
-        doc.text("—", ex2 + geVenc - 1, y + 4.5, { align: "right" }); ex2 += geVenc;
-        doc.text("—", ex2 + gePrej - 1, y + 4.5, { align: "right" }); ex2 += gePrej;
-
-        const hasProt = emp.protestos && emp.protestos !== "0" && emp.protestos !== "—" && emp.protestos !== "";
-        const hasProc = emp.processos && emp.processos !== "0" && emp.processos !== "—" && emp.processos !== "";
-        doc.setTextColor(...(hasProt ? [185, 28, 28] as [number, number, number] : colors.textMuted));
-        doc.text(emp.protestos || "—", ex2 + geProt - 1, y + 4.5, { align: "right" }); ex2 += geProt;
-        doc.setTextColor(...(hasProc ? [185, 28, 28] as [number, number, number] : colors.textMuted));
-        doc.text(emp.processos || "—", margin + contentW - 1, y + 4.5, { align: "right" });
+        doc.text(emp.relacao || "—", margin + contentW - 1, y + 4.5, { align: "right" });
         doc.setTextColor(...colors.text);
         y += geRowH;
       });
 
       y += 4;
-      doc.setFontSize(5.5);
-      doc.setFont("helvetica", "italic");
-      doc.setTextColor(...colors.textMuted);
-      doc.text("* Rating parcial: FMM indisponível — componentes dependentes de faturamento foram neutralizados.", margin, y);
-      y += 6;
+    }
+
+    // Bloco de parentesco
+    const geParentescosPdf = data.grupoEconomico?.parentescosDetectados || [];
+    if (geParentescosPdf.length > 0) {
+      checkPageBreak(10 + geParentescosPdf.length * 6);
+      doc.setFillColor(254, 243, 199); // amarelo claro
+      doc.rect(margin, y, contentW, 6 + geParentescosPdf.length * 6, "F");
+      doc.setDrawColor(217, 119, 6);
+      doc.rect(margin, y, 2, 6 + geParentescosPdf.length * 6, "F");
+      doc.setFontSize(6);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(146, 64, 14);
+      doc.text("Alerta: Possivel Parentesco entre Socios", margin + 5, y + 4.5);
+      y += 7;
+      geParentescosPdf.forEach(pt => {
+        doc.setFontSize(5.5);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(120, 53, 15);
+        doc.text(`${pt.socio1} e ${pt.socio2} — sobrenome em comum: ${pt.sobrenomeComum}`, margin + 5, y + 4);
+        y += 6;
+      });
+      y += 4;
     }
   }
 

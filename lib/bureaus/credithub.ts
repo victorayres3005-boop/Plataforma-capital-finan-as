@@ -639,7 +639,9 @@ async function consultarCreditHubPorCPF(cpf: string, nomeSocio: string): Promise
     });
     if (!res.ok) return [];
     const raw = await res.json();
+    console.log(`[credithub][grupo-economico] CPF=${cpfNum} NOME=${nomeSocio} RAW_KEYS=${Object.keys(raw ?? {}).join(",")} RAW=${JSON.stringify(raw).substring(0, 2000)}`);
     const d = raw?.data ?? raw;
+    console.log(`[credithub][grupo-economico] DATA_KEYS=${Object.keys(d ?? {}).join(",")}`);
     return parseEmpresasVinculadas(d, cpfNum, nomeSocio);
   } catch {
     return [];

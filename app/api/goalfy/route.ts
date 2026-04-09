@@ -1,6 +1,7 @@
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 const GOALFY_WEBHOOK_URL = process.env.GOALFY_WEBHOOK_URL || "";
+const GOALFY_API_KEY = process.env.GOALFY_API_KEY || "";
 
 export async function POST(req: Request) {
   try {
@@ -17,11 +18,12 @@ export async function POST(req: Request) {
     const { mapToGoalfyPayload } = await import("@/lib/goalfy/mapper");
     const payload = mapToGoalfyPayload(data, aiAnalysis, settings);
 
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (GOALFY_API_KEY) headers["Authorization"] = `Bearer ${GOALFY_API_KEY}`;
+
     const res = await fetch(GOALFY_WEBHOOK_URL, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify(payload),
     });
 

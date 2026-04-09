@@ -189,9 +189,11 @@ ${vq.length > 0 ? `<div class="section"><span class="sec-num">S1</span><span cla
 <tbody>${vq.map(s => `<tr><td>${esc(s.nome)}<br><span style="font-size:10px;color:#999">${esc(s.cpfCnpj)}</span></td><td style="text-align:right">${esc(s.qualificacao)}</td><td style="text-align:right"><strong>${esc(s.participacao)}</strong></td></tr>`).join("")}</tbody></table></div>` : ""}
 
 <!-- GRUPO ECONOMICO -->
-${geArr.length > 0 ? `<div class="section"><span class="sec-num">S2</span><span class="sec-heading">Grupo Economico</span><hr class="sec-rule">
-<table class="dtable"><thead><tr><th>Razao Social</th><th>CNPJ</th><th>Relacao</th><th style="text-align:right">SCR</th><th style="text-align:right">Protestos</th><th style="text-align:right">Processos</th></tr></thead>
-<tbody>${geArr.map(e => `<tr><td>${esc(e.razaoSocial)}</td><td style="font-variant-numeric:tabular-nums">${esc(e.cnpj)}</td><td>${esc(e.relacao)}</td><td class="money">${esc(e.scrTotal || "—")}</td><td class="money">${esc(e.protestos || "0")}</td><td class="money">${esc(e.processos || "0")}</td></tr>`).join("")}</tbody></table></div>` : ""}
+${(geArr.length > 0 || d.grupoEconomico?.alertaParentesco) ? `<div class="section"><span class="sec-num">S2</span><span class="sec-heading">Grupo Economico</span><hr class="sec-rule">
+${geArr.length > 0 ? `<table class="dtable"><thead><tr><th>Razao Social</th><th>CNPJ</th><th>Situacao</th><th>Via Socio</th><th style="text-align:right">Participacao</th><th>Relacao</th></tr></thead>
+<tbody>${geArr.map(e => { const sitStyle = e.situacao === "ATIVA" ? "color:#16a34a;font-weight:600" : e.situacao === "BAIXADA" ? "color:#dc2626;font-weight:600" : "color:#d97706;font-weight:600"; return `<tr><td>${esc(e.razaoSocial)}</td><td style="font-variant-numeric:tabular-nums">${esc(e.cnpj)}</td><td><span style="${sitStyle}">${esc(e.situacao || "—")}</span></td><td style="font-size:11px;color:#555">${esc(e.socioOrigem || "—")}</td><td style="text-align:right">${esc(e.participacao || "—")}</td><td>${esc(e.relacao)}</td></tr>`; }).join("")}</tbody></table>` : ""}
+${(d.grupoEconomico?.alertaParentesco && (d.grupoEconomico?.parentescosDetectados?.length ?? 0) > 0) ? `<div style="margin-top:12px;padding:10px 14px;background:#fef3c7;border-left:4px solid #d97706;border-radius:4px"><strong style="color:#92400e">&#9888; Alerta: Possivel Parentesco entre Socios</strong><ul style="margin:6px 0 0 16px;padding:0">${(d.grupoEconomico.parentescosDetectados ?? []).map(pt => `<li style="font-size:12px;color:#78350f;margin-bottom:2px">${esc(pt.socio1)} e ${esc(pt.socio2)} — sobrenome em comum: <strong>${esc(pt.sobrenomeComum)}</strong></li>`).join("")}</ul></div>` : ""}
+</div>` : ""}
 
 <!-- FATURAMENTO + SCR lado a lado -->
 <div class="section"><span class="sec-num">S3</span><span class="sec-heading">Faturamento e Perfil de Credito</span><hr class="sec-rule">

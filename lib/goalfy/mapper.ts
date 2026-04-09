@@ -109,13 +109,19 @@ export function mapToGoalfyPayload(
     scrQtdeIfs: data.scr?.qtdeInstituicoes || "0",
     scrPctDocsProcessados: data.scr?.pctDocumentosProcessados || "",
 
-    totalProtestos: data.protestos?.totalProtestos || 0,
-    valorTotalProtestos: data.protestos?.valorTotal || "0,00",
+    totalProtestos: parseInt(data.protestos?.vigentesQtd || "0", 10),
+    valorTotalProtestos: data.protestos?.vigentesValor || "0,00",
 
-    totalProcessos: data.processos?.totalProcessos || 0,
-    processosBancarios: data.processos?.processosBancarios || 0,
-    processosFiscais: data.processos?.processosFiscais || 0,
-    processosOutros: data.processos?.processosOutros || 0,
+    totalProcessos: parseInt(data.processos?.passivosTotal || "0", 10),
+    processosBancarios: parseInt(
+      data.processos?.distribuicao?.find((d: any) => d.tipo === "BANCO")?.qtd || "0", 10
+    ),
+    processosFiscais: parseInt(
+      data.processos?.distribuicao?.find((d: any) => d.tipo === "FISCAL")?.qtd || "0", 10
+    ),
+    processosOutros: parseInt(
+      data.processos?.distribuicao?.find((d: any) => d.tipo === "OUTROS")?.qtd || "0", 10
+    ),
 
     alertasCriticos,
     alertasModerados,

@@ -177,11 +177,20 @@ export async function buildDOCXReport(p: DOCXReportParams): Promise<Blob> {
         : null;
 
       // Grupo economico table
-      const geTable = (data.grupoEconomico?.empresas || []).length > 0
+      const geEmpresas = data.grupoEconomico?.empresas || [];
+      const geParentescos = data.grupoEconomico?.parentescosDetectados || [];
+      const geTable = geEmpresas.length > 0
         ? makeDataTable(
-          ["RAZAO SOCIAL", "CNPJ", "RELACAO", "SCR (R$)", "PROTESTOS", "PROCESSOS"],
-          data.grupoEconomico!.empresas.map(e => [e.razaoSocial, e.cnpj, e.relacao, e.scrTotal || "—", e.protestos || "0", e.processos || "0"]),
+          ["RAZAO SOCIAL", "CNPJ", "SITUACAO", "VIA SOCIO", "PARTICIPACAO", "RELACAO"],
+          geEmpresas.map(e => [e.razaoSocial, e.cnpj, e.situacao || "—", e.socioOrigem || "—", e.participacao || "—", e.relacao]),
           navy,
+        )
+        : null;
+      const geParentescoRows = geParentescos.length > 0
+        ? makeDataTable(
+          ["SOCIO 1", "SOCIO 2", "SOBRENOME COMUM"],
+          geParentescos.map(p => [p.socio1, p.socio2, p.sobrenomeComum]),
+          "D97706",
         )
         : null;
 
@@ -389,6 +398,12 @@ export async function buildDOCXReport(p: DOCXReportParams): Promise<Blob> {
               sectionTitle("08", "GRUPO ECONOMICO", navy),
               spacer(100),
               ...(geTable ? [geTable] : [new Paragraph({ children: [new TextRun({ text: "Nenhuma empresa identificada no grupo economico.", italics: true, color: muted, font: "Arial" })] })]),
+              ...(geParentescoRows ? [
+                spacer(150),
+                new Paragraph({ children: [new TextRun({ text: "⚠ Alerta: Possivel Parentesco entre Socios", bold: true, color: "92400E", size: 20, font: "Arial" })] }),
+                spacer(100),
+                geParentescoRows,
+              ] : []),
 
               // Section 09 — Parecer
               spacer(300),
