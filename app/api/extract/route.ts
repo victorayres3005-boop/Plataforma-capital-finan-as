@@ -197,9 +197,9 @@ async function extractExcel(buffer: Buffer): Promise<FaturamentoData> {
   const valores = meses.map(m => parseBRVal(m.valor));
   const soma = valores.reduce((a, b) => a + b, 0);
 
-  // FMM = soma dos 12 / 12 (incluindo zeros na divisão)
+  // FMM = soma / quantidade real de meses (não fixo em 12)
   const valoresFMM = mesesFMM.map(m => parseBRVal(m.valor));
-  const media = mesesFMM.length > 0 ? valoresFMM.reduce((a, b) => a + b, 0) / 12 : 0;
+  const media = mesesFMM.length > 0 ? valoresFMM.reduce((a, b) => a + b, 0) / mesesFMM.length : 0;
 
   // Meses zerados nos últimos 12
   const mesesZeradosExcel = mesesFMM
@@ -237,21 +237,87 @@ async function extractExcel(buffer: Buffer): Promise<FaturamentoData> {
 // Prompts
 // ─────────────────────────────────────────
 
-const PROMPT_CNPJ = `Extraia dados do Cartão CNPJ. Retorne APENAS JSON:
-{"razaoSocial":"","nomeFantasia":"","cnpj":"","dataAbertura":"","situacaoCadastral":"","dataSituacaoCadastral":"","motivoSituacao":"","naturezaJuridica":"","cnaePrincipal":"","cnaeSecundarios":"","porte":"","capitalSocialCNPJ":"","endereco":"","telefone":"","email":""}
-Regras: CNPJ formato XX.XXX.XXX/XXXX-XX, datas DD/MM/YYYY, endereco completo concatenado, cnaeSecundarios separados por ;, campos ausentes=""，NÃO invente dados.`;
+const PROMPT_CNPJ = `Você receberá um Cartão CNPJ emitido pela Receita Federal do Brasil (pode ser PDF, imagem ou texto extraído). Extraia os dados e retorne APENAS JSON válido, sem markdown, sem texto adicional.
 
-const PROMPT_QSA = `Extraia dados do QSA (Quadro de Sócios e Administradores). Retorne APENAS JSON:
-{"capitalSocial":"","quadroSocietario":[{"nome":"","cpfCnpj":"","qualificacao":"","participacao":""}]}
-Regras: liste TODOS os sócios/administradores, CPF formato XXX.XXX.XXX-XX, capitalSocial em reais (ex: "R$ 220.000,00"), não confunda testemunhas/advogados com sócios, campos ausentes="", NÃO invente dados.`;
+Schema:
+{"razaoSocial":"","nomeFantasia":"","cnpj":"","dataAbertura":"","situacaoCadastral":"","dataSituacaoCadastral":"","motivoSituacao":"","naturezaJuridica":"","cnaePrincipal":"","cnaeSecundarios":"","porte":"","capitalSocialCNPJ":"","endereco":"","telefone":"","email":"","tipoEmpresa":"","funcionarios":""}
 
-const PROMPT_CONTRATO = `Extraia dados do Contrato Social. Retorne APENAS JSON:
-{"socios":[{"nome":"","cpf":"","participacao":"","qualificacao":""}],"capitalSocial":"","objetoSocial":"","dataConstituicao":"","temAlteracoes":false,"prazoDuracao":"","administracao":"","foro":""}
-Regras: liste TODOS os sócios (CPF formato XXX.XXX.XXX-XX), não inclua testemunhas/advogados, objetoSocial em até 2 frases, temAlteracoes=true se for alteração/consolidação, campos ausentes="" ou false, NÃO invente dados.`;
+Regras de extração:
+- cnpj: formato XX.XXX.XXX/XXXX-XX obrigatório
+- dataAbertura e dataSituacaoCadastral: formato DD/MM/YYYY
+- situacaoCadastral: exatamente como consta ("ATIVA", "BAIXADA", "INAPTA", "SUSPENSA", "NULA")
+- motivoSituacao: apenas preencha se houver motivo explícito (ex: "Omissa no período", "Extinção por encerramento")
+- naturezaJuridica: incluir código + descrição (ex: "206-2 - Sociedade Empresária Limitada")
+- cnaePrincipal: incluir código + descrição (ex: "46.59-4-99 - Comércio atacadista de outros equipamentos")
+- cnaeSecundarios: lista separada por " ; " — inclua código e descrição de cada um
+- porte: "MICRO EMPRESA", "EMPRESA DE PEQUENO PORTE", "DEMAIS" ou "MEI"
+- capitalSocialCNPJ: em reais com formato brasileiro (ex: "R$ 220.000,00")
+- endereco: concatenar logradouro + número + complemento + bairro + município + UF + CEP em uma linha
+- telefone: incluir DDD (ex: "(11) 3333-4444"); se houver mais de um, separar por " / "
+- tipoEmpresa: "LTDA", "S/A", "MEI", "EIRELI", "SLU", "SS", "COOPERATIVA" ou conforme natureza jurídica
+- funcionarios: número de funcionários se constar no documento, senão ""
+- campos ausentes ou não encontrados: ""
+- NÃO invente dados`;
 
-const PROMPT_FATURAMENTO = `Extraia valores mensais de faturamento do documento inteiro. Retorne APENAS JSON, sem markdown:
+const PROMPT_QSA = `Você receberá um Quadro de Sócios e Administradores (QSA) ou documento equivalente da Receita Federal. Extraia os dados e retorne APENAS JSON válido, sem markdown.
+
+Schema:
+{"capitalSocial":"","quadroSocietario":[{"nome":"","cpfCnpj":"","qualificacao":"","participacao":"","dataEntrada":""}]}
+
+Regras:
+- Liste TODOS os sócios, administradores e representantes listados
+- CPF: formato XXX.XXX.XXX-XX | CNPJ (sócio PJ): formato XX.XXX.XXX/XXXX-XX
+- qualificacao: código + descrição exatamente como consta (ex: "49 - Sócio-Administrador", "22 - Sócio", "10 - Diretor")
+- participacao: percentual exatamente como consta (ex: "50,00%") — se não informado, ""
+- dataEntrada: data de entrada na sociedade em DD/MM/YYYY — se não informada, ""
+- capitalSocial: em reais com formatação brasileira (ex: "R$ 500.000,00")
+- NÃO inclua testemunhas, advogados, contadores ou procuradores — apenas sócios e administradores
+- Se o mesmo CPF/CNPJ aparecer mais de uma vez (ex: sócio + administrador), inclua apenas uma vez com a qualificação mais completa
+- NÃO invente dados`;
+
+const PROMPT_CONTRATO = `Você receberá um Contrato Social, Estatuto Social ou Ato Constitutivo de empresa (pode incluir alterações e consolidações). Extraia os dados e retorne APENAS JSON válido, sem markdown.
+
+Schema:
+{"socios":[{"nome":"","cpf":"","participacao":"","qualificacao":"","cotas":""}],"capitalSocial":"","objetoSocial":"","dataConstituicao":"","temAlteracoes":false,"ultimaAlteracao":"","prazoDuracao":"","administracao":"","foro":"","sede":""}
+
+Regras:
+- socios: liste TODOS os sócios com participação no capital — CPF formato XXX.XXX.XXX-XX
+- participacao: percentual (ex: "50%") ou valor em cotas (ex: "R$ 110.000,00")
+- cotas: número de cotas se mencionado, senão ""
+- qualificacao: "Sócio", "Sócio-Administrador", "Administrador" conforme o contrato
+- NÃO inclua testemunhas, advogados, cônjuges (a menos que sejam sócios), notários
+- capitalSocial: valor total em reais (ex: "R$ 220.000,00")
+- objetoSocial: resumo em até 3 frases do que a empresa faz — extraia da cláusula de objeto social
+- dataConstituicao: data de constituição/registro em DD/MM/YYYY
+- temAlteracoes: true se o documento for uma Alteração Contratual ou Consolidação (não o contrato original)
+- ultimaAlteracao: data da última alteração em DD/MM/YYYY (se temAlteracoes=true)
+- prazoDuracao: "indeterminado" ou prazo específico conforme contrato
+- administracao: quem administra a empresa conforme cláusula de administração
+- foro: cidade do foro de eleição conforme última cláusula
+- sede: endereço completo da sede social
+- campos ausentes: "" ou false
+- NÃO invente dados`;
+
+const PROMPT_FATURAMENTO = `Você receberá um relatório de faturamento mensal (pode ser planilha, relatório de NF-e, extrato bancário, declaração ou tabela). Extraia TODOS os valores mensais e retorne APENAS JSON válido, sem markdown.
+
+Schema:
 {"meses":[{"mes":"01/2024","valor":"1.234.567,89"}],"somatoriaTotal":"","totalMesesExtraidos":0,"faturamentoZerado":false,"dadosAtualizados":true,"ultimoMesComDados":"","anoMaisAntigo":"","anoMaisRecente":""}
-Regras: extraia TODOS os meses de TODO o documento (tabelas, rodapés, cabeçalhos), todos os anos, mes=MM/YYYY, valor em formato brasileiro, se mês aparecer duplicado use o maior valor, NÃO inclua meses futuros sem dados, NÃO inclua zeros a menos que seja mês sem faturamento real, NÃO invente dados.`;
+
+Regras:
+- Extraia TODOS os meses presentes em TODO o documento — tabelas, rodapés, cabeçalhos, múltiplas páginas
+- mes: formato MM/YYYY obrigatório (ex: "01/2024", "12/2023")
+- valor: formato brasileiro com ponto separador de milhar e vírgula decimal (ex: "1.234.567,89") — sem "R$"
+- Se um mês aparecer duplicado (ex: duas linhas para JAN/2024), use o MAIOR valor
+- NÃO inclua meses futuros sem dados reais
+- NÃO inclua meses com valor zero a menos que o zero seja o faturamento real daquele mês
+- Se houver coluna de "Total" ou "Acumulado", use-a como somatoriaTotal
+- somatoriaTotal: soma de todos os meses extraídos, formato brasileiro
+- totalMesesExtraidos: contagem numérica dos meses no array meses
+- faturamentoZerado: true se TODOS os meses tiverem valor zero ou ausente
+- dadosAtualizados: false se o período mais recente for anterior a 6 meses atrás
+- ultimoMesComDados: último mês com valor positivo (formato MM/YYYY)
+- anoMaisAntigo / anoMaisRecente: apenas o ano (ex: "2022", "2024")
+- NÃO invente dados`;
 
 const PROMPT_SCR = `Extraia dados do SCR (Sistema de Informações de Crédito do Banco Central). Retorne APENAS JSON válido, sem markdown.
 
@@ -295,17 +361,69 @@ DOIS PERÍODOS:
 NÃO invente dados`;
 
 
-const PROMPT_PROTESTOS = `Extraia dados da certidão de protestos. Retorne APENAS JSON:
-{"vigentesQtd":"","vigentesValor":"","regularizadosQtd":"","regularizadosValor":"","detalhes":[{"data":"","credor":"","valor":"","regularizado":false}]}
-Regras: vigentes=protestos ativos, regularizados=quitados, liste TODOS os protestos em detalhes, valores em formato brasileiro, regularizado=true se pago/regularizado, NÃO invente dados.`;
+const PROMPT_PROTESTOS = `Você receberá uma certidão de protestos (SERASA, cartório, CRC ou similar). Extraia os dados e retorne APENAS JSON válido, sem markdown.
 
-const PROMPT_PROCESSOS = `Extraia dados de processos judiciais. Retorne APENAS JSON:
-{"passivosTotal":"","ativosTotal":"","valorTotalEstimado":"","temRJ":false,"distribuicao":[{"tipo":"","qtd":"","pct":""}],"bancarios":[{"banco":"","assunto":"","status":"","data":"","valor":""}],"fiscais":[{"contraparte":"","valor":"","status":"","data":""}],"fornecedores":[{"contraparte":"","assunto":"","valor":"","status":"","data":""}],"outros":[{"contraparte":"","assunto":"","valor":"","status":"","data":""}]}
-Regras: passivosTotal=processos como réu, ativosTotal=como autor, temRJ=true se Recuperação Judicial, distribuicao por tipo (TRABALHISTA/BANCO/FISCAL/FORNECEDOR/OUTROS), trabalhistas NÃO listar individualmente, status=ARQUIVADO/EM ANDAMENTO/DISTRIBUIDO/JULGADO/EM GRAU DE RECURSO, campos ausentes="", NÃO invente dados.`;
+Schema:
+{"vigentesQtd":"","vigentesValor":"","regularizadosQtd":"","regularizadosValor":"","detalhes":[{"data":"","credor":"","valor":"","numero":"","cartorio":"","cidade":"","regularizado":false}]}
 
-const PROMPT_GRUPO_ECONOMICO = `Extraia dados do grupo econômico. Retorne APENAS JSON:
-{"empresas":[{"razaoSocial":"","cnpj":"","relacao":"","scrTotal":"","protestos":"","processos":""}]}
-Regras: liste TODAS as empresas, relacao="via Sócio"/"Controlada"/"Coligada" conforme documento, campos ausentes="", NÃO invente dados.`;
+Regras:
+- vigentesQtd: número total de protestos ATIVOS (não regularizados) — string (ex: "3")
+- vigentesValor: valor total dos protestos ativos em reais formato brasileiro (ex: "15.432,00")
+- regularizadosQtd: número de protestos regularizados/pagos — string
+- regularizadosValor: valor total dos regularizados em reais formato brasileiro
+- detalhes: liste TODOS os protestos individualmente, tanto vigentes quanto regularizados
+  - data: data do protesto em DD/MM/AAAA
+  - credor: nome do credor/apresentante como consta no documento
+  - valor: valor em reais formato brasileiro (ex: "2.340,00") — sem "R$"
+  - numero: número do título/protocolo se disponível, senão ""
+  - cartorio: nome ou número do cartório se disponível, senão ""
+  - cidade: cidade do cartório se disponível, senão ""
+  - regularizado: true se constar como "REGULARIZADO", "PAGO", "CANCELADO" ou similar
+- Se o documento indicar "SEM RESTRIÇÕES" ou "NADA CONSTA": vigentesQtd="0", vigentesValor="0,00", detalhes=[]
+- NÃO invente dados`;
+
+const PROMPT_PROCESSOS = `Você receberá um relatório de processos judiciais (Credit Bureau, SERASA, Jusbrasil, relatório próprio ou similar). Extraia os dados e retorne APENAS JSON válido, sem markdown.
+
+Schema:
+{"passivosTotal":"","ativosTotal":"","valorTotalEstimado":"","temRJ":false,"temRecuperacaoExtrajudicial":false,"distribuicao":[{"tipo":"","qtd":"","pct":""}],"bancarios":[{"banco":"","assunto":"","status":"","data":"","valor":"","numero":"","tribunal":""}],"fiscais":[{"contraparte":"","valor":"","status":"","data":"","numero":"","tribunal":""}],"fornecedores":[{"contraparte":"","assunto":"","valor":"","status":"","data":"","numero":"","tribunal":""}],"outros":[{"contraparte":"","assunto":"","valor":"","status":"","data":"","numero":"","tribunal":""}]}
+
+Regras:
+- passivosTotal: total de processos onde a empresa é RÉ/EXECUTADA/REQUERIDA — string (ex: "12")
+- ativosTotal: total de processos onde a empresa é AUTORA/EXEQUENTE/REQUERENTE — string
+- valorTotalEstimado: valor total estimado de TODOS os processos passivos em reais (ex: "R$ 450.000,00")
+- temRJ: true se houver qualquer menção a "Recuperação Judicial", "RJ" como processo
+- temRecuperacaoExtrajudicial: true se houver "Recuperação Extrajudicial"
+- distribuicao: agrupe por tipo — tipos válidos: "TRABALHISTA", "BANCÁRIO", "FISCAL", "FORNECEDOR", "CÍVEL", "OUTROS"
+  - qtd: quantidade de processos daquele tipo (string)
+  - pct: percentual aproximado (ex: "45%")
+- bancarios: processos com bancos/financeiras como contraparte — NÃO liste trabalhistas aqui
+- fiscais: execuções fiscais, dívida ativa, PGFN, Receita Federal
+- fornecedores: ações de fornecedores ou clientes
+- outros: tudo que não se encaixa nas categorias acima (cível, indenizações, etc.)
+- Para processos trabalhistas: NÃO liste individualmente — apenas contabilize em distribuicao
+- status válidos: "EM ANDAMENTO", "ARQUIVADO", "JULGADO", "EM RECURSO", "SUSPENSO", "DISTRIBUÍDO"
+- numero: número CNJ do processo (ex: "0000000-00.0000.0.00.0000") se disponível
+- tribunal: sigla (ex: "TJSP", "TRT2", "TRF3") se disponível
+- Se não há processos: passivosTotal="0", ativosTotal="0", distribuicao=[], demais arrays vazios
+- NÃO invente dados`;
+
+const PROMPT_GRUPO_ECONOMICO = `Você receberá um relatório de grupo econômico (Credit Bureau, SERASA, relatório próprio ou similar). Extraia os dados e retorne APENAS JSON válido, sem markdown.
+
+Schema:
+{"empresas":[{"razaoSocial":"","cnpj":"","relacao":"","participacaoSocio":"","scrTotal":"","protestos":"","processos":"","situacaoCadastral":""}]}
+
+Regras:
+- Liste TODAS as empresas vinculadas ao grupo econômico, exceto a empresa principal que está sendo analisada
+- razaoSocial: nome completo conforme consta
+- cnpj: formato XX.XXX.XXX/XXXX-XX
+- relacao: tipo de vínculo — use exatamente: "via Sócio", "Controlada", "Coligada", "Controladora", "Participação" ou o que constar no documento
+- participacaoSocio: percentual de participação do sócio comum nessa empresa (ex: "50%") — se disponível
+- scrTotal: exposição SCR total dessa empresa se constar (ex: "R$ 1.200.000,00"), senão ""
+- protestos: número de protestos dessa empresa se constar (ex: "2"), senão ""
+- processos: número de processos se constar (ex: "5"), senão ""
+- situacaoCadastral: "ATIVA", "BAIXADA", "INAPTA" se disponível, senão ""
+- Se o documento indicar que não há grupo econômico ou não foram encontradas empresas vinculadas: retorne {"empresas":[]}
+- NÃO invente dados`;
 
 const PROMPT_CURVA_ABC = `Você receberá um relatório de Curva ABC de clientes. As colunas são: Cliente, Peso (kg), Valor Total, Ticket Médio, % Participação, % Acumulado, Classe ABC.
 
@@ -330,22 +448,129 @@ Regras obrigatórias:
 14. Se o nome do cliente vier com CPF/número no início (ex: "59.580.931 MARIA LUIZA"), separe: cnpjCpf = "59.580.931", nome = "MARIA LUIZA DA SILVA MACEDO"
 15. NÃO invente dados — use apenas o que está no documento`;
 
-const PROMPT_DRE = `Extraia dados do DRE (Demonstração de Resultado). Pode ser formato SPED ou livre. Retorne APENAS JSON, sem markdown:
+const PROMPT_DRE = `Você receberá uma Demonstração de Resultado do Exercício (DRE). Pode estar em formato SPED ECD/ECF, DRE simplificada, relatório gerencial ou planilha. Retorne APENAS JSON válido, sem markdown.
+
+Schema:
 {"anos":[{"ano":"2024","receitaBruta":"0,00","deducoes":"0,00","receitaLiquida":"0,00","custoProdutosServicos":"0,00","lucroBruto":"0,00","margemBruta":"0,00","despesasOperacionais":"0,00","ebitda":"0,00","margemEbitda":"0,00","depreciacaoAmortizacao":"0,00","resultadoFinanceiro":"0,00","lucroAntesIR":"0,00","impostoRenda":"0,00","lucroLiquido":"0,00","margemLiquida":"0,00"}],"crescimentoReceita":"0,00","tendenciaLucro":"estavel","periodoMaisRecente":"","observacoes":""}
-Regras: extraia dados anuais consolidados (não mensais/trimestrais), todos os anos encontrados em ordem crescente, SPED: "RECEITA OPERACIONAL BRUTA"=receitaBruta, "LUCRO/PREJUIZO APURADO NO PERÍODO"=lucroLiquido, valores negativos com sinal de menos, margens em %, tendenciaLucro="crescimento"/"queda"/"estavel", NÃO invente dados.`;
 
-const PROMPT_BALANCO = `Extraia dados do Balanço Patrimonial. Pode ser formato SPED ou livre. Retorne APENAS JSON, sem markdown:
+Regras gerais:
+- Extraia dados ANUAIS consolidados — NÃO extraia mensais ou trimestrais
+- Se o documento tiver vários anos, extraia todos em ordem cronológica crescente
+- Valores: formato brasileiro com ponto milhar e vírgula decimal (ex: "1.234.567,89")
+- Valores negativos: manter sinal de menos (ex: "-45.000,00")
+- Margens: em percentual com sinal de menos se negativo (ex: "12,5" ou "-3,2") — sem "%"
+- Se um campo não existir no documento, use "0,00"
+
+Mapeamento SPED ECD/ECF (linhas do SPED começam com código contábil):
+- receitaBruta → "RECEITA BRUTA DE VENDAS" / "RECEITA OPERACIONAL BRUTA" / conta 3.01
+- deducoes → "DEDUÇÕES DA RECEITA" / "(-) Impostos sobre Vendas" / conta 3.02
+- receitaLiquida → "RECEITA LÍQUIDA" / conta 3.03
+- custoProdutosServicos → "CUSTO DOS PRODUTOS/SERVIÇOS VENDIDOS" / "CMV" / conta 3.04
+- lucroBruto → "LUCRO BRUTO" / conta 3.05
+- despesasOperacionais → "DESPESAS OPERACIONAIS" / soma de despesas com vendas + administrativas
+- ebitda → "EBITDA" / "LAJIDA" — se não constar, calcule: lucroBruto - despesasOperacionais
+- depreciacaoAmortizacao → "DEPRECIAÇÃO E AMORTIZAÇÃO" / conta 3.06
+- resultadoFinanceiro → "RESULTADO FINANCEIRO" / "RECEITAS/DESPESAS FINANCEIRAS" — negativo se despesa
+- lucroAntesIR → "LUCRO ANTES DO IRPJ E CSLL" / "LAIR"
+- impostoRenda → "IRPJ + CSLL" — valor como negativo se for despesa
+- lucroLiquido → "LUCRO/PREJUÍZO LÍQUIDO DO EXERCÍCIO" / "LUCRO APURADO NO PERÍODO" / conta 3.99
+
+Cálculos de margem (calcule você mesmo se não constarem):
+- margemBruta = lucroBruto / receitaLiquida * 100
+- margemEbitda = ebitda / receitaLiquida * 100
+- margemLiquida = lucroLiquido / receitaLiquida * 100
+
+Campos adicionais:
+- crescimentoReceita: variação % da receitaBruta entre o primeiro e último ano (ex: "15,3" ou "-8,2")
+- tendenciaLucro: "crescimento" se lucroLiquido aumentou nos últimos 2 anos, "queda" se diminuiu, "estavel" se variação < 5%
+- periodoMaisRecente: ano mais recente encontrado (ex: "2024")
+- observacoes: qualquer dado relevante não capturado nos campos acima
+- NÃO invente dados`;
+
+const PROMPT_BALANCO = `Você receberá um Balanço Patrimonial. Pode estar em formato SPED ECD, balanço simplificado, relatório gerencial ou planilha. Retorne APENAS JSON válido, sem markdown.
+
+Schema:
 {"anos":[{"ano":"2024","ativoTotal":"0,00","ativoCirculante":"0,00","caixaEquivalentes":"0,00","contasAReceber":"0,00","estoques":"0,00","outrosAtivosCirculantes":"0,00","ativoNaoCirculante":"0,00","imobilizado":"0,00","intangivel":"0,00","outrosAtivosNaoCirculantes":"0,00","passivoTotal":"0,00","passivoCirculante":"0,00","fornecedores":"0,00","emprestimosCP":"0,00","outrosPassivosCirculantes":"0,00","passivoNaoCirculante":"0,00","emprestimosLP":"0,00","outrosPassivosNaoCirculantes":"0,00","patrimonioLiquido":"0,00","capitalSocial":"0,00","reservas":"0,00","lucrosAcumulados":"0,00","liquidezCorrente":"0,00","liquidezGeral":"0,00","endividamentoTotal":"0,00","capitalDeGiroLiquido":"0,00"}],"periodoMaisRecente":"","tendenciaPatrimonio":"estavel","observacoes":""}
-Regras: SPED=use Saldo Final, todos os anos em ordem crescente, patrimonioLiquido negativo mantém sinal de menos, liquidezCorrente=AC÷PC, endividamento em %, capitalDeGiro=AC-PC (pode ser negativo), tendenciaPatrimonio="crescimento"/"queda"/"estavel", NÃO invente dados.`;
 
-const PROMPT_IR_SOCIOS = `Extraia dados do IR do sócio (recibo de entrega ou declaração completa). Retorne APENAS JSON, sem markdown:
+Regras gerais:
+- Extraia dados ANUAIS — se houver vários anos, todos em ordem cronológica crescente
+- SPED ECD: use os valores da coluna "Saldo Final" (não "Saldo Inicial" ou "Movimentação")
+- Valores: formato brasileiro (ex: "1.234.567,89"); patrimônio líquido negativo mantém sinal de menos
+- Se um campo não existir no documento, use "0,00"
+
+Mapeamento de contas:
+- ativoTotal → total do ativo (deve bater com passivoTotal + patrimonioLiquido)
+- ativoCirculante → grupo 1.01 / "Ativo Circulante"
+- caixaEquivalentes → "Caixa e Equivalentes de Caixa" / conta 1.01.01
+- contasAReceber → "Contas a Receber" / "Clientes" / "Duplicatas a Receber" / conta 1.01.03
+- estoques → "Estoques" / conta 1.01.04
+- outrosAtivosCirculantes → demais ativos circulantes não listados acima
+- ativoNaoCirculante → grupo 1.02
+- imobilizado → "Imobilizado" / conta 1.02.03
+- intangivel → "Intangível" / conta 1.02.04
+- passivoCirculante → grupo 2.01
+- fornecedores → "Fornecedores" / conta 2.01.01
+- emprestimosCP → "Empréstimos e Financiamentos CP" / conta 2.01.03
+- passivoNaoCirculante → grupo 2.02
+- emprestimosLP → "Empréstimos e Financiamentos LP" / conta 2.02.01
+- patrimonioLiquido → grupo 2.03 / "Patrimônio Líquido"
+- capitalSocial → conta 2.03.01
+- reservas → soma de reservas de capital + reservas de lucros
+- lucrosAcumulados → "Lucros/Prejuízos Acumulados" — negativo se prejuízo
+
+Indicadores (calcule se não constarem):
+- liquidezCorrente = ativoCirculante ÷ passivoCirculante (formato "1,85")
+- liquidezGeral = (ativoCirculante + realizávelLP) ÷ (passivoCirculante + passivoNaoCirculante)
+- endividamentoTotal = (passivoCirculante + passivoNaoCirculante) ÷ ativoTotal × 100 (formato "45,2")
+- capitalDeGiroLiquido = ativoCirculante - passivoCirculante (pode ser negativo)
+- tendenciaPatrimonio: "crescimento" / "queda" / "estavel" com base no patrimonioLiquido
+- NÃO invente dados`;
+
+const PROMPT_IR_SOCIOS = `Você receberá um documento de Imposto de Renda de sócio: pode ser apenas o Recibo de Entrega (DIRPF), uma Declaração Completa ou extrato da Receita Federal. Retorne APENAS JSON válido, sem markdown.
+
+Schema:
 {"nomeSocio":"","cpf":"","anoBase":"","tipoDocumento":"recibo","numeroRecibo":"","dataEntrega":"","situacaoMalhas":false,"debitosEmAberto":false,"descricaoDebitos":"","rendimentosTributaveis":"0,00","rendimentosIsentos":"0,00","rendimentoTotal":"0,00","impostoDefinido":"0,00","valorQuota":"0,00","bensImoveis":"0,00","bensVeiculos":"0,00","aplicacoesFinanceiras":"0,00","outrosBens":"0,00","totalBensDireitos":"0,00","dividasOnus":"0,00","patrimonioLiquido":"0,00","impostoPago":"0,00","impostoRestituir":"0,00","temSociedades":false,"sociedades":[],"coerenciaComEmpresa":true,"observacoes":""}
-Regras: anoBase=ANO-CALENDÁRIO (não exercício), ex: "EXERCÍCIO 2025 — ANO-CALENDÁRIO 2024" → anoBase="2024", nomeSocio e anoBase são OBRIGATÓRIOS, cpf formato 000.000.000-00, situacaoMalhas=true se mencionar pendências de malhas, debitosEmAberto=true se mencionar débitos, recibo simples deixe valores monetários como "0,00", NÃO invente dados.
-impostoDefinido=valor total do imposto apurado/calculado antes de deduções de pagamentos (buscar por "Imposto devido", "Imposto apurado", "Total do imposto" na declaração).
-valorQuota=valor de cada parcela/quota do imposto a pagar (buscar por "valor da quota", "valor da parcela", "quota mensal" — preencher apenas se houver parcelamento, caso contrário "0,00").`;
+
+Regras críticas:
+- nomeSocio e anoBase são OBRIGATÓRIOS — não retorne JSON sem eles
+- anoBase: use o ANO-CALENDÁRIO, NÃO o ano do exercício
+  Ex: "EXERCÍCIO 2025 — ANO-CALENDÁRIO 2024" → anoBase="2024"
+  Ex: "DECLARAÇÃO 2024 (ano-base 2023)" → anoBase="2023"
+- cpf: formato XXX.XXX.XXX-XX
+- tipoDocumento: "recibo" se for apenas o recibo de entrega; "declaracao" se for declaração completa; "extrato" se for extrato da Receita
+- numeroRecibo: número do recibo de transmissão (ex: "1234567890123456")
+- dataEntrega: data de envio/transmissão em DD/MM/AAAA
+
+Situação fiscal:
+- situacaoMalhas: true se mencionar "retida em malha", "pendências", "intimação" ou similar
+- debitosEmAberto: true se mencionar débitos, parcelamentos ativos ou pendências financeiras
+- descricaoDebitos: descrição resumida dos débitos se debitosEmAberto=true, senão ""
+
+Valores (apenas para declaração completa — recibo simples: deixe "0,00"):
+- rendimentosTributaveis: total de rendimentos tributáveis (salário, pró-labore, aluguéis, etc.)
+- rendimentosIsentos: rendimentos isentos e não tributáveis (FGTS, lucros e dividendos, etc.)
+- rendimentoTotal: soma dos dois anteriores
+- impostoDefinido: imposto apurado/devido total (buscar "Imposto Devido", "Total do Imposto Apurado")
+- valorQuota: valor de cada parcela se houver parcelamento, senão "0,00"
+- impostoPago: total já recolhido (IRRF + carnê-leão + quotas pagas)
+- impostoRestituir: valor a restituir se positivo, senão "0,00"
+
+Patrimônio (declaração completa):
+- bensImoveis, bensVeiculos, aplicacoesFinanceiras, outrosBens: valores de bens e direitos por categoria
+- totalBensDireitos: total de bens e direitos
+- dividasOnus: total de dívidas e ônus reais
+- patrimonioLiquido: totalBensDireitos - dividasOnus
+
+Sociedades:
+- temSociedades: true se o sócio declarou participação em sociedades
+- sociedades: lista de empresas onde o sócio tem participação [{"razaoSocial":"","cnpj":"","participacao":""}]
+- coerenciaComEmpresa: true se as sociedades declaradas incluem a empresa que está sendo analisada
+
+- observacoes: informações relevantes não capturadas acima
+- NÃO invente dados`;
 
 const PROMPT_RELATORIO_VISITA = `Extraia dados do Relatório de Visita (texto livre, formulário ou template). Retorne APENAS JSON, sem markdown:
-{"dataVisita":"","responsavelVisita":"","localVisita":"","duracaoVisita":"","estruturaFisicaConfirmada":true,"funcionariosObservados":0,"estoqueVisivel":false,"estimativaEstoque":"","operacaoCompativelFaturamento":true,"maquinasEquipamentos":false,"descricaoEstrutura":"","pontosPositivos":[],"pontosAtencao":[],"recomendacaoVisitante":"aprovado","nivelConfiancaVisita":"alto","presencaSocios":false,"sociosPresentes":[],"documentosVerificados":[],"observacoesLivres":"","pleito":"","modalidade":"","taxaConvencional":"","taxaComissaria":"","limiteTotal":"","limiteConvencional":"","limiteComissaria":"","limitePorSacado":"","ticketMedio":"","valorCobrancaBoleto":"","prazoRecompraCedente":"","prazoEnvioCartorio":"","prazoMaximoOp":"","cobrancaTAC":"","tranche":"","prazoTranche":"","folhaPagamento":"","endividamentoBanco":"","endividamentoFactoring":"","vendasCheque":"","vendasDuplicata":"","vendasOutras":"","prazoMedioFaturamento":"","prazoMedioEntrega":"","referenciasFornecedores":""}
+{"dataVisita":"","responsavelVisita":"","localVisita":"","duracaoVisita":"","estruturaFisicaConfirmada":true,"funcionariosObservados":0,"estoqueVisivel":false,"estimativaEstoque":"","operacaoCompativelFaturamento":true,"maquinasEquipamentos":false,"descricaoEstrutura":"","pontosPositivos":[],"pontosAtencao":[],"recomendacaoVisitante":"aprovado","nivelConfiancaVisita":"alto","presencaSocios":false,"sociosPresentes":[],"documentosVerificados":[],"observacoesLivres":"","pleito":"","modalidade":"","taxaConvencional":"","taxaComissaria":"","limiteTotal":"","limiteConvencional":"","limiteComissaria":"","limitePorSacado":"","ticketMedio":"","valorCobrancaBoleto":"","prazoRecompraCedente":"","prazoEnvioCartorio":"","prazoMaximoOp":"","cobrancaTAC":"","tranche":"","prazoTranche":"","folhaPagamento":"","endividamentoBanco":"","endividamentoFactoring":"","vendasCheque":"","vendasDuplicata":"","vendasOutras":"","prazoMedioFaturamento":"","prazoMedioEntrega":"","referenciaComercial":""}
 Regras gerais: dataVisita=DD/MM/YYYY, recomendacaoVisitante="aprovado"/"condicional"/"reprovado", nivelConfiancaVisita="alto"/"medio"/"baixo", campos ausentes="" ou false, NÃO invente dados.
 pleito=valor em R$ sugerido pelo cedente (ex: "150000,00") — buscar por "pleito", "valor solicitado", "limite sugerido", "crédito pleiteado"; se não encontrado deixe "".
 modalidade=tipo de operação — "comissaria" (cedente mantém relação com sacado, faz cobrança), "convencional" (cessão plena, FIDC assume risco), "hibrida", "outra"; buscar por "comissária", "convencional", "modalidade", "tipo de operação"; se não encontrado deixe "".
@@ -370,7 +595,7 @@ Dados da empresa (coletados na visita — buscar em campos rotulados):
 - vendasCheque/vendasDuplicata/vendasOutras: % de vendas por forma de recebimento (ex: "10%", "70%", "20%")
 - prazoMedioFaturamento: prazo médio em dias (ex: "50")
 - prazoMedioEntrega: prazo médio de entrega em dias (ex: "3")
-- referenciasFornecedores: lista de referências comerciais/fornecedores (texto separado por vírgula ou ";" )`;
+- referenciaComercial: lista de referências comerciais/fornecedores informadas na visita (texto separado por vírgula ou ";" — ex: "Banco do Brasil, Fornecedor X, Cliente Y")`;
 
 // ─────────────────────────────────────────
 // PROVEDOR 1: Gemini (primário — melhor qualidade)
@@ -580,7 +805,7 @@ function fillFaturamentoDefaults(data: Partial<FaturamentoData>): FaturamentoDat
 
   const meses12 = ordenados.slice(-12);
   const soma12 = meses12.reduce((s, m) => s + parseBR(m.valor), 0);
-  const fmm12m = meses12.length > 0 ? soma12 / 12 : 0;
+  const fmm12m = meses12.length > 0 ? soma12 / meses12.length : 0;
 
   const porAno: Record<string, number[]> = {};
   for (const m of ordenados) {
