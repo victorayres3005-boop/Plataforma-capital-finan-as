@@ -2222,7 +2222,6 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     const cLabel = contentW * 0.38;
     const cAnt   = contentW * 0.19;
     const cAt    = contentW * 0.19;
-    const cVar   = contentW * 0.24;
 
     const scrRowH  = 7;
     const grpRowH  = 5.5;
