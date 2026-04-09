@@ -129,7 +129,11 @@ export async function buildExcelReport(p: ExcelReportParams): Promise<Blob> {
         ["Porte", data.cnpj.porte], ["Capital Social (CNPJ)", data.cnpj.capitalSocialCNPJ],
         ["Endereco Completo", data.cnpj.endereco],
         ["Telefone", data.cnpj.telefone], ["E-mail", data.cnpj.email],
-      ].forEach(([l, v], i) => field2(l, v, i));
+        ...(data.cnpj.tipoEmpresa ? [["Tipo de Empresa", data.cnpj.tipoEmpresa]] : []),
+        ...(data.cnpj.funcionarios ? [["Funcionários", data.cnpj.funcionarios]] : []),
+        ...(data.cnpj.regimeTributario ? [["Regime Tributário", data.cnpj.regimeTributario]] : []),
+        ...(data.cnpj.site ? [["Site", data.cnpj.site]] : []),
+      ].forEach(([l, v], i) => field2(l, v as string, i));
 
       xlSpacer(); xlSpacer();
 
@@ -298,11 +302,20 @@ export async function buildExcelReport(p: ExcelReportParams): Promise<Blob> {
       const protestoDetXl = data.protestos?.detalhes || [];
       if (protestoDetXl.length > 0) {
         xlSpacer();
+        ws.columns = [{ width: 2.5 }, { width: 14 }, { width: 22 }, { width: 20 }, { width: 12 }, { width: 10 }, { width: 2.5 }];
         xlTable(
-          ["DATA", "CREDOR", "VALOR (R$)", "STATUS"],
-          protestoDetXl.map(p => [p.data || "—", p.credor || "—", p.valor || "—", p.regularizado ? "Regularizado" : "Vigente"]),
+          ["DATA PROT.", "CEDENTE/APRESENTANTE", "CARTÓRIO", "VALOR (R$)", "ESPÉCIE", "STATUS"],
+          protestoDetXl.map(p => [
+            p.data || "—",
+            p.apresentante || p.credor || "—",
+            p.municipio ? `${p.municipio}/${p.uf || ""}` : (p.credor || "—"),
+            p.valor || "—",
+            p.especie || "—",
+            p.regularizado ? "Regularizado" : "Vigente",
+          ]),
           DANGER,
         );
+        ws.columns = [{ width: 2.5 }, { width: 28 }, { width: 28 }, { width: 20 }, { width: 14 }, { width: 2.5 }];
       }
 
       xlSpacer(); xlSpacer();
@@ -344,7 +357,59 @@ export async function buildExcelReport(p: ExcelReportParams): Promise<Blob> {
         );
       }
 
+      const top10ValXl = data.processos?.top10Valor || [];
+      if (top10ValXl.length > 0) {
+        xlSpacer();
+        ws.mergeCells(r, 2, r, 5);
+        ws.getRow(r).getCell(2).value = "TOP 10 — MAIOR VALOR (Bureau)";
+        ws.getRow(r).getCell(2).font = { bold: true, size: 10, color: { argb: MUTED }, name: "Arial" };
+        r++;
+        ws.columns = [{ width: 2.5 }, { width: 18 }, { width: 22 }, { width: 22 }, { width: 14 }, { width: 2.5 }];
+        xlTable(
+          ["TIPO", "POLO ATIVO", "POLO PASSIVO", "VALOR (R$)", "UF"],
+          top10ValXl.map(p => [p.tipo || "—", p.partes || "—", p.polo_passivo || "—", p.valor || "—", p.uf || "—"]),
+          WARNING,
+        );
+        ws.columns = [{ width: 2.5 }, { width: 28 }, { width: 28 }, { width: 20 }, { width: 14 }, { width: 2.5 }];
+      }
+
+      const top10RecXl = data.processos?.top10Recentes || [];
+      if (top10RecXl.length > 0) {
+        xlSpacer();
+        ws.mergeCells(r, 2, r, 5);
+        ws.getRow(r).getCell(2).value = "TOP 10 — MAIS RECENTES (Bureau)";
+        ws.getRow(r).getCell(2).font = { bold: true, size: 10, color: { argb: MUTED }, name: "Arial" };
+        r++;
+        ws.columns = [{ width: 2.5 }, { width: 18 }, { width: 20 }, { width: 20 }, { width: 14 }, { width: 8 }, { width: 2.5 }];
+        xlTable(
+          ["TIPO", "POLO ATIVO", "POLO PASSIVO", "ASSUNTO", "VALOR (R$)", "DATA"],
+          top10RecXl.map(p => [p.tipo || "—", p.partes || "—", p.polo_passivo || "—", p.assunto || "—", p.valor || "—", p.data || "—"]),
+          WARNING,
+        );
+        ws.columns = [{ width: 2.5 }, { width: 28 }, { width: 28 }, { width: 20 }, { width: 14 }, { width: 2.5 }];
+      }
+
       xlSpacer(); xlSpacer();
+
+      // ======= SECAO 07B: CCF =======
+      if (data.ccf) {
+        secTitle("07B", "CCF — CHEQUES SEM FUNDO (Bureau)", DANGER);
+        [
+          ["Total de Ocorrências", String(data.ccf.qtdRegistros)],
+          ["Bancos com Registro", String(data.ccf.bancos.length)],
+          ["Tendência", data.ccf.tendenciaLabel ? `${data.ccf.tendenciaLabel}${(data.ccf.tendenciaVariacao ?? 0) !== 0 ? ` (${(data.ccf.tendenciaVariacao ?? 0) > 0 ? "+" : ""}${data.ccf.tendenciaVariacao}%)` : ""}` : "—"],
+        ].forEach(([l, v], i) => field2(l, v, i));
+
+        if (data.ccf.bancos.length > 0) {
+          xlSpacer();
+          xlTable(
+            ["BANCO / INSTITUIÇÃO", "QTD", "ÚLTIMA OCORR.", "MOTIVO"],
+            data.ccf.bancos.map(b => [b.banco || "—", String(b.quantidade || 0), b.dataUltimo || "—", b.motivo || "—"]),
+            DANGER,
+          );
+        }
+        xlSpacer(); xlSpacer();
+      }
 
       // ======= SECAO 08: GRUPO ECONOMICO =======
       secTitle("08", "GRUPO ECONOMICO", NAVY);

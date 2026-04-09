@@ -30,6 +30,57 @@ export interface PDFReportParams {
   streetViewBase64?: string;
 }
 
+// ─── Design System ───────────────────────────────────────────────────────────
+const DS = {
+  colors: {
+    headerBg: [26, 46, 74] as [number,number,number],
+    accent: [232, 160, 32] as [number,number,number],
+    pageBg: [241, 243, 245] as [number,number,number],
+    cardBg: [255, 255, 255] as [number,number,number],
+    zebraRow: [248, 249, 250] as [number,number,number],
+    border: [229, 231, 235] as [number,number,number],
+    borderStrong: [209, 213, 219] as [number,number,number],
+    danger: [220, 38, 38] as [number,number,number],
+    dangerBg: [254, 226, 226] as [number,number,number],
+    dangerText: [153, 27, 27] as [number,number,number],
+    warn: [217, 119, 6] as [number,number,number],
+    warnBg: [254, 243, 199] as [number,number,number],
+    warnText: [133, 77, 14] as [number,number,number],
+    info: [37, 99, 235] as [number,number,number],
+    infoBg: [219, 234, 254] as [number,number,number],
+    infoText: [29, 78, 216] as [number,number,number],
+    success: [22, 163, 74] as [number,number,number],
+    successBg: [220, 252, 231] as [number,number,number],
+    successText: [22, 101, 52] as [number,number,number],
+    textPrimary: [17, 24, 39] as [number,number,number],
+    textMuted: [107, 114, 128] as [number,number,number],
+    textLight: [156, 163, 175] as [number,number,number],
+  },
+};
+
+// ─── Standalone helpers (não dependem de doc) ────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function formatBRL(value: string | number): string {
+  const n = typeof value === 'number' ? value : parseFloat(String(value).replace(/\./g, '').replace(',', '.')) || 0;
+  return 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function formatK(value: string | number): string {
+  const n = typeof value === 'number' ? value : parseFloat(String(value).replace(/\./g, '').replace(',', '.')) || 0;
+  if (n >= 1_000_000) return (n / 1_000_000).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + 'M';
+  if (n >= 1_000) return Math.round(n / 1_000).toLocaleString('pt-BR') + 'k';
+  return Math.round(n).toLocaleString('pt-BR');
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function truncate(text: string, maxLen: number): string {
+  if (!text) return '';
+  return text.length > maxLen ? text.slice(0, maxLen) + '...' : text;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 function parseMoneyToNumber(val: string): number {
   if (!val) return 0;
   return parseFloat(val.replace(/\./g, "").replace(",", ".")) || 0;
@@ -566,6 +617,213 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     });
   };
 
+  // ── DS Helpers ──────────────────────────────────────────────────────────
+
+  // Section header: navy bar with number + title, returns new y
+  const dsSectionHeader = (num: string, title: string) => {
+    checkPageBreak(14);
+    doc.setFillColor(...DS.colors.headerBg);
+    doc.rect(margin, y, contentW, 10, "F");
+    doc.setFillColor(...DS.colors.accent);
+    doc.rect(margin, y + 10, contentW, 1.5, "F");
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...DS.colors.accent);
+    doc.text(num, margin + 4, y + 6.5);
+    doc.setFontSize(9);
+    doc.setTextColor(255, 255, 255);
+    doc.text(title, margin + 14, y + 6.5);
+    y += 13;
+  };
+
+  // Left-border card: draws card box, returns nothing (caller manages y)
+  const dsCard = (cx: number, cy: number, cw: number, ch: number, borderColor: [number,number,number]) => {
+    doc.setFillColor(...DS.colors.cardBg);
+    doc.roundedRect(cx, cy, cw, ch, 2, 2, "F");
+    doc.setDrawColor(...DS.colors.border);
+    doc.setLineWidth(0.25);
+    doc.roundedRect(cx, cy, cw, ch, 2, 2, "D");
+    doc.setLineWidth(0.1);
+    doc.setFillColor(...borderColor);
+    doc.rect(cx, cy, 2.5, ch, "F");
+  };
+
+  // Metric grid: array of {label, value, sub?, color?}, N columns, returns height used
+  const dsMetricGrid = (startY: number, items: { label: string; value: string; sub?: string; color?: [number,number,number] }[], cols: number): number => {
+    const gap = 3;
+    const itemW = (contentW - gap * (cols - 1)) / cols;
+    const itemH = 16;
+    let maxRow = 0;
+    items.forEach((item, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      maxRow = Math.max(maxRow, row);
+      const ix = margin + col * (itemW + gap);
+      const iy = startY + row * (itemH + gap);
+      dsCard(ix, iy, itemW, itemH, DS.colors.borderStrong);
+      doc.setFontSize(6);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...DS.colors.textMuted);
+      doc.text(item.label.toUpperCase(), ix + 4.5, iy + 5);
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...(item.color ?? DS.colors.textPrimary));
+      const maxW = Math.floor((itemW - 6) / 2.2);
+      const disp = item.value.length > maxW ? item.value.substring(0, maxW) + "…" : item.value;
+      doc.text(disp, ix + 4.5, iy + 12);
+      if (item.sub) {
+        doc.setFontSize(6);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...DS.colors.textLight);
+        doc.text(item.sub, ix + 4.5, iy + 15.5);
+      }
+    });
+    return (maxRow + 1) * (itemH + gap) - gap;
+  };
+
+  // Alert row: severity pill + title + optional subtitle, returns height used
+  const dsAlertRow = (startY: number, severity: "ALTA" | "MODERADA" | "INFO", title: string, subtitle?: string): number => {
+    const h = subtitle ? 14 : 10;
+    checkPageBreak(h + 2);
+    const borderC = severity === "ALTA" ? DS.colors.danger : severity === "MODERADA" ? DS.colors.warn : DS.colors.info;
+    const badgeBg = severity === "ALTA" ? DS.colors.dangerBg : severity === "MODERADA" ? DS.colors.warnBg : DS.colors.infoBg;
+    const badgeText = severity === "ALTA" ? DS.colors.dangerText : severity === "MODERADA" ? DS.colors.warnText : DS.colors.infoText;
+    const badgeLabel = severity === "ALTA" ? "ALTA" : severity === "MODERADA" ? "MODERADO" : "INFO";
+    doc.setFillColor(...DS.colors.cardBg);
+    doc.roundedRect(margin, startY, contentW, h, 1.5, 1.5, "F");
+    doc.setDrawColor(...DS.colors.border);
+    doc.setLineWidth(0.2);
+    doc.roundedRect(margin, startY, contentW, h, 1.5, 1.5, "D");
+    doc.setLineWidth(0.1);
+    doc.setFillColor(...borderC);
+    doc.rect(margin, startY, 2.5, h, "F");
+    // Badge pill
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "bold");
+    const bw = doc.getTextWidth(badgeLabel) + 6;
+    doc.setFillColor(...badgeBg);
+    doc.roundedRect(margin + 5, startY + (h - 5) / 2, bw, 5, 1, 1, "F");
+    doc.setTextColor(...badgeText);
+    doc.text(badgeLabel, margin + 5 + 3, startY + (h - 5) / 2 + 3.5);
+    // Title
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...DS.colors.textPrimary);
+    const titleX = margin + 5 + bw + 4;
+    const titleMaxW = contentW - (titleX - margin) - 4;
+    const titleLines = doc.splitTextToSize(title, titleMaxW);
+    doc.text(titleLines[0], titleX, startY + (subtitle ? 5 : h / 2 + 2.5));
+    if (subtitle) {
+      doc.setFontSize(6.5);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...DS.colors.textMuted);
+      const subLines = doc.splitTextToSize(subtitle, contentW - (titleX - margin) - 4);
+      doc.text(subLines[0], titleX, startY + 10);
+    }
+    return h + 2;
+  };
+
+  // Table header row
+  const dsTableHeader = (startY: number, cols: string[], widths: number[], x0: number): number => {
+    doc.setFillColor(...DS.colors.headerBg);
+    doc.rect(x0, startY, widths.reduce((a, b) => a + b, 0), 6.5, "F");
+    doc.setFontSize(6.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    let cx = x0 + 2;
+    cols.forEach((col, i) => { doc.text(col.toUpperCase(), cx, startY + 4.5); cx += widths[i]; });
+    return 6.5;
+  };
+
+  // Table data row (zebra)
+  const dsTableRow = (startY: number, cells: string[], widths: number[], isZebra: boolean, x0: number, cellColors?: ([number,number,number] | null)[]): number => {
+    const h = 6;
+    doc.setFillColor(...(isZebra ? DS.colors.zebraRow : DS.colors.cardBg));
+    doc.rect(x0, startY, widths.reduce((a, b) => a + b, 0), h, "F");
+    doc.setFontSize(6.5);
+    let cx = x0 + 2;
+    cells.forEach((cell, i) => {
+      const c = cellColors?.[i];
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...(c ?? DS.colors.textPrimary));
+      const maxC = Math.floor((widths[i] - 4) / 1.8);
+      const disp = cell.length > maxC ? cell.substring(0, maxC) + "…" : cell;
+      doc.text(disp, cx, startY + 4.2);
+      cx += widths[i];
+    });
+    return h;
+  };
+
+  // Suppress unused variable warnings — helpers used conditionally
+  void dsSectionHeader;
+  void dsCard;
+  void dsMetricGrid;
+  void dsAlertRow;
+  void dsTableHeader;
+  void dsTableRow;
+
+  // ── Helpers adicionais DS ──────────────────────────────────────────────────
+
+  // metricCard: card com label/valor/sub e borda esquerda colorida
+  const dsMetricCard = (
+    cx: number, cy: number, cw: number, ch: number,
+    label: string, value: string, sub?: string,
+    borderColor?: [number,number,number], valueColor?: [number,number,number]
+  ) => {
+    const bc = borderColor ?? DS.colors.info;
+    const vc = valueColor ?? DS.colors.textPrimary;
+    doc.setFillColor(248, 249, 250);
+    doc.roundedRect(cx, cy, cw, ch, 1.5, 1.5, 'F');
+    doc.setDrawColor(...DS.colors.border);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(cx, cy, cw, ch, 1.5, 1.5, 'D');
+    doc.setLineWidth(0.1);
+    doc.setFillColor(...bc);
+    doc.rect(cx, cy, 3, ch, 'F');
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...DS.colors.textMuted);
+    doc.text(label.toUpperCase(), cx + 5, cy + 5.5);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...vc);
+    const maxC = Math.floor((cw - 8) / 2.3);
+    const disp = value.length > maxC ? value.substring(0, maxC) + '…' : value;
+    doc.text(disp, cx + 5, cy + 12);
+    if (sub) {
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...DS.colors.textLight);
+      doc.text(sub, cx + 5, cy + 17);
+    }
+  };
+
+  // miniHeader: faixa #1a2e4a com título branco — retorna nova posição y
+  const dsMiniHeader = (startY: number, title: string): number => {
+    doc.setFillColor(...DS.colors.headerBg);
+    doc.rect(margin, startY, contentW, 7, 'F');
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(255, 255, 255);
+    doc.text(title.toUpperCase(), margin + 3, startY + 4.8);
+    return startY + 7;
+  };
+
+  // dsMiniHeaderColored: faixa colorida com título branco para blocos lado a lado
+  const dsMiniHeaderAt = (cx: number, startY: number, cw: number, title: string, bgColor: [number,number,number]): number => {
+    doc.setFillColor(...bgColor);
+    doc.rect(cx, startY, cw, 7, 'F');
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(255, 255, 255);
+    doc.text(title.toUpperCase(), cx + 3, startY + 4.8);
+    return startY + 7;
+  };
+
+  void dsMetricCard;
+  void dsMiniHeader;
+  void dsMiniHeaderAt;
+
   // Helper: banner âmbar de "consulta não realizada" (protestos / processos)
   const drawBannerNaoConsultado = (secao: string) => {
     const padV = 10; // padding vertical interno
@@ -698,28 +956,28 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     doc.setFillColor(...accentColor);
     doc.rect(cx, cy, 2, ch, "F");
     // Header interno
-    doc.setFontSize(6.5);
+    doc.setFontSize(7);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...accentColor);
-    doc.text(title, cx + 5.5, cy + 5.5);
+    doc.text(title, cx + 5.5, cy + 6);
     // Linha separadora
     doc.setDrawColor(...bordaCard);
     doc.setLineWidth(0.2);
-    doc.line(cx + 2, cy + 9, cx + cw, cy + 9);
+    doc.line(cx + 2, cy + 10, cx + cw, cy + 10);
     doc.setLineWidth(0.1);
     // Grid 2×N de campos
     const gridX = cx + 4;
     const colW2 = (cw - 6) / 2;
-    const fieldH = (ch - 11) / Math.max(1, Math.ceil(fields.length / 2));
+    const fieldH = (ch - 12) / Math.max(1, Math.ceil(fields.length / 2));
     fields.forEach((f, i) => {
       const col = i % 2;
       const row = Math.floor(i / 2);
       const fx = gridX + col * colW2;
-      const fy = cy + 11 + row * fieldH;
-      doc.setFontSize(5.5);
+      const fy = cy + 12 + row * fieldH;
+      doc.setFontSize(6.5);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...cinzaLabel);
-      doc.text(f.label.toUpperCase(), fx, fy + 4);
+      doc.text(f.label.toUpperCase(), fx, fy + 4.5);
       if (f.badge && f.badgeText) {
         // Badge inline
         doc.setFontSize(6);
@@ -730,12 +988,12 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         doc.setTextColor(...(f.badgeTextColor ?? pretoValor));
         doc.text(f.badgeText, fx + 3, fy + 9.5);
       } else {
-        doc.setFontSize(7.5);
+        doc.setFontSize(8.5);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(...(f.valueColor ?? pretoValor));
         const maxC = Math.floor(colW2 / 2.0);
         const disp = f.value.length > maxC ? f.value.substring(0, maxC) + "…" : f.value;
-        doc.text(disp, fx, fy + 11);
+        doc.text(disp, fx, fy + 12);
       }
     });
   };
@@ -751,43 +1009,43 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   // BLOCO 1 — Score + Status (largura total, ~28mm)
   // ═══════════════════════════════════════════════════
   {
-    checkPageBreak(32);
-    const bloco1H = 28;
+    checkPageBreak(40);
+    const bloco1H = 38;
     const bloco1Y = y;
 
-    // Fundo do bloco
-    doc.setFillColor(255, 255, 255);
-    doc.roundedRect(margin, bloco1Y, contentW, bloco1H, 2, 2, "F");
-    doc.setDrawColor(...bordaCard);
-    doc.setLineWidth(0.3);
-    doc.roundedRect(margin, bloco1Y, contentW, bloco1H, 2, 2, "D");
-    doc.setLineWidth(0.1);
+    // Fundo navy do bloco inteiro
+    doc.setFillColor(...azulInst);
+    doc.rect(margin, bloco1Y, contentW, bloco1H, "F");
 
-    // — Score (lado esquerdo, 65mm) —
-    const scoreX = margin + 5;
-    // Número grande 28pt
-    doc.setFontSize(28);
+    // Linha âmbar inferior
+    doc.setFillColor(...amarelo);
+    doc.rect(margin, bloco1Y + bloco1H - 1.5, contentW, 1.5, "F");
+
+    // ── LADO ESQUERDO: Score ──
+    const scoreX = margin + 6;
+    doc.setFontSize(6.5);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(160, 185, 220);
+    doc.text("SCORE DE RISCO", scoreX, bloco1Y + 8);
+
+    doc.setFontSize(34);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...scoreColor);
     const scoreStr = String(finalRating);
-    doc.text(scoreStr, scoreX, bloco1Y + 19);
+    doc.text(scoreStr, scoreX, bloco1Y + 27);
     const scoreNumW = doc.getTextWidth(scoreStr);
-    // Sufixo /10 em 11pt cinza
-    doc.setFontSize(11);
+
+    doc.setFontSize(13);
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(...cinzaLabel);
-    doc.text("/10", scoreX + scoreNumW + 1, bloco1Y + 19);
-    // Label SCORE DE RISCO
-    doc.setFontSize(6);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(...cinzaLabel);
-    doc.text("SCORE DE RISCO", scoreX, bloco1Y + 24);
-    // Barra de progresso: 55mm × 2.5mm
+    doc.setTextColor(160, 185, 220);
+    doc.text("/10", scoreX + scoreNumW + 1.5, bloco1Y + 27);
+
+    // Barra de progresso (fundo escuro + fill colorido)
     const barX = scoreX;
-    const barY = bloco1Y + 25.5;
-    const barW = 55;
+    const barY = bloco1Y + 30;
+    const barW = 60;
     const barH = 2.5;
-    doc.setFillColor(...bordaCard);
+    doc.setFillColor(50, 70, 100);
     doc.roundedRect(barX, barY, barW, barH, 1, 1, "F");
     const fillW = Math.min(barW, (finalRating / 10) * barW);
     if (fillW > 0) {
@@ -795,26 +1053,37 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       doc.roundedRect(barX, barY, fillW, barH, 1, 1, "F");
     }
 
-    // — Status (lado direito, badge grande) —
-    const decC: [number,number,number] = decision === "APROVADO" ? verde : decision === "REPROVADO" ? vermelho : amarelo;
-    // Mistura com branco para ~15% opacity
-    const decBgR = Math.round(decC[0] * 0.15 + 255 * 0.85);
-    const decBgG = Math.round(decC[1] * 0.15 + 255 * 0.85);
-    const decBgB = Math.round(decC[2] * 0.15 + 255 * 0.85);
-    const bW2 = 95;
-    const bH2 = 20;
-    const bX2 = margin + contentW - bW2 - 4;
-    const bY2 = bloco1Y + (bloco1H - bH2) / 2;
-    doc.setFillColor(decBgR, decBgG, decBgB);
-    doc.roundedRect(bX2, bY2, bW2, bH2, 3, 3, "F");
-    doc.setDrawColor(...decC);
-    doc.setLineWidth(0.5);
-    doc.roundedRect(bX2, bY2, bW2, bH2, 3, 3, "D");
+    // Linha divisória central vertical
+    doc.setDrawColor(80, 100, 130);
+    doc.setLineWidth(0.3);
+    doc.line(margin + 78, bloco1Y + 6, margin + 78, bloco1Y + bloco1H - 6);
     doc.setLineWidth(0.1);
-    doc.setFontSize(11);
+
+    // ── LADO DIREITO: Decisão ──
+    const decC: [number,number,number] = decision === "APROVADO" ? verde : decision === "REPROVADO" ? vermelho : amarelo;
+    const rightX = margin + 84;
+    const rightW = contentW - 84 - 4;
+
+    doc.setFontSize(6.5);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(160, 185, 220);
+    doc.text("DECISAO", rightX, bloco1Y + 8);
+
+    doc.setFontSize(16);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...decC);
-    doc.text(decision.replace(/_/g, " "), bX2 + bW2 / 2, bY2 + bH2 / 2 + 3.5, { align: "center" });
+    const decLabel = decision.replace(/_/g, " ");
+    const decLabelLines = doc.splitTextToSize(decLabel, rightW) as string[];
+    doc.text(decLabelLines[0], rightX, bloco1Y + 22);
+
+    const decSubtitle = decision === "APROVADO" ? "Operacao recomendada pelo sistema" :
+      decision === "REPROVADO" ? "Operacao nao recomendada" :
+      decision === "APROVACAO_CONDICIONAL" ? "Aprovacao mediante condicoes" :
+      "Pendente de informacoes adicionais";
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(160, 185, 220);
+    doc.text(decSubtitle, rightX, bloco1Y + 30);
 
     y = bloco1Y + bloco1H + 5;
   }
@@ -823,10 +1092,10 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   // BLOCO 2 — 6 KPI Cards (2 linhas × 3 colunas)
   // ═══════════════════════════════════════════════════
   {
-    checkPageBreak(42);
+    checkPageBreak(50);
     const kpiGap = 4;
     const kpiW = (contentW - kpiGap * 2) / 3;
-    const kpiH = 16;
+    const kpiH = 20;
 
     // Dados dos KPI
     const vigQtdKpi = parseInt(data.protestos?.vigentesQtd || "0");
@@ -886,20 +1155,20 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       doc.setFillColor(...accentC);
       doc.rect(kx, ky, 2, kpiH, "F");
       // Label
-      doc.setFontSize(6);
+      doc.setFontSize(7);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...cinzaLabel);
-      doc.text(card.label, kx + 4, ky + 5);
+      doc.text(card.label, kx + 4, ky + 6);
       // Valor
-      doc.setFontSize(9);
+      doc.setFontSize(11);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...valorC);
       const maxKpiC = Math.floor((kpiW - 6) / 2.5);
       const kpiDisp = card.value.length > maxKpiC ? card.value.substring(0, maxKpiC) + "…" : card.value;
-      doc.text(kpiDisp, kx + 4, ky + 12.5);
+      doc.text(kpiDisp, kx + 4, ky + 15);
     });
 
-    y += kpiH * 2 + kpiGap + 5;
+    y += kpiH * 2 + kpiGap + 6;
   }
 
   // ═══════════════════════════════════════════════════
@@ -948,7 +1217,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   // ═══════════════════════════════════════════════════
   const OP_GAP = 4;
   const opColW = (contentW - OP_GAP) / 2;
-  const opCardH = 42;
+  const opCardH = 46;
   const opColL = margin;
   const opColR = margin + opColW + OP_GAP;
 
@@ -1001,8 +1270,9 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   const totalOcorrOp = data.ccf?.qtdRegistros || 0;
   const bancosRegOp = (data.ccf?.bancos || []).filter(b => b.quantidade > 0).sort((a, b) => b.quantidade - a.quantidade);
   const maiorBancoOp = bancosRegOp[0];
-  const ccfAccentOp: [number,number,number] = totalOcorrOp > 10 ? vermelho : totalOcorrOp > 0 ? amarelo : verde;
-  const ccfSeveridade = totalOcorrOp > 10 ? "ALTA" : totalOcorrOp > 0 ? "MODERADA" : "NENHUMA";
+  // CCF (Cheque Sem Fundo) é extremamente decisivo: qualquer registro é CRÍTICO (ALTA), não moderado
+  const ccfAccentOp: [number,number,number] = totalOcorrOp > 0 ? vermelho : verde;
+  const ccfSeveridade = totalOcorrOp > 0 ? "ALTA" : "NENHUMA";
 
   // Card E — Processos
   const passivosOp = data.processos?.passivosTotal || "0";
@@ -1026,7 +1296,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
   // ── Par 1: Card A (Perfil) + Card B (Curva ABC) ──
   {
-    checkPageBreak(opCardH + 8);
+    checkPageBreak(opCardH + 10);
     const yPar1Op = y;
 
     // Card A — Perfil
@@ -1063,7 +1333,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
   // ── Par 2: Card C (Protestos) + Card D (CCF) ──
   {
-    checkPageBreak(opCardH + 8);
+    checkPageBreak(opCardH + 10);
     const yPar2Op = y;
 
     // Card C — Protestos
@@ -1080,7 +1350,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         { label: "TOTAL OCORRENCIAS",  value: String(totalOcorrOp),                                                                        valueColor: totalOcorrOp > 0 ? vermelho : pretoValor },
         { label: "BANCOS C/ REGISTRO", value: String(bancosRegOp.length)                                                                                                                       },
         { label: "MAIOR CONC.",        value: maiorBancoOp ? `${maiorBancoOp.banco} (${maiorBancoOp.quantidade})` : "—"                                                                       },
-        { label: "SEVERIDADE",         value: ccfSeveridade,                                                                               valueColor: totalOcorrOp > 10 ? vermelho : totalOcorrOp > 0 ? amarelo : verde },
+        { label: "SEVERIDADE",         value: ccfSeveridade,                                                                               valueColor: totalOcorrOp > 0 ? vermelho : verde },
       ]);
     }
 
@@ -1089,7 +1359,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
   // ── Par 3: Card E (Processos) + Card F (Visita) ──
   {
-    checkPageBreak(opCardH + 8);
+    checkPageBreak(opCardH + 10);
     const yPar3Op = y;
 
     // Card E — Processos
@@ -1131,17 +1401,18 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       doc.addImage(p.streetViewBase64, "JPEG", margin, y, contentW, 48);
       y += 52;
     } else {
-      doc.setFillColor(...fundoPage);
-      doc.roundedRect(margin, y, contentW, 16, 2, 2, "F");
-      doc.setDrawColor(...bordaCard);
-      doc.setLineWidth(0.3);
-      doc.roundedRect(margin, y, contentW, 16, 2, 2, "D");
+      checkPageBreak(64);
+      doc.setFillColor(...DS.colors.zebraRow);
+      doc.roundedRect(margin, y, contentW, 60, 2, 2, "F");
+      doc.setDrawColor(...DS.colors.border);
+      doc.setLineWidth(0.25);
+      doc.roundedRect(margin, y, contentW, 60, 2, 2, "D");
       doc.setLineWidth(0.1);
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(...cinzaLabel);
-      doc.text("Foto indisponivel — configure GOOGLE_MAPS_API_KEY", margin + contentW / 2, y + 9, { align: "center" });
-      y += 20;
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "italic");
+      doc.setTextColor(...DS.colors.textMuted);
+      doc.text("Foto não disponível", margin + contentW / 2, y + 32, { align: "center" });
+      y += 64;
     }
   }
 
@@ -1405,16 +1676,8 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   newPage();
   drawHeader();
 
-  // Section header bar
-  doc.setFillColor(...colors.navy);
-  doc.rect(margin, y, contentW, 10, "F");
-  doc.setFillColor(...colors.accent);
-  doc.rect(margin, y + 10, contentW, 1.5, "F");
-  doc.setFontSize(9);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(255, 255, 255);
-  doc.text("GESTAO E GRUPO ECONOMICO", margin + 4, y + 6.5);
-  y += 15;
+  // Section header bar — Gestao e Grupo Economico
+  dsSectionHeader("03", "GESTAO E GRUPO ECONOMICO");
 
   // ── Tabela de Sócios ──
   {
@@ -1635,18 +1898,8 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   newPage();
   drawHeader();
 
-  // Section header bar
-  doc.setFillColor(...colors.navy);
-  doc.rect(margin, y, contentW, 10, "F");
-  doc.setFillColor(...colors.accent);
-  doc.rect(margin, y + 10, contentW, 1.5, "F");
-  doc.setFontSize(7);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(255, 255, 255);
-  doc.text("04", margin + 4, y + 6.5);
-  doc.setFontSize(9);
-  doc.text("FATURAMENTO / SCR", margin + 14, y + 6.5);
-  y += 13;
+  // Section header bar — Faturamento / SCR
+  dsSectionHeader("04", "FATURAMENTO / SCR");
 
   // ── Stacked layout ──
   const leftW = contentW;
@@ -1792,7 +2045,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     const tblMesW = 30;
     const tblValW = 60;
     const tblRowH = 5;
-    const ultimos12 = new Set(validMeses.slice(-12).map(m => m.mes));
+    // ultimos12 removido — tabela usa zebra azul uniforme
 
     doc.setFontSize(7);
     doc.setFont("helvetica", "bold");
@@ -1810,25 +2063,21 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     doc.text("FATURAMENTO (R$)", leftX + tblMesW + tblValW - 2, yLeft + 3.5, { align: "right" });
     yLeft += tblRowH;
 
-    // Linhas
+    // Linhas — azul claro alternado em toda a tabela
     validMeses.forEach((mes, idx) => {
       if (yLeft + tblRowH > 275) {
         doc.addPage();
         yLeft = 20;
       }
-      const isUltimos12 = ultimos12.has(mes.mes);
-      if (isUltimos12) {
-        doc.setFillColor(232, 240, 254);
-      } else {
-        doc.setFillColor(...(idx % 2 === 0 ? colors.surface : [245, 245, 245] as [number, number, number]));
-      }
+      // Zebra azul claro: par = azul médio, ímpar = azul muito claro
+      doc.setFillColor(...(idx % 2 === 0 ? [225, 237, 254] as [number,number,number] : [241, 247, 255] as [number,number,number]));
       doc.rect(leftX, yLeft, tblMesW + tblValW, tblRowH, "F");
       doc.setFontSize(7);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...colors.text);
       doc.text(parseMesLabel(mes.mes), leftX + 2, yLeft + 3.5);
       doc.text(mes.valor || "—", leftX + tblMesW + tblValW - 2, yLeft + 3.5, { align: "right" });
-      doc.setDrawColor(230, 230, 230);
+      doc.setDrawColor(210, 225, 250);
       doc.line(leftX, yLeft + tblRowH, leftX + tblMesW + tblValW, yLeft + tblRowH);
       yLeft += tblRowH;
     });
@@ -1952,120 +2201,38 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       doisPeriodos.forEach((l: string) => { doc.text(l, margin + 2, yRight); yRight += 4; });
     }
 
-    yRight += 4;
+  }
 
-    // ── Tabela comparativa de métricas ──
-    const alturaTabela = 6 + (9 * 5.5) + 10; // header + 9 linhas + padding
-    if (alturaTabela > 275 - yRight) {
-      doc.addPage();
-      yRight = 20;
-      currentSCRPage = doc.getCurrentPageInfo().pageNumber;
-    }
-    yRight += 3;
-    doc.setFillColor(...colors.primary);
-    doc.roundedRect(margin, yRight, contentW, 6, 1, 1, "F");
-    doc.setFontSize(5.5);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(255, 255, 255);
+  // ── Tabela SCR Unificada — EVOLUÇÃO SCR ──
+  {
+    const toKu = (v: string | undefined) => {
+      const n = parseMoneyToNumber(v || "0");
+      return n > 0 ? (n / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) : "—";
+    };
 
-    const colMetrica = contentW * 0.40;
-    const colAt = contentW * 0.22;
-    const colAnt = contentW * 0.22;
+    const alavAtU = fmmVal > 0
+      ? fmtBR(parseMoneyToNumber(data.scr.totalDividasAtivas || "0") / fmmVal, 2) + "x"
+      : "—";
+    const alavAntU = hasAnterior && fmmVal > 0
+      ? fmtBR(parseMoneyToNumber(data.scrAnterior!.totalDividasAtivas || "0") / fmmVal, 2) + "x"
+      : "—";
 
-    doc.text("MÉTRICA", margin + 2, yRight + 4);
-    doc.text(periodoAt, margin + colMetrica + 2, yRight + 4);
-    if (hasAnterior) {
-      doc.text(periodoAnt, margin + colMetrica + colAt + 2, yRight + 4);
-      doc.text("VAR.", margin + colMetrica + colAt + colAnt + 2, yRight + 4);
-    }
-    yRight += 6;
-
-
-    const fmtSCR = (v: string | undefined) => (v && v !== "0,00" && v !== "") ? `R$ ${fmtMoney(v)}` : "R$ 0,00";
-    const fmtPct = (v: string | undefined) => (v && v !== "") ? `${v}%` : "—";
-
-    const fmmValSCR = data.faturamento?.fmm12m
-      ? parseMoneyToNumber(data.faturamento.fmm12m)
-      : 0;
-    const dividaAt = parseMoneyToNumber(data.scr.totalDividasAtivas || "0");
-    const dividaAnt = parseMoneyToNumber(data.scrAnterior?.totalDividasAtivas || "0");
-    const alavAt2 = fmmValSCR > 0 ? fmtBR(dividaAt / fmmValSCR, 2) + "x" : "0,00x";
-    const alavAnt2 = fmmValSCR > 0 ? fmtBR(dividaAnt / fmmValSCR, 2) + "x" : "0,00x";
-
-    const linhasComparativo = [
-      { label: "Carteira a Vencer", at: fmtSCR(data.scr.carteiraAVencer), ant: fmtSCR(data.scrAnterior?.carteiraAVencer), positiveIsGood: false },
-      { label: "Vencidos", at: fmtSCR(data.scr.vencidos), ant: fmtSCR(data.scrAnterior?.vencidos), positiveIsGood: false },
-      { label: "Prejuízos", at: fmtSCR(data.scr.prejuizos), ant: fmtSCR(data.scrAnterior?.prejuizos), positiveIsGood: false },
-      { label: "Total Dívidas", at: fmtSCR(data.scr.totalDividasAtivas), ant: fmtSCR(data.scrAnterior?.totalDividasAtivas), positiveIsGood: false, bold: true },
-      { label: "Limite de Crédito", at: fmtSCR(data.scr.limiteCredito), ant: fmtSCR(data.scrAnterior?.limiteCredito), positiveIsGood: true },
-      { label: "Qtde IFs", at: data.scr.qtdeInstituicoes || "0", ant: data.scrAnterior?.qtdeInstituicoes || "0", positiveIsGood: true },
-      { label: "Qtde Operações", at: data.scr.qtdeOperacoes || "0", ant: data.scrAnterior?.qtdeOperacoes || "0", positiveIsGood: true },
-      { label: "% Docs Processados", at: fmtPct(data.scr.pctDocumentosProcessados), ant: fmtPct(data.scrAnterior?.pctDocumentosProcessados), positiveIsGood: true },
-      { label: "Alavancagem vs FMM", at: alavAt2, ant: alavAnt2, positiveIsGood: false, bold: true },
-    ];
-
-    linhasComparativo.forEach((linha, idx) => {
-      const bgColor: [number, number, number] = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
-      doc.setFillColor(...bgColor);
-      doc.rect(margin, yRight, contentW, 5.5, "F");
-
-      doc.setFontSize(5.5);
-      doc.setFont("helvetica", linha.bold ? "bold" : "normal");
-      doc.setTextColor(...colors.text);
-      doc.text(linha.label, margin + 2, yRight + 3.8);
-      doc.text(linha.at, margin + colMetrica + 2, yRight + 3.8);
-
-      if (hasAnterior) {
-        doc.text(linha.ant, margin + colMetrica + colAt + 2, yRight + 3.8);
-
-        const numAt = parseFloat((linha.at || "0").replace(/[^0-9,]/g, "").replace(",", "."));
-        const numAnt = parseFloat((linha.ant || "0").replace(/[^0-9,]/g, "").replace(",", "."));
-
-        if (!isNaN(numAt) && !isNaN(numAnt) && numAnt !== 0) {
-          const varPct = ((numAt - numAnt) / numAnt) * 100;
-          const varStr = fmtVar(varPct);
-          const igual = Math.abs(varPct) < 0.1;
-          const melhorou = linha.positiveIsGood ? varPct > 0 : varPct < 0;
-          if (igual) {
-            doc.setTextColor(...colors.textMuted);
-          } else if (melhorou) {
-            doc.setTextColor(22, 163, 74);
-          } else {
-            doc.setTextColor(220, 38, 38);
-          }
-          doc.text(varStr, margin + colMetrica + colAt + colAnt + 2, yRight + 3.8);
-          doc.setTextColor(...colors.text);
-        } else {
-          doc.setTextColor(...colors.textMuted);
-          doc.text("—", margin + colMetrica + colAt + colAnt + 2, yRight + 3.8);
-          doc.setTextColor(...colors.text);
-        }
-      }
-
-      yRight += 5.5;
-    });
-
-    yRight += 4;
-
-  } else {
-    // Column widths (defined early so header helper can use them)
-    const cW = hasAnterior
+    const cWu = hasAnterior
       ? [contentW * 0.33, contentW * 0.22, contentW * 0.22, contentW * 0.23]
       : [contentW * 0.55, contentW * 0.45];
 
-    const scrRowH = 6;
+    const scrRowHu = 6;
 
-    // Helper: draw SCR column header at current yRight
-    const drawSCRColHeader = () => {
+    const drawSCRHeader = () => {
       doc.setFillColor(...colors.navy);
       doc.rect(margin, yRight, contentW, 6, "F");
       doc.setFontSize(5.5);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(255, 255, 255);
-      doc.text("METRICA (mil R$)", margin + 2, yRight + 4);
+      doc.text("MÉTRICA (mil R$)", margin + 2, yRight + 4);
       if (hasAnterior) {
-        doc.text(periodoAnt, margin + cW[0] + cW[1] - 1, yRight + 4, { align: "right" });
-        doc.text(periodoAt, margin + cW[0] + cW[1] + cW[2] - 1, yRight + 4, { align: "right" });
+        doc.text(periodoAnt, margin + cWu[0] + cWu[1] - 1, yRight + 4, { align: "right" });
+        doc.text(periodoAt, margin + cWu[0] + cWu[1] + cWu[2] - 1, yRight + 4, { align: "right" });
         doc.text("VAR.", margin + contentW - 1, yRight + 4, { align: "right" });
       } else {
         doc.text(periodoAt, margin + contentW - 1, yRight + 4, { align: "right" });
@@ -2073,64 +2240,53 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       yRight += 7;
     };
 
-    // Title — break page se não houver espaço suficiente para a tabela inteira
-    // Threshold conservador (220) para garantir que a tabela nunca seja cortada pelo rodapé
-    const scrTableNeeded = 7 + 7 + scrRowH * 9 + 4;
-    if (yRight + scrTableNeeded > 220) {
+    type ScrRowU = { label: string; antVal: string; atVal: string; antRaw: number; atRaw: number; positiveIsGood: boolean; bold?: boolean; skipVar?: boolean };
+    const scrRowsU: ScrRowU[] = [
+      { label: "Em Dia", antVal: toKu(data.scrAnterior?.emDia), atVal: toKu(data.scr.emDia), antRaw: parseMoneyToNumber(data.scrAnterior?.emDia || "0"), atRaw: parseMoneyToNumber(data.scr.emDia || "0"), positiveIsGood: true },
+      { label: "Curto Prazo (CP)", antVal: toKu(data.scrAnterior?.carteiraCurtoPrazo), atVal: toKu(data.scr.carteiraCurtoPrazo), antRaw: parseMoneyToNumber(data.scrAnterior?.carteiraCurtoPrazo || "0"), atRaw: parseMoneyToNumber(data.scr.carteiraCurtoPrazo || "0"), positiveIsGood: false },
+      { label: "Longo Prazo (LP)", antVal: toKu(data.scrAnterior?.carteiraLongoPrazo), atVal: toKu(data.scr.carteiraLongoPrazo), antRaw: parseMoneyToNumber(data.scrAnterior?.carteiraLongoPrazo || "0"), atRaw: parseMoneyToNumber(data.scr.carteiraLongoPrazo || "0"), positiveIsGood: false },
+      { label: "Carteira a Vencer", antVal: toKu(data.scrAnterior?.carteiraAVencer), atVal: toKu(data.scr.carteiraAVencer), antRaw: parseMoneyToNumber(data.scrAnterior?.carteiraAVencer || "0"), atRaw: parseMoneyToNumber(data.scr.carteiraAVencer || "0"), positiveIsGood: false },
+      { label: "Total Dívidas", antVal: toKu(data.scrAnterior?.totalDividasAtivas), atVal: toKu(data.scr.totalDividasAtivas), antRaw: parseMoneyToNumber(data.scrAnterior?.totalDividasAtivas || "0"), atRaw: parseMoneyToNumber(data.scr.totalDividasAtivas || "0"), positiveIsGood: false, bold: true },
+      { label: "Vencidos", antVal: toKu(data.scrAnterior?.vencidos), atVal: toKu(data.scr.vencidos), antRaw: parseMoneyToNumber(data.scrAnterior?.vencidos || "0"), atRaw: parseMoneyToNumber(data.scr.vencidos || "0"), positiveIsGood: false },
+      { label: "Prejuízos", antVal: toKu(data.scrAnterior?.prejuizos), atVal: toKu(data.scr.prejuizos), antRaw: parseMoneyToNumber(data.scrAnterior?.prejuizos || "0"), atRaw: parseMoneyToNumber(data.scr.prejuizos || "0"), positiveIsGood: false },
+      { label: "Limite de Crédito", antVal: toKu(data.scrAnterior?.limiteCredito), atVal: toKu(data.scr.limiteCredito), antRaw: parseMoneyToNumber(data.scrAnterior?.limiteCredito || "0"), atRaw: parseMoneyToNumber(data.scr.limiteCredito || "0"), positiveIsGood: true },
+      { label: "Nº Instituições", antVal: data.scrAnterior?.qtdeInstituicoes || data.scrAnterior?.numeroIfs || "—", atVal: data.scr.qtdeInstituicoes || data.scr.numeroIfs || "—", antRaw: parseFloat(data.scrAnterior?.qtdeInstituicoes || data.scrAnterior?.numeroIfs || "0") || 0, atRaw: parseFloat(data.scr.qtdeInstituicoes || data.scr.numeroIfs || "0") || 0, positiveIsGood: true },
+      { label: "Nº Operações", antVal: data.scrAnterior?.qtdeOperacoes || "—", atVal: data.scr.qtdeOperacoes || "—", antRaw: parseFloat(data.scrAnterior?.qtdeOperacoes || "0") || 0, atRaw: parseFloat(data.scr.qtdeOperacoes || "0") || 0, positiveIsGood: true },
+      { label: "Alavancagem / FMM", antVal: alavAntU, atVal: alavAtU, antRaw: 0, atRaw: 0, positiveIsGood: false, skipVar: true, bold: true },
+    ];
+
+    const scrTableTitle = hasAnterior
+      ? `EVOLUÇÃO SCR — ${periodoAnt} → ${periodoAt}`
+      : `POSIÇÃO SCR — ${periodoAt}`;
+
+    const scrNeeded = 7 + 7 + scrRowHu * scrRowsU.length + 4;
+    if (yRight + scrNeeded > 220) {
       doc.addPage();
       drawHeader();
       currentSCRPage = doc.getCurrentPageInfo().pageNumber;
       yRight = 35;
     }
 
-    const scrTableTitle = hasAnterior
-      ? `COMPARATIVO SCR ${periodoAnt} x ${periodoAt}`
-      : `SCR — ${periodoAt}`;
+    yRight += 4;
     doc.setFontSize(5.5);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...colors.textMuted);
     doc.text(scrTableTitle, margin, yRight + 4);
     yRight += 7;
 
-    drawSCRColHeader();
+    drawSCRHeader();
 
-    const toK = (v: string | undefined) => {
-      const n = parseMoneyToNumber(v || "0");
-      return n > 0 ? (n / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) : "—";
-    };
-
-    const alavAt = fmmVal > 0
-      ? fmtBR(parseMoneyToNumber(data.scr.totalDividasAtivas || "0") / fmmVal, 2) + "x"
-      : "—";
-    const alavAnt = hasAnterior && fmmVal > 0
-      ? fmtBR(parseMoneyToNumber(data.scrAnterior!.totalDividasAtivas || "0") / fmmVal, 2) + "x"
-      : "—";
-
-    type ScrRow = { label: string; antVal: string; atVal: string; antRaw: number; atRaw: number; positiveIsGood: boolean; bold?: boolean; skipVar?: boolean };
-    const scrRows: ScrRow[] = [
-      { label: "Em Dia", antVal: toK(data.scrAnterior?.emDia), atVal: toK(data.scr.emDia), antRaw: parseMoneyToNumber(data.scrAnterior?.emDia || "0"), atRaw: parseMoneyToNumber(data.scr.emDia || "0"), positiveIsGood: true },
-      { label: "CP", antVal: toK(data.scrAnterior?.carteiraCurtoPrazo), atVal: toK(data.scr.carteiraCurtoPrazo), antRaw: parseMoneyToNumber(data.scrAnterior?.carteiraCurtoPrazo || "0"), atRaw: parseMoneyToNumber(data.scr.carteiraCurtoPrazo || "0"), positiveIsGood: false },
-      { label: "LP", antVal: toK(data.scrAnterior?.carteiraLongoPrazo), atVal: toK(data.scr.carteiraLongoPrazo), antRaw: parseMoneyToNumber(data.scrAnterior?.carteiraLongoPrazo || "0"), atRaw: parseMoneyToNumber(data.scr.carteiraLongoPrazo || "0"), positiveIsGood: false },
-      { label: "Total Divida", antVal: toK(data.scrAnterior?.totalDividasAtivas), atVal: toK(data.scr.totalDividasAtivas), antRaw: parseMoneyToNumber(data.scrAnterior?.totalDividasAtivas || "0"), atRaw: parseMoneyToNumber(data.scr.totalDividasAtivas || "0"), positiveIsGood: false, bold: true },
-      { label: "Vencida", antVal: toK(data.scrAnterior?.vencidos), atVal: toK(data.scr.vencidos), antRaw: parseMoneyToNumber(data.scrAnterior?.vencidos || "0"), atRaw: parseMoneyToNumber(data.scr.vencidos || "0"), positiveIsGood: false },
-      { label: "Prejuizo", antVal: toK(data.scrAnterior?.prejuizos), atVal: toK(data.scr.prejuizos), antRaw: parseMoneyToNumber(data.scrAnterior?.prejuizos || "0"), atRaw: parseMoneyToNumber(data.scr.prejuizos || "0"), positiveIsGood: false },
-      { label: "Limite", antVal: toK(data.scrAnterior?.limiteCredito), atVal: toK(data.scr.limiteCredito), antRaw: parseMoneyToNumber(data.scrAnterior?.limiteCredito || "0"), atRaw: parseMoneyToNumber(data.scr.limiteCredito || "0"), positiveIsGood: true },
-      { label: "IFs", antVal: data.scrAnterior?.numeroIfs || "—", atVal: data.scr.numeroIfs || "—", antRaw: parseFloat(data.scrAnterior?.numeroIfs || "0") || 0, atRaw: parseFloat(data.scr.numeroIfs || "0") || 0, positiveIsGood: true },
-      { label: "Alavancagem", antVal: alavAnt, atVal: alavAt, antRaw: 0, atRaw: 0, positiveIsGood: false, skipVar: true },
-    ];
-
-    scrRows.forEach((row, idx) => {
-      // Page break check per row — re-draw column header on new page
-      if (yRight + scrRowH > 275) {
+    scrRowsU.forEach((row, idx) => {
+      if (yRight + scrRowHu > 275) {
         doc.addPage();
         drawHeader();
         currentSCRPage = doc.getCurrentPageInfo().pageNumber;
         yRight = 25;
-        drawSCRColHeader();
+        drawSCRHeader();
       }
 
       doc.setFillColor(...(idx % 2 === 0 ? colors.surface : colors.surface2));
-      doc.rect(margin, yRight, contentW, scrRowH, "F");
+      doc.rect(margin, yRight, contentW, scrRowHu, "F");
 
       doc.setFont("helvetica", row.bold ? "bold" : "normal");
       doc.setFontSize(6.5);
@@ -2140,17 +2296,17 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       if (hasAnterior) {
         doc.setFont("helvetica", "normal");
         doc.setTextColor(...colors.textSec);
-        doc.text(row.antVal, margin + cW[0] + cW[1] - 1, yRight + 4, { align: "right" });
+        doc.text(row.antVal, margin + cWu[0] + cWu[1] - 1, yRight + 4, { align: "right" });
         doc.setFont("helvetica", row.bold ? "bold" : "normal");
         doc.setTextColor(...colors.text);
-        doc.text(row.atVal, margin + cW[0] + cW[1] + cW[2] - 1, yRight + 4, { align: "right" });
+        doc.text(row.atVal, margin + cWu[0] + cWu[1] + cWu[2] - 1, yRight + 4, { align: "right" });
 
         let varStr = "—";
         let varColor: [number, number, number] = [150, 150, 150];
         if (!row.skipVar) {
           const diff = row.atRaw - row.antRaw;
           if (diff === 0 && row.atRaw > 0) {
-            varStr = "→ 0%";
+            varStr = "= 0%";
           } else if (diff !== 0 && row.antRaw > 0) {
             const pct = (diff / row.antRaw) * 100;
             varStr = fmtVar(pct);
@@ -2172,8 +2328,8 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       }
 
       doc.setDrawColor(230, 230, 230);
-      doc.line(margin, yRight + scrRowH, margin + contentW, yRight + scrRowH);
-      yRight += scrRowH;
+      doc.line(margin, yRight + scrRowHu, margin + contentW, yRight + scrRowHu);
+      yRight += scrRowHu;
     });
     yRight += 4;
   }
@@ -2887,13 +3043,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     checkPageBreak(80);
 
     // Header da seção
-    doc.setFillColor(...colors.primary);
-    doc.rect(margin, y, contentW, 8, "F");
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(255, 255, 255);
-    doc.text("07   DEMONSTRACAO DE RESULTADO (DRE)", margin + 4, y + 5.5);
-    y += 12;
+    dsSectionHeader("07", "DEMONSTRACAO DE RESULTADO (DRE)");
 
     // Tabela comparativa por ano — deduplicar anos
     const dreAnosMap = new Map<string, (typeof data.dre.anos)[0]>();
@@ -2972,13 +3122,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     drawSpacer(10);
     checkPageBreak(90);
 
-    doc.setFillColor(...colors.primary);
-    doc.rect(margin, y, contentW, 8, "F");
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(255, 255, 255);
-    doc.text("08   BALANCO PATRIMONIAL", margin + 4, y + 5.5);
-    y += 12;
+    dsSectionHeader("08", "BALANCO PATRIMONIAL");
 
     // Deduplicar anos do balanço (evita 2023 duplicado)
     const balAnosMap = new Map<string, (typeof data.balanco.anos)[0]>();
@@ -3042,13 +3186,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     drawSpacer(10);
     checkPageBreak(65);
 
-    doc.setFillColor(...colors.primary);
-    doc.rect(margin, y, contentW, 8, "F");
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(255, 255, 255);
-    doc.text("09   CURVA ABC — CONCENTRACAO DE CLIENTES", margin + 4, y + 5.5);
-    y += 12;
+    dsSectionHeader("09", "CURVA ABC — CONCENTRACAO DE CLIENTES");
 
     // Alerta de concentração
     if (data.curvaABC.alertaConcentracao) {
@@ -3113,15 +3251,27 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   // ===== SEÇÃO 05 — PROTESTOS (flui se couber) =====
   drawSpacer(10);
   checkPageBreak(50);
-  drawSectionTitle("05", "PROTESTOS", colors.danger);
+  dsSectionHeader("05", "PROTESTOS");
 
-  // ── BLOCO 1 — Totais ──
-  drawFieldRow([
-    { label: "Vigentes (Qtd)", value: protestosNaoConsultados ? "Não consultado" : (data.protestos?.vigentesQtd || "0") },
-    { label: "Vigentes (R$)", value: protestosNaoConsultados ? "Não consultado" : (data.protestos?.vigentesValor || "0,00") },
-    { label: "Regularizados (Qtd)", value: protestosNaoConsultados ? "Não consultado" : (data.protestos?.regularizadosQtd || "0") },
-    { label: "Regularizados (R$)", value: protestosNaoConsultados ? "Não consultado" : (data.protestos?.regularizadosValor || "0,00") },
-  ]);
+  // ── BLOCO 1 — KPI Cards 4 colunas ──
+  {
+    checkPageBreak(22);
+    const kpiGapP = 3;
+    const kpiWP = (contentW - kpiGapP * 3) / 4;
+    const kpiHP = 20;
+    const vigQtdP = parseInt(data.protestos?.vigentesQtd || '0');
+    const regQtdP = parseInt(data.protestos?.regularizadosQtd || '0');
+    const kpiDataP = [
+      { label: 'Vigentes Qtd',    value: protestosNaoConsultados ? 'N/C' : String(vigQtdP),                                                         border: vigQtdP > 0 ? DS.colors.danger  : DS.colors.success, valColor: vigQtdP > 0 ? DS.colors.danger  : DS.colors.textPrimary },
+      { label: 'Vigentes R$',     value: protestosNaoConsultados ? 'N/C' : (vigQtdP > 0 ? `R$ ${fmtMoney(data.protestos?.vigentesValor)}` : '—'),   border: vigQtdP > 0 ? DS.colors.danger  : DS.colors.success, valColor: vigQtdP > 0 ? DS.colors.danger  : DS.colors.textLight  },
+      { label: 'Regularizados Qtd', value: protestosNaoConsultados ? 'N/C' : String(regQtdP),                                                       border: regQtdP > 0 ? DS.colors.success : DS.colors.border,  valColor: regQtdP > 0 ? DS.colors.success : DS.colors.textPrimary },
+      { label: 'Regularizados R$',  value: protestosNaoConsultados ? 'N/C' : (regQtdP > 0 ? `R$ ${fmtMoney(data.protestos?.regularizadosValor)}` : '—'), border: regQtdP > 0 ? DS.colors.success : DS.colors.border, valColor: regQtdP > 0 ? DS.colors.success : DS.colors.textLight },
+    ];
+    kpiDataP.forEach((k, i) => {
+      dsMetricCard(margin + i * (kpiWP + kpiGapP), y, kpiWP, kpiHP, k.label, k.value, undefined, k.border, k.valColor);
+    });
+    y += kpiHP + 4;
+  }
 
   if (protestosNaoConsultados) {
     drawSpacer(4);
@@ -3168,15 +3318,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     const ms90 = 90 * 24 * 60 * 60 * 1000;
     const ms365 = 365 * 24 * 60 * 60 * 1000;
 
-    // ── BLOCO 2 — Distribuição Temporal ──
-    drawSpacer(6);
-    checkPageBreak(16);
-    doc.setFontSize(7);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...colors.textMuted);
-    doc.text("DISTRIBUICAO TEMPORAL", margin, y + 4);
-    y += 7;
-
+    // ── BLOCOS 2 & 3 — Distribuição Temporal + Por Faixa (lado a lado) ──
     type TempBucket = { label: string; qtd: number; valor: number };
     const tempBuckets: TempBucket[] = [
       { label: "Ultimo mes (30 dias)", qtd: 0, valor: 0 },
@@ -3195,44 +3337,6 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       else { tempBuckets[3].qtd++; tempBuckets[3].valor += val; }
     });
 
-    const tempColW = [contentW * 0.52, contentW * 0.16, contentW * 0.32];
-    checkPageBreak(8 + tempBuckets.length * 7 + 4);
-    // header
-    doc.setFillColor(...colors.navy);
-    doc.rect(margin, y, contentW, 6, "F");
-    doc.setFontSize(6);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(255, 255, 255);
-    doc.text("PERIODO", margin + 2, y + 4);
-    doc.text("QTD", margin + tempColW[0] + tempColW[1] - 2, y + 4, { align: "right" });
-    doc.text("VALOR (R$)", margin + contentW - 2, y + 4, { align: "right" });
-    y += 6;
-    tempBuckets.forEach((b, idx) => {
-      doc.setFillColor(...(idx % 2 === 0 ? colors.surface : colors.surface2));
-      doc.rect(margin, y, contentW, 6, "F");
-      doc.setFontSize(6.5);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(...colors.text);
-      doc.text(b.label, margin + 2, y + 4);
-      doc.text(String(b.qtd), margin + tempColW[0] + tempColW[1] - 2, y + 4, { align: "right" });
-      doc.setFont("helvetica", b.qtd > 0 ? "bold" : "normal");
-      doc.setTextColor(...(b.qtd > 0 ? colors.danger : colors.textMuted));
-      doc.text(b.qtd > 0 ? fmtProt(b.valor) : "—", margin + contentW - 2, y + 4, { align: "right" });
-      doc.setDrawColor(230, 230, 230);
-      doc.line(margin, y + 6, margin + contentW, y + 6);
-      y += 6;
-    });
-    y += 4;
-
-    // ── BLOCO 3 — Distribuição por Faixa de Valor ──
-    drawSpacer(4);
-    checkPageBreak(16);
-    doc.setFontSize(7);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...colors.textMuted);
-    doc.text("DISTRIBUICAO POR FAIXA DE VALOR", margin, y + 4);
-    y += 7;
-
     type ValBucket = { label: string; min: number; max: number; qtd: number; valor: number };
     const valBuckets: ValBucket[] = [
       { label: "Abaixo de R$ 1.000", min: 0, max: 1000, qtd: 0, valor: 0 },
@@ -3247,33 +3351,76 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       if (bucket) { bucket.qtd++; bucket.valor += val; }
     });
 
-    const valColW = [contentW * 0.52, contentW * 0.16, contentW * 0.32];
-    checkPageBreak(8 + valBuckets.length * 7 + 4);
-    doc.setFillColor(...colors.navy);
-    doc.rect(margin, y, contentW, 6, "F");
-    doc.setFontSize(6);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(255, 255, 255);
-    doc.text("FAIXA", margin + 2, y + 4);
-    doc.text("QTD", margin + valColW[0] + valColW[1] - 2, y + 4, { align: "right" });
-    doc.text("VALOR (R$)", margin + contentW - 2, y + 4, { align: "right" });
-    y += 6;
-    valBuckets.forEach((b, idx) => {
-      doc.setFillColor(...(idx % 2 === 0 ? colors.surface : colors.surface2));
-      doc.rect(margin, y, contentW, 6, "F");
-      doc.setFontSize(6.5);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(...colors.text);
-      doc.text(b.label, margin + 2, y + 4);
-      doc.text(String(b.qtd), margin + valColW[0] + valColW[1] - 2, y + 4, { align: "right" });
-      doc.setFont("helvetica", b.qtd > 0 ? "bold" : "normal");
-      doc.setTextColor(...(b.qtd > 0 ? colors.text : colors.textMuted));
-      doc.text(b.qtd > 0 ? fmtProt(b.valor) : "—", margin + contentW - 2, y + 4, { align: "right" });
-      doc.setDrawColor(230, 230, 230);
-      doc.line(margin, y + 6, margin + contentW, y + 6);
-      y += 6;
-    });
-    y += 4;
+    // ── Dois blocos lado a lado ──
+    {
+      const colGapD = 4;
+      const colWD = (contentW - colGapD) / 2;
+      const rowHD = 6;
+      // estimar altura máxima entre os dois blocos
+      const maxRowsD = Math.max(tempBuckets.length, valBuckets.length);
+      const neededD = 7 + maxRowsD * rowHD + 8;
+      drawSpacer(4);
+      checkPageBreak(neededD);
+
+      const yDistStart = y;
+      // Headers
+      dsMiniHeaderAt(margin, yDistStart, colWD, 'DISTRIBUICAO TEMPORAL', DS.colors.headerBg);
+      dsMiniHeaderAt(margin + colWD + colGapD, yDistStart, colWD, 'DISTRIBUICAO POR FAIXA', DS.colors.headerBg);
+
+      // Sub-cabeçalho das colunas — esquerda
+      let yL = yDistStart + 7;
+      let yR = yDistStart + 7;
+      const drawSubHeader2 = (cx: number, startY: number, cw: number, c1: string, c2: string, c3: string) => {
+        doc.setFillColor(50, 70, 110);
+        doc.rect(cx, startY, cw, 5.5, 'F');
+        doc.setFontSize(5.5);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(255, 255, 255);
+        doc.text(c1, cx + 2, startY + 4);
+        doc.text(c2, cx + cw * 0.72, startY + 4, { align: 'right' });
+        doc.text(c3, cx + cw - 1, startY + 4, { align: 'right' });
+        return startY + 5.5;
+      };
+      yL = drawSubHeader2(margin, yL, colWD, 'PERIODO', 'QTD', 'VALOR');
+      yR = drawSubHeader2(margin + colWD + colGapD, yR, colWD, 'FAIXA', 'QTD', 'VALOR');
+
+      // Linhas — temporal
+      tempBuckets.forEach((b, idx) => {
+        doc.setFillColor(...(idx % 2 === 0 ? DS.colors.zebraRow : DS.colors.cardBg));
+        doc.rect(margin, yL, colWD, rowHD, 'F');
+        doc.setFontSize(6);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(...DS.colors.textPrimary);
+        const labTrunc = b.label.length > 22 ? b.label.substring(0, 21) + '…' : b.label;
+        doc.text(labTrunc, margin + 2, yL + 4);
+        doc.text(String(b.qtd), margin + colWD * 0.72, yL + 4, { align: 'right' });
+        doc.setTextColor(...(b.qtd > 0 ? DS.colors.danger : DS.colors.textLight));
+        doc.text(b.qtd > 0 ? fmtProt(b.valor) : '—', margin + colWD - 1, yL + 4, { align: 'right' });
+        doc.setDrawColor(...DS.colors.border);
+        doc.line(margin, yL + rowHD, margin + colWD, yL + rowHD);
+        yL += rowHD;
+      });
+
+      // Linhas — faixas
+      valBuckets.forEach((b, idx) => {
+        const cx2 = margin + colWD + colGapD;
+        doc.setFillColor(...(idx % 2 === 0 ? DS.colors.zebraRow : DS.colors.cardBg));
+        doc.rect(cx2, yR, colWD, rowHD, 'F');
+        doc.setFontSize(6);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(...DS.colors.textPrimary);
+        const labTrunc2 = b.label.length > 20 ? b.label.substring(0, 19) + '…' : b.label;
+        doc.text(labTrunc2, cx2 + 2, yR + 4);
+        doc.text(String(b.qtd), cx2 + colWD * 0.72, yR + 4, { align: 'right' });
+        doc.setTextColor(...(b.qtd > 0 ? DS.colors.textPrimary : DS.colors.textLight));
+        doc.text(b.qtd > 0 ? fmtProt(b.valor) : '—', cx2 + colWD - 1, yR + 4, { align: 'right' });
+        doc.setDrawColor(...DS.colors.border);
+        doc.line(cx2, yR + rowHD, cx2 + colWD, yR + rowHD);
+        yR += rowHD;
+      });
+
+      y = Math.max(yL, yR) + 4;
+    }
 
     // Helper: draw protestos detail table via autoT (word-wrap automático, sem truncamento)
     const drawProtTable = (rows: typeof protestoDetalhes) => {
@@ -3300,42 +3447,21 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       // ── BLOCO 4 (simplificado) — Locais dos Protestos ──
       drawSpacer(4);
       checkPageBreak(16);
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(...colors.textMuted);
-      doc.text("LOCAIS DOS PROTESTOS", margin, y + 4);
-      y += 7;
+      y = dsMiniHeader(y, 'LOCAIS DOS PROTESTOS');
       drawProtTable(protestoDetalhes.slice(0, 10));
 
       // Nota de limitação do bureau
       checkPageBreak(10);
       doc.setFontSize(5.5);
       doc.setFont("helvetica", "italic");
-      doc.setTextColor(...colors.textMuted);
+      doc.setTextColor(...DS.colors.textMuted);
       doc.text("* Detalhes (valor, data, apresentante) nao disponiveis no plano atual do Credit Hub — confirmar diretamente nos cartorios.", margin, y);
       y += 7;
     } else {
-      // ── BLOCO 4 — Top 10 por Valor ──
+      // ── BLOCO 4 — Top 10 Mais Recentes ──
       drawSpacer(4);
       checkPageBreak(16);
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(...colors.textMuted);
-      doc.text("TOP 10 POR VALOR", margin, y + 4);
-      y += 7;
-      const top10Valor = [...protestoDetalhes]
-        .sort((a, b) => parseProt(b.valor || "0") - parseProt(a.valor || "0"))
-        .slice(0, 10);
-      drawProtTable(top10Valor);
-
-      // ── BLOCO 5 — Top 10 Mais Recentes ──
-      drawSpacer(4);
-      checkPageBreak(16);
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(...colors.textMuted);
-      doc.text("TOP 10 MAIS RECENTES", margin, y + 4);
-      y += 7;
+      y = dsMiniHeader(y, 'TOP 10 MAIS RECENTES');
       const top10Recentes = [...protestoDetalhes]
         .sort((a, b) => {
           const da = parseDate(a.data || "");
@@ -3347,28 +3473,52 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         })
         .slice(0, 10);
       drawProtTable(top10Recentes);
+
+      // ── BLOCO 5 — Top 10 por Valor ──
+      drawSpacer(4);
+      checkPageBreak(16);
+      y = dsMiniHeader(y, 'TOP 10 POR VALOR');
+      const top10Valor = [...protestoDetalhes]
+        .sort((a, b) => parseProt(b.valor || "0") - parseProt(a.valor || "0"))
+        .slice(0, 10);
+      drawProtTable(top10Valor);
     }
   }
 
   // ===== SEÇÃO 06 — PROCESSOS (flui se couber) =====
   drawSpacer(10);
   checkPageBreak(50);
-  drawSectionTitle("06", "PROCESSOS JUDICIAIS", colors.warning);
+  dsSectionHeader("06", "PROCESSOS JUDICIAIS");
 
-  // ── BLOCO 1 — Totais ──
-  drawFieldRow([
-    { label: "Processos (Total)", value: processosNaoConsultados ? "Não consultado" : (data.processos?.passivosTotal || "0") },
-    { label: "Em Andamento", value: processosNaoConsultados ? "Não consultado" : (data.processos?.ativosTotal || "0") },
-    { label: "Valor Estimado (R$)", value: processosNaoConsultados ? "Não consultado" : (data.processos?.valorTotalEstimado || "0,00") },
-    { label: "Rec. Judicial", value: processosNaoConsultados ? "Não consultado" : (data.processos?.temRJ ? "⚠ SIM" : "Não") },
-  ]);
-  if (!processosNaoConsultados && (data.processos?.dividasQtd || data.processos?.dividasValor)) {
-    drawFieldRow([
-      { label: "Dívidas Ativas (Qtd)", value: data.processos?.dividasQtd || "0" },
-      { label: "Dívidas Ativas (R$)", value: data.processos?.dividasValor || "0,00" },
-      { label: "", value: "" },
-      { label: "", value: "" },
-    ]);
+  // ── BLOCO 1 — KPI Cards (3 cols linha 1 + 3 cols linha 2) ──
+  {
+    checkPageBreak(48);
+    const kpiGapQ = 3;
+    const kpiWQ = (contentW - kpiGapQ * 2) / 3;
+    const kpiHQ = 20;
+    const passivosN = parseInt(data.processos?.passivosTotal || '0');
+    const ativosN   = parseInt(data.processos?.ativosTotal || '0');
+    const temRJN    = !!data.processos?.temRJ;
+    const dividasQN = parseInt(data.processos?.dividasQtd || '0');
+
+    const kpiRowsQ = [
+      [
+        { label: 'Total Processos',   value: processosNaoConsultados ? 'N/C' : String(passivosN), border: passivosN > 0 ? DS.colors.warn : DS.colors.border, valColor: passivosN > 0 ? DS.colors.warn : DS.colors.textPrimary },
+        { label: 'Em Andamento',      value: processosNaoConsultados ? 'N/C' : String(ativosN),   border: ativosN > 0 ? DS.colors.warn : DS.colors.border,   valColor: ativosN > 0 ? DS.colors.warn : DS.colors.textPrimary },
+        { label: 'Valor Estimado',    value: processosNaoConsultados ? 'N/C' : (data.processos?.valorTotalEstimado || '—'), border: DS.colors.border, valColor: DS.colors.textPrimary },
+      ],
+      [
+        { label: 'Rec. Judicial',     value: processosNaoConsultados ? 'N/C' : (temRJN ? 'SIM' : 'Nao'), border: temRJN ? DS.colors.danger : DS.colors.success, valColor: temRJN ? DS.colors.danger : DS.colors.success },
+        { label: 'Dividas Qtd',       value: processosNaoConsultados ? 'N/C' : String(dividasQN),  border: dividasQN > 0 ? DS.colors.danger : DS.colors.border, valColor: dividasQN > 0 ? DS.colors.danger : DS.colors.textPrimary },
+        { label: 'Dividas R$',        value: processosNaoConsultados ? 'N/C' : (dividasQN > 0 ? `R$ ${fmtMoney(data.processos?.dividasValor)}` : '—'), border: dividasQN > 0 ? DS.colors.danger : DS.colors.border, valColor: dividasQN > 0 ? DS.colors.danger : DS.colors.textLight },
+      ],
+    ];
+    kpiRowsQ.forEach((row, ri) => {
+      row.forEach((k, ci) => {
+        dsMetricCard(margin + ci * (kpiWQ + kpiGapQ), y + ri * (kpiHQ + kpiGapQ), kpiWQ, kpiHQ, k.label, k.value, undefined, k.border, k.valColor);
+      });
+    });
+    y += kpiHQ * 2 + kpiGapQ * 2 + 4;
   }
 
   if (processosNaoConsultados) {
@@ -3413,11 +3563,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     const drawProcLabel = (title: string) => {
       drawSpacer(4);
       checkPageBreak(14);
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(...colors.textMuted);
-      doc.text(title.toUpperCase(), margin, y + 4);
-      y += 7;
+      y = dsMiniHeader(y, title);
     };
 
     // Status color helper
@@ -3573,7 +3719,29 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       );
     }
 
-    // ── BLOCO 9 — Top 10 por Valor ──
+    // ── BLOCO 9 — Top 10 mais Recentes ──
+    if ((proc?.top10Recentes?.length ?? 0) > 0 && !procSemDetalhesReais) {
+      drawProcLabel(`TOP ${proc!.top10Recentes!.length} MAIS RECENTES`);
+      drawProcAutoTable(
+        ["TIPO", "DISTRIB.", "ULT.MOVTO.", "ASSUNTO / PARTES", "VALOR", "STATUS", "FASE / UF"],
+        proc!.top10Recentes!.map(p => {
+          const descTxt = [p.assunto, p.partes].filter(Boolean).join(" · ");
+          const faseTxt = [p.fase, p.uf].filter(Boolean).join(" · ") || "—";
+          return [
+            { text: p.tipo || "—" },
+            { text: p.data || "—" },
+            { text: p.dataUltimoAndamento || "—" },
+            { text: descTxt || "—" },
+            { text: `R$ ${fmtMoney(p.valor)}`, align: "right" as const },
+            { text: p.status || "—", color: statusColor(p.status) },
+            { text: faseTxt },
+          ] as ProcCell[];
+        }),
+        [0.10, 0.10, 0.10, 0.28, 0.13, 0.14, 0.15].map(r => contentW * r),
+      );
+    }
+
+    // ── BLOCO 10 — Top 10 por Valor ──
     if ((proc?.top10Valor?.length ?? 0) > 0 && !procSemDetalhesReais) {
       drawProcLabel(`TOP ${proc!.top10Valor!.length} POR VALOR`);
       drawProcAutoTable(
@@ -3631,28 +3799,6 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       doc.text("Consultar diretamente nos tribunais competentes.", margin + 8, y + 9.5);
       y += 16;
     }
-
-    // ── BLOCO 10 — Top 10 mais Recentes ──
-    if ((proc?.top10Recentes?.length ?? 0) > 0 && !procSemDetalhesReais) {
-      drawProcLabel(`TOP ${proc!.top10Recentes!.length} MAIS RECENTES`);
-      drawProcAutoTable(
-        ["TIPO", "DISTRIB.", "ULT.MOVTO.", "ASSUNTO / PARTES", "VALOR", "STATUS", "FASE / UF"],
-        proc!.top10Recentes!.map(p => {
-          const descTxt = [p.assunto, p.partes].filter(Boolean).join(" · ");
-          const faseTxt = [p.fase, p.uf].filter(Boolean).join(" · ") || "—";
-          return [
-            { text: p.tipo || "—" },
-            { text: p.data || "—" },
-            { text: p.dataUltimoAndamento || "—" },
-            { text: descTxt || "—" },
-            { text: `R$ ${fmtMoney(p.valor)}`, align: "right" as const },
-            { text: p.status || "—", color: statusColor(p.status) },
-            { text: faseTxt },
-          ] as ProcCell[];
-        }),
-        [0.10, 0.10, 0.10, 0.28, 0.13, 0.14, 0.15].map(r => contentW * r),
-      );
-    }
   }
 
   // ===== SEÇÃO CCF — CHEQUES SEM FUNDO =====
@@ -3661,7 +3807,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     const ccfConsultado = !!ccf;
     drawSpacer(10);
     checkPageBreak(40);
-    drawSectionTitle("07", "CCF — CHEQUES SEM FUNDO", colors.danger);
+    dsSectionHeader("07", "CCF — CHEQUES SEM FUNDO");
 
     if (!ccfConsultado) {
       drawSpacer(4);
@@ -3733,7 +3879,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     if (hist && hist.length > 0) {
       drawSpacer(10);
       checkPageBreak(40);
-      drawSectionTitle("08", "HISTÓRICO DE CONSULTAS AO MERCADO", colors.primary);
+      dsSectionHeader("08", "HISTORICO DE CONSULTAS AO MERCADO");
 
       drawSpacer(4);
       checkPageBreak(8 + Math.min(hist.length, 15) * 6 + 4);
@@ -3762,13 +3908,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     checkPageBreak(50);
 
     // Header da seção
-    doc.setFillColor(...colors.primary);
-    doc.rect(margin, y, contentW, 8, "F");
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(255, 255, 255);
-    doc.text("12   IR DOS SÓCIOS", margin + 4, y + 5.5);
-    y += 12;
+    dsSectionHeader("12", "IR DOS SOCIOS");
 
     for (let idx = 0; idx < data.irSocios.length; idx++) {
       const ir = data.irSocios[idx];
@@ -3843,8 +3983,10 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       // Tabela de dados patrimoniais
       const linhasIR = [
         { label: "Renda Total", valor: `R$ ${fmtMoney(ir.rendimentoTotal || "0,00")}` },
-        { label: "Rendimentos Tributáveis", valor: `R$ ${fmtMoney(ir.rendimentosTributaveis || "0,00")}` },
+        { label: "Rendimentos Tributáveis", valor: `R$ ${fmtMoney(ir.rendimentosTributaveis || "0,00")}`, bold: true },
         { label: "Rendimentos Isentos", valor: `R$ ${fmtMoney(ir.rendimentosIsentos || "0,00")}` },
+        { label: "Imposto Definido", valor: `R$ ${fmtMoney((ir as unknown as Record<string,string>).impostoDefinido || "0,00")}`, bold: true },
+        { label: "Valor da Quota", valor: `R$ ${fmtMoney((ir as unknown as Record<string,string>).valorQuota || "0,00")}` },
         { label: "Total Bens e Direitos", valor: `R$ ${fmtMoney(ir.totalBensDireitos || "0,00")}`, bold: true },
         { label: "Dívidas e Ônus", valor: `R$ ${fmtMoney(ir.dividasOnus || "0,00")}` },
         { label: "Patrimônio Líquido", valor: `R$ ${fmtMoney(ir.patrimonioLiquido || "0,00")}`, bold: true },
@@ -3929,13 +4071,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     drawSpacer(10);
     checkPageBreak(55);
 
-    doc.setFillColor(...colors.primary);
-    doc.rect(margin, y, contentW, 8, "F");
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(255, 255, 255);
-    doc.text("13   RELATORIO DE VISITA", margin + 4, y + 5.5);
-    y += 12;
+    dsSectionHeader("13", "RELATORIO DE VISITA");
 
     // Cabeçalho da visita
     doc.setFontSize(7.5);
@@ -4021,7 +4157,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
     // Observações livres — espaçamento de 12pt entre bloco recomendação e texto
     if (data.relatorioVisita.observacoesLivres) {
-      y += 12; // marginBottom mínimo de 12pt entre recomendação e texto descritivo
+      y += 12;
       checkPageBreak(16);
       doc.setFontSize(7.5);
       doc.setFont("helvetica", "bold");
@@ -4034,6 +4170,93 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       const obsLines = doc.splitTextToSize(data.relatorioVisita.observacoesLivres, contentW - 6);
       obsLines.forEach((l: string) => { checkPageBreak(5); doc.text(l, margin + 2, y); y += 4.5; });
       y += 4;
+    }
+
+    // ── Bloco: Parâmetros Operacionais ──
+    const rv = data.relatorioVisita as unknown as Record<string, string | undefined>;
+    const temParamsOp = [
+      rv.taxaConvencional, rv.taxaComissaria, rv.limiteTotal, rv.limiteConvencional,
+      rv.limiteComissaria, rv.limitePorSacado, rv.ticketMedio, rv.valorCobrancaBoleto,
+      rv.prazoRecompraCedente, rv.prazoEnvioCartorio, rv.prazoMaximoOp, rv.cobrancaTAC,
+      rv.tranche, rv.prazoTranche,
+    ].some(v => v && v.trim() !== "");
+
+    const temDadosEmpresa = [
+      rv.folhaPagamento, rv.endividamentoBanco, rv.endividamentoFactoring,
+      rv.vendasCheque, rv.vendasDuplicata, rv.vendasOutras,
+      rv.prazoMedioFaturamento, rv.prazoMedioEntrega, rv.referenciasFornecedores,
+    ].some(v => v && v.trim() !== "");
+
+    const drawOpTable = (rows: [string, string][]) => {
+      const colLW = 90;
+      const colRW = contentW - colLW;
+      rows.forEach(([label, value], i) => {
+        checkPageBreak(6);
+        const bg: [number,number,number] = i % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+        doc.setFillColor(...bg);
+        doc.rect(margin, y, contentW, 6, "F");
+        doc.setFontSize(6.5);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...colors.textMuted);
+        doc.text(label, margin + 3, y + 4);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.text);
+        doc.text(value || "—", margin + colLW, y + 4, { maxWidth: colRW - 4 });
+        y += 6;
+      });
+      y += 3;
+    };
+
+    if (temParamsOp) {
+      checkPageBreak(20);
+      y += 6;
+      doc.setFillColor(...colors.navy);
+      doc.roundedRect(margin, y, contentW, 7, 1, 1, "F");
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(255, 255, 255);
+      doc.text("PARAMETROS OPERACIONAIS", margin + 4, y + 4.8);
+      y += 7;
+      drawOpTable([
+        ["Taxa Convencional", rv.taxaConvencional || ""],
+        ["Taxa Comissaria", rv.taxaComissaria || ""],
+        ["Limite Total", rv.limiteTotal ? `R$ ${rv.limiteTotal}` : ""],
+        ["Limite Convencional", rv.limiteConvencional ? `R$ ${rv.limiteConvencional}` : ""],
+        ["Limite Comissaria", rv.limiteComissaria ? `R$ ${rv.limiteComissaria}` : ""],
+        ["Limite por Sacado", rv.limitePorSacado ? `R$ ${rv.limitePorSacado}` : ""],
+        ["Ticket Medio", rv.ticketMedio ? `R$ ${rv.ticketMedio}` : ""],
+        ["Valor Cobranca de Boleto", rv.valorCobrancaBoleto ? `R$ ${rv.valorCobrancaBoleto}` : ""],
+        ["Cond. Cobranca — Prazo de Recompra (Cedente)", rv.prazoRecompraCedente ? `${rv.prazoRecompraCedente} dias` : ""],
+        ["Cond. Cobranca — Envio para Cartorio em", rv.prazoEnvioCartorio ? `${rv.prazoEnvioCartorio} dias` : ""],
+        ["Prazo Maximo", rv.prazoMaximoOp ? `${rv.prazoMaximoOp} dias` : ""],
+        ["Cobranca de TAC", rv.cobrancaTAC || ""],
+        ["Tranche", rv.tranche ? `R$ ${rv.tranche}` : ""],
+        ["Prazo em Tranche", rv.prazoTranche ? `${rv.prazoTranche} dias` : ""],
+      ]);
+    }
+
+    if (temDadosEmpresa) {
+      checkPageBreak(20);
+      y += 2;
+      doc.setFillColor(...colors.navy);
+      doc.roundedRect(margin, y, contentW, 7, 1, 1, "F");
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(255, 255, 255);
+      doc.text("DADOS DA EMPRESA", margin + 4, y + 4.8);
+      y += 7;
+      drawOpTable([
+        ["Numero de Funcionarios", String(data.relatorioVisita.funcionariosObservados || "")],
+        ["Folha de Pagamento", rv.folhaPagamento ? `R$ ${rv.folhaPagamento}` : ""],
+        ["Endividamento Banco", rv.endividamentoBanco || ""],
+        ["Endividamento Factoring/FIDC", rv.endividamentoFactoring ? `R$ ${rv.endividamentoFactoring}` : ""],
+        ["Vendas (Cheque)", rv.vendasCheque || ""],
+        ["Vendas (Duplicata)", rv.vendasDuplicata || ""],
+        ["Vendas (Outras)", rv.vendasOutras || ""],
+        ["Prazo Medio de Faturamento", rv.prazoMedioFaturamento ? `${rv.prazoMedioFaturamento} dias` : ""],
+        ["Prazo Medio de Entrega das Mercadorias", rv.prazoMedioEntrega ? `${rv.prazoMedioEntrega} dias` : ""],
+        ["Referencias Comerciais / Fornecedores", rv.referenciasFornecedores || ""],
+      ]);
     }
   }
 
@@ -4053,21 +4276,11 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   const pontosFracosFinal = pontosFracos.length > 0 ? pontosFracos : (parecerNorm.pontosNegativosOuFracos || []);
 
 
-  // Section header bar
-  doc.setFillColor(...colors.navy);
-  doc.rect(margin, y, contentW, 10, "F");
-  doc.setFillColor(...colors.accent);
-  doc.rect(margin, y + 10, contentW, 1.5, "F");
-  doc.setFontSize(7);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(255, 255, 255);
-  doc.text("08", margin + 4, y + 6.5);
-  doc.setFontSize(9);
-  doc.text("PARECER PRELIMINAR", margin + 14, y + 6.5);
-  y += 13;
+  // Section header bar — Parecer Preliminar
+  dsSectionHeader("08", "PARECER PRELIMINAR");
 
-  // ── BLOCO 1 — Decisão + Rating + Resumo ──
-  checkPageBreak(20);
+  // ── BLOCO 1 — Decisão + Rating + Resumo (Hero block) ──
+  checkPageBreak(36);
   const decisionColors: Record<string, { bg: [number, number, number]; text: [number, number, number] }> = {
     APROVADO: { bg: [240, 253, 244], text: [22, 163, 74] },
     APROVACAO_CONDICIONAL: { bg: [254, 249, 195], text: [161, 98, 7] },
@@ -4075,78 +4288,147 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     REPROVADO: { bg: [254, 242, 242], text: [220, 38, 38] },
   };
   const dc = decisionColors[decision] ?? decisionColors.PENDENTE;
+  const heroH = 32;
+  const heroY = y;
 
-  // Decision badge
+  // Hero card background
+  doc.setFillColor(255, 255, 255);
+  doc.roundedRect(margin, heroY, contentW, heroH, 2, 2, "F");
+  doc.setDrawColor(...DS.colors.border);
+  doc.setLineWidth(0.25);
+  doc.roundedRect(margin, heroY, contentW, heroH, 2, 2, "D");
+  doc.setLineWidth(0.1);
+
+  // Amber accent line at bottom of hero
+  doc.setFillColor(...DS.colors.accent);
+  doc.rect(margin, heroY + heroH - 1.5, contentW, 1.5, "F");
+
+  // Left side — Score large
+  const pareScoreC: [number,number,number] = finalRating >= 7.5 ? [22, 163, 74] : finalRating >= 6 ? [217, 119, 6] : [220, 38, 38];
+  doc.setFontSize(28);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(...pareScoreC);
+  const pareScoreStr = String(finalRating);
+  doc.text(pareScoreStr, margin + 5, heroY + 21);
+  const pareScoreW = doc.getTextWidth(pareScoreStr);
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(...DS.colors.textMuted);
+  doc.text("/10", margin + 5 + pareScoreW + 1, heroY + 21);
+  doc.setFontSize(6);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(...DS.colors.textMuted);
+  doc.text("SCORE DE RISCO", margin + 5, heroY + 27);
+  // Progress bar under score
+  const pBarX = margin + 5;
+  const pBarY = heroY + 28.5;
+  const pBarW = 55;
+  const pBarH = 2;
+  doc.setFillColor(...DS.colors.border);
+  doc.roundedRect(pBarX, pBarY, pBarW, pBarH, 0.8, 0.8, "F");
+  const pFillW = Math.min(pBarW, (finalRating / 10) * pBarW);
+  if (pFillW > 0) {
+    doc.setFillColor(...pareScoreC);
+    doc.roundedRect(pBarX, pBarY, pFillW, pBarH, 0.8, 0.8, "F");
+  }
+
+  // Right side — Decision pill
+  const bW2p = 95;
+  const bH2p = 22;
+  const bX2p = margin + contentW - bW2p - 4;
+  const bY2p = heroY + (heroH - bH2p) / 2;
   doc.setFillColor(...dc.bg);
-  doc.roundedRect(margin, y, 70, 10, 2, 2, "F");
-  doc.setFontSize(8);
+  doc.roundedRect(bX2p, bY2p, bW2p, bH2p, 3, 3, "F");
+  doc.setDrawColor(...dc.text);
+  doc.setLineWidth(0.5);
+  doc.roundedRect(bX2p, bY2p, bW2p, bH2p, 3, 3, "D");
+  doc.setLineWidth(0.1);
+  doc.setFontSize(11);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(...dc.text);
-  doc.text(decision.replace("_", " "), margin + 35, y + 6.5, { align: "center" });
+  doc.text(decision.replace(/_/g, " "), bX2p + bW2p / 2, bY2p + bH2p / 2 + 2, { align: "center" });
+  // Subtitle under decision
+  const decSubtitle = decision === "APROVADO" ? "Operação recomendada" :
+    decision === "REPROVADO" ? "Operação não recomendada" : "Sujeito a condições";
+  doc.setFontSize(6);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(...dc.text);
+  doc.text(decSubtitle, bX2p + bW2p / 2, bY2p + bH2p / 2 + 6.5, { align: "center" });
 
-  // Rating badge
-  const ratingColor: [number, number, number] = finalRating >= 7 ? colors.green : finalRating >= 4 ? colors.amber : colors.red;
-  doc.setFillColor(...colors.surface2);
-  doc.roundedRect(margin + 74, y, 28, 10, 2, 2, "F");
-  doc.setFontSize(10);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(...ratingColor);
-  doc.text(finalRating + "/10", margin + 88, y + 6.5, { align: "center" });
-  y += 14;
+  y = heroY + heroH + 6;
 
   if (resumoFinal) {
-    checkPageBreak(12);
+    checkPageBreak(14);
+    // Label for resumo with accent line
+    doc.setFillColor(...DS.colors.accent);
+    doc.rect(margin, y, contentW, 0.8, "F");
+    y += 3;
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...DS.colors.accent);
+    doc.text("RESUMO EXECUTIVO", margin, y + 5);
+    y += 10;
+
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(8.5);
+    doc.setFontSize(9);
     doc.setTextColor(...colors.text);
-    const rLines = doc.splitTextToSize(resumoFinal, contentW) as string[];
-    rLines.forEach((line: string) => { checkPageBreak(5); doc.text(line, margin, y); y += 4.5; });
+    const rLines = doc.splitTextToSize(resumoFinal, contentW - 4) as string[];
+    rLines.forEach((line: string) => { checkPageBreak(6.5); doc.text(line, margin + 2, y); y += 5.5; });
     y += 4;
   }
 
   // ── BLOCO 2 — Pontos Fortes e Pontos Fracos ──
   if (pontosFortesFinal.length > 0 || pontosFracosFinal.length > 0) {
-    const renderBulletList = (
+    const renderBulletListDS = (
       title: string,
       items: string[],
-      headerBg: [number, number, number],
-      headerText: [number, number, number],
+      accentC: [number, number, number],
+      bulletColor: [number, number, number],
     ) => {
       if (items.length === 0) return;
-      checkPageBreak(12);
-      doc.setFillColor(...headerBg);
-      doc.roundedRect(margin, y, contentW, 7, 1, 1, "F");
-      doc.setFontSize(6.5);
+      checkPageBreak(14);
+      // Thin accent line + label
+      doc.setFillColor(...accentC);
+      doc.rect(margin, y, contentW, 0.8, "F");
+      y += 3;
+      doc.setFontSize(8);
       doc.setFont("helvetica", "bold");
-      doc.setTextColor(...headerText);
-      doc.text(title, margin + contentW / 2, y + 4.8, { align: "center" });
-      y += 9;
+      doc.setTextColor(...accentC);
+      doc.text(title.toUpperCase(), margin, y + 5);
+      y += 10;
 
       items.forEach((item: string) => {
-        const lines = doc.splitTextToSize("• " + item, contentW - 6) as string[];
-        checkPageBreak(lines.length * 4 + 3);
+        const lines = doc.splitTextToSize(item, contentW - 10) as string[];
+        checkPageBreak(lines.length * 5 + 3);
+        doc.setFillColor(255, 255, 255);
+        const itemH = lines.length * 5 + 5;
+        doc.rect(margin, y, contentW, itemH, "F");
+        // Dash bullet
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8.5);
+        doc.setTextColor(...bulletColor);
+        doc.text("—", margin + 2, y + 5);
+        // Text
         doc.setFont("helvetica", "normal");
-        doc.setFontSize(7.5);
-        doc.setTextColor(...colors.text);
-        lines.forEach((line: string) => { doc.text(line, margin + 2, y); y += 4; });
-        y += 2;
+        doc.setFontSize(8.5);
+        doc.setTextColor(...DS.colors.textPrimary);
+        lines.forEach((line: string, li: number) => {
+          doc.text(line, margin + 9, y + 5 + li * 5);
+        });
+        y += itemH + 2;
       });
-      y += 2;
+      y += 4;
     };
 
-    renderBulletList("PONTOS FORTES", pontosFortesFinal, [240, 253, 244], colors.green);
-    renderBulletList("PONTOS FRACOS / RISCOS", pontosFracosFinal, [254, 242, 242], colors.danger);
+    renderBulletListDS("Pontos Fortes", pontosFortesFinal, DS.colors.success, DS.colors.success);
+    renderBulletListDS("Pontos Fracos / Riscos", pontosFracosFinal, DS.colors.danger, DS.colors.danger);
   }
 
   // ── BLOCO 3 — Tabela de Alertas ──
   const aiAlertas = aiAnalysis?.alertas ?? [];
   if (aiAlertas.length > 0) {
     checkPageBreak(16);
-    doc.setFontSize(7);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...colors.textMuted);
-    doc.text("ALERTAS", margin, y + 4);
-    y += 7;
+    y = dsMiniHeader(y, 'ALERTAS');
 
     // Tabela de alertas — autotable com overflow:linebreak (sem truncamento, word-wrap real)
     autoT(
@@ -4169,11 +4451,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   // ── BLOCO 4 — Perguntas para Visita ──
   if (perguntasVisita.length > 0) {
     checkPageBreak(14);
-    doc.setFontSize(7);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...colors.textMuted);
-    doc.text("PERGUNTAS PARA A VISITA", margin, y + 4);
-    y += 7;
+    y = dsMiniHeader(y, 'PERGUNTAS PARA A VISITA');
 
     perguntasVisita.forEach((q, i) => {
       const qLines = doc.splitTextToSize(`${i + 1}. ${q.pergunta}`, contentW - 4) as string[];

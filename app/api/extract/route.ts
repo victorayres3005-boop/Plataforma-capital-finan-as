@@ -338,12 +338,38 @@ const PROMPT_BALANCO = `Extraia dados do Balanço Patrimonial. Pode ser formato 
 Regras: SPED=use Saldo Final, todos os anos em ordem crescente, patrimonioLiquido negativo mantém sinal de menos, liquidezCorrente=AC÷PC, endividamento em %, capitalDeGiro=AC-PC (pode ser negativo), tendenciaPatrimonio="crescimento"/"queda"/"estavel", NÃO invente dados.`;
 
 const PROMPT_IR_SOCIOS = `Extraia dados do IR do sócio (recibo de entrega ou declaração completa). Retorne APENAS JSON, sem markdown:
-{"nomeSocio":"","cpf":"","anoBase":"","tipoDocumento":"recibo","numeroRecibo":"","dataEntrega":"","situacaoMalhas":false,"debitosEmAberto":false,"descricaoDebitos":"","rendimentosTributaveis":"0,00","rendimentosIsentos":"0,00","rendimentoTotal":"0,00","bensImoveis":"0,00","bensVeiculos":"0,00","aplicacoesFinanceiras":"0,00","outrosBens":"0,00","totalBensDireitos":"0,00","dividasOnus":"0,00","patrimonioLiquido":"0,00","impostoPago":"0,00","impostoRestituir":"0,00","temSociedades":false,"sociedades":[],"coerenciaComEmpresa":true,"observacoes":""}
-Regras: anoBase=ANO-CALENDÁRIO (não exercício), ex: "EXERCÍCIO 2025 — ANO-CALENDÁRIO 2024" → anoBase="2024", nomeSocio e anoBase são OBRIGATÓRIOS, cpf formato 000.000.000-00, situacaoMalhas=true se mencionar pendências de malhas, debitosEmAberto=true se mencionar débitos, recibo simples deixe valores monetários como "0,00", NÃO invente dados.`;
+{"nomeSocio":"","cpf":"","anoBase":"","tipoDocumento":"recibo","numeroRecibo":"","dataEntrega":"","situacaoMalhas":false,"debitosEmAberto":false,"descricaoDebitos":"","rendimentosTributaveis":"0,00","rendimentosIsentos":"0,00","rendimentoTotal":"0,00","impostoDefinido":"0,00","valorQuota":"0,00","bensImoveis":"0,00","bensVeiculos":"0,00","aplicacoesFinanceiras":"0,00","outrosBens":"0,00","totalBensDireitos":"0,00","dividasOnus":"0,00","patrimonioLiquido":"0,00","impostoPago":"0,00","impostoRestituir":"0,00","temSociedades":false,"sociedades":[],"coerenciaComEmpresa":true,"observacoes":""}
+Regras: anoBase=ANO-CALENDÁRIO (não exercício), ex: "EXERCÍCIO 2025 — ANO-CALENDÁRIO 2024" → anoBase="2024", nomeSocio e anoBase são OBRIGATÓRIOS, cpf formato 000.000.000-00, situacaoMalhas=true se mencionar pendências de malhas, debitosEmAberto=true se mencionar débitos, recibo simples deixe valores monetários como "0,00", NÃO invente dados.
+impostoDefinido=valor total do imposto apurado/calculado antes de deduções de pagamentos (buscar por "Imposto devido", "Imposto apurado", "Total do imposto" na declaração).
+valorQuota=valor de cada parcela/quota do imposto a pagar (buscar por "valor da quota", "valor da parcela", "quota mensal" — preencher apenas se houver parcelamento, caso contrário "0,00").`;
 
 const PROMPT_RELATORIO_VISITA = `Extraia dados do Relatório de Visita (texto livre, formulário ou template). Retorne APENAS JSON, sem markdown:
-{"dataVisita":"","responsavelVisita":"","localVisita":"","duracaoVisita":"","estruturaFisicaConfirmada":true,"funcionariosObservados":0,"estoqueVisivel":false,"estimativaEstoque":"","operacaoCompativelFaturamento":true,"maquinasEquipamentos":false,"descricaoEstrutura":"","pontosPositivos":[],"pontosAtencao":[],"recomendacaoVisitante":"aprovado","nivelConfiancaVisita":"alto","presencaSocios":false,"sociosPresentes":[],"documentosVerificados":[],"observacoesLivres":"","pleito":"","modalidade":""}
-Regras: dataVisita=DD/MM/YYYY, recomendacaoVisitante="aprovado"/"condicional"/"reprovado", nivelConfiancaVisita="alto"/"medio"/"baixo", campos ausentes="" ou false, NÃO invente dados. pleito=valor em R$ sugerido pelo cedente (ex: "150000,00") — buscar por termos como "pleito", "valor solicitado", "limite sugerido", "crédito pleiteado"; se não encontrado deixe "". modalidade=tipo de operação de recebíveis — valores aceitos: "comissaria" (quando o cedente mantém a relação com o sacado, faz cobrança, risco de crédito do sacado é do cedente), "convencional" (cessão plena, FIDC assume risco do sacado), "hibrida" (misto), "outra"; buscar por termos como "comissária", "convencional", "modalidade", "tipo de operação", "estrutura"; se não encontrado deixe "".`;
+{"dataVisita":"","responsavelVisita":"","localVisita":"","duracaoVisita":"","estruturaFisicaConfirmada":true,"funcionariosObservados":0,"estoqueVisivel":false,"estimativaEstoque":"","operacaoCompativelFaturamento":true,"maquinasEquipamentos":false,"descricaoEstrutura":"","pontosPositivos":[],"pontosAtencao":[],"recomendacaoVisitante":"aprovado","nivelConfiancaVisita":"alto","presencaSocios":false,"sociosPresentes":[],"documentosVerificados":[],"observacoesLivres":"","pleito":"","modalidade":"","taxaConvencional":"","taxaComissaria":"","limiteTotal":"","limiteConvencional":"","limiteComissaria":"","limitePorSacado":"","ticketMedio":"","valorCobrancaBoleto":"","prazoRecompraCedente":"","prazoEnvioCartorio":"","prazoMaximoOp":"","cobrancaTAC":"","tranche":"","prazoTranche":"","folhaPagamento":"","endividamentoBanco":"","endividamentoFactoring":"","vendasCheque":"","vendasDuplicata":"","vendasOutras":"","prazoMedioFaturamento":"","prazoMedioEntrega":"","referenciasFornecedores":""}
+Regras gerais: dataVisita=DD/MM/YYYY, recomendacaoVisitante="aprovado"/"condicional"/"reprovado", nivelConfiancaVisita="alto"/"medio"/"baixo", campos ausentes="" ou false, NÃO invente dados.
+pleito=valor em R$ sugerido pelo cedente (ex: "150000,00") — buscar por "pleito", "valor solicitado", "limite sugerido", "crédito pleiteado"; se não encontrado deixe "".
+modalidade=tipo de operação — "comissaria" (cedente mantém relação com sacado, faz cobrança), "convencional" (cessão plena, FIDC assume risco), "hibrida", "outra"; buscar por "comissária", "convencional", "modalidade", "tipo de operação"; se não encontrado deixe "".
+Parâmetros operacionais (buscar em tabelas, campos rotulados, seção de parâmetros/condições):
+- taxaConvencional: taxa % para modalidade convencional (ex: "2,5%")
+- taxaComissaria: taxa % para modalidade comissária (ex: "1,8%")
+- limiteTotal: limite total aprovado em R$ (ex: "500000,00")
+- limiteConvencional/limiteComissaria: limites por modalidade
+- limitePorSacado: limite máximo por sacado em R$
+- ticketMedio: valor médio por duplicata/título em R$
+- valorCobrancaBoleto: valor cobrado por emissão/cobrança de boleto em R$
+- prazoRecompraCedente: prazo em dias para recompra pelo cedente (buscar "prazo de recompra", "recompra em X dias")
+- prazoEnvioCartorio: dias até envio para cartório (buscar "cartório em X dias", "envio para cartório")
+- prazoMaximoOp: prazo máximo da operação em dias
+- cobrancaTAC: valor ou "Sim"/"Não" para cobrança de TAC
+- tranche: valor da tranche em R$
+- prazoTranche: prazo da tranche em dias
+Dados da empresa (coletados na visita — buscar em campos rotulados):
+- folhaPagamento: folha de pagamento mensal em R$ (ex: "230000,00")
+- endividamentoBanco: endividamento bancário total em R$ (use "—" se não há endividamento)
+- endividamentoFactoring: endividamento com factoring/FIDC em R$
+- vendasCheque/vendasDuplicata/vendasOutras: % de vendas por forma de recebimento (ex: "10%", "70%", "20%")
+- prazoMedioFaturamento: prazo médio em dias (ex: "50")
+- prazoMedioEntrega: prazo médio de entrega em dias (ex: "3")
+- referenciasFornecedores: lista de referências comerciais/fornecedores (texto separado por vírgula ou ";" )`;
 
 // ─────────────────────────────────────────
 // PROVEDOR 1: Gemini (primário — melhor qualidade)
@@ -748,6 +774,8 @@ function fillIRSocioDefaults(data: Partial<IRSocioData>): IRSocioData {
     totalBensDireitos: data.totalBensDireitos || "0,00",
     dividasOnus: data.dividasOnus || "0,00",
     patrimonioLiquido: data.patrimonioLiquido || "0,00",
+    impostoDefinido: data.impostoDefinido || "0,00",
+    valorQuota: data.valorQuota || "0,00",
     impostoPago: data.impostoPago || "0,00",
     impostoRestituir: data.impostoRestituir || "0,00",
     temSociedades: data.temSociedades ?? false,
@@ -780,6 +808,29 @@ function fillRelatorioVisitaDefaults(data: Partial<RelatorioVisitaData>): Relato
     observacoesLivres: data.observacoesLivres || "",
     pleito: data.pleito || "",
     modalidade: data.modalidade || undefined,
+    taxaConvencional: data.taxaConvencional || "",
+    taxaComissaria: data.taxaComissaria || "",
+    limiteTotal: data.limiteTotal || "",
+    limiteConvencional: data.limiteConvencional || "",
+    limiteComissaria: data.limiteComissaria || "",
+    limitePorSacado: data.limitePorSacado || "",
+    ticketMedio: data.ticketMedio || "",
+    valorCobrancaBoleto: data.valorCobrancaBoleto || "",
+    prazoRecompraCedente: data.prazoRecompraCedente || "",
+    prazoEnvioCartorio: data.prazoEnvioCartorio || "",
+    prazoMaximoOp: data.prazoMaximoOp || "",
+    cobrancaTAC: data.cobrancaTAC || "",
+    tranche: data.tranche || "",
+    prazoTranche: data.prazoTranche || "",
+    folhaPagamento: data.folhaPagamento || "",
+    endividamentoBanco: data.endividamentoBanco || "",
+    endividamentoFactoring: data.endividamentoFactoring || "",
+    vendasCheque: data.vendasCheque || "",
+    vendasDuplicata: data.vendasDuplicata || "",
+    vendasOutras: data.vendasOutras || "",
+    prazoMedioFaturamento: data.prazoMedioFaturamento || "",
+    prazoMedioEntrega: data.prazoMedioEntrega || "",
+    referenciasFornecedores: data.referenciasFornecedores || "",
   };
 }
 

@@ -1,7 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, ArrowLeft, Plus, Trash2, AlertTriangle, ChevronDown, ChevronUp, AlertCircle, LineChart, Scale, PieChart, FileKey, ClipboardList } from "lucide-react";
+import { useState, useCallback, useEffect, useRef } from "react";
+
+export const DRAFT_KEY = "cf_review_draft_v2";
+const SUSPICIOUS_VALUES = new Set(["N/D", "n/d", "ND", "nd", "N/A", "n/a", "—", "-", "null", "undefined", "NaN"]);
+import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, ArrowLeft, Plus, Trash2, AlertTriangle, ChevronDown, ChevronUp, AlertCircle, LineChart, Scale, PieChart, FileKey, ClipboardList, RefreshCw } from "lucide-react";
 import { ExtractedData, Socio, QSASocio, FaturamentoMensal, SCRModalidade, SCRInstituicao, SCRData, IRSocioData } from "@/types";
 
 interface ReviewStepProps {
@@ -159,12 +162,25 @@ function Field({ label, value, onChange, multiline = false, span2 = false }: {
   label: string; value: string; onChange: (v: string) => void; multiline?: boolean; span2?: boolean;
 }) {
   const isEmpty = !value || value === "" || value === "0" || value === "0,00";
+  const isSuspicious = !isEmpty && SUSPICIOUS_VALUES.has(value.trim());
+
+  const inputCls = isSuspicious
+    ? "input-field border-orange-300 bg-orange-50/40"
+    : isEmpty
+    ? "input-field border-amber-200 bg-amber-50/30"
+    : "input-field";
+
   return (
     <div className={span2 ? "col-span-2" : ""}>
-      <label className="section-label block mb-1.5">{label}</label>
+      <label className="section-label flex items-center gap-1.5 mb-1.5">
+        {label}
+        {isSuspicious && (
+          <span className="text-[9px] font-bold text-orange-600 bg-orange-100 px-1.5 py-0.5 rounded-full leading-none">⚠ verificar</span>
+        )}
+      </label>
       {multiline
-        ? <textarea value={value} onChange={e => onChange(e.target.value)} rows={4} className={`input-field resize-none ${isEmpty ? "border-amber-200 bg-amber-50/30" : ""}`} />
-        : <input type="text" value={value} onChange={e => onChange(e.target.value)} className={`input-field ${isEmpty ? "border-amber-200 bg-amber-50/30" : ""}`} />
+        ? <textarea value={value} onChange={e => onChange(e.target.value)} rows={4} className={`${inputCls} resize-none`} />
+        : <input type="text" value={value} onChange={e => onChange(e.target.value)} className={inputCls} />
       }
     </div>
   );
@@ -175,13 +191,75 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
     const d: ExtractedData = JSON.parse(JSON.stringify(data));
     if (!d.dre) d.dre = { anos: [], crescimentoReceita: "", tendenciaLucro: "estavel", periodoMaisRecente: "", observacoes: "" };
     if (!d.balanco) d.balanco = { anos: [], periodoMaisRecente: "", tendenciaPatrimonio: "estavel", observacoes: "" };
-    if (!d.curvaABC) d.curvaABC = { clientes: [], totalClientesNaBase: 0, totalClientesExtraidos: 0, periodoReferencia: "", receitaTotalBase: "", concentracaoTop3: "", concentracaoTop5: "", maiorCliente: "", maiorClientePct: "", alertaConcentracao: false };
+    if (!d.curvaABC) d.curvaABC = { clientes: [], totalClientesNaBase: 0, totalClientesExtraidos: 0, periodoReferencia: "", receitaTotalBase: "", concentracaoTop3: "", concentracaoTop5: "", concentracaoTop10: "", totalClientesClasseA: 0, receitaClasseA: "", maiorCliente: "", maiorClientePct: "", alertaConcentracao: false };
     if (!d.irSocios) d.irSocios = [];
     if (!d.relatorioVisita) d.relatorioVisita = { dataVisita: "", responsavelVisita: "", localVisita: "", duracaoVisita: "", estruturaFisicaConfirmada: false, funcionariosObservados: 0, estoqueVisivel: false, estimativaEstoque: "", operacaoCompativelFaturamento: false, maquinasEquipamentos: false, descricaoEstrutura: "", pontosPositivos: [], pontosAtencao: [], recomendacaoVisitante: "aprovado", nivelConfiancaVisita: "medio", presencaSocios: false, sociosPresentes: [], documentosVerificados: [], observacoesLivres: "" };
     return d;
   });
-  const [open, setOpen] = useState({ cnpj: true, qsa: true, contrato: false, faturamento: true, scr: true, dre: false, balanco: false, curvaABC: false, irSocios: false, relatorioVisita: false });
+  const [open, setOpen] = useState(() => {
+    // Auto-expand sections that have quality issues on first load
+    const qFat = avaliarQualidade("faturamento", data.faturamento as unknown as Record<string, unknown>);
+    const qScr = avaliarQualidade("scr", data.scr as unknown as Record<string, unknown>);
+    const qContrato = avaliarQualidade("contrato", data.contrato as unknown as Record<string, unknown>);
+    return {
+      cnpj: true,
+      qsa: true,
+      contrato: qContrato.score !== "good",
+      faturamento: true,
+      scr: qScr.score !== "good" || qFat.score === "error",
+      dre: false,
+      balanco: false,
+      curvaABC: false,
+      irSocios: false,
+      relatorioVisita: false,
+    };
+  });
   const [showSCRDetails, setShowSCRDetails] = useState(false);
+  const [bureauStatus, setBureauStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [bureauMsg, setBureauMsg] = useState("");
+
+  // ── Auto-save to localStorage (debounced 2s) ──
+  const isFirstRender = useRef(true);
+  const [savedAt, setSavedAt] = useState<Date | null>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({ form, savedAt: new Date().toISOString() }));
+        setSavedAt(new Date());
+        isFirstRender.current = false;
+      } catch { /* storage may be full */ }
+    }, isFirstRender.current ? 1500 : 2000);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form]);
+
+  const reconsultarBuros = useCallback(async () => {
+    const cnpj = form.cnpj?.cnpj;
+    if (!cnpj) { setBureauMsg("CNPJ não encontrado nos dados."); setBureauStatus("error"); return; }
+    setBureauStatus("loading");
+    setBureauMsg("");
+    try {
+      const res = await fetch("/api/bureaus", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cnpj, data: form }),
+      });
+      const json = await res.json();
+      if (json.success && json.merged) {
+        setForm(prev => ({ ...prev, ...json.merged }));
+        const consultados: string[] = json.merged?.bureausConsultados || [];
+        setBureauMsg(consultados.length > 0 ? `Consultado: ${consultados.join(", ")}` : "Consulta concluída.");
+        setBureauStatus("done");
+      } else {
+        setBureauMsg(json.error || "Erro na consulta.");
+        setBureauStatus("error");
+      }
+    } catch {
+      setBureauMsg("Erro de rede ao consultar birôs.");
+      setBureauStatus("error");
+    }
+  }, [form]);
 
   const toggle = (k: keyof typeof open) => setOpen(p => ({ ...p, [k]: !p[k] }));
 
@@ -278,7 +356,7 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
     setForm(p => ({
       ...p,
       curvaABC: p.curvaABC
-        ? { ...p.curvaABC, clientes: [...p.curvaABC.clientes, { posicao: p.curvaABC.clientes.length + 1, nome: "", cnpjCpf: "", valorFaturado: "", percentualReceita: "", segmento: "" }] }
+        ? { ...p.curvaABC, clientes: [...p.curvaABC.clientes, { posicao: p.curvaABC.clientes.length + 1, nome: "", cnpjCpf: "", valorFaturado: "", percentualReceita: "", percentualAcumulado: "", classe: "" }] }
         : p.curvaABC,
     }));
   const removeCurvaABCCliente = (idx: number) =>
@@ -329,6 +407,14 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
 
   return (
     <div className="animate-slide-up space-y-4">
+
+      {/* Auto-save indicator */}
+      {savedAt && (
+        <div className="flex items-center justify-end gap-1.5 text-[10px] text-cf-text-3">
+          <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+          Rascunho salvo às {savedAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+        </div>
+      )}
 
       {/* Quality summary banner */}
       {!pode && !forcarAvancar ? (
@@ -976,7 +1062,7 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
                       <input value={c.nome} onChange={e => setCurvaABCCliente(i, "nome", e.target.value)} placeholder="Nome do cliente" className="input-field py-1.5 text-xs" />
                       <input value={c.valorFaturado} onChange={e => setCurvaABCCliente(i, "valorFaturado", e.target.value)} placeholder="0,00" className="input-field py-1.5 text-xs" />
                       <input value={c.percentualReceita} onChange={e => setCurvaABCCliente(i, "percentualReceita", e.target.value)} placeholder="0%" className="input-field py-1.5 text-xs" />
-                      <input value={c.segmento} onChange={e => setCurvaABCCliente(i, "segmento", e.target.value)} placeholder="Segmento" className="input-field py-1.5 text-xs" />
+                      <input value={c.classe} onChange={e => setCurvaABCCliente(i, "classe", e.target.value)} placeholder="A/B/C" className="input-field py-1.5 text-xs" />
                       <button onClick={() => removeCurvaABCCliente(i)} className="w-8 h-8 flex items-center justify-center text-cf-text-3 hover:text-cf-danger hover:bg-cf-danger-bg rounded-lg transition-colors"><Trash2 size={13} /></button>
                     </div>
                   ))}
@@ -992,7 +1078,7 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
                           <input value={c.valorFaturado} onChange={e => setCurvaABCCliente(i, "valorFaturado", e.target.value)} placeholder="Faturado" className="input-field py-2 text-sm" />
                           <input value={c.percentualReceita} onChange={e => setCurvaABCCliente(i, "percentualReceita", e.target.value)} placeholder="% Receita" className="input-field py-2 text-sm" />
                         </div>
-                        <input value={c.segmento} onChange={e => setCurvaABCCliente(i, "segmento", e.target.value)} placeholder="Segmento" className="input-field py-2 text-sm" />
+                        <input value={c.classe} onChange={e => setCurvaABCCliente(i, "classe", e.target.value)} placeholder="A/B/C" className="input-field py-2 text-sm" />
                       </div>
                     ))}
                   </div>
@@ -1179,6 +1265,58 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
             </div>
 
             <Field label="Observações Livres" value={form.relatorioVisita.observacoesLivres} onChange={v => setVisita("observacoesLivres", v)} multiline span2 />
+
+            {/* Parâmetros Operacionais */}
+            <div className="pt-2 border-t border-cf-border">
+              <p className="section-label mb-3">Parâmetros Operacionais</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field label="Pleito (R$)" value={form.relatorioVisita.pleito ?? ""} onChange={v => setVisita("pleito", v)} />
+                <div className="flex flex-col gap-1">
+                  <label className="section-label">Modalidade</label>
+                  <select
+                    value={form.relatorioVisita.modalidade ?? ""}
+                    onChange={e => setVisita("modalidade", e.target.value)}
+                    className="input-field text-sm"
+                  >
+                    <option value="">—</option>
+                    <option value="convencional">Convencional</option>
+                    <option value="comissaria">Comissária</option>
+                    <option value="hibrida">Híbrida</option>
+                    <option value="outra">Outra</option>
+                  </select>
+                </div>
+                <Field label="Taxa Convencional (%)" value={form.relatorioVisita.taxaConvencional ?? ""} onChange={v => setVisita("taxaConvencional", v)} />
+                <Field label="Taxa Comissária (%)" value={form.relatorioVisita.taxaComissaria ?? ""} onChange={v => setVisita("taxaComissaria", v)} />
+                <Field label="Limite Total (R$)" value={form.relatorioVisita.limiteTotal ?? ""} onChange={v => setVisita("limiteTotal", v)} />
+                <Field label="Limite Convencional (R$)" value={form.relatorioVisita.limiteConvencional ?? ""} onChange={v => setVisita("limiteConvencional", v)} />
+                <Field label="Limite Comissária (R$)" value={form.relatorioVisita.limiteComissaria ?? ""} onChange={v => setVisita("limiteComissaria", v)} />
+                <Field label="Limite por Sacado (R$)" value={form.relatorioVisita.limitePorSacado ?? ""} onChange={v => setVisita("limitePorSacado", v)} />
+                <Field label="Ticket Médio (R$)" value={form.relatorioVisita.ticketMedio ?? ""} onChange={v => setVisita("ticketMedio", v)} />
+                <Field label="Cobrança de Boleto (R$)" value={form.relatorioVisita.valorCobrancaBoleto ?? ""} onChange={v => setVisita("valorCobrancaBoleto", v)} />
+                <Field label="Prazo Recompra Cedente (dias)" value={form.relatorioVisita.prazoRecompraCedente ?? ""} onChange={v => setVisita("prazoRecompraCedente", v)} />
+                <Field label="Prazo Envio Cartório (dias)" value={form.relatorioVisita.prazoEnvioCartorio ?? ""} onChange={v => setVisita("prazoEnvioCartorio", v)} />
+                <Field label="Prazo Máximo da Operação (dias)" value={form.relatorioVisita.prazoMaximoOp ?? ""} onChange={v => setVisita("prazoMaximoOp", v)} />
+                <Field label="Cobrança TAC" value={form.relatorioVisita.cobrancaTAC ?? ""} onChange={v => setVisita("cobrancaTAC", v)} />
+                <Field label="Tranche (R$)" value={form.relatorioVisita.tranche ?? ""} onChange={v => setVisita("tranche", v)} />
+                <Field label="Prazo Tranche (dias)" value={form.relatorioVisita.prazoTranche ?? ""} onChange={v => setVisita("prazoTranche", v)} />
+              </div>
+            </div>
+
+            {/* Dados da Empresa coletados na visita */}
+            <div className="pt-2 border-t border-cf-border">
+              <p className="section-label mb-3">Dados da Empresa</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field label="Folha de Pagamento (R$)" value={form.relatorioVisita.folhaPagamento ?? ""} onChange={v => setVisita("folhaPagamento", v)} />
+                <Field label="Endividamento Bancos (R$)" value={form.relatorioVisita.endividamentoBanco ?? ""} onChange={v => setVisita("endividamentoBanco", v)} />
+                <Field label="Endividamento Factoring/FIDC (R$)" value={form.relatorioVisita.endividamentoFactoring ?? ""} onChange={v => setVisita("endividamentoFactoring", v)} />
+                <Field label="Vendas via Cheque (%)" value={form.relatorioVisita.vendasCheque ?? ""} onChange={v => setVisita("vendasCheque", v)} />
+                <Field label="Vendas via Duplicata (%)" value={form.relatorioVisita.vendasDuplicata ?? ""} onChange={v => setVisita("vendasDuplicata", v)} />
+                <Field label="Outras Formas de Venda (%)" value={form.relatorioVisita.vendasOutras ?? ""} onChange={v => setVisita("vendasOutras", v)} />
+                <Field label="Prazo Médio de Faturamento (dias)" value={form.relatorioVisita.prazoMedioFaturamento ?? ""} onChange={v => setVisita("prazoMedioFaturamento", v)} />
+                <Field label="Prazo Médio de Entrega (dias)" value={form.relatorioVisita.prazoMedioEntrega ?? ""} onChange={v => setVisita("prazoMedioEntrega", v)} />
+                <Field label="Referências Comerciais / Fornecedores" value={form.relatorioVisita.referenciasFornecedores ?? ""} onChange={v => setVisita("referenciasFornecedores", v)} multiline span2 />
+              </div>
+            </div>
           </div>
         </SectionCard>
       )}
@@ -1188,20 +1326,48 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
         <button onClick={onBack} className="btn-secondary">
           <ArrowLeft size={15} /> Voltar
         </button>
-        <div className="flex flex-col items-end gap-1">
-          <button
-            onClick={() => onComplete(form)}
-            disabled={!pode && !forcarAvancar}
-            title={!pode && !forcarAvancar ? "Corrija os erros criticos antes de prosseguir" : undefined}
-            className={`btn-primary ${!pode && !forcarAvancar ? "opacity-50 cursor-not-allowed" : ""}`}
-          >
-            {pode || forcarAvancar ? "Gerar Relatorio" : "Corrija os erros primeiro"} <ArrowRight size={15} />
-          </button>
-          {!pode && !forcarAvancar && (
-            <button onClick={() => setForcarAvancar(true)} className="text-[10px] text-cf-text-4 hover:text-cf-text-2 underline transition-colors" style={{ minHeight: "auto" }}>
-              Prosseguir mesmo assim
+
+        <div className="flex items-center gap-3">
+          {/* Botão Re-consultar Birôs */}
+          <div className="flex flex-col items-end gap-1">
+            <button
+              onClick={reconsultarBuros}
+              disabled={bureauStatus === "loading"}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-all
+                ${bureauStatus === "loading"
+                  ? "border-cf-border text-cf-text-3 cursor-not-allowed"
+                  : bureauStatus === "done"
+                  ? "border-green-300 text-green-700 bg-green-50 hover:bg-green-100"
+                  : bureauStatus === "error"
+                  ? "border-red-300 text-red-700 bg-red-50 hover:bg-red-100"
+                  : "border-cf-border text-cf-text-2 bg-white hover:bg-cf-surface"
+                }`}
+            >
+              <RefreshCw size={13} className={bureauStatus === "loading" ? "animate-spin" : ""} />
+              {bureauStatus === "loading" ? "Consultando..." : "Re-consultar Birôs"}
             </button>
-          )}
+            {bureauMsg && (
+              <span className={`text-[10px] ${bureauStatus === "error" ? "text-red-500" : "text-green-600"}`}>
+                {bureauMsg}
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-col items-end gap-1">
+            <button
+              onClick={() => onComplete(form)}
+              disabled={!pode && !forcarAvancar}
+              title={!pode && !forcarAvancar ? "Corrija os erros criticos antes de prosseguir" : undefined}
+              className={`btn-primary ${!pode && !forcarAvancar ? "opacity-50 cursor-not-allowed" : ""}`}
+            >
+              {pode || forcarAvancar ? "Gerar Relatorio" : "Corrija os erros primeiro"} <ArrowRight size={15} />
+            </button>
+            {!pode && !forcarAvancar && (
+              <button onClick={() => setForcarAvancar(true)} className="text-[10px] text-cf-text-4 hover:text-cf-text-2 underline transition-colors" style={{ minHeight: "auto" }}>
+                Prosseguir mesmo assim
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

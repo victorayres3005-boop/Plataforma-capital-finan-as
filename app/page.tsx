@@ -13,6 +13,7 @@ import { useAuth } from "@/lib/useAuth";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { AppStep, ExtractedData, DocumentCollection, Notification, SCRData } from "@/types";
+import { DRAFT_KEY } from "@/components/ReviewStep";
 import Link from "next/link";
 import { LogOut, User, Menu, X, Clock, Shield, Plus, Building2, ArrowRight, ArrowLeft, Calendar, Home, Bell, Search, Loader2, Settings, HelpCircle } from "lucide-react";
 
@@ -218,6 +219,7 @@ export default function HomePage() {
   const [step, setStep] = useState<AppStep>("upload");
   const [extractedData, setExtractedData] = useState<ExtractedData>(defaultData);
   const [originalFiles, setOriginalFiles] = useState<OriginalFiles>({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] });
+  const [resumedDocs, setResumedDocs] = useState<import("@/types").CollectionDocument[] | undefined>(undefined);
   const { user, loading: authLoading, signOut } = useAuth();
   const { welcomeSeen, firstCollectionDone, loaded: onboardingLoaded, markWelcomeSeen, markTooltipSeen, markFirstCollectionDone, isTooltipSeen } = useOnboarding(user?.id);
   const [scrolled, setScrolled] = useState(false);
@@ -231,8 +233,12 @@ export default function HomePage() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "finished" | "in_progress">("all");
+  const [decisaoFilter, setDecisaoFilter] = useState<"all" | "APROVADO" | "APROVACAO_CONDICIONAL" | "PENDENTE" | "REPROVADO">("all");
   const [resumingCollection, setResumingCollection] = useState(false);
   const [dashPeriodo, setDashPeriodo] = useState<"7d" | "30d" | "90d">("30d");
+  const [localDraft, setLocalDraft] = useState<{ form: ExtractedData; savedAt: string } | null>(null);
+  const [listaLimit, setListaLimit] = useState(10);
 
   const dashCollections = useMemo(() => {
     const dias = dashPeriodo === "7d" ? 7 : dashPeriodo === "30d" ? 30 : 90;
@@ -271,8 +277,9 @@ export default function HomePage() {
       }
 
       setExtractedData(hydrated);
+      setResumedDocs(docs as import("@/types").CollectionDocument[]);
       setShowDashboard(false);
-      setStep(col.status === "finished" ? "generate" : "review");
+      setStep(col.status === "finished" ? "generate" : "upload");
 
       // Clean URL
       window.history.replaceState({}, "", "/");
@@ -291,29 +298,80 @@ export default function HomePage() {
     }
   }, [handleResumeCollection]);
 
+  // ── Check localStorage for a draft in progress ──
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { form: ExtractedData; savedAt: string };
+      if (!parsed?.form || !parsed?.savedAt) return;
+      // Only show draft if less than 48h old
+      const age = Date.now() - new Date(parsed.savedAt).getTime();
+      if (age > 48 * 3600 * 1000) { localStorage.removeItem(DRAFT_KEY); return; }
+      setLocalDraft(parsed);
+    } catch { /* ignore */ }
+  }, []);
+
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10);
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // Busca coletas do Supabase para o dashboard
-  useEffect(() => {
+  // ── Busca e realtime de coletas ──
+  const fetchCollections = useCallback(async () => {
     if (!user) { setLoadingCollections(false); return; }
-    const fetchCollections = async () => {
-      try {
-        const supabase = createClient();
-        const { data } = await supabase
-          .from("document_collections")
-          .select("*")
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false })
-          .limit(10);
-        setCollections((data as DocumentCollection[]) || []);
-      } catch { /* silent */ }
-      finally { setLoadingCollections(false); }
-    };
+    try {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("document_collections")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      setCollections((data as DocumentCollection[]) || []);
+    } catch { /* silent */ }
+    finally { setLoadingCollections(false); }
+  }, [user]);
+
+  // Carrega na montagem e quando volta ao dashboard
+  useEffect(() => {
     fetchCollections();
+  }, [fetchCollections]);
+
+  useEffect(() => {
+    if (showDashboard) fetchCollections();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showDashboard]);
+
+  // Realtime: atualiza ao vivo quando coleta é criada/alterada
+  useEffect(() => {
+    if (!user) return;
+    const supabase = createClient();
+    const channel = supabase
+      .channel("collections_realtime")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "document_collections", filter: `user_id=eq.${user.id}` },
+        (payload) => {
+          setCollections(prev => {
+            const exists = prev.some(c => c.id === (payload.new as DocumentCollection).id);
+            if (exists) return prev;
+            return [payload.new as DocumentCollection, ...prev].slice(0, 50);
+          });
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "document_collections", filter: `user_id=eq.${user.id}` },
+        (payload) => {
+          setCollections(prev =>
+            prev.map(c => c.id === (payload.new as DocumentCollection).id ? payload.new as DocumentCollection : c)
+          );
+        },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [user]);
 
   // ── Notificações persistentes ──
@@ -663,16 +721,67 @@ export default function HomePage() {
             ? filteredByDate.filter(c => {
                 const q = searchQuery.toLowerCase();
                 return (c.company_name || c.label || "").toLowerCase().includes(q)
+                  || (c.cnpj || "").replace(/\D/g, "").includes(q.replace(/\D/g, ""))
                   || (c.cnpj || "").toLowerCase().includes(q);
               })
             : filteredByDate;
-          const filtered = selectedCompany
+          const filteredByCompany = selectedCompany
             ? filteredBySearch.filter(c => (c.company_name || c.label) === selectedCompany)
             : filteredBySearch;
+          const filteredByStatus = statusFilter !== "all"
+            ? filteredByCompany.filter(c => c.status === statusFilter)
+            : filteredByCompany;
+          const filtered = decisaoFilter !== "all"
+            ? filteredByStatus.filter(c => c.decisao === decisaoFilter)
+            : filteredByStatus;
+          const hasActiveFilters = searchQuery.trim() || selectedCompany || statusFilter !== "all" || decisaoFilter !== "all";
+          const visibleItems = filtered.slice(0, listaLimit);
+          const hasMore = filtered.length > listaLimit;
           const companies = Array.from(new Set(collections.map(c => c.company_name || c.label).filter((l): l is string => !!l)));
 
           return (
           <div className="max-w-4xl mx-auto animate-fade-in">
+
+            {/* ── Rascunho em andamento ── */}
+            {localDraft && (
+              <div className="mb-6 bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-0 sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                    <Clock size={15} className="text-amber-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-amber-800">Análise em andamento</p>
+                    <p className="text-xs text-amber-600 mt-0.5">
+                      {localDraft.form.cnpj?.razaoSocial || "Empresa não identificada"} — salvo {timeAgo(localDraft.savedAt)}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    onClick={() => {
+                      setExtractedData(localDraft.form);
+                      setLocalDraft(null);
+                      setShowDashboard(false);
+                      setStep("review");
+                    }}
+                    className="text-xs font-semibold px-4 py-2 rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-colors"
+                    style={{ minHeight: "auto" }}
+                  >
+                    Continuar análise
+                  </button>
+                  <button
+                    onClick={() => {
+                      try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
+                      setLocalDraft(null);
+                    }}
+                    className="text-xs font-semibold px-3 py-2 rounded-lg border border-amber-300 text-amber-700 hover:bg-amber-100 transition-colors"
+                    style={{ minHeight: "auto" }}
+                  >
+                    Descartar
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Header + Filtro de data */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
@@ -714,7 +823,7 @@ export default function HomePage() {
                   <input
                     type="text"
                     value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
+                    onChange={e => { setSearchQuery(e.target.value); setListaLimit(10); }}
                     placeholder="Buscar empresa ou CNPJ..."
                     className="input-field py-1.5 pl-8 pr-3 text-xs w-[200px]"
                   />
@@ -820,33 +929,77 @@ export default function HomePage() {
               </div>
             )}
 
-            {/* Filtro por empresa */}
-            {companies.length > 1 && (
-              <div className="mb-6">
-                <p className="text-[11px] font-bold text-cf-text-3 uppercase tracking-widest mb-2">Filtrar por empresa</p>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={() => setSelectedCompany(null)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${!selectedCompany ? "bg-cf-navy text-white border-cf-navy" : "text-cf-text-3 border-cf-border hover:bg-cf-bg"}`}
-                    style={{ minHeight: "auto" }}
-                  >
-                    Todas ({filteredByDate.length})
-                  </button>
-                  {companies.map(c => (
-                    <button key={c}
-                      onClick={() => setSelectedCompany(selectedCompany === c ? null : c)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${selectedCompany === c ? "bg-cf-navy text-white border-cf-navy" : "text-cf-text-3 border-cf-border hover:bg-cf-bg"}`}
-                      style={{ minHeight: "auto" }}
-                    >
-                      <span className="flex items-center gap-1.5">
-                        <Building2 size={11} />
-                        {c} ({filteredByDate.filter(col => (col.company_name || col.label) === c).length})
-                      </span>
+            {/* ── Barra de filtros ── */}
+            <div className="mb-6 space-y-3">
+              {/* Status */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-bold text-cf-text-4 uppercase tracking-widest w-16 flex-shrink-0">Status</span>
+                <div className="flex gap-1.5 flex-wrap">
+                  {([
+                    { key: "all", label: "Todos" },
+                    { key: "finished", label: "Finalizadas" },
+                    { key: "in_progress", label: "Em andamento" },
+                  ] as { key: typeof statusFilter; label: string }[]).map(f => (
+                    <button key={f.key} onClick={() => { setStatusFilter(f.key); setListaLimit(10); }}
+                      className={`px-3 py-1 rounded-full text-[11px] font-medium transition-all border ${statusFilter === f.key ? "bg-cf-navy text-white border-cf-navy" : "text-cf-text-3 border-cf-border hover:bg-cf-bg"}`}
+                      style={{ minHeight: "auto" }}>
+                      {f.label}
                     </button>
                   ))}
                 </div>
               </div>
-            )}
+
+              {/* Decisão */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-bold text-cf-text-4 uppercase tracking-widest w-16 flex-shrink-0">Decisão</span>
+                <div className="flex gap-1.5 flex-wrap">
+                  {([
+                    { key: "all", label: "Todas" },
+                    { key: "APROVADO", label: "Aprovado", color: "text-green-700 bg-green-50 border-green-200" },
+                    { key: "APROVACAO_CONDICIONAL", label: "Condicional", color: "text-amber-600 bg-amber-50 border-amber-200" },
+                    { key: "PENDENTE", label: "Pendente", color: "text-gray-600 bg-gray-50 border-gray-200" },
+                    { key: "REPROVADO", label: "Reprovado", color: "text-red-600 bg-red-50 border-red-200" },
+                  ] as { key: typeof decisaoFilter; label: string; color?: string }[]).map(f => (
+                    <button key={f.key} onClick={() => { setDecisaoFilter(f.key); setListaLimit(10); }}
+                      className={`px-3 py-1 rounded-full text-[11px] font-medium transition-all border ${decisaoFilter === f.key ? (f.color || "bg-cf-navy text-white border-cf-navy") : "text-cf-text-3 border-cf-border hover:bg-cf-bg"}`}
+                      style={{ minHeight: "auto" }}>
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Empresa (só se houver mais de uma) */}
+              {companies.length > 1 && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[10px] font-bold text-cf-text-4 uppercase tracking-widest w-16 flex-shrink-0">Empresa</span>
+                  <div className="flex gap-1.5 flex-wrap">
+                    <button onClick={() => { setSelectedCompany(null); setListaLimit(10); }}
+                      className={`px-3 py-1 rounded-full text-[11px] font-medium transition-all border ${!selectedCompany ? "bg-cf-navy text-white border-cf-navy" : "text-cf-text-3 border-cf-border hover:bg-cf-bg"}`}
+                      style={{ minHeight: "auto" }}>
+                      Todas
+                    </button>
+                    {companies.map(c => (
+                      <button key={c} onClick={() => { setSelectedCompany(selectedCompany === c ? null : c); setListaLimit(10); }}
+                        className={`px-3 py-1 rounded-full text-[11px] font-medium transition-all border flex items-center gap-1 ${selectedCompany === c ? "bg-cf-navy text-white border-cf-navy" : "text-cf-text-3 border-cf-border hover:bg-cf-bg"}`}
+                        style={{ minHeight: "auto" }}>
+                        <Building2 size={10} />{c}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Limpar filtros */}
+              {hasActiveFilters && (
+                <button
+                  onClick={() => { setSearchQuery(""); setStatusFilter("all"); setDecisaoFilter("all"); setSelectedCompany(null); setListaLimit(10); }}
+                  className="text-[11px] font-semibold text-cf-navy hover:underline"
+                  style={{ minHeight: "auto" }}>
+                  Limpar filtros
+                </button>
+              )}
+            </div>
 
             {/* CTA: Nova coleta */}
             <OnboardingTooltip id="nova-coleta" message="Clique aqui para iniciar a analise de um novo cedente. Voce vai fazer upload dos documentos e a IA cuida do resto." position="bottom" isSeen={isTooltipSeen("nova-coleta")} onSeen={() => markTooltipSeen("nova-coleta")}>
@@ -864,11 +1017,12 @@ export default function HomePage() {
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-sm font-bold text-cf-text-1">
                     {dateFilter === "hoje" ? "Coletas de Hoje" : dateFilter === "7dias" ? "Últimos 7 dias" : dateFilter === "custom" ? "Data selecionada" : "Últimas Coletas"}
+                    <span className="ml-2 text-xs font-normal text-cf-text-3">({filtered.length})</span>
                   </h3>
-                  <a href="/historico" className="text-xs font-semibold text-cf-navy hover:underline">Ver todas</a>
+                  <a href="/historico" className="text-xs font-semibold text-cf-navy hover:underline">Ver histórico completo</a>
                 </div>
                 <div className="bg-white rounded-2xl border border-[#e2e8f0] overflow-hidden divide-y divide-[#f1f5f9]" style={{ animationDelay: "0.4s", animationFillMode: "both" }}>
-                  {filtered.slice(0, 8).map((col, i) => (
+                  {visibleItems.map((col, i) => (
                     <div key={col.id} className={`px-5 py-4 flex items-center gap-4 hover:bg-[#f8fafc] transition-colors duration-150 animate-stagger-${Math.min(i + 1, 8)}`}>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-[#0f172a] truncate">{col.company_name || col.label || "Sem identificacao"}</p>
@@ -877,6 +1031,9 @@ export default function HomePage() {
                           {new Date(col.created_at).toLocaleDateString("pt-BR")} · {col.documents?.length || 0} doc(s)
                           {col.fmm_12m ? ` · FMM R$ ${Number(col.fmm_12m).toLocaleString("pt-BR", { minimumFractionDigits: 0 })}/mes` : ""}
                         </p>
+                        {col.observacoes && (
+                          <p className="text-[11px] text-[#64748b] mt-1 italic line-clamp-1">&ldquo;{col.observacoes}&rdquo;</p>
+                        )}
                       </div>
                       <span className={`text-[11px] font-semibold flex-shrink-0 ${col.status === "finished" ? "text-[#22c55e]" : "text-[#f59e0b]"}`}>
                         {col.status === "finished" ? "Finalizada" : "Em andamento"}
@@ -905,6 +1062,15 @@ export default function HomePage() {
                     </div>
                   ))}
                 </div>
+                {hasMore && (
+                  <button
+                    onClick={() => setListaLimit(prev => prev + 10)}
+                    className="mt-3 w-full text-xs font-semibold text-cf-navy hover:text-cf-green py-2.5 border border-cf-border rounded-xl bg-white hover:bg-cf-bg transition-colors"
+                    style={{ minHeight: "auto" }}
+                  >
+                    Ver mais ({filtered.length - listaLimit} restantes)
+                  </button>
+                )}
               </div>
             )}
             {filtered.length === 0 && !loadingCollections && (
@@ -939,13 +1105,17 @@ export default function HomePage() {
           </div>
 
           {step === "upload" && (
-            <UploadStep onComplete={(d, files) => { setExtractedData(d); setOriginalFiles(files); setStep("review"); }} />
+            <UploadStep
+              onComplete={(d, files) => { setExtractedData(d); setOriginalFiles(files); setResumedDocs(undefined); setLocalDraft(null); try { localStorage.removeItem(DRAFT_KEY); } catch {/**/} setStep("review"); }}
+              resumedDocs={resumedDocs}
+              initialData={resumedDocs && resumedDocs.length > 0 ? extractedData : undefined}
+            />
           )}
           {step === "review" && (
-            <ReviewStep data={extractedData} onComplete={(d) => { setExtractedData(d); setStep("generate"); }} onBack={() => setStep("upload")} />
+            <ReviewStep data={extractedData} onComplete={(d) => { setExtractedData(d); try { localStorage.removeItem(DRAFT_KEY); } catch {/**/} setLocalDraft(null); setStep("generate"); }} onBack={() => setStep("upload")} />
           )}
           {step === "generate" && (
-            <GenerateStep data={extractedData} originalFiles={originalFiles} onBack={() => setStep("review")} onReset={() => { setShowDashboard(true); setStep("upload"); setExtractedData(defaultData); setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] }); }} onNotify={handleNotify} onFirstCollection={markFirstCollectionDone} />
+            <GenerateStep data={extractedData} originalFiles={originalFiles} onBack={() => setStep("review")} onReset={() => { setShowDashboard(true); setStep("upload"); setExtractedData(defaultData); setResumedDocs(undefined); setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] }); }} onNotify={handleNotify} onFirstCollection={markFirstCollectionDone} />
           )}
         </div>
         )}

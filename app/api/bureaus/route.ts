@@ -38,10 +38,29 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "CNPJ não informado" }, { status: 400 });
     }
 
-    // Socios PF para consulta de grupo econômico (usa QSA já extraído ou enrichment)
-    const sociosParaGrupo = (data.qsa?.quadroSocietario ?? [])
+    // Socios PF para consulta de grupo econômico
+    // Fonte 1: QSA (quadro societário extraído do cartão CNPJ)
+    const sociosQSA = (data.qsa?.quadroSocietario ?? [])
       .filter(s => s.cpfCnpj && s.cpfCnpj.replace(/\D/g, "").length === 11)
       .map(s => ({ nome: s.nome, cpfCnpj: s.cpfCnpj }));
+
+    // Fonte 2: IR dos Sócios (CPF extraído do imposto de renda — mais confiável)
+    const sociosIR = (data.irSocios ?? [])
+      .filter(ir => ir.cpf && ir.cpf.replace(/\D/g, "").length === 11 && ir.nomeSocio)
+      .map(ir => ({ nome: ir.nomeSocio, cpfCnpj: ir.cpf }));
+
+    // Mescla e deduplica por CPF (IR tem prioridade sobre QSA)
+    const cpfsVistos = new Set<string>();
+    const sociosParaGrupo: { nome: string; cpfCnpj: string }[] = [];
+    [...sociosIR, ...sociosQSA].forEach(s => {
+      const cpfNum = s.cpfCnpj.replace(/\D/g, "");
+      if (!cpfsVistos.has(cpfNum)) {
+        cpfsVistos.add(cpfNum);
+        sociosParaGrupo.push(s);
+      }
+    });
+
+    console.log(`[bureaus] Grupo econômico: ${sociosParaGrupo.length} sócio(s) PF — ${sociosIR.length} via IR, ${sociosQSA.length} via QSA`);
 
     const [credithub, serasa, spc, quod, grupoEconomico] = await Promise.allSettled([
       consultarCreditHubComCache(cnpj),

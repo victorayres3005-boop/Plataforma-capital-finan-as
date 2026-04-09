@@ -3,7 +3,98 @@ import type { FundSettings, ExtractedData } from "@/types";
 import { DEFAULT_FUND_SETTINGS } from "@/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 90;
+
+// ─── Cache em memória das análises IA (evita re-chamar Gemini para o mesmo CNPJ) ───
+const analysisCache = new Map<string, { analysis: object; expiresAt: number }>();
+const ANALYSIS_CACHE_TTL = 90 * 60 * 1000; // 90 min
+
+function getAnalysisCacheKey(data: unknown): string {
+  try {
+    const d = data as Record<string, unknown>;
+    const cnpj = ((d.cnpj as Record<string, string>)?.cnpj || "").replace(/\D/g, "");
+    const fmm = (d.faturamento as Record<string, string>)?.fmm12m || (d.faturamento as Record<string, string>)?.mediaAno || "";
+    const scr = (d.scr as Record<string, string>)?.totalDividasAtivas || "";
+    return `${cnpj}|${fmm}|${scr}`.substring(0, 120);
+  } catch { return ""; }
+}
+
+// ─── Payload compacto: reduz de ~80kb para ~12kb antes de enviar ao Gemini ───
+function buildPayloadResumo(data: ExtractedData): string {
+  return JSON.stringify({
+    cnpj: {
+      razaoSocial: data.cnpj.razaoSocial, cnpj: data.cnpj.cnpj,
+      dataAbertura: data.cnpj.dataAbertura, situacaoCadastral: data.cnpj.situacaoCadastral,
+      porte: data.cnpj.porte, cnaePrincipal: data.cnpj.cnaePrincipal,
+      naturezaJuridica: data.cnpj.naturezaJuridica, capitalSocialCNPJ: data.cnpj.capitalSocialCNPJ,
+      tipoEmpresa: data.cnpj.tipoEmpresa, funcionarios: data.cnpj.funcionarios,
+      regimeTributario: data.cnpj.regimeTributario,
+    },
+    qsa: {
+      capitalSocial: data.qsa.capitalSocial,
+      quadroSocietario: data.qsa.quadroSocietario.slice(0, 8).map(s => ({
+        nome: s.nome, participacao: s.participacao, qualificacao: s.qualificacao,
+      })),
+    },
+    faturamento: {
+      fmm12m: data.faturamento.fmm12m, fmmMedio: data.faturamento.fmmMedio,
+      somatoriaAno: data.faturamento.somatoriaAno, ultimoMesComDados: data.faturamento.ultimoMesComDados,
+      mesesZerados: data.faturamento.mesesZerados?.slice(0, 5),
+      meses: data.faturamento.meses.slice(-12).map(m => ({ mes: m.mes, valor: m.valor })),
+    },
+    scr: {
+      totalDividasAtivas: data.scr.totalDividasAtivas, vencidos: data.scr.vencidos,
+      prejuizos: data.scr.prejuizos, carteiraAVencer: data.scr.carteiraAVencer,
+      limiteCredito: data.scr.limiteCredito, qtdeInstituicoes: data.scr.qtdeInstituicoes,
+      qtdeOperacoes: data.scr.qtdeOperacoes, classificacaoRisco: data.scr.classificacaoRisco,
+      historicoInadimplencia: data.scr.historicoInadimplencia, tempoAtraso: data.scr.tempoAtraso,
+      modalidades: data.scr.modalidades?.slice(0, 10),
+      instituicoes: data.scr.instituicoes?.slice(0, 8),
+    },
+    scrAnterior: data.scrAnterior ? {
+      totalDividasAtivas: data.scrAnterior.totalDividasAtivas, vencidos: data.scrAnterior.vencidos,
+      prejuizos: data.scrAnterior.prejuizos, limiteCredito: data.scrAnterior.limiteCredito,
+    } : null,
+    protestos: {
+      vigentesQtd: data.protestos.vigentesQtd, vigentesValor: data.protestos.vigentesValor,
+      regularizadosQtd: data.protestos.regularizadosQtd,
+      detalhes: data.protestos.detalhes.slice(0, 5),
+    },
+    processos: {
+      passivosTotal: data.processos.passivosTotal, ativosTotal: data.processos.ativosTotal,
+      valorTotalEstimado: data.processos.valorTotalEstimado, temRJ: data.processos.temRJ,
+      distribuicao: data.processos.distribuicao,
+      bancarios: data.processos.bancarios?.slice(0, 5),
+      fiscais: data.processos.fiscais?.slice(0, 3),
+      top10Valor: data.processos.top10Valor?.slice(0, 5).map(p => ({
+        tipo: p.tipo, partes: p.partes, polo_passivo: p.polo_passivo, valor: p.valor, status: p.status,
+      })),
+    },
+    ccf: data.ccf ? {
+      qtdRegistros: data.ccf.qtdRegistros, bancos: data.ccf.bancos.slice(0, 5),
+      tendenciaLabel: data.ccf.tendenciaLabel, tendenciaVariacao: data.ccf.tendenciaVariacao,
+    } : null,
+    curvaABC: data.curvaABC || null,
+    dre: data.dre ? {
+      anos: data.dre.anos?.slice(-3),
+      tendenciaLucro: data.dre.tendenciaLucro, crescimentoReceita: data.dre.crescimentoReceita,
+    } : null,
+    balanco: data.balanco ? {
+      anos: data.balanco.anos?.slice(-3),
+      tendenciaPatrimonio: data.balanco.tendenciaPatrimonio,
+    } : null,
+    irSocios: data.irSocios?.slice(0, 3).map(s => ({
+      nomeSocio: s.nomeSocio, anoBase: s.anoBase, rendimentoTotal: s.rendimentoTotal,
+      patrimonioLiquido: s.patrimonioLiquido, situacaoMalhas: s.situacaoMalhas, debitosEmAberto: s.debitosEmAberto,
+    })),
+    contrato: data.contrato ? {
+      capitalSocial: data.contrato.capitalSocial, dataConstituicao: data.contrato.dataConstituicao,
+      objetoSocial: (data.contrato.objetoSocial || "").substring(0, 200),
+    } : null,
+    relatorioVisita: data.relatorioVisita || null,
+    scrSocios: data.scrSocios?.slice(0, 3),
+  });
+}
 
 const GEMINI_API_KEYS = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || "")
   .split(",").map(k => k.trim()).filter(Boolean);
@@ -29,18 +120,26 @@ async function callGemini(prompt: string, data: string): Promise<string> {
   for (const apiKey of GEMINI_API_KEYS) {
     for (const model of GEMINI_MODELS) {
       let rateLimitRetries = 0;
-      const MAX_RATE_RETRIES = 2;
+      const MAX_RATE_RETRIES = 1;
 
-      for (let attempt = 0; attempt < 2 + MAX_RATE_RETRIES; attempt++) {
+      for (let attempt = 0; attempt < 1 + MAX_RATE_RETRIES; attempt++) {
         try {
-          const response = await fetch(geminiUrl(model, apiKey), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ parts }],
-              generationConfig: { temperature: 0.3, maxOutputTokens: 8192, responseMimeType: "application/json" },
-            }),
-          });
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 25000); // 25s por chamada
+          let response: Response;
+          try {
+            response = await fetch(geminiUrl(model, apiKey), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{ parts }],
+                generationConfig: { temperature: 0.3, maxOutputTokens: 8192, responseMimeType: "application/json" },
+              }),
+              signal: controller.signal,
+            });
+          } finally {
+            clearTimeout(timeout);
+          }
 
           if (response.status === 429) {
             if (rateLimitRetries < MAX_RATE_RETRIES) {
@@ -60,7 +159,7 @@ async function callGemini(prompt: string, data: string): Promise<string> {
                   if (match) waitMs = Math.ceil(parseFloat(match[1]) * 1000);
                 } catch { /* ignore */ }
               }
-              waitMs = Math.min(Math.max(waitMs, 2000), 60000);
+              waitMs = Math.min(Math.max(waitMs, 1000), 8000); // máx 8s de espera
               console.error(`[analyze] Gemini model=${model} rate limited (429), waiting ${waitMs}ms (retry ${rateLimitRetries}/${MAX_RATE_RETRIES})...`);
               await sleep(waitMs);
               continue;
@@ -79,7 +178,9 @@ async function callGemini(prompt: string, data: string): Promise<string> {
           if (text) return text;
           console.error(`[analyze] Gemini model=${model} returned empty response`);
         } catch (err) {
-          console.error(`[analyze] Gemini model=${model} error:`, err instanceof Error ? err.message : err);
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`[analyze] Gemini model=${model} error:`, msg);
+          if (msg.includes("abort") || msg.includes("timeout")) break; // próximo modelo
           break;
         }
       }
@@ -129,29 +230,44 @@ async function callOpenRouter(prompt: string, data: string): Promise<string> {
 // ─────────────────────────────────────────
 // PROMPT DE ANÁLISE
 // ─────────────────────────────────────────
-const ANALYSIS_PROMPT = `Você é um analista de crédito sênior de um FIDC (Fundo de Investimento em Direitos Creditórios) focado em antecipação de recebíveis.
+const ANALYSIS_PROMPT = `Você é o motor de análise de crédito da plataforma Capital Finanças, especializado em due diligence de cedentes para operações de FIDC (Fundo de Investimento em Direitos Creditórios).
 
-Receberá dados extraídos de documentos de um cedente (empresa que quer vender duplicatas ao fundo) E cálculos pré-processados. Analise TODOS os dados disponíveis e gere uma análise completa.
+Receberá dados extraídos de documentos de um cedente e cálculos pré-processados. Analise TODOS os dados disponíveis e gere uma análise completa e estruturada.
 
-Retorne APENAS um JSON válido com esta estrutura:
+Você não inventa dados. Se um dado não está nos documentos, use "—" ou sinalize como "não disponível".
+
+Retorne APENAS um JSON válido com esta estrutura exata:
 
 {
   "rating": 0.0,
   "ratingMax": 10,
   "decisao": "APROVADO | APROVACAO_CONDICIONAL | PENDENTE | REPROVADO",
   "alertas": [
-    { "severidade": "ALTA | MODERADA | INFO", "descricao": "", "impacto": "", "mitigacao": "" }
+    {
+      "severidade": "ALTA | MODERADA | INFO",
+      "codigo": "SCR_VENCIDO",
+      "descricao": "Descrição objetiva com valor numérico quando disponível",
+      "impacto": "Impacto concreto para o fundo",
+      "mitigacao": "Ação concreta e objetiva para o analista"
+    }
   ],
   "indicadores": {
-    "idadeEmpresa": "", "alavancagem": "", "fmm": "",
-    "comprometimentoFaturamento": "", "concentracaoCredito": ""
+    "idadeEmpresa": "",
+    "alavancagem": "",
+    "fmm": "",
+    "comprometimentoFaturamento": "",
+    "concentracaoCredito": "",
+    "liquidezCorrente": "",
+    "endividamento": "",
+    "margemLiquida": ""
   },
   "parametrosOperacionais": {
     "limiteAproximado": "",
     "prazoMaximo": "",
     "concentracaoSacado": "",
     "garantias": "",
-    "revisao": ""
+    "revisao": "",
+    "baseCalculo": ""
   },
   "parecer": {
     "resumoExecutivo": "",
@@ -164,60 +280,173 @@ Retorne APENAS um JSON válido com esta estrutura:
   }
 }
 
-CRITÉRIOS DE RATING (0-10):
-- Situação cadastral ATIVA (+1, se INAPTA/SUSPENSA: -3)
-- Empresa > 10 anos (+1.5), 5-10 anos (+1), < 5 anos (+0.5)
-- Faturamento consistente e não-zerado (+1.5)
-- Faturamento atualizado (últimos 60 dias) (+0.5)
-- SCR sem operações vencidas (+1.5)
-- SCR sem prejuízos (+1.5)
-- Classificação de risco Bacen A-C (+1)
-- Alavancagem saudável (dívida/faturamento < 5x) (+0.5)
-- Diversificação de crédito (múltiplas IFs) (+0.5)
-- Base (+0.5)
+=== SISTEMA DE ALERTAS ===
 
-DECISÃO (use OBRIGATORIAMENTE estes critérios — não use o rating):
-- "APROVADO": FMM >= ${"`FMM_MINIMO`"}, idade >= ${"`IDADE_MINIMA`"} anos, sem SCR vencido, sem protestos críticos, alavancagem <= ${"`ALAV_SAUDAVEL`"}x
-- "APROVACAO_CONDICIONAL": atende pré-requisitos mas tem 1 alerta moderado ou alavancagem entre ${"`ALAV_SAUDAVEL`"}x e ${"`ALAV_MAXIMA`"}x
-- "PENDENTE": atende pré-requisitos mas tem 2+ alertas moderados ou dados insuficientes para decidir
-- "REPROVADO": FMM < ${"`FMM_MINIMO`"} OU idade < ${"`IDADE_MINIMA`"} anos OU SCR vencido > 0 OU prejuízo SCR > 0 OU alavancagem > ${"`ALAV_MAXIMA`"}x
+Use OBRIGATORIAMENTE os códigos abaixo. Inclua todos os alertas que se aplicam aos dados fornecidos.
 
-PARECER ESCRITO — Instruções de geração:
-Use linguagem técnica, direta e factual. Não use markdown. Base-se APENAS nos dados fornecidos.
+Critérios para [ALTA] — severidade "ALTA":
+— CCF_REGISTRADO: qualquer registro de CCF (Cheque Sem Fundo) identificado — CRÍTICO: indica inadimplência intencional com o sistema bancário, sinal de gestão financeira gravemente comprometida
+— CCF_REINCIDENTE: múltiplos bancos ou alto volume de CCF — indica padrão sistêmico de inadimplência, praticamente inviabiliza a operação
+— SCR_VENCIDO: SCR com valor vencido > R$ 0
+— SCR_PREJUIZO: operações em prejuízo no SCR
+— BALANCO_PL_NEGATIVO: Patrimônio Líquido negativo
+— BALANCO_LIQUIDEZ_BAIXA: Liquidez Corrente < 0,20
+— SOCIO_DEBITO_RF: sócio com débitos em aberto na Receita Federal / PGFN
+— PROC_RJ: Recuperação Judicial ativa
+— FAT_ZERADO: faturamento zerado em algum mês do período analisado
+— SCR_PREJUIZO_DUPLO: prejuízo SCR presente em dois períodos consecutivos
 
-parecer.resumoExecutivo (1 parágrafo de 3-5 linhas):
-Descreva setor de atuação, tempo de operação, faturamento mensal, perfil de endividamento e decisão com justificativa principal.
-Formato: "[Empresa] é uma [setor] com [X] anos de operação e faturamento médio de R$ [FMM]/mês. [Situação do SCR]. [Decisão] — [motivo principal]."
+Critérios para [MODERADA] — severidade "MODERADA":
+— MOD_SOCIETARIA_RECENTE: alteração societária nos últimos 12 meses
+— SCR_REDUCAO_LIMITE: limite de crédito reduzido > 50% no SCR
+— BALANCO_CAPITAL_GIRO_NEG: Capital de Giro negativo
+— BALANCO_ENDIVIDAMENTO_ALTO: endividamento > 150%
+— DRE_EBITDA_AUSENTE: EBITDA não calculável por falta de dados
+— SOCIO_IR_DESATUALIZADO: IR do sócio com ano-base > 2 anos atrás
+— MOD_SOCIO_UNICO: sócio único (concentração de gestão)
+— SCR_ALAVANCAGEM_ALTA: alavancagem entre o limite saudável e o máximo
+— PROC_TRABALHISTA: processos trabalhistas identificados
+— PROC_BANCO: processos bancários identificados
+— PROC_FISCAL: processos fiscais identificados
 
-parecer.pontosFortes (array de 3-6 strings):
-Cada item: dado concreto + " → " + implicação para o fundo.
-Exemplo: "Alavancagem de 3,38x dentro do limite saudável → empresa não está sobrecarregada de dívida bancária"
-Só liste se o dado realmente existir nos documentos.
+Critérios para [INFO] — severidade "INFO":
+— SCR_REDUCAO_DIVIDA: redução expressiva de dívida (pode indicar renegociação)
+— SCR_REDUCAO_IFS: saída de IFs no SCR (redução de crédito disponível)
+— GRUPO_GAP_SOCIETARIO: grupo econômico identificado mas sem dados completos
+— SOCIO_IR_AUSENTE: IR dos sócios não enviado
+— DADOS_PARCIAIS: dados parcialmente disponíveis — revisar documento fonte
 
-parecer.pontosNegativosOuFracos (array de 3-8 strings):
-Mesmo formato dos fortes. Inclua obrigatoriamente se existirem: protestos vigentes com valor e % do FMM, SCR vencido ou prejuízo, alavancagem elevada, sócios com restrições, alterações societárias recentes.
+=== CÁLCULO DO SCORE (0–10) ===
 
-parecer.perguntasVisita (array de 3-5 objetos { pergunta, contexto }):
-Foque em: origem de protestos, capacidade produtiva vs faturamento, concentração de sacados, histórico de crises, garantias disponíveis.
+Calcule o score por componentes ponderados:
 
-parecer.textoCompleto (texto corrido, 3-4 parágrafos):
-Parágrafo 1: Capacidade financeira — SCR, alavancagem, composição CP/LP, tendência.
-Parágrafo 2: Disciplina de pagamento — protestos, processos, histórico de regularização.
-Parágrafo 3: Estrutura societária — sócios, administração, grupo econômico, alertas.
-Parágrafo 4 (se aplicável): Faturamento — validação, sazonalidade, tendência.
+1. SCR (peso 25%):
+   — Sem vencidos e sem prejuízo: 10,0
+   — Sem vencidos, com prejuízo leve: 6,0
+   — Com vencidos: 2,0
+   — Com RJ: 0,0
 
-indicadores: use os valores pré-calculados fornecidos no início do prompt. Não recalcule.
+2. Faturamento (peso 20%):
+   — FMM acima do mínimo, consistente, sem zeros: 10,0
+   — FMM acima do mínimo com irregularidades: 7,0
+   — FMM abaixo do mínimo: 2,0
+   — Faturamento não informado: 3,0
 
-alertas[].mitigacao: para cada alerta, inclua uma ação concreta e objetiva que o analista deve tomar para endereçar o risco. Ex: "Solicitar IRPF dos últimos 3 anos dos sócios", "Exigir certidão negativa de débitos atualizada".
+3. CCF — Cheques Sem Fundo (peso 15%):
+   ATENÇÃO: CCF (Cheque Sem Fundo) é o indicador mais decisivo de disciplina de pagamento no sistema bancário. Um único registro indica que o sacador emitiu cheque sem cobertura, o que compromete gravemente a credibilidade financeira da empresa.
+   — Sem nenhum registro de CCF: 10,0
+   — 1–3 registros em banco único, sem reincidência: 3,0
+   — 4+ registros OU múltiplos bancos OU reincidência: 0,0
+   — CCF não consultado: 7,0 (neutro — benefício da dúvida moderado)
 
-parametrosOperacionais: calcule com base no rating, FMM, alavancagem e alertas identificados.
-- limiteAproximado: FMM × fator_score × fator_risco — apresente o valor estimado e o raciocínio resumido (ex: "~0,6x FMM (R$ 4,2 milhões)")
-- prazoMaximo: baseado no rating — rating >= 8.0: "90 dias", rating 6.0-7.9: "60-75 dias", rating < 6.0: "30-45 dias"
-- concentracaoSacado: baseado no perfil de risco — baixo: "25%", moderado: "15%", alto: "10%"
-- garantias: baseado nos alertas de sócios e estrutura societária (ex: "Aval dos sócios + garantia real")
-- revisao: baseado na quantidade de alertas ativos (0-1: "180 dias", 2-3: "90 dias", 4+: "30-60 dias")
+4. Protestos (peso 15%):
+   — Sem protestos vigentes: 10,0
+   — 1–2 protestos de valor baixo (< 5% FMM): 6,0
+   — Protestos de valor significativo (> 5% FMM): 2,0
+   — Não consultado: 5,0
 
-NÃO invente dados que não estão nos documentos. Se um dado está ausente, indique como limitação da análise.`;
+5. Processos (peso 10%):
+   — Sem processos: 10,0
+   — Processos de baixo valor / trabalhista isolado: 7,0
+   — Múltiplos processos ou valores altos: 4,0
+   — RJ ativo: 0,0
+   — Não consultado: 5,0
+
+6. Balanço/DRE (peso 10%):
+   — PL positivo, liquidez > 1,0, margem positiva: 10,0
+   — PL positivo, liquidez 0,5–1,0: 7,0
+   — PL positivo, liquidez < 0,5: 4,0
+   — PL negativo: 1,0
+   — Não informado: 5,0
+
+7. Sócios/Governança (peso 5%):
+   — IR atualizado, sem restrições, múltiplos sócios: 10,0
+   — IR com ressalvas ou desatualizado: 6,0
+   — Débitos em aberto / restrições: 2,0
+   — IR não informado: 4,0
+
+Score final = média ponderada dos componentes (SCR 25% + Fat 20% + CCF 15% + Protestos 15% + Processos 10% + Balanço 10% + Sócios 5% = 100%)
+Penalidades adicionais: -1,5 por cada alerta CCF [ALTA]; -1,0 por cada outro alerta [ALTA]; -0,3 por cada alerta [MODERADA] (mínimo 0)
+
+Faixas de decisão por score:
+— score >= 7,5: APROVADO
+— score 6,0–7,4: APROVACAO_CONDICIONAL
+— score 4,0–5,9: PENDENTE
+— score < 4,0: REPROVADO
+
+=== DECISÃO ===
+
+A decisão TAMBÉM deve obedecer regras absolutas independentes do score:
+— REPROVADO obrigatório se: CCF com qualquer registro (qtdRegistros > 0) OU SCR vencido > 0 OU prejuízo SCR > 0 OU RJ ativo OU alavancagem > ALAV_MAXIMA
+— PENDENTE obrigatório se: 2+ alertas [ALTA] sem mitigação clara OU dados críticos ausentes
+— ATENÇÃO ESPECIAL CCF: se houver qualquer registro de CCF, o parecer deve destacar isso como fator determinante para reprovação, explicando que cheques sem fundo indicam incapacidade ou recusa de honrar compromissos bancários, o que inviabiliza a confiança necessária para uma operação de FIDC
+— Use o score como guia, mas respeite os critérios absolutos acima
+
+=== FORMATAÇÃO DOS VALORES ===
+
+— Monetários: sempre com R$ e separador de milhar. Ex: R$ 1.234.567,89
+— Percentuais: duas casas decimais. Ex: 12,34%
+— Variações: com + ou -. Ex: +7,6% / -21,5%
+— Datas: MM/AAAA ou DD/MM/AAAA
+— Dados ausentes: sempre "—", nunca "N/A", "null" ou vazio
+
+=== INSTRUÇÕES DO PARECER ===
+
+parecer.resumoExecutivo (1 parágrafo, 3–5 linhas):
+Perfil da empresa → situação de crédito → decisão com justificativa.
+Formato: "[Empresa] é uma [setor] com [X] anos de operação e FMM de R$ [valor]/mês. [Situação SCR/dívidas]. [Decisão] — [motivo principal]."
+
+parecer.pontosFortes (3–6 itens):
+Formato: "dado concreto com número → implicação para o fundo"
+Exemplo: "37 anos de operação → empresa com resiliência comprovada, atravessou múltiplos ciclos econômicos"
+Só inclua se o dado estiver nos documentos.
+
+parecer.pontosNegativosOuFracos (3–8 itens):
+Mesmo formato. Inclua OBRIGATORIAMENTE se existirem: protestos com valor e % do FMM, SCR vencido/prejuízo, alavancagem elevada, sócios com restrições, alterações societárias recentes, margens negativas.
+
+parecer.perguntasVisita (3–6 objetos { pergunta, contexto }):
+Foque nos alertas [ALTA] e [MODERADA] identificados. Tom direto de analista experiente.
+Contexto entre parênteses explica por que a pergunta importa para a operação.
+
+parecer.textoCompleto (3–4 parágrafos corridos, sem markdown, sem bullets):
+P1 — Capacidade financeira: SCR, alavancagem, CP/LP, tendência
+P2 — Disciplina de pagamento: protestos, processos, histórico
+P3 — Estrutura societária: sócios, administração, grupo econômico
+P4 — Faturamento (se disponível): validação, sazonalidade, tendência
+
+=== PARÂMETROS OPERACIONAIS ===
+
+limiteAproximado: calcule como FMM × fator baseado no score e alertas.
+  — score >= 8,0 e sem [ALTA]: FMM × 0,8
+  — score 6,0–7,9 ou 1 alerta [ALTA]: FMM × 0,5
+  — score < 6,0 ou 2+ alertas [ALTA]: FMM × 0,3
+  — Apresente: "~R$ [valor] (aproximadamente [X]x FMM — [raciocínio])"
+
+prazoMaximo:
+  — score >= 8,0: "90 dias"
+  — score 6,0–7,9: "60–75 dias"
+  — score 4,0–5,9: "30–45 dias"
+  — score < 4,0: "Não recomendado"
+
+concentracaoSacado:
+  — Risco baixo (score >= 7,5): "até 25% por sacado"
+  — Risco moderado (score 5,0–7,4): "até 15% por sacado"
+  — Risco alto (score < 5,0): "até 10% por sacado"
+
+garantias: baseado nos alertas de sócios e estrutura
+  — Sem alertas críticos: "Aval dos sócios"
+  — Com alertas moderados: "Aval dos sócios + cessão fiduciária de recebíveis"
+  — Com alertas altos: "Aval dos sócios + garantia real + duplicatas em garantia"
+
+revisao:
+  — 0–1 alertas: "180 dias"
+  — 2–3 alertas: "90 dias"
+  — 4+ alertas: "30–60 dias"
+
+baseCalculo: descreva resumidamente o raciocínio do limite (ex: "FMM de R$ X × 0,6 pelo score de Y/10 com Z alertas [ALTA]")
+
+NÃO recalcule os indicadores já fornecidos no início do prompt. Use os valores pré-calculados.
+NÃO invente dados. Se ausente: "—" e alerta DADOS_PARCIAIS quando relevante.`;
 
 // ─────────────────────────────────────────
 // Helpers: parse de valores BR
@@ -389,6 +618,21 @@ ${data.relatorioVisita?.dataVisita ? `RELATÓRIO DE VISITA (${data.relatorioVisi
 - Recomendação do visitante: ${data.relatorioVisita.recomendacaoVisitante?.toUpperCase() || "N/D"}
 ${data.relatorioVisita.pontosAtencao?.length > 0 ? `- Pontos de atenção: ${data.relatorioVisita.pontosAtencao.join("; ")}` : ""}` : "RELATÓRIO DE VISITA: Não realizado"}
 
+${(data.protestos && (parseInt(data.protestos.vigentesQtd || "0") > 0 || (data.protestos.detalhes || []).length > 0)) ? `PROTESTOS (Bureau de Crédito):
+- Quantidade vigente: ${data.protestos.vigentesQtd || "0"}
+- Valor vigente: R$ ${data.protestos.vigentesValor || "0,00"}
+- Principais cedentes/apresentantes: ${(data.protestos.detalhes || []).slice(0, 3).map(p => `${p.apresentante || p.credor || "N/D"} — R$ ${p.valor || "0"}${p.municipio ? ` (${p.municipio}/${p.uf || ""})` : ""}`).join("; ")}` : "PROTESTOS: Não consultado ou sem ocorrências"}
+
+${(data.processos && parseInt(data.processos.passivosTotal || "0") > 0) ? `PROCESSOS JUDICIAIS (Bureau):
+- Total passivos: ${data.processos.passivosTotal}
+- Recuperação judicial: ${data.processos.temRJ ? "SIM — SITUAÇÃO CRÍTICA" : "Não"}
+- Processos de maior valor: ${(data.processos.top10Valor || []).slice(0, 3).map(p => `${p.tipo || "—"}: ${p.partes || "—"} vs ${p.polo_passivo || "—"} (R$ ${p.valor || "0"})`).join("; ")}` : "PROCESSOS: Não consultado ou sem passivos relevantes"}
+
+${(data.ccf && data.ccf.qtdRegistros > 0) ? `CCF — CHEQUES SEM FUNDO (Bureau):
+- Total de ocorrências: ${data.ccf.qtdRegistros}
+- Bancos com registro: ${data.ccf.bancos.map(b => `${b.banco || "N/D"}: ${b.quantidade || 0} ocorr.${b.motivo ? " (" + b.motivo + ")" : ""}${b.dataUltimo ? " — último: " + b.dataUltimo : ""}`).join("; ")}
+- Tendência: ${data.ccf.tendenciaLabel || "estável"}${(data.ccf.tendenciaVariacao ?? 0) !== 0 ? ` (${(data.ccf.tendenciaVariacao ?? 0) > 0 ? "+" : ""}${data.ccf.tendenciaVariacao}% vs período anterior)` : ""}` : "CCF: Não consultado ou sem ocorrências"}
+
 PARÂMETROS DO FUNDO:
 - FMM mínimo: R$ ${settings.fmm_minimo?.toLocaleString("pt-BR")}
 - Idade mínima: ${settings.idade_minima_anos} anos
@@ -438,9 +682,6 @@ Se reprovado: explique o motivo principal e sugira prazo para reanálise.
 // HANDLER
 // ─────────────────────────────────────────
 export async function POST(request: NextRequest) {
-  let analysisText = "";
-  let dataStr = "";
-
   try {
     const body = await request.json();
 
@@ -598,144 +839,165 @@ export async function POST(request: NextRequest) {
       console.log(`[analyze] Cache inválido (sem parametrosOperacionais ou mitigacao) — forçando nova análise`);
     }
 
-    // ──── Serializar dados + injetar cálculos ────
-    dataStr = JSON.stringify(body.data, null, 2);
-
-    // ── Extrair indicadores de DRE / Balanço / Curva ABC se disponíveis ──
-    const d = body.data as Record<string, unknown>;
-    const dre = d.dre as { anos?: Array<Record<string, string>>; crescimentoReceita?: string; tendenciaLucro?: string } | undefined;
-    const balanco = d.balanco as { anos?: Array<Record<string, string>>; tendenciaPatrimonio?: string } | undefined;
-    const curvaABC = d.curvaABC as { concentracaoTop3?: string; concentracaoTop5?: string; maiorClientePct?: string; alertaConcentracao?: boolean; totalClientesNaBase?: number } | undefined;
-
-    let extras = "";
-    if (dre?.anos && dre.anos.length > 0) {
-      const anoRecente = dre.anos[dre.anos.length - 1];
-      extras += `\nDRE (ano mais recente: ${anoRecente.ano ?? ""}): Receita Bruta R$ ${anoRecente.receitaBruta ?? "—"}, Lucro Líquido R$ ${anoRecente.lucroLiquido ?? "—"}, Margem Líquida ${anoRecente.margemLiquida ?? "—"}, EBITDA R$ ${anoRecente.ebitda ?? "—"}, Margem EBITDA ${anoRecente.margemEbitda ?? "—"}. Tendência lucro: ${dre.tendenciaLucro ?? "—"}. Crescimento receita: ${dre.crescimentoReceita ?? "—"}.`;
-    }
-    if (balanco?.anos && balanco.anos.length > 0) {
-      const anoRecente = balanco.anos[balanco.anos.length - 1];
-      extras += `\nBalanço (ano mais recente: ${anoRecente.ano ?? ""}): Ativo Total R$ ${anoRecente.ativoTotal ?? "—"}, Patrimônio Líquido R$ ${anoRecente.patrimonioLiquido ?? "—"}, Liquidez Corrente ${anoRecente.liquidezCorrente ?? "—"}, Endividamento Total ${anoRecente.endividamentoTotal ?? "—"}. Tendência patrimônio: ${balanco.tendenciaPatrimonio ?? "—"}.`;
-    }
-    if (curvaABC) {
-      extras += `\nCurva ABC: Concentração Top 3 clientes ${curvaABC.concentracaoTop3 ?? "—"}, Top 5 ${curvaABC.concentracaoTop5 ?? "—"}, Maior cliente ${curvaABC.maiorClientePct ?? "—"}. Total clientes na base: ${curvaABC.totalClientesNaBase ?? "—"}. Alerta de concentração: ${curvaABC.alertaConcentracao ? "SIM" : "NÃO"}.`;
-    }
-
-    const calculosInjetados = `
---- CALCULOS PRE-PROCESSADOS (use estes valores, nao recalcule) ---
-FMM (Faturamento Medio Mensal): R$ ${preReq.fmm.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-Idade da empresa: ${preReq.idadeAnos} anos
-Alavancagem (divida total / FMM): ${alav.label}
-Total divida SCR: R$ ${alav.totalDivida.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}${extras}
-`;
-
-    console.log(`[analyze] Sending ${dataStr.length} chars + calculos to Gemini`);
-
-    // ──── Chamar Gemini ────
-    // Inject settings into prompt
-    const dynamicPrompt = ANALYSIS_PROMPT
-      .replace(/`FMM_MINIMO`/g, `R$ ${settings.fmm_minimo.toLocaleString("pt-BR")}`)
-      .replace(/`IDADE_MINIMA`/g, String(settings.idade_minima_anos))
-      .replace(/`ALAV_SAUDAVEL`/g, String(settings.alavancagem_saudavel))
-      .replace(/`ALAV_MAXIMA`/g, String(settings.alavancagem_maxima));
-
-    try {
-      analysisText = await callGemini(dynamicPrompt, calculosInjetados + "\n" + dataStr);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg === "GEMINI_EXHAUSTED" && OPENROUTER_API_KEYS.length > 0) {
-        console.log("[analyze] Gemini esgotado — tentando OpenRouter...");
-        analysisText = await callOpenRouter(dynamicPrompt, calculosInjetados + "\n" + dataStr);
-      } else {
-        throw err;
+    // ──── Cache servidor (Map em memória) ────
+    const cacheKey = getAnalysisCacheKey(body.data);
+    if (cacheKey) {
+      const cached = analysisCache.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        console.log(`[analyze] Cache servidor HIT para ${cacheKey.substring(0, 30)}`);
+        return NextResponse.json({ success: true, analysis: cached.analysis, fromCache: true });
       }
     }
 
-    // ──── Parse do JSON retornado ────
-    console.log(`[analyze] Gemini raw response (first 1000 chars):`, analysisText.substring(0, 1000));
+    // ──── SSE stream — feedback em tempo real para o cliente ────
+    const enc = new TextEncoder();
+    const send = (ctrl: ReadableStreamDefaultController, ev: string, d: object) =>
+      ctrl.enqueue(enc.encode(`event: ${ev}\ndata: ${JSON.stringify(d)}\n\n`));
 
-    let cleaned = analysisText.trim();
-    if (cleaned.startsWith("```")) {
-      cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-    }
-    if (!cleaned.startsWith("{")) {
-      const match = cleaned.match(/\{[\s\S]*\}/);
-      if (match) cleaned = match[0];
-    }
+    // captura variáveis do escopo externo para uso dentro do stream
+    const _preReq = preReq; const _alav = alav;
+    const _alertas = alertasMesesZerados; const _body = body;
+    const _settings = settings; const _cacheKey = cacheKey;
 
-    const analysis = JSON.parse(cleaned);
+    const stream = new ReadableStream({
+      async start(controller) {
+        let analysisText = "";
+        let dataStr = "";
+        try {
+          send(controller, "status", { message: "Preparando análise..." });
 
-    // ──── Injetar alertas determinísticos antes dos da IA ────
-    if (alertasMesesZerados.length > 0) {
-      analysis.alertas = [...alertasMesesZerados, ...(analysis.alertas ?? [])];
-    }
+          // Payload compacto (~12kb vs ~80kb do JSON completo)
+          dataStr = buildPayloadResumo(_body.data as ExtractedData);
 
-    // ──── Defaults para campos críticos ────
-    analysis.rating = analysis.rating ?? 0;
-    analysis.semaforo = analysis.semaforo ?? "VERMELHO";
-    analysis.decisao = analysis.decisao ?? "PENDENTE";
-    analysis.alertas = (analysis.alertas ?? []).map((a: Record<string, string>) => ({
-      ...a,
-      mitigacao: a.mitigacao ?? "",
-    }));
-    analysis.parametrosOperacionais = {
-      limiteAproximado: "",
-      prazoMaximo: "",
-      concentracaoSacado: "",
-      garantias: "",
-      revisao: "",
-      ...(analysis.parametrosOperacionais ?? {}),
-    };
+          // ── Extras DRE / Balanço / CurvaABC ──
+          const d = _body.data as Record<string, unknown>;
+          const dre = d.dre as { anos?: Array<Record<string, string>>; crescimentoReceita?: string; tendenciaLucro?: string } | undefined;
+          const balanco = d.balanco as { anos?: Array<Record<string, string>>; tendenciaPatrimonio?: string } | undefined;
+          const curvaABC = d.curvaABC as { concentracaoTop3?: string; concentracaoTop5?: string; maiorClientePct?: string; alertaConcentracao?: boolean; totalClientesNaBase?: number } | undefined;
 
-    // Normalizar parecer — suporta formato antigo (string) e novo (objeto)
-    if (typeof analysis.parecer === "string") {
-      analysis.parecer = {
-        resumoExecutivo: analysis.resumoExecutivo || "",
-        pontosFortes: analysis.pontosFortes || [],
-        pontosNegativosOuFracos: analysis.pontosFracos || [],
-        perguntasVisita: analysis.perguntasVisita || [],
-        textoCompleto: analysis.parecer,
-      };
-    } else {
-      analysis.parecer = analysis.parecer ?? {};
-      analysis.parecer.resumoExecutivo = analysis.parecer.resumoExecutivo || analysis.resumoExecutivo || "";
-      analysis.parecer.pontosFortes = analysis.parecer.pontosFortes || analysis.pontosFortes || [];
-      analysis.parecer.pontosNegativosOuFracos = analysis.parecer.pontosNegativosOuFracos || analysis.pontosFracos || [];
-      analysis.parecer.perguntasVisita = analysis.parecer.perguntasVisita || analysis.perguntasVisita || [];
-      analysis.parecer.textoCompleto = analysis.parecer.textoCompleto || "";
-    }
+          let extras = "";
+          if (dre?.anos && dre.anos.length > 0) {
+            const a = dre.anos[dre.anos.length - 1];
+            extras += `\nDRE (${a.ano ?? ""}): Receita R$ ${a.receitaBruta ?? "—"}, Lucro R$ ${a.lucroLiquido ?? "—"}, Margem ${a.margemLiquida ?? "—"}, EBITDA R$ ${a.ebitda ?? "—"}. Tendência: ${dre.tendenciaLucro ?? "—"}. Crescimento: ${dre.crescimentoReceita ?? "—"}.`;
+          }
+          if (balanco?.anos && balanco.anos.length > 0) {
+            const a = balanco.anos[balanco.anos.length - 1];
+            extras += `\nBalanço (${a.ano ?? ""}): Ativo R$ ${a.ativoTotal ?? "—"}, PL R$ ${a.patrimonioLiquido ?? "—"}, Liquidez ${a.liquidezCorrente ?? "—"}, Endividamento ${a.endividamentoTotal ?? "—"}. Tendência PL: ${balanco.tendenciaPatrimonio ?? "—"}.`;
+          }
+          if (curvaABC) {
+            extras += `\nCurva ABC: Top3 ${curvaABC.concentracaoTop3 ?? "—"}, Top5 ${curvaABC.concentracaoTop5 ?? "—"}, Maior cliente ${curvaABC.maiorClientePct ?? "—"}. Clientes: ${curvaABC.totalClientesNaBase ?? "—"}. Alerta: ${curvaABC.alertaConcentracao ? "SIM" : "NÃO"}.`;
+          }
 
-    // Copiar para campos top-level para backward compat com GenerateStep
-    analysis.resumoExecutivo = analysis.parecer.resumoExecutivo;
-    analysis.pontosFortes = analysis.parecer.pontosFortes;
-    analysis.pontosFracos = analysis.parecer.pontosNegativosOuFracos;
-    analysis.perguntasVisita = analysis.parecer.perguntasVisita;
+          const calculosInjetados = `
+--- CALCULOS PRE-PROCESSADOS ---
+FMM: R$ ${_preReq.fmm.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+Idade: ${_preReq.idadeAnos} anos
+Alavancagem: ${_alav.label}
+Dívida total SCR: R$ ${_alav.totalDivida.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}${extras}
+`;
 
-    // ──── Injetar cálculos determinísticos nos indicadores ────
-    analysis.indicadores = analysis.indicadores ?? {};
-    analysis.indicadores.alavancagem = alav.label;
-    analysis.indicadores.idadeEmpresa = `${preReq.idadeAnos} anos`;
-    analysis.indicadores.fmm = `R$ ${preReq.fmm.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
+          console.log(`[analyze] Payload: ${dataStr.length} chars (payload compacto) → Gemini`);
+          send(controller, "status", { message: "Consultando modelo de IA..." });
 
-    // Gerar síntese executiva
-    let sinteseExecutiva = "";
-    try {
-      const sintesePrompt = PROMPT_SINTESE(body.data as ExtractedData, settings, preReq);
-      const sinteseResult = await callGemini(sintesePrompt, "");
-      sinteseExecutiva = sinteseResult?.trim() || "";
-    } catch (err) {
-      console.warn("[analyze] Erro ao gerar síntese:", err);
-      sinteseExecutiva = "";
-    }
-    analysis.sinteseExecutiva = sinteseExecutiva;
+          const dynamicPrompt = ANALYSIS_PROMPT
+            .replace(/`FMM_MINIMO`/g, `R$ ${_settings.fmm_minimo.toLocaleString("pt-BR")}`)
+            .replace(/`IDADE_MINIMA`/g, String(_settings.idade_minima_anos))
+            .replace(/`ALAV_SAUDAVEL`/g, String(_settings.alavancagem_saudavel))
+            .replace(/`ALAV_MAXIMA`/g, String(_settings.alavancagem_maxima));
 
-    return NextResponse.json({ success: true, analysis });
+          const sintesePrompt = PROMPT_SINTESE(_body.data as ExtractedData, _settings, _preReq);
+
+          const [analysisSettled, sinteseSettled] = await Promise.allSettled([
+            (async () => {
+              try {
+                return await callGemini(dynamicPrompt, calculosInjetados + "\n" + dataStr);
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                if (msg === "GEMINI_EXHAUSTED" && OPENROUTER_API_KEYS.length > 0) {
+                  console.log("[analyze] Gemini esgotado → OpenRouter");
+                  return await callOpenRouter(dynamicPrompt, calculosInjetados + "\n" + dataStr);
+                }
+                throw err;
+              }
+            })(),
+            callGemini(sintesePrompt, "").catch(err => {
+              console.warn("[analyze] Síntese falhou:", err instanceof Error ? err.message : err);
+              return "";
+            }),
+          ]);
+
+          if (analysisSettled.status === "rejected") throw analysisSettled.reason;
+          analysisText = analysisSettled.value;
+          const sinteseExecutiva = sinteseSettled.status === "fulfilled" ? (sinteseSettled.value?.trim() || "") : "";
+
+          send(controller, "status", { message: "Processando resultado..." });
+
+          // Parse
+          console.log(`[analyze] Gemini raw (first 500):`, analysisText.substring(0, 500));
+          let cleaned = analysisText.trim();
+          if (cleaned.startsWith("```")) cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+          if (!cleaned.startsWith("{")) { const m = cleaned.match(/\{[\s\S]*\}/); if (m) cleaned = m[0]; }
+          const analysis = JSON.parse(cleaned);
+
+          // Alertas determinísticos
+          if (_alertas.length > 0) analysis.alertas = [..._alertas, ...(analysis.alertas ?? [])];
+
+          // Defaults
+          analysis.rating = analysis.rating ?? 0;
+          analysis.semaforo = analysis.semaforo ?? "VERMELHO";
+          analysis.decisao = analysis.decisao ?? "PENDENTE";
+          analysis.alertas = (analysis.alertas ?? []).map((a: Record<string, string>) => ({ ...a, mitigacao: a.mitigacao ?? "" }));
+          analysis.parametrosOperacionais = { limiteAproximado: "", prazoMaximo: "", concentracaoSacado: "", garantias: "", revisao: "", ...(analysis.parametrosOperacionais ?? {}) };
+
+          // Normalizar parecer
+          if (typeof analysis.parecer === "string") {
+            analysis.parecer = { resumoExecutivo: analysis.resumoExecutivo || "", pontosFortes: analysis.pontosFortes || [], pontosNegativosOuFracos: analysis.pontosFracos || [], perguntasVisita: analysis.perguntasVisita || [], textoCompleto: analysis.parecer };
+          } else {
+            analysis.parecer = analysis.parecer ?? {};
+            analysis.parecer.resumoExecutivo = analysis.parecer.resumoExecutivo || analysis.resumoExecutivo || "";
+            analysis.parecer.pontosFortes = analysis.parecer.pontosFortes || analysis.pontosFortes || [];
+            analysis.parecer.pontosNegativosOuFracos = analysis.parecer.pontosNegativosOuFracos || analysis.pontosFracos || [];
+            analysis.parecer.perguntasVisita = analysis.parecer.perguntasVisita || analysis.perguntasVisita || [];
+            analysis.parecer.textoCompleto = analysis.parecer.textoCompleto || "";
+          }
+          analysis.resumoExecutivo = analysis.parecer.resumoExecutivo;
+          analysis.pontosFortes = analysis.parecer.pontosFortes;
+          analysis.pontosFracos = analysis.parecer.pontosNegativosOuFracos;
+          analysis.perguntasVisita = analysis.parecer.perguntasVisita;
+          analysis.indicadores = analysis.indicadores ?? {};
+          analysis.indicadores.alavancagem = _alav.label;
+          analysis.indicadores.idadeEmpresa = `${_preReq.idadeAnos} anos`;
+          analysis.indicadores.fmm = `R$ ${_preReq.fmm.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
+          analysis.sinteseExecutiva = sinteseExecutiva;
+
+          // Salvar no cache servidor
+          if (_cacheKey) {
+            analysisCache.set(_cacheKey, { analysis, expiresAt: Date.now() + ANALYSIS_CACHE_TTL });
+            console.log(`[analyze] Cache servidor MISS → armazenado (key: ${_cacheKey.substring(0, 30)})`);
+          }
+
+          send(controller, "result", { success: true, analysis });
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          console.error(`[analyze] Stream error: ${errMsg}`);
+          if (analysisText) console.error(`[analyze] Raw AI (first 300):`, analysisText.substring(0, 300));
+          console.error(`[analyze] Payload size: ${dataStr.length} chars`);
+          send(controller, "error", { error: "Erro ao gerar análise — tente novamente." });
+        } finally {
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "Connection": "keep-alive",
+      },
+    });
   } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    console.error(`[analyze] Error: ${errMsg}`);
-    if (analysisText) {
-      console.error(`[analyze] Raw AI response (first 300 chars):`, analysisText.substring(0, 300));
-    }
-    console.error(`[analyze] Input data size: ${dataStr.length} chars`);
-    return NextResponse.json({ error: "Erro ao gerar análise." }, { status: 500 });
+    return NextResponse.json({ error: String(err) }, { status: 500 });
   }
 }

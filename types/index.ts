@@ -284,6 +284,33 @@ export interface RelatorioVisitaData {
   observacoesLivres: string;
   pleito?: string;
   modalidade?: "comissaria" | "convencional" | "hibrida" | "outra";
+
+  // ─── Parâmetros Operacionais ───
+  taxaConvencional?: string;         // taxa para modalidade convencional (%)
+  taxaComissaria?: string;           // taxa para modalidade comissária (%)
+  limiteTotal?: string;              // limite total (R$)
+  limiteConvencional?: string;       // limite convencional (R$)
+  limiteComissaria?: string;         // limite comissária (R$)
+  limitePorSacado?: string;          // limite por sacado (R$)
+  ticketMedio?: string;              // ticket médio por duplicata (R$)
+  valorCobrancaBoleto?: string;      // valor cobrado por cobrança de boleto (R$)
+  prazoRecompraCedente?: string;     // condição: prazo de recompra pelo cedente (dias)
+  prazoEnvioCartorio?: string;       // condição: envio para cartório em X dias
+  prazoMaximoOp?: string;            // prazo máximo da operação (dias)
+  cobrancaTAC?: string;              // cobrança de TAC (valor ou "Sim"/"Não")
+  tranche?: string;                  // valor da tranche (R$)
+  prazoTranche?: string;             // prazo da tranche (dias)
+
+  // ─── Dados da Empresa (coletados na visita) ───
+  folhaPagamento?: string;           // folha de pagamento mensal (R$)
+  endividamentoBanco?: string;       // endividamento com bancos (R$)
+  endividamentoFactoring?: string;   // endividamento com factoring/FIDC (R$)
+  vendasCheque?: string;             // % vendas via cheque
+  vendasDuplicata?: string;          // % vendas via duplicata
+  vendasOutras?: string;             // % outras formas de venda
+  prazoMedioFaturamento?: string;    // prazo médio de faturamento (dias)
+  prazoMedioEntrega?: string;        // prazo médio de entrega das mercadorias (dias)
+  referenciasFornecedores?: string;  // referências comerciais / fornecedores (texto livre)
 }
 
 // ─── IR dos Sócios ───
@@ -313,6 +340,8 @@ export interface IRSocioData {
   totalBensDireitos: string;
   dividasOnus: string;
   patrimonioLiquido: string;
+  impostoDefinido?: string;
+  valorQuota?: string;
   impostoPago: string;
   impostoRestituir: string;
   temSociedades: boolean;

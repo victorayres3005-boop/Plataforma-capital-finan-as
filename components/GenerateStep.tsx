@@ -1200,6 +1200,92 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         </div>
       </div>
 
+      {/* ══════════════════════════════════════════════════════
+          CARD — PARAMETROS OPERACIONAIS (Relatório de Visita)
+          ══════════════════════════════════════════════════════ */}
+      {data.relatorioVisita && (
+        <div className="bg-white rounded-xl border border-[#E5E7EB]" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+          <div className="flex items-center gap-3 px-5 py-3.5 bg-[#F8FAFC] border-b border-[#E5E7EB] rounded-t-xl">
+            <div className="w-1 h-8 rounded-full bg-[#1E3A5F]" />
+            <span className="text-xs font-bold text-[#1E3A5F] uppercase tracking-[0.08em]">OP</span>
+            <span className="text-sm font-bold text-[#111827]">Parametros Operacionais</span>
+          </div>
+          <div className="p-5 space-y-5">
+
+            {/* Taxas e Limites */}
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] font-bold mb-3 border-b border-[#F3F4F6] pb-1">Taxas e Limites</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                {[
+                  ["Taxa Convencional", data.relatorioVisita.taxaConvencional],
+                  ["Taxa Comissaria", data.relatorioVisita.taxaComissaria],
+                  ["Limite Total", data.relatorioVisita.limiteTotal ? `R$ ${data.relatorioVisita.limiteTotal}` : ""],
+                  ["Limite Convencional", data.relatorioVisita.limiteConvencional ? `R$ ${data.relatorioVisita.limiteConvencional}` : ""],
+                  ["Limite Comissaria", data.relatorioVisita.limiteComissaria ? `R$ ${data.relatorioVisita.limiteComissaria}` : ""],
+                  ["Limite por Sacado", data.relatorioVisita.limitePorSacado ? `R$ ${data.relatorioVisita.limitePorSacado}` : ""],
+                  ["Ticket Medio", data.relatorioVisita.ticketMedio ? `R$ ${data.relatorioVisita.ticketMedio}` : ""],
+                  ["Valor Cobranca Boleto", data.relatorioVisita.valorCobrancaBoleto ? `R$ ${data.relatorioVisita.valorCobrancaBoleto}` : ""],
+                ].map(([label, value]) => (
+                  <div key={label as string}>
+                    <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">{label}</p>
+                    <p className="text-[14px] font-semibold text-[#111827]">{value || "—"}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Condicoes de Cobranca e Prazos */}
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] font-bold mb-3 border-b border-[#F3F4F6] pb-1">Condicoes de Cobranca e Prazos</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                {[
+                  ["Prazo Recompra Cedente", data.relatorioVisita.prazoRecompraCedente ? `${data.relatorioVisita.prazoRecompraCedente} dias` : ""],
+                  ["Envio para Cartorio", data.relatorioVisita.prazoEnvioCartorio ? `${data.relatorioVisita.prazoEnvioCartorio} dias` : ""],
+                  ["Prazo Maximo", data.relatorioVisita.prazoMaximoOp ? `${data.relatorioVisita.prazoMaximoOp} dias` : ""],
+                  ["Cobranca de TAC", data.relatorioVisita.cobrancaTAC],
+                  ["Tranche", data.relatorioVisita.tranche ? `R$ ${data.relatorioVisita.tranche}` : ""],
+                  ["Prazo Tranche", data.relatorioVisita.prazoTranche ? `${data.relatorioVisita.prazoTranche} dias` : ""],
+                ].map(([label, value]) => (
+                  <div key={label as string}>
+                    <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">{label}</p>
+                    <p className="text-[14px] font-semibold text-[#111827]">{value || "—"}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Dados da Empresa */}
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] font-bold mb-3 border-b border-[#F3F4F6] pb-1">Dados da Empresa</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                {[
+                  ["Num. Funcionarios", String(data.relatorioVisita.funcionariosObservados || "—")],
+                  ["Folha de Pagamento", data.relatorioVisita.folhaPagamento ? `R$ ${data.relatorioVisita.folhaPagamento}` : ""],
+                  ["Endividamento Banco", data.relatorioVisita.endividamentoBanco],
+                  ["Endividamento Factoring/FIDC", data.relatorioVisita.endividamentoFactoring],
+                  ["Vendas Cheque", data.relatorioVisita.vendasCheque],
+                  ["Vendas Duplicata", data.relatorioVisita.vendasDuplicata],
+                  ["Vendas Outras", data.relatorioVisita.vendasOutras],
+                  ["Prazo Medio Faturamento", data.relatorioVisita.prazoMedioFaturamento ? `${data.relatorioVisita.prazoMedioFaturamento} dias` : ""],
+                  ["Prazo Medio Entrega", data.relatorioVisita.prazoMedioEntrega ? `${data.relatorioVisita.prazoMedioEntrega} dias` : ""],
+                ].map(([label, value]) => (
+                  <div key={label as string}>
+                    <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">{label}</p>
+                    <p className="text-[14px] font-semibold text-[#111827]">{value || "—"}</p>
+                  </div>
+                ))}
+              </div>
+              {data.relatorioVisita.referenciasFornecedores && (
+                <div className="mt-3">
+                  <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Referencias Comerciais / Fornecedores</p>
+                  <p className="text-[13px] text-[#374151] leading-relaxed">{data.relatorioVisita.referenciasFornecedores}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Editar dados do relatorio ── */}
       <div className="card overflow-hidden">
         <button onClick={() => setEditing(p => !p)}
