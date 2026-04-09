@@ -24,6 +24,8 @@ function parseMoneyToNumber(val: string): number {
 
 export async function buildDOCXReport(p: DOCXReportParams): Promise<Blob> {
   const { data, decision, finalRating, alerts, protestosVigentes } = p;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fundValidation = (p as any).fundValidation;
 
       const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, Header, Footer } = await import("docx");
 
@@ -259,6 +261,80 @@ export async function buildDOCXReport(p: DOCXReportParams): Promise<Blob> {
                 ...alerts.map(a => alertParagraph(a.message, a.severity)),
                 spacer(200),
               ] : []),
+
+
+              // ── SEÇÃO FS — CONFORMIDADE COM PARAMETROS DO FUNDO ──
+              ...(fundValidation && fundValidation.criteria.length > 0 ? (() => {
+                const fv = fundValidation;
+                const fvOkColor = "166534"; const fvWarnColor = "92400E"; const fvErrColor = "991B1B";
+                const fvOkBg = "DCFCE7"; const fvWarnBg = "FEF3C7"; const fvErrBg = "FEE2E2";
+
+                const criterionRows = fv.criteria.map((cr: import("@/types").FundCriterion) => {
+                  const txtColor = cr.status === "ok" ? fvOkColor : cr.status === "warning" ? fvWarnColor : cr.status === "error" ? fvErrColor : muted;
+                  const bgColor = cr.status === "ok" ? "FFFFFF" : cr.status === "warning" ? "FFFDF5" : cr.status === "error" ? "FFF5F5" : "FFFFFF";
+                  const pillBg = cr.status === "ok" ? fvOkBg : cr.status === "warning" ? fvWarnBg : cr.status === "error" ? fvErrBg : "F3F4F6";
+                  const statusLabel = cr.status === "ok" ? "APROVADO" : cr.status === "warning" ? "ATENCAO" : cr.status === "error" ? "REPROVADO" : "S/DADO";
+                  const icon = cr.status === "ok" ? "✓" : cr.status === "warning" ? "!" : cr.status === "error" ? "✕" : "?";
+                  return new TableRow({ children: [
+                    new TableCell({ shading: { type: "clear" as const, fill: bgColor }, width: { size: 35, type: WidthType.PERCENTAGE },
+                      children: [new Paragraph({ spacing: { before: 60, after: 60 }, indent: { left: 100 }, children: [
+                        new TextRun({ text: `${icon}  `, bold: true, color: txtColor, size: 17, font: "Arial" }),
+                        new TextRun({ text: cr.label + (cr.eliminatoria && cr.status === "error" ? " *" : ""), bold: cr.status === "error", color: textDark, size: 17, font: "Arial" }),
+                      ] })],
+                    }),
+                    new TableCell({ shading: { type: "clear" as const, fill: bgColor }, width: { size: 30, type: WidthType.PERCENTAGE },
+                      children: [new Paragraph({ spacing: { before: 60, after: 60 }, indent: { left: 60 }, children: [
+                        new TextRun({ text: cr.threshold, color: muted, size: 16, font: "Arial" }),
+                      ] })],
+                    }),
+                    new TableCell({ shading: { type: "clear" as const, fill: bgColor }, width: { size: 20, type: WidthType.PERCENTAGE },
+                      children: [new Paragraph({ spacing: { before: 60, after: 60 }, indent: { left: 60 }, children: [
+                        new TextRun({ text: cr.actual, bold: true, color: txtColor, size: 17, font: "Arial" }),
+                      ] })],
+                    }),
+                    new TableCell({ shading: { type: "clear" as const, fill: pillBg }, width: { size: 15, type: WidthType.PERCENTAGE },
+                      children: [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 60, after: 60 }, children: [
+                        new TextRun({ text: statusLabel, bold: true, color: txtColor, size: 15, font: "Arial" }),
+                      ] })],
+                    }),
+                  ] });
+                });
+
+                return [
+                  sectionTitle("FS", "CONFORMIDADE COM PARAMETROS DO FUNDO", fv.hasEliminatoria ? danger : fv.warnCount > 0 ? warning : green),
+                  spacer(100),
+                  new Paragraph({ shading: { type: "clear" as const, fill: fv.hasEliminatoria ? "FEE2E2" : fv.warnCount > 0 ? "FEF3C7" : "DCFCE7" }, spacing: { before: 60, after: 100 }, children: [
+                    new TextRun({ text: fv.hasEliminatoria
+                      ? `  ATENCAO: criterio eliminatorio nao atendido — ${fv.failCount} reprovado(s), ${fv.passCount} de ${fv.criteria.length} aprovados`
+                      : fv.warnCount > 0
+                        ? `  ${fv.passCount} criterios aprovados · ${fv.warnCount} atencao · ${fv.failCount} reprovado(s) de ${fv.criteria.length}`
+                        : `  Todos os ${fv.passCount} criterios atendidos — empresa elegivel`,
+                      bold: true, color: fv.hasEliminatoria ? fvErrColor : fv.warnCount > 0 ? fvWarnColor : fvOkColor, size: 18, font: "Arial" }),
+                  ] }),
+                  new Table({
+                    width: { size: 100, type: WidthType.PERCENTAGE },
+                    rows: [
+                      new TableRow({ tableHeader: true, children: [
+                        new TableCell({ shading: { type: "clear" as const, fill: "1E3A7A" }, width: { size: 35, type: WidthType.PERCENTAGE },
+                          children: [new Paragraph({ spacing: { before: 60, after: 60 }, indent: { left: 100 }, children: [new TextRun({ text: "CRITERIO", bold: true, color: "FFFFFF", size: 15, font: "Arial" })] })] }),
+                        new TableCell({ shading: { type: "clear" as const, fill: "1E3A7A" }, width: { size: 30, type: WidthType.PERCENTAGE },
+                          children: [new Paragraph({ spacing: { before: 60, after: 60 }, indent: { left: 60 }, children: [new TextRun({ text: "LIMITE DO FUNDO", bold: true, color: "FFFFFF", size: 15, font: "Arial" })] })] }),
+                        new TableCell({ shading: { type: "clear" as const, fill: "1E3A7A" }, width: { size: 20, type: WidthType.PERCENTAGE },
+                          children: [new Paragraph({ spacing: { before: 60, after: 60 }, indent: { left: 60 }, children: [new TextRun({ text: "APURADO", bold: true, color: "FFFFFF", size: 15, font: "Arial" })] })] }),
+                        new TableCell({ shading: { type: "clear" as const, fill: "1E3A7A" }, width: { size: 15, type: WidthType.PERCENTAGE },
+                          children: [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 60, after: 60 }, children: [new TextRun({ text: "STATUS", bold: true, color: "FFFFFF", size: 15, font: "Arial" })] })] }),
+                      ] }),
+                      ...criterionRows,
+                    ],
+                  }),
+                  ...(fv.criteria.some((c: import("@/types").FundCriterion) => c.eliminatoria && c.status === "error") ? [
+                    spacer(60),
+                    new Paragraph({ spacing: { before: 60 }, children: [new TextRun({ text: "* Criterio eliminatorio — impede aprovacao pelos parametros configurados do fundo", italics: true, color: fvErrColor, size: 15, font: "Arial" })] }),
+                  ] : []),
+                  spacer(300),
+                ];
+              })() : []),
+
 
               // Section 01
               sectionTitle("01", "IDENTIFICACAO DA EMPRESA", navy),

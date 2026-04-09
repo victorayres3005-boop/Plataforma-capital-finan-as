@@ -1,4 +1,5 @@
-import type { ExtractedData, AIAnalysis } from "@/types";
+// Excel report generator
+import type { ExtractedData, AIAnalysis, FundValidationResult } from "@/types";
 
 type AlertSeverity = "ALTA" | "MODERADA" | "INFO";
 interface Alert { message: string; severity: AlertSeverity; impacto?: string; }
@@ -13,6 +14,7 @@ export interface ExcelReportParams {
   pontosFracos: string[];
   companyAge: string;
   protestosVigentes: number;
+  fundValidation?: FundValidationResult;
 }
 
 function parseMoneyToNumber(val: string): number {
@@ -22,7 +24,7 @@ function parseMoneyToNumber(val: string): number {
 
 export async function buildExcelReport(p: ExcelReportParams): Promise<Blob> {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { data, decision, finalRating, alerts, pontosFortes, pontosFracos, companyAge, protestosVigentes } = p;
+  const { data, decision, finalRating, alerts, pontosFortes, pontosFracos, companyAge, protestosVigentes, fundValidation } = p;
 
       const ExcelJS = await import("exceljs");
       const wb = new ExcelJS.Workbook();
@@ -117,6 +119,88 @@ export async function buildExcelReport(p: ExcelReportParams): Promise<Blob> {
           r++;
         });
       };
+
+      // ======= SECAO FS: PARAMETROS DO FUNDO =======
+      if (fundValidation && fundValidation.criteria.length > 0) {
+        const fv = fundValidation;
+        const FS_OK = "FF166534"; const FS_WARN = "FF92400E"; const FS_ERR = "FF991B1B";
+        const FS_OK_BG = "FFDCFCE7"; const FS_WARN_BG = "FFFEF3C7"; const FS_ERR_BG = "FFFEE2E2";
+
+        const fsColor = fv.hasEliminatoria ? "FFDC2626" : fv.warnCount > 0 ? "FFD97706" : "FF166534";
+        secTitle("FS", "CONFORMIDADE COM PARAMETROS DO FUNDO", fsColor);
+
+        // Summary banner
+        ws.mergeCells(r, 2, r, 5);
+        ws.getRow(r).height = 28;
+        const fsBanner = ws.getRow(r).getCell(2);
+        fsBanner.value = fv.hasEliminatoria
+          ? `  ATENCAO: criterio eliminatorio nao atendido — ${fv.failCount} reprovado(s), ${fv.passCount} de ${fv.criteria.length} aprovados`
+          : fv.warnCount > 0
+            ? `  ${fv.passCount} criterios aprovados · ${fv.warnCount} atencao · ${fv.failCount} reprovado(s) de ${fv.criteria.length}`
+            : `  Todos os ${fv.passCount} criterios atendidos — empresa elegivel`;
+        fsBanner.font = { bold: true, size: 11, color: { argb: fv.hasEliminatoria ? FS_ERR : fv.warnCount > 0 ? FS_WARN : FS_OK }, name: "Arial" };
+        fsBanner.fill = F(fv.hasEliminatoria ? FS_ERR_BG : fv.warnCount > 0 ? FS_WARN_BG : FS_OK_BG);
+        fsBanner.border = BD;
+        fsBanner.alignment = { vertical: "middle" };
+        r++;
+
+        xlSpacer();
+
+        // Table header
+        const fsHdr = ws.getRow(r);
+        fsHdr.height = 26;
+        ["CRITERIO", "LIMITE DO FUNDO", "APURADO", "STATUS"].forEach((hdr, i) => {
+          const c = fsHdr.getCell(i + 2);
+          c.value = hdr; c.font = { bold: true, size: 9, color: { argb: WHITE }, name: "Arial" };
+          c.fill = F("FF1E3A7A"); c.border = BD; c.alignment = { vertical: "middle", horizontal: "center" };
+        });
+        r++;
+
+        // Criterion rows
+        fv.criteria.forEach((cr, i) => {
+          const bg = cr.status === "ok" ? (i % 2 === 0 ? FS_OK_BG : "FFFFFFFF") : cr.status === "warning" ? (i % 2 === 0 ? FS_WARN_BG : "FFFFFFFF") : cr.status === "error" ? FS_ERR_BG : (i % 2 === 0 ? STRIPE : WHITE);
+          const txtColor = cr.status === "ok" ? FS_OK : cr.status === "warning" ? FS_WARN : cr.status === "error" ? FS_ERR : MUTED;
+          const icon = cr.status === "ok" ? "✓" : cr.status === "warning" ? "!" : cr.status === "error" ? "✕" : "?";
+          const statusLabel = cr.status === "ok" ? "APROVADO" : cr.status === "warning" ? "ATENCAO" : cr.status === "error" ? "REPROVADO" : "S/DADO";
+
+          const xlRow = ws.getRow(r);
+          xlRow.height = 24;
+
+          const c1 = xlRow.getCell(2);
+          c1.value = `${icon}  ${cr.label}${cr.eliminatoria && cr.status === "error" ? " *" : ""}`;
+          c1.font = { size: 10, bold: cr.status === "error", color: { argb: TEXT }, name: "Arial" };
+          c1.fill = F(bg); c1.border = BD; c1.alignment = { vertical: "middle" };
+
+          const c2 = xlRow.getCell(3);
+          c2.value = cr.threshold;
+          c2.font = { size: 10, color: { argb: MUTED }, name: "Arial" };
+          c2.fill = F(bg); c2.border = BD; c2.alignment = { vertical: "middle" };
+
+          const c3 = xlRow.getCell(4);
+          c3.value = cr.actual;
+          c3.font = { size: 10, bold: true, color: { argb: txtColor }, name: "Arial" };
+          c3.fill = F(bg); c3.border = BD; c3.alignment = { vertical: "middle" };
+
+          const c4 = xlRow.getCell(5);
+          c4.value = statusLabel;
+          c4.font = { size: 10, bold: true, color: { argb: txtColor }, name: "Arial" };
+          c4.fill = F(bg); c4.border = BD; c4.alignment = { vertical: "middle", horizontal: "center" };
+
+          r++;
+        });
+
+        // Footnote if eliminatorio failed
+        if (fv.criteria.some(c => c.eliminatoria && c.status === "error")) {
+          xlSpacer();
+          ws.mergeCells(r, 2, r, 5);
+          const fn = ws.getRow(r).getCell(2);
+          fn.value = "* Criterio eliminatorio — impede aprovacao pelos parametros configurados do fundo";
+          fn.font = { size: 9, italic: true, color: { argb: FS_ERR }, name: "Arial" };
+          r++;
+        }
+
+        xlSpacer(); xlSpacer();
+      }
 
       // ======= SECAO 01: IDENTIFICACAO =======
       secTitle("01", "IDENTIFICACAO DA EMPRESA", NAVY);

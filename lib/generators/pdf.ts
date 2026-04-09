@@ -1640,8 +1640,10 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...summaryTxt);
     const summaryText = fv.hasEliminatoria
-      ?       : fv.warnCount > 0
-        ?         : ;
+      ? "REPROVADO — criterio eliminatorio nao atendido"
+      : fv.warnCount > 0
+        ? "CONDICIONAL — ha pontos de atencao nos parametros do fundo"
+        : "APROVADO — todos os parametros do fundo foram atendidos";
     doc.text(summaryText, margin + 4, pos.y + 5);
     pos.y += 10;
 
