@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, AlertCircle, Info, GitCompareArrows, Receipt, Scale, PieChart, FileKey, ClipboardList, Loader2, CheckCircle2 } from "lucide-react";
+import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, AlertCircle, Info, GitCompareArrows, Receipt, Scale, PieChart, FileKey, ClipboardList, Loader2 } from "lucide-react";
 import UploadArea from "./UploadArea";
 import { CNPJData, QSAData, ContratoSocialData, FaturamentoData, SCRData, SCRSocioData, ProtestosData, ProcessosData, GrupoEconomicoData, ExtractedData, IRSocioData, CollectionDocument } from "@/types";
 
@@ -253,6 +253,7 @@ export default function UploadStep({
 
   // ── Bureau state ──
   const [bureauStatus, setBureauStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [bureauDetail, setBureauDetail] = useState<Record<string, { success: boolean; mock: boolean; error?: string }>>({});
   const bureauTriggered = useRef(false);
 
   // Auto-trigger bureaus when CNPJ is extracted
@@ -267,15 +268,12 @@ export default function UploadStep({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ cnpj, data: extractedRef.current }),
     })
-      .then(r => {
-        console.log("[upload] bureau response status:", r.status);
-        return r.json();
-      })
+      .then(r => r.json())
       .then(json => {
-        console.log("[upload] bureau response:", JSON.stringify({ success: json.success, bureaus: json.bureaus, hasMerged: !!json.merged, protestos: !!json.merged?.protestos, processos: !!json.merged?.processos }).substring(0, 500));
         if (json.success && json.merged) {
           setExtracted(prev => ({ ...prev, ...json.merged }));
         }
+        if (json.bureaus) setBureauDetail(json.bureaus);
         setBureauStatus(json.success ? "done" : "error");
       })
       .catch(err => {
@@ -688,10 +686,27 @@ export default function UploadStep({
               Consultando birôs de crédito...
             </div>
           )}
-          {bureauStatus === "done" && extracted.bureausConsultados && extracted.bureausConsultados.length > 0 && (
-            <div className="flex items-center gap-1.5 text-[10px] text-green-700 bg-green-50 border border-green-200 rounded-lg px-2.5 py-1">
-              <CheckCircle2 size={11} />
-              {extracted.bureausConsultados.join(", ")} integrados
+          {bureauStatus === "done" && Object.keys(bureauDetail).length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap justify-end">
+              {(["credithub", "serasa", "spc", "quod"] as const).map(key => {
+                const b = bureauDetail[key];
+                if (!b) return null;
+                const label = key === "credithub" ? "Credit Hub" : key.toUpperCase();
+                if (b.mock || !b.success) {
+                  return (
+                    <div key={key} title={b.error || "Não consultado"} className="flex items-center gap-1 text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-0.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />
+                      {label}
+                    </div>
+                  );
+                }
+                return (
+                  <div key={key} className="flex items-center gap-1 text-[10px] text-green-700 bg-green-50 border border-green-200 rounded-md px-2 py-0.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
+                    {label}
+                  </div>
+                );
+              })}
             </div>
           )}
           <button
