@@ -2,6 +2,7 @@ export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
 import type { CNPJData, ContratoSocialData, SCRData, QSAData, FaturamentoData, ProtestosData, ProcessosData, GrupoEconomicoData, CurvaABCData, DREData, BalancoData, IRSocioData, RelatorioVisitaData } from "@/types";
+import { sanitizeDescricaoDebitos, sanitizeStr, sanitizeEnum, sanitizeMoney } from "@/lib/extract/sanitize";
 
 export const runtime = "nodejs";
 
@@ -755,33 +756,33 @@ function fillBalancoDefaults(data: Partial<BalancoData>): BalancoData {
 
 function fillIRSocioDefaults(data: Partial<IRSocioData>): IRSocioData {
   return {
-    nomeSocio: data.nomeSocio || "",
+    nomeSocio: sanitizeStr(data.nomeSocio, 100),
     cpf: data.cpf || "",
     anoBase: data.anoBase || "",
-    tipoDocumento: data.tipoDocumento || "recibo",
+    tipoDocumento: sanitizeEnum(data.tipoDocumento, ["recibo", "completa", "simples"] as const, "recibo"),
     numeroRecibo: data.numeroRecibo || "",
     dataEntrega: data.dataEntrega || "",
     situacaoMalhas: data.situacaoMalhas ?? false,
     debitosEmAberto: data.debitosEmAberto ?? false,
-    descricaoDebitos: data.descricaoDebitos || "",
-    rendimentosTributaveis: data.rendimentosTributaveis || "0,00",
-    rendimentosIsentos: data.rendimentosIsentos || "0,00",
-    rendimentoTotal: data.rendimentoTotal || "0,00",
-    bensImoveis: data.bensImoveis || "0,00",
-    bensVeiculos: data.bensVeiculos || "0,00",
-    aplicacoesFinanceiras: data.aplicacoesFinanceiras || "0,00",
-    outrosBens: data.outrosBens || "0,00",
-    totalBensDireitos: data.totalBensDireitos || "0,00",
-    dividasOnus: data.dividasOnus || "0,00",
-    patrimonioLiquido: data.patrimonioLiquido || "0,00",
-    impostoDefinido: data.impostoDefinido || "0,00",
-    valorQuota: data.valorQuota || "0,00",
-    impostoPago: data.impostoPago || "0,00",
-    impostoRestituir: data.impostoRestituir || "0,00",
+    descricaoDebitos: sanitizeDescricaoDebitos(data.descricaoDebitos),
+    rendimentosTributaveis: sanitizeMoney(data.rendimentosTributaveis),
+    rendimentosIsentos: sanitizeMoney(data.rendimentosIsentos),
+    rendimentoTotal: sanitizeMoney(data.rendimentoTotal),
+    bensImoveis: sanitizeMoney(data.bensImoveis),
+    bensVeiculos: sanitizeMoney(data.bensVeiculos),
+    aplicacoesFinanceiras: sanitizeMoney(data.aplicacoesFinanceiras),
+    outrosBens: sanitizeMoney(data.outrosBens),
+    totalBensDireitos: sanitizeMoney(data.totalBensDireitos),
+    dividasOnus: sanitizeMoney(data.dividasOnus),
+    patrimonioLiquido: sanitizeMoney(data.patrimonioLiquido),
+    impostoDefinido: sanitizeMoney(data.impostoDefinido),
+    valorQuota: sanitizeMoney(data.valorQuota),
+    impostoPago: sanitizeMoney(data.impostoPago),
+    impostoRestituir: sanitizeMoney(data.impostoRestituir),
     temSociedades: data.temSociedades ?? false,
     sociedades: Array.isArray(data.sociedades) ? data.sociedades : [],
     coerenciaComEmpresa: data.coerenciaComEmpresa ?? true,
-    observacoes: data.observacoes || "",
+    observacoes: sanitizeStr(data.observacoes, 500),
   };
 }
 

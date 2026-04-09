@@ -8,24 +8,21 @@ import { consultarSPC } from "@/lib/bureaus/spc";
 import { consultarQuod } from "@/lib/bureaus/quod";
 import { mergeBureauResults } from "@/lib/bureaus/merger";
 import { enrichProcessosWithDataJud } from "@/lib/bureaus/datajud";
+import { cacheGet, cacheSet, cacheClear, cacheSize } from "@/lib/bureaus/cache";
 import type { ExtractedData } from "@/types";
 import type { CreditHubResult } from "@/lib/bureaus/credithub";
 
-// ── Cache em memória 24h (persiste em instâncias warm da Vercel) ──
-const bureauCache = new Map<string, { result: CreditHubResult; expiresAt: number }>();
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 horas
-
 async function consultarCreditHubComCache(cnpj: string): Promise<CreditHubResult> {
   const cnpjNum = cnpj.replace(/\D/g, "");
-  const cached = bureauCache.get(cnpjNum);
-  if (cached && cached.expiresAt > Date.now()) {
-    console.log(`[bureaus] Credit Hub cache HIT para ${cnpjNum}`);
-    return cached.result;
+  const cached = await cacheGet<CreditHubResult>(cnpjNum);
+  if (cached) {
+    console.log(`[bureaus] Credit Hub cache HIT (Supabase) para ${cnpjNum}`);
+    return cached;
   }
   const result = await consultarCreditHub(cnpj);
   if (result.success && !result.mock) {
-    bureauCache.set(cnpjNum, { result, expiresAt: Date.now() + CACHE_TTL_MS });
-    console.log(`[bureaus] Credit Hub cache MISS — consultado e armazenado para ${cnpjNum}`);
+    await cacheSet(cnpjNum, result);
+    console.log(`[bureaus] Credit Hub cache MISS — consultado e armazenado no Supabase para ${cnpjNum}`);
   }
   return result;
 }
@@ -134,8 +131,9 @@ export async function GET(req: NextRequest) {
   const cnpj = req.nextUrl.searchParams.get("cnpj")?.replace(/\D/g, "") || "";
   const action = req.nextUrl.searchParams.get("action");
   if (action === "clear" && cnpj) {
-    bureauCache.delete(cnpj);
+    await cacheClear(cnpj);
     return NextResponse.json({ success: true, message: `Cache limpo para ${cnpj}` });
   }
-  return NextResponse.json({ cacheSize: bureauCache.size });
+  const size = await cacheSize();
+  return NextResponse.json({ cacheSize: size, backend: "supabase" });
 }
