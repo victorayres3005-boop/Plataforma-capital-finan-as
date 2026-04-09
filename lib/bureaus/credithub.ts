@@ -409,8 +409,11 @@ function resolveBancoNome(raw: string): string {
 
 // ─── CCF ────────────────────────────────────────────────────────────────────
 function parseCCF(d: any): CCFData {
-  const ccf = d?.ccf ?? {};
-  const bancos: CCFData["bancos"] = (ccf.bancos ?? []).map((b: any) => {
+  // Tenta múltiplas chaves possíveis da API
+  const ccf = d?.ccf ?? d?.chequesSemFundo ?? d?.cheque_sem_fundo ?? d?.ccfData ?? d?.CCF ?? {};
+  console.log("[parseCCF] chaves disponíveis no root:", Object.keys(d ?? {}).join(", "));
+  console.log("[parseCCF] ccf raw:", JSON.stringify(ccf).slice(0, 300));
+  const bancos: CCFData["bancos"] = (ccf.bancos ?? ccf.instituicoes ?? ccf.registros ?? []).map((b: any) => {
     const rawNome = b.banco ?? b.nome ?? b.instituicao ?? b.codigoBanco ?? "";
     const nomeResolvido = /^\d+$/.test(String(rawNome).trim())
       ? resolveBancoNome(rawNome)
@@ -439,8 +442,10 @@ function parseCCF(d: any): CCFData {
     }
   }
 
+  const qtdRegistros = Number(ccf.qtdRegistros ?? ccf.quantidade ?? ccf.total ?? bancos.length);
+  console.log("[parseCCF] resultado → qtdRegistros:", qtdRegistros, "| bancos:", bancos.length);
   return {
-    qtdRegistros: Number(ccf.qtdRegistros ?? bancos.length),
+    qtdRegistros,
     bancos,
     historico,
     tendenciaVariacao,
@@ -688,6 +693,9 @@ export async function consultarCreditHub(cnpj: string): Promise<CreditHubResult>
 
     const raw = await res.json();
     const d = raw?.data ?? raw; // dados aninhados sob raw.data
+    console.log("[CreditHub] status HTTP:", res.status);
+    console.log("[CreditHub] chaves top-level:", Object.keys(d ?? {}).join(", "));
+    console.log("[CreditHub] ccf key exists:", !!d?.ccf, "| chequesSemFundo:", !!d?.chequesSemFundo, "| cheque_sem_fundo:", !!d?.cheque_sem_fundo);
 
     return {
       success: true,

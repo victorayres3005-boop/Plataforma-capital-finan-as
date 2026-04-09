@@ -399,6 +399,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     y = 42;
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const drawSectionTitle = (num: string, title: string, color: [number, number, number]) => {
     checkPageBreak(16);
     doc.setFillColor(...colors.surface2);
@@ -923,7 +924,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   // ===== PAGE 1b — SINTESE PRELIMINAR =====
   newPage();
   drawHeader();
-  drawSectionTitle("00", "SINTESE PRELIMINAR", colors.primary);
+  dsSectionHeader("00", "SINTESE PRELIMINAR");
 
   // ── Design tokens ──
   const azulInst:   [number,number,number] = [27, 47, 78];
@@ -1459,7 +1460,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   drawSpacer(10);
   checkPageBreak(90);
 
-  drawSectionTitle("01", "CARTAO CNPJ", colors.primary);
+  dsSectionHeader("01", "CARTAO CNPJ");
 
   const cnpjColW = (contentW - 4) / 2;
 
@@ -1603,7 +1604,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   drawSpacer(10);
   checkPageBreak(60);
 
-  drawSectionTitle("02", "QUADRO SOCIETARIO (QSA)", colors.accent);
+  dsSectionHeader("02", "QUADRO SOCIETARIO (QSA)");
 
   if (data.qsa.capitalSocial) {
     drawField("Capital Social", data.qsa.capitalSocial, true);
@@ -1645,7 +1646,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
   drawSpacer(8);
 
-  drawSectionTitle("03", "CONTRATO SOCIAL", colors.primary);
+  dsSectionHeader("03", "CONTRATO SOCIAL");
 
   if (data.contrato.temAlteracoes) {
     checkPageBreak(12);
@@ -2272,7 +2273,12 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...colors.textMuted);
     doc.text(scrTableTitle, margin, yRight + 4);
-    yRight += 7;
+    yRight += 5;
+    doc.setFontSize(5);
+    doc.setFont("helvetica", "italic");
+    doc.setTextColor(...colors.textMuted);
+    doc.text("Métricas de endividamento bancário da empresa — saldos em mil R$, extraídos do Banco Central (SCR/Bacen).", margin, yRight + 4);
+    yRight += 6;
 
     drawSCRHeader();
 
@@ -2571,8 +2577,13 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       doc.setFontSize(7.5);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...colors.text);
-      doc.text("EVOLUÇÃO SCR", margin, y + 4);
-      y += 8;
+      doc.text("EVOLUÇÃO SCR — EMPRESA E SÓCIOS", margin, y + 4);
+      y += 5;
+      doc.setFontSize(5);
+      doc.setFont("helvetica", "italic");
+      doc.setTextColor(...colors.textMuted);
+      doc.text("Comparativo lado a lado entre a empresa e cada sócio PF — permite identificar dívidas cruzadas e alavancagem do grupo.", margin, y + 4);
+      y += 6;
 
       // Linha 1 header: nomes das entidades (grouped)
       doc.setFillColor(...colors.navy);
@@ -3078,17 +3089,34 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     ];
 
     linhasDRE.forEach((linha, idx) => {
-      const bg: [number, number, number] = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+      const bg: [number, number, number] = idx % 2 === 0 ? DS.colors.zebraRow : DS.colors.cardBg;
       doc.setFillColor(...bg);
       doc.rect(margin, y, contentW, 6, "F");
+      // Borda bottom sutil
+      doc.setDrawColor(...DS.colors.border);
+      doc.setLineWidth(0.15);
+      doc.line(margin, y + 6, margin + contentW, y + 6);
+      doc.setLineWidth(0.1);
       doc.setFontSize(dreFontSz);
       doc.setFont("helvetica", linha.bold ? "bold" : "normal");
-      doc.setTextColor(...colors.text);
+      doc.setTextColor(...DS.colors.textPrimary);
       doc.text(linha.label, margin + 2, y + 4.2);
       dreAnos.forEach((ano, i) => {
         const val = (ano as unknown as Record<string, string>)[linha.campo] || "0,00";
+        const numVal = parseFloat(String(val).replace(/\./g, '').replace(',', '.')) || 0;
         const display = linha.isPct ? `${val}%` : `R$ ${fmtMoney(val)}`;
+        // Cor semântica: negativo = danger, zero/ausente = textLight, positivo = padrão
+        let valColor: [number,number,number] = DS.colors.textPrimary;
+        if (linha.isPct) {
+          if (numVal < 0) valColor = DS.colors.danger;
+          else if (numVal === 0) valColor = DS.colors.textLight;
+        } else {
+          if (numVal < 0) valColor = DS.colors.danger;
+          else if (numVal === 0) valColor = DS.colors.textLight;
+        }
+        doc.setTextColor(...valColor);
         doc.text(display, margin + dreColLabel + i * dreColAno + 2, y + 4.2);
+        doc.setTextColor(...DS.colors.textPrimary);
       });
       y += 6;
     });
@@ -3158,18 +3186,31 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     ];
 
     linhasBalanco.forEach((linha, idx) => {
-      const bg: [number, number, number] = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+      const bg: [number, number, number] = idx % 2 === 0 ? DS.colors.zebraRow : DS.colors.cardBg;
       doc.setFillColor(...bg);
       doc.rect(margin, y, contentW, 6, "F");
+      doc.setDrawColor(...DS.colors.border);
+      doc.setLineWidth(0.15);
+      doc.line(margin, y + 6, margin + contentW, y + 6);
+      doc.setLineWidth(0.1);
       doc.setFontSize(balFontSz);
       doc.setFont("helvetica", linha.bold ? "bold" : "normal");
-      doc.setTextColor(...colors.text);
+      doc.setTextColor(...DS.colors.textPrimary);
       doc.text(linha.label, margin + 2, y + 4.2);
       balAnos.forEach((ano, i) => {
         const val = (ano as unknown as Record<string, string>)[linha.campo] || "0,00";
         const valClean = String(val).replace(/%/g, "").trim();
         const display = linha.isIndice ? (val && val !== "0,00" ? `${val}x` : "—") : linha.isPct ? `${valClean}%` : `R$ ${fmtMoney(val)}`;
+        const numVal = parseFloat(valClean.replace(/\./g, '').replace(',', '.')) || 0;
+        // Cor semântica: PL negativo, liquidez < 1 = perigo
+        let valColor: [number,number,number] = DS.colors.textPrimary;
+        if (numVal < 0) valColor = DS.colors.danger;
+        else if (numVal === 0 && display === "—") valColor = DS.colors.textLight;
+        else if (linha.isIndice && numVal < 1 && numVal > 0) valColor = DS.colors.warn;
+        else if (linha.campo === 'liquidezCorrente' && numVal < 1 && numVal > 0) valColor = DS.colors.warn;
+        doc.setTextColor(...valColor);
         doc.text(display, margin + colLabelB + i * colAnoB + 2, y + 4.2);
+        doc.setTextColor(...DS.colors.textPrimary);
       });
       y += 6;
     });
@@ -4210,13 +4251,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     if (temParamsOp) {
       checkPageBreak(20);
       y += 6;
-      doc.setFillColor(...colors.navy);
-      doc.roundedRect(margin, y, contentW, 7, 1, 1, "F");
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(255, 255, 255);
-      doc.text("PARAMETROS OPERACIONAIS", margin + 4, y + 4.8);
-      y += 7;
+      y = dsMiniHeader(y, 'PARAMETROS OPERACIONAIS');
       drawOpTable([
         ["Taxa Convencional", rv.taxaConvencional || ""],
         ["Taxa Comissaria", rv.taxaComissaria || ""],
@@ -4238,13 +4273,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     if (temDadosEmpresa) {
       checkPageBreak(20);
       y += 2;
-      doc.setFillColor(...colors.navy);
-      doc.roundedRect(margin, y, contentW, 7, 1, 1, "F");
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(255, 255, 255);
-      doc.text("DADOS DA EMPRESA", margin + 4, y + 4.8);
-      y += 7;
+      y = dsMiniHeader(y, 'DADOS DA EMPRESA');
       drawOpTable([
         ["Numero de Funcionarios", String(data.relatorioVisita.funcionariosObservados || "")],
         ["Folha de Pagamento", rv.folhaPagamento ? `R$ ${rv.folhaPagamento}` : ""],
@@ -4478,24 +4507,20 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   const hasParamOp = paramOp && Object.values(paramOp).some(v => v && v.trim() !== "");
   if (hasParamOp) {
     checkPageBreak(16);
-    doc.setFontSize(7);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...colors.textMuted);
-    doc.text("PARAMETROS OPERACIONAIS ORIENTATIVOS", margin, y + 4);
-    y += 7;
+    y = dsMiniHeader(y, 'PARAMETROS OPERACIONAIS ORIENTATIVOS');
 
     const paramCW = [contentW * 0.30, contentW * 0.35, contentW * 0.35];
 
-    // Header
-    doc.setFillColor(...colors.navy);
-    doc.rect(margin, y, contentW, 6, "F");
+    // Sub-header das colunas
+    doc.setFillColor(50, 70, 110);
+    doc.rect(margin, y, contentW, 5.5, 'F');
     doc.setFontSize(5.5);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
     doc.text("PARAMETRO", margin + 2, y + 4);
     doc.text("VALOR SUGERIDO", margin + paramCW[0] + 2, y + 4);
     doc.text("BASE DE CALCULO", margin + paramCW[0] + paramCW[1] + 2, y + 4);
-    y += 6;
+    y += 5.5;
 
     const paramRows: Array<{ label: string; key: string; base: string }> = [
       { label: "Limite aproximado", key: "limiteAproximado", base: "FMM × fatores de score e risco" },
