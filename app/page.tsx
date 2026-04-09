@@ -217,7 +217,18 @@ function calcularMetricasDashboard(collections: DocumentCollection[], periodoAnt
     count: comRating.filter(c => (c.rating || 0) >= f.min && (c.rating || 0) <= f.max).length,
   }));
 
-  return { porDecisao, fmmMedio, fmmTotal, semanas, serieTemporal, taxaAprovacao, totalFinalizadas: finalizadas.length, deltaColetas, deltaTaxa, ratingMedio, totalComRating, deltaRating, ratingDistribuicao };
+  // Funil de aprovação
+  const totalRecebidas = collections.length;
+  const emAnalise = collections.filter(c => c.status === "in_progress").length;
+  const preAprovadas = porDecisao.aprovado + porDecisao.condicional;
+  const funil = [
+    { label: "Empresas Recebidas", value: totalRecebidas, color: "#203b88", sub: "coletas iniciadas no período" },
+    { label: "Documentos Analisados", value: finalizadas.length, color: "#2d5cce", sub: "análise concluída" },
+    { label: "Pré-aprovadas", value: preAprovadas, color: "#73b815", sub: "aprovado ou condicional" },
+    { label: "Aprovação Total", value: porDecisao.aprovado, color: "#22c55e", sub: "aprovado sem restrições" },
+  ];
+
+  return { porDecisao, fmmMedio, fmmTotal, semanas, serieTemporal, taxaAprovacao, totalFinalizadas: finalizadas.length, deltaColetas, deltaTaxa, ratingMedio, totalComRating, deltaRating, ratingDistribuicao, funil, totalRecebidas, emAnalise };
 }
 
 
@@ -1147,6 +1158,79 @@ export default function HomePage() {
                     </div>
                   </div>
                 )}
+
+                {/* Funil de Aprovação */}
+                {metricas.totalRecebidas > 0 && (
+                  <div className="bg-white rounded-2xl border border-[#e5e7eb] p-5 mt-4">
+                    <div className="flex items-center justify-between mb-5">
+                      <p className="text-[11px] text-cf-text-4 uppercase tracking-wider font-bold">Funil de Aprovação</p>
+                      <span className="text-[11px] font-semibold px-2.5 py-1 rounded-lg"
+                        style={{ color: metricas.taxaAprovacao >= 60 ? "#166534" : metricas.taxaAprovacao >= 30 ? "#92400e" : "#991b1b", background: metricas.taxaAprovacao >= 60 ? "#dcfce7" : metricas.taxaAprovacao >= 30 ? "#fef3c7" : "#fee2e2" }}>
+                        Taxa final: {metricas.taxaAprovacao}%
+                      </span>
+                    </div>
+
+                    <div className="space-y-2">
+                      {metricas.funil.map((etapa, i) => {
+                        const pctDoTotal = metricas.funil[0].value > 0 ? Math.round((etapa.value / metricas.funil[0].value) * 100) : 0;
+                        const convPct = i > 0 && metricas.funil[i - 1].value > 0
+                          ? Math.round((etapa.value / metricas.funil[i - 1].value) * 100)
+                          : null;
+                        return (
+                          <div key={etapa.label}>
+                            {i > 0 && (
+                              <div className="flex items-center gap-2 py-1 pl-3">
+                                <svg width="10" height="14" viewBox="0 0 10 14" fill="none"><path d="M5 0v10M1 7l4 6 4-6" stroke="#CBD5E1" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                                <span className="text-[10px] text-cf-text-4">
+                                  {convPct !== null ? `${convPct}% converteram para esta etapa` : "sem dados"}
+                                </span>
+                              </div>
+                            )}
+                            <div className="flex items-center gap-3">
+                              <div className="w-2 h-2 rounded-full flex-shrink-0 mt-0.5" style={{ backgroundColor: etapa.color }} />
+                              <div className="flex-1">
+                                <div className="flex items-center justify-between mb-1.5">
+                                  <div>
+                                    <span className="text-[12px] font-semibold text-cf-text-1">{etapa.label}</span>
+                                    <span className="text-[10px] text-cf-text-4 ml-2">{etapa.sub}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 flex-shrink-0">
+                                    <span className="text-[15px] font-bold text-cf-text-1">{etapa.value}</span>
+                                    <span className="text-[10px] font-medium text-cf-text-4 w-8 text-right">{pctDoTotal}%</span>
+                                  </div>
+                                </div>
+                                <div className="h-6 bg-gray-100 rounded-lg overflow-hidden">
+                                  <div
+                                    className="h-full rounded-lg transition-all duration-700 flex items-center justify-end pr-2"
+                                    style={{ width: `${Math.max(pctDoTotal, etapa.value > 0 ? 4 : 0)}%`, backgroundColor: etapa.color }}>
+                                    {etapa.value > 0 && pctDoTotal >= 12 && (
+                                      <span className="text-white text-[10px] font-bold">{etapa.value}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="mt-5 pt-4 border-t border-gray-100 grid grid-cols-3 gap-3 text-center">
+                      <div>
+                        <div className="text-[10px] text-cf-text-4 mb-1">Em Análise</div>
+                        <div className="text-[17px] font-bold text-cf-navy">{metricas.emAnalise}</div>
+                      </div>
+                      <div className="border-x border-gray-100">
+                        <div className="text-[10px] text-cf-text-4 mb-1">Taxa Aprovação</div>
+                        <div className="text-[17px] font-bold" style={{ color: metricas.taxaAprovacao >= 60 ? "#16a34a" : metricas.taxaAprovacao >= 30 ? "#d97706" : "#dc2626" }}>{metricas.taxaAprovacao}%</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-cf-text-4 mb-1">Reprovadas</div>
+                        <div className="text-[17px] font-bold text-red-500">{metricas.porDecisao.reprovado}</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1294,6 +1378,19 @@ export default function HomePage() {
                                   {group.items.length} tentativas
                                 </span>
                               )}
+                              {col.fund_status && (() => {
+                                const fs = col.fund_status;
+                                const fsColor = fs.status === "ok" ? "#16a34a" : fs.status === "warning" ? "#d97706" : "#dc2626";
+                                const fsBg = fs.status === "ok" ? "#dcfce7" : fs.status === "warning" ? "#fef3c7" : "#fee2e2";
+                                const fsBorder = fs.status === "ok" ? "#bbf7d0" : fs.status === "warning" ? "#fde68a" : "#fecaca";
+                                const fsIcon = fs.status === "ok" ? "✓" : fs.status === "warning" ? "!" : "✕";
+                                const fsLabel = fs.status === "ok" ? `${fs.pass_count}/${fs.total} ok` : fs.status === "warning" ? `${fs.warn_count} atenção` : `${fs.fail_count} reprov.`;
+                                return (
+                                  <span title={`Parâmetros do Fundo${fs.preset_name ? ` (${fs.preset_name})` : ""}: ${fs.pass_count} aprovados, ${fs.warn_count} atenção, ${fs.fail_count} reprovados`} style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "10px", fontWeight: 700, padding: "1px 7px", borderRadius: "99px", background: fsBg, color: fsColor, border: `1px solid ${fsBorder}`, flexShrink: 0, whiteSpace: "nowrap", cursor: "default" }}>
+                                    {fsIcon} {fsLabel}
+                                  </span>
+                                );
+                              })()}
                             </div>
                             <p className="text-xs text-[#94a3b8] mt-0.5">
                               {col.cnpj && <span className="font-mono">{col.cnpj} · </span>}
