@@ -565,51 +565,80 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     });
   };
 
-  // Helper: draw alert box in PDF — card branco, borda sutil, acento esquerdo colorido
+  // Deduplicação global de alertas — evita repetir o mesmo alerta em seções diferentes
+  const _alertasVistos = new Set<string>();
+
+  // Helper: draw alert row — linha compacta com pill de severidade + texto com quebra automática
   const drawAlertBox = (text: string, severity: AlertSeverity, subtitle?: string) => {
-    const lineH = subtitle ? 5 : 0;
-    const cardH = 11 + lineH;
-    checkPageBreak(cardH + 2);
-    const accentC: [number,number,number] = severity === "ALTA" ? [220,38,38] : severity === "MODERADA" ? [217,119,6] : [37,99,235];
-    const badgeC: [number,number,number] = severity === "ALTA" ? [220,38,38] : severity === "MODERADA" ? [217,119,6] : [37,99,235];
-    const badgeBg: [number,number,number] = severity === "ALTA" ? [254,226,226] : severity === "MODERADA" ? [254,243,199] : [219,234,254];
+    // Normaliza para deduplicar (ignora espaços e capitalização)
+    const dedupKey = text.trim().toLowerCase().replace(/\s+/g, " ").substring(0, 120);
+    if (_alertasVistos.has(dedupKey)) return;
+    _alertasVistos.add(dedupKey);
+
+    const accentC:  [number,number,number] = severity === "ALTA" ? [220,38,38]  : severity === "MODERADA" ? [217,119,6] : [37,99,235];
+    const badgeBg:  [number,number,number] = severity === "ALTA" ? [255,241,241]: severity === "MODERADA" ? [255,251,235]: [239,246,255];
+    const badgeTxt: [number,number,number] = severity === "ALTA" ? [185,28,28]  : severity === "MODERADA" ? [161,98,7]  : [29,78,216];
+    const rowBg:    [number,number,number] = severity === "ALTA" ? [255,250,250]: severity === "MODERADA" ? [255,253,244]: [248,251,255];
     const badgeLabel = severity === "ALTA" ? "ALTA" : severity === "MODERADA" ? "MODERADO" : "INFO";
-    // Card fundo branco
-    doc.setFillColor(255, 255, 255);
-    doc.roundedRect(margin, y, contentW, cardH, 1.5, 1.5, "F");
-    // Borda sutil
-    doc.setDrawColor(229, 231, 235);
-    doc.setLineWidth(0.3);
-    doc.roundedRect(margin, y, contentW, cardH, 1.5, 1.5, "D");
-    doc.setLineWidth(0.1);
-    // Acento esquerdo
+
+    // Pill width fixo por severidade para alinhamento consistente
+    const pillW = severity === "MODERADA" ? 22 : 14;
+    const textX = margin + 3 + pillW + 4;
+    const textAvailW = contentW - 3 - pillW - 4 - 2;
+
+    // Quebra de texto automática
+    doc.setFontSize(6.5);
+    doc.setFont("helvetica", "bold");
+    const mainLines: string[] = doc.splitTextToSize(text, textAvailW);
+
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "normal");
+    const subLines: string[] = subtitle ? doc.splitTextToSize(subtitle, textAvailW) : [];
+
+    const lineH = 4.2;
+    const rowH = Math.max(9, (mainLines.length + subLines.length) * lineH + 4);
+    checkPageBreak(rowH + 1);
+
+    // Fundo da linha
+    doc.setFillColor(...rowBg);
+    doc.rect(margin, y, contentW, rowH, "F");
+
+    // Borda esquerda colorida (3mm)
     doc.setFillColor(...accentC);
-    doc.rect(margin, y + 1, 2, cardH - 2, "F");
-    // Badge de severidade
-    const badgeX = margin + 5;
+    doc.rect(margin, y, 3, rowH, "F");
+
+    // Pill de severidade
+    doc.setFillColor(...badgeBg);
+    doc.roundedRect(margin + 4, y + (rowH - 5) / 2, pillW, 5, 1, 1, "F");
     doc.setFontSize(5.5);
     doc.setFont("helvetica", "bold");
-    const bw = doc.getTextWidth(badgeLabel) + 4;
-    doc.setFillColor(...badgeBg);
-    doc.roundedRect(badgeX, y + 2.5, bw, 4.5, 1, 1, "F");
-    doc.setTextColor(...badgeC);
-    doc.text(badgeLabel, badgeX + 2, y + 5.8);
-    // Mensagem principal
-    doc.setFontSize(7);
+    doc.setTextColor(...badgeTxt);
+    doc.text(badgeLabel, margin + 4 + pillW / 2, y + (rowH - 5) / 2 + 3.5, { align: "center" });
+
+    // Texto principal
+    doc.setFontSize(6.5);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(17, 24, 39);
-    doc.text(text.substring(0, 80), badgeX + bw + 3, y + 5.8);
-    // Subtítulo opcional
-    if (subtitle) {
+    let ty = y + 3 + lineH * 0.5;
+    mainLines.forEach((l: string) => { doc.text(l, textX, ty); ty += lineH; });
+
+    // Subtítulo
+    if (subLines.length > 0) {
       doc.setFontSize(6);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(107, 114, 128);
-      doc.text(subtitle.substring(0, 90), badgeX, y + 9.5);
+      subLines.forEach((l: string) => { doc.text(l, textX, ty); ty += lineH; });
     }
-    y += cardH + 2;
+
+    // Divisor inferior sutil
+    doc.setDrawColor(235, 235, 240);
+    doc.setLineWidth(0.2);
+    doc.line(margin + 3, y + rowH, margin + contentW, y + rowH);
+
+    y += rowH;
   };
 
-  // Helper: draw deterministic section alert — mesmo design
+  // Helper: draw deterministic section alert — com deduplicação
   const drawDetAlerts = (alertas: AlertaDet[]) => {
     if (!alertas.length) return;
     alertas.forEach(al => {
@@ -1913,26 +1942,14 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   let yLeft = sectionY;
 
   if (faturamentoRealmenteZerado) {
-    doc.setFillColor(254, 242, 242);
-    doc.roundedRect(leftX, yLeft, leftW, 8, 1, 1, "F");
-    doc.setFillColor(...colors.danger);
-    doc.roundedRect(leftX, yLeft, 2.5, 8, 0.5, 0.5, "F");
-    doc.setFontSize(7);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...colors.danger);
-    doc.text("[ALTA] Faturamento zerado no periodo", leftX + 6, yLeft + 5.5);
-    yLeft += 10;
+    y = yLeft;
+    drawAlertBox("Faturamento zerado no período — sem receita declarada", "ALTA");
+    yLeft = y;
   }
   if (!data.faturamento.dadosAtualizados) {
-    doc.setFillColor(255, 251, 235);
-    doc.roundedRect(leftX, yLeft, leftW, 8, 1, 1, "F");
-    doc.setFillColor(...colors.warning);
-    doc.roundedRect(leftX, yLeft, 2.5, 8, 0.5, 0.5, "F");
-    doc.setFontSize(7);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...colors.warning);
-    doc.text(`[MOD] Desatualizado — ultimo: ${data.faturamento.ultimoMesComDados || "N/A"}`, leftX + 6, yLeft + 5.5);
-    yLeft += 10;
+    y = yLeft;
+    drawAlertBox(`Faturamento desatualizado — último mês com dados: ${data.faturamento.ultimoMesComDados || "N/A"}`, "MODERADA");
+    yLeft = y;
   }
 
   if (chartMeses.length > 0) {
