@@ -30,6 +30,7 @@ export interface PDFReportParams {
   alavancagem?: number;
   observacoes?: string;
   streetViewBase64?: string;
+  mapStaticBase64?: string;
   fundValidation?: FundValidationResult;
   creditLimit?: CreditLimitResult;
   histOperacoes?: Operacao[];
@@ -2411,28 +2412,31 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     }
   }
 
-  // ── Endereço principal + Street View inline ───────────────────────────────
+  // ── Endereço principal + Street View + Mapa Aéreo ─────────────────────────
   {
     const hasStreetView = !!p.streetViewBase64;
-    const svW    = hasStreetView ? 58 : 0;
-    const svGap  = hasStreetView ? 4 : 0;
-    const endW   = contentW - svW - svGap;
+    const hasMap = !!p.mapStaticBase64;
+    const hasImages = hasStreetView || hasMap;
+    const imgCount = (hasStreetView ? 1 : 0) + (hasMap ? 1 : 0);
+    const imgW = hasImages ? (imgCount === 2 ? 43 : 58) : 0;
+    const imgGap = hasImages ? 3 : 0;
+    const totalImgW = hasImages ? (imgW * imgCount + imgGap * (imgCount - 1) + 4) : 0;
+    const endW = contentW - totalImgW;
     const endVal = data.cnpj.endereco || "—";
-    const endMinH = hasStreetView ? 46 : 18;
+    const endMinH = hasImages ? 46 : 18;
 
     checkPageBreak(endMinH + 6);
 
-    // Card de endereço
     const endLines = doc.splitTextToSize(endVal, endW - 10) as string[];
-    const endBoxH  = Math.max(endMinH, endLines.length * 4.5 + 14);
+    const endBoxH = Math.max(endMinH, endLines.length * 4.5 + 14);
 
+    // Card de endereço
     doc.setFillColor(255, 255, 255);
     doc.roundedRect(margin, pos.y, endW, endBoxH, 2, 2, "F");
     doc.setDrawColor(...DS.colors.borderRGB);
     doc.setLineWidth(0.3);
     doc.roundedRect(margin, pos.y, endW, endBoxH, 2, 2, "D");
     doc.setLineWidth(0.1);
-    // Borda esquerda verde
     doc.setFillColor(...DS.colors.accentRGB);
     doc.rect(margin, pos.y, 3, endBoxH, "F");
 
@@ -2445,17 +2449,28 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     doc.setTextColor(...DS.colors.textPrimary);
     endLines.forEach((line, i) => doc.text(line, margin + 7, pos.y + 11 + i * 5));
 
-    // Street View ao lado
+    // Imagens lado a lado
+    let imgX = margin + endW + 4;
+
     if (hasStreetView) {
-      const svX = margin + endW + svGap;
-      // Header stripe
       doc.setFillColor(26, 46, 74);
-      doc.rect(svX, pos.y, svW, 8, "F");
-      doc.setFontSize(5.5);
+      doc.rect(imgX, pos.y, imgW, 7, "F");
+      doc.setFontSize(5);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(255, 255, 255);
-      doc.text("ESTABELECIMENTO — STREET VIEW", svX + svW / 2, pos.y + 5.2, { align: "center" });
-      doc.addImage(p.streetViewBase64!, "JPEG", svX, pos.y + 8, svW, endBoxH - 8);
+      doc.text("STREET VIEW", imgX + imgW / 2, pos.y + 4.5, { align: "center" });
+      doc.addImage(p.streetViewBase64!, "JPEG", imgX, pos.y + 7, imgW, endBoxH - 7);
+      imgX += imgW + imgGap;
+    }
+
+    if (hasMap) {
+      doc.setFillColor(26, 46, 74);
+      doc.rect(imgX, pos.y, imgW, 7, "F");
+      doc.setFontSize(5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(255, 255, 255);
+      doc.text("MAPA AÉREO", imgX + imgW / 2, pos.y + 4.5, { align: "center" });
+      doc.addImage(p.mapStaticBase64!, "JPEG", imgX, pos.y + 7, imgW, endBoxH - 7);
     }
 
     pos.y += endBoxH + 4;

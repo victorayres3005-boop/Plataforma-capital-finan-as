@@ -1303,25 +1303,31 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   const generatePDF = async () => {
     setGeneratingFormat("pdf");
     try {
-      // Tenta buscar foto do estabelecimento via Street View antes de gerar o PDF
+      // Tenta buscar foto do estabelecimento (Street View) e mapa aéreo (Maps Static) em paralelo
       let streetViewBase64: string | undefined;
+      let mapStaticBase64: string | undefined;
       const endereco = data.cnpj?.endereco;
       const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
       if (endereco && apiKey) {
-        try {
-          const svUrl = `https://maps.googleapis.com/maps/api/streetview?size=600x250&location=${encodeURIComponent(endereco)}&key=${apiKey}`;
-          const svRes = await fetch(svUrl);
-          if (svRes.ok) {
-            const svBlob = await svRes.blob();
-            const reader = new FileReader();
-            streetViewBase64 = await new Promise<string>(resolve => {
+        const fetchAsBase64 = async (url: string): Promise<string | undefined> => {
+          try {
+            const res = await fetch(url);
+            if (!res.ok) return undefined;
+            const blob = await res.blob();
+            return new Promise<string>(resolve => {
+              const reader = new FileReader();
               reader.onloadend = () => resolve((reader.result as string).split(",")[1]);
-              reader.readAsDataURL(svBlob);
+              reader.readAsDataURL(blob);
             });
-          }
-        } catch {
-          // Street View indisponível — segue sem foto
-        }
+          } catch { return undefined; }
+        };
+        const loc = encodeURIComponent(endereco);
+        const [sv, mp] = await Promise.all([
+          fetchAsBase64(`https://maps.googleapis.com/maps/api/streetview?size=600x300&location=${loc}&key=${apiKey}`),
+          fetchAsBase64(`https://maps.googleapis.com/maps/api/staticmap?center=${loc}&zoom=16&size=600x300&maptype=hybrid&markers=color:red|${loc}&key=${apiKey}`),
+        ]);
+        streetViewBase64 = sv;
+        mapStaticBase64 = mp;
       }
 
       // ── Busca histórico de operações do cedente ────────────────────────────
@@ -1351,6 +1357,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         dividaAtiva, atraso, riskScore: riskScore as "alto" | "medio" | "baixo", decisionColor, decisionBg, decisionBorder,
         observacoes: analystNotes.trim() || undefined,
         streetViewBase64,
+        mapStaticBase64,
         fundValidation,
         creditLimit,
         histOperacoes: histOperacoes.length ? histOperacoes : undefined,

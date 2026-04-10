@@ -830,17 +830,29 @@ function secVisita(p: PDFReportParams): string {
     </div>
     ${v.recomendacaoVisitante?`<span style="display:inline-block;padding:6px 16px;border-radius:6px;background:${rB[v.recomendacaoVisitante]||"#f3f4f6"};color:${rC[v.recomendacaoVisitante]||"#374151"};font-weight:800;font-size:11px">${rL[v.recomendacaoVisitante]||esc(v.recomendacaoVisitante)}</span>`:""}
   </div>
-  ${p.streetViewBase64?`<div style="margin-bottom:16px;border-radius:8px;overflow:hidden;border:1px solid #e5e7eb;page-break-inside:avoid">
-    <img src="${p.streetViewBase64}" style="width:100%;height:180px;object-fit:cover;display:block"/>
-    <div style="padding:6px 10px;background:#f8fafc;font-size:9px;color:#9ca3af">Street View — Fachada do estabelecimento</div>
+  ${p.streetViewBase64||p.mapStaticBase64?`<div style="display:grid;grid-template-columns:${p.streetViewBase64&&p.mapStaticBase64?"1fr 1fr":"1fr"};gap:12px;margin-bottom:16px;page-break-inside:avoid">
+    ${p.streetViewBase64?`<div style="border-radius:8px;overflow:hidden;border:1px solid #e5e7eb">
+      <img src="${p.streetViewBase64}" style="width:100%;height:170px;object-fit:cover;display:block"/>
+      <div style="padding:6px 10px;background:#f8fafc;font-size:9px;color:#9ca3af">Street View — Fachada do estabelecimento</div>
+    </div>`:""}
+    ${p.mapStaticBase64?`<div style="border-radius:8px;overflow:hidden;border:1px solid #e5e7eb">
+      <img src="${p.mapStaticBase64}" style="width:100%;height:170px;object-fit:cover;display:block"/>
+      <div style="padding:6px 10px;background:#f8fafc;font-size:9px;color:#9ca3af">Mapa Aéreo — Localização do estabelecimento</div>
+    </div>`:""}
   </div>`:""}
   ${taxas.length>0?`${subTitle("Taxas e Limites")}${mg(taxas)}`:""}
   ${cond.length>0?`${subTitle("Condições e Prazos")}${mg(cond)}`:""}
   ${mix.length>0?`${subTitle("Mix de Vendas e Operação")}${mg(mix)}`:""}
   ${v.descricaoEstrutura?`${subTitle("Descrição da Estrutura")}${paraBox(v.descricaoEstrutura)}`:""}
-  ${v.observacoesLivres?`${subTitle("Observações")}${paraBox(v.observacoesLivres)}`:""}`:p.streetViewBase64?`<div style="margin-bottom:16px;border-radius:8px;overflow:hidden;border:1px solid #e5e7eb">
-    <img src="${p.streetViewBase64}" style="width:100%;height:180px;object-fit:cover;display:block"/>
-    <div style="padding:6px 10px;background:#f8fafc;font-size:9px;color:#9ca3af">Street View — Local do estabelecimento</div>
+  ${v.observacoesLivres?`${subTitle("Observações")}${paraBox(v.observacoesLivres)}`:""}`:p.streetViewBase64||p.mapStaticBase64?`<div style="display:grid;grid-template-columns:${p.streetViewBase64&&p.mapStaticBase64?"1fr 1fr":"1fr"};gap:12px;margin-bottom:16px">
+    ${p.streetViewBase64?`<div style="border-radius:8px;overflow:hidden;border:1px solid #e5e7eb">
+      <img src="${p.streetViewBase64}" style="width:100%;height:170px;object-fit:cover;display:block"/>
+      <div style="padding:6px 10px;background:#f8fafc;font-size:9px;color:#9ca3af">Street View — Local do estabelecimento</div>
+    </div>`:""}
+    ${p.mapStaticBase64?`<div style="border-radius:8px;overflow:hidden;border:1px solid #e5e7eb">
+      <img src="${p.mapStaticBase64}" style="width:100%;height:170px;object-fit:cover;display:block"/>
+      <div style="padding:6px 10px;background:#f8fafc;font-size:9px;color:#9ca3af">Mapa Aéreo — Localização</div>
+    </div>`:""}
   </div>`:""}
 
   ${perguntas.length>0?`${subTitle("Agenda de Visita — Perguntas Sugeridas")}
