@@ -1,5 +1,5 @@
 import type { PDFReportParams } from "@/lib/generators/pdf";
-import type { FundCriterion, ProcessoItem, FaturamentoMensal, SCRSocioData } from "@/types";
+import type { FundCriterion, ProcessoItem, FaturamentoMensal, SCRSocioData, Operacao } from "@/types";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -299,6 +299,7 @@ function secSumario(p: PDFReportParams): string {
   if(p.data.curvaABC?.clientes?.length) itens.push(["SA","Análise de Sacados FIDC","Concentração, risco por sacado e perfil da carteira"]);
   if(p.data.relatorioVisita||p.fundValidation) itens.push(["ET","Elegibilidade dos Títulos","Mix de instrumentos, prazo médio e risco de diluição"]);
   if(p.creditLimit||p.fundValidation||p.data.relatorioVisita) itens.push(["CV","Covenants e Condições","Parâmetros operacionais e gatilhos de monitoramento"]);
+  if(p.histOperacoes?.length) itens.push(["HO","Histórico de Operações","Volume, taxa média, inadimplência e registro de todas as operações"]);
   if(p.data.curvaABC?.clientes?.length) itens.push(["CA","Curva ABC de Clientes","Concentração de receita e carteira de sacados"]);
   if(p.data.grupoEconomico?.empresas?.length) itens.push(["GE","Grupo Econômico","Empresas vinculadas e risco consolidado do grupo"]);
   if(p.data.balanco?.anos?.length) itens.push(["BP","Balanço Patrimonial","Ativo, passivo, PL e índices de liquidez e endividamento"]);
@@ -935,7 +936,7 @@ function secIrSocios(p: PDFReportParams): string {
   ${socios.map(s=>{
     const pl=numVal(s.patrimonioLiquido);
     const rend=numVal(s.rendimentoTotal);
-    const bens=numVal(s.totalBensDireitos);
+    void numVal(s.totalBensDireitos); // bens — disponível se necessário
     const dividas=numVal(s.dividasOnus);
     const cobPatrim=limite>0&&pl>0?Math.round((pl/limite)*100):0;
     const plClr=cobPatrim>=100?"#16a34a":cobPatrim>=50?"#d97706":"#dc2626";
@@ -1640,6 +1641,86 @@ function secDecisaoFinal(p: PDFReportParams): string {
 </div>`;
 }
 
+// ─── Histórico de Operações ───────────────────────────────────────────────────
+function secHistoricoOperacoes(p: PDFReportParams): string {
+  const ops: Operacao[] = p.histOperacoes || [];
+  if (!ops.length) return "";
+
+  const statusClr: Record<string,string> = {
+    ativa:        "#16a34a",
+    liquidada:    "#0891b2",
+    inadimplente: "#dc2626",
+    prorrogada:   "#d97706",
+  };
+  const statusBg: Record<string,string> = {
+    ativa:        "#f0fdf4",
+    liquidada:    "#ecfeff",
+    inadimplente: "#fee2e2",
+    prorrogada:   "#fef3c7",
+  };
+  const statusLabel: Record<string,string> = {
+    ativa:        "Ativa",
+    liquidada:    "Liquidada",
+    inadimplente: "Inadimplente",
+    prorrogada:   "Prorrogada",
+  };
+
+  const total = ops.reduce((s, o) => s + o.valor, 0);
+  const inadimplentes = ops.filter(o => o.status === "inadimplente");
+  const volumeInad = inadimplentes.reduce((s, o) => s + o.valor, 0);
+  const taxaMedia = ops.filter(o => o.taxa_mensal).reduce((s, o, _, arr) =>
+    s + (o.taxa_mensal || 0) / arr.length, 0);
+  const taxaMediaStr = taxaMedia > 0 ? `${taxaMedia.toFixed(2)}% a.m.` : "—";
+  const inadPct = total > 0 ? ((volumeInad / total) * 100).toFixed(1) : "0.0";
+
+  const fmtDate = (d?: string | null) => d ? new Date(d).toLocaleDateString("pt-BR") : "—";
+  const fmtR = (v: number) => "R$\u00a0" + v.toLocaleString("pt-BR", { minimumFractionDigits: 2 });
+
+  return `<div class="pb">${secHdr("HO","Histórico de Operações com o Fundo")}
+  ${grid(4,[
+    kpi("Total de Operações", String(ops.length)),
+    kpi("Volume Total", fmtR(total)),
+    kpi("Taxa Média", taxaMediaStr),
+    kpi("Inadimplência", `${inadPct}%`, parseFloat(inadPct) > 5 ? "#dc2626" : "#111827"),
+  ])}
+  <table style="width:100%;border-collapse:collapse;font-size:10.5px;margin-top:8px">
+    <thead>
+      <tr style="background:#1a2744">
+        ${["Data","Nº Op.","Modalidade","Valor","Taxa a.m.","Prazo","Vencimento","Sacado","Status"].map(h =>
+          `<th style="padding:7px 8px;text-align:left;font-size:9px;font-weight:700;color:#fff;letter-spacing:.04em;white-space:nowrap">${h}</th>`
+        ).join("")}
+      </tr>
+    </thead>
+    <tbody>
+      ${ops.map((o, i) => `
+      <tr style="background:${i%2===0?"#fff":"#f9fafb"};border-bottom:1px solid #f3f4f6">
+        <td style="padding:7px 8px;white-space:nowrap">${fmtDate(o.data_operacao)}</td>
+        <td style="padding:7px 8px;color:#6b7280">${esc(o.numero_operacao) || "—"}</td>
+        <td style="padding:7px 8px;font-weight:600;color:#1a2744">${esc(o.modalidade)}</td>
+        <td style="padding:7px 8px;font-weight:700;font-variant-numeric:tabular-nums">${fmtR(o.valor)}</td>
+        <td style="padding:7px 8px">${o.taxa_mensal != null ? `${o.taxa_mensal.toFixed(2)}%` : "—"}</td>
+        <td style="padding:7px 8px">${o.prazo != null ? `${o.prazo}d` : "—"}</td>
+        <td style="padding:7px 8px;white-space:nowrap">${fmtDate(o.data_vencimento)}</td>
+        <td style="padding:7px 8px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(o.sacado) || "—"}</td>
+        <td style="padding:7px 8px">
+          <span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:9px;font-weight:700;background:${statusBg[o.status]||"#f1f5f9"};color:${statusClr[o.status]||"#374151"}">
+            ${statusLabel[o.status] || o.status}
+          </span>
+        </td>
+      </tr>`).join("")}
+    </tbody>
+  </table>
+  ${inadimplentes.length > 0 ? `
+  <div style="margin-top:14px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:12px 16px;page-break-inside:avoid">
+    <div style="font-size:9px;font-weight:800;color:#991b1b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Operações Inadimplentes — Volume: ${fmtR(volumeInad)}</div>
+    ${inadimplentes.map(o => `<div style="font-size:10px;color:#7f1d1d;margin-bottom:3px">
+      ${fmtDate(o.data_operacao)} · ${esc(o.modalidade)} · ${fmtR(o.valor)} · Sacado: ${esc(o.sacado)||"—"}
+      ${o.observacoes ? `<span style="color:#9ca3af"> — ${esc(o.observacoes)}</span>` : ""}
+    </div>`).join("")}
+  </div>` : ""}
+</div>`;
+}
+
 // ─── Export ───────────────────────────────────────────────────────────────────
 export function gerarHtmlRelatorio(p: PDFReportParams): {
   html: string;
@@ -1674,6 +1755,7 @@ export function gerarHtmlRelatorio(p: PDFReportParams): {
   ${secSacados(p)}
   ${secElegibilidade(p)}
   ${secCovenants(p)}
+  ${secHistoricoOperacoes(p)}
   ${secCurvaAbc(p)}
   ${secGrupoEconomico(p)}
   ${secBalanco(p)}

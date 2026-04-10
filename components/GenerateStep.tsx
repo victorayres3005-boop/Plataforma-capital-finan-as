@@ -469,30 +469,41 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   const saveAnalysisCache = async (colId: string, analysis: AIAnalysis) => {
     try {
       const supabase = createClient();
-      // Verifica se o analista já registrou parecer — nesse caso, não sobrescreve rating/decisao
-      const { data: existing } = await supabase
+      const analysisData = analysis as unknown as Record<string, unknown>;
+
+      // Tentativa 1: UPDATE atômico — só atualiza se a coleta NÃO foi finalizada.
+      // Isso elimina a race condition (TOCTOU) entre o check e o update.
+      const { data: updated } = await supabase
         .from("document_collections")
-        .select("status, decisao, ai_analysis")
+        .update({
+          ai_analysis: analysisData,
+          rating: analysis.rating ?? null,
+          decisao: (analysis.decisao as DocumentCollection["decisao"]) ?? null,
+        })
         .eq("id", colId)
-        .single();
-      const parecerJaRegistrado = existing?.status === "finished"
-        && existing?.decisao != null
-        && (existing?.ai_analysis as Record<string, unknown> | null)?.parecerAnalista != null;
-      // Salva o JSONB completo, preservando parecerAnalista se existir
-      const existingAi = (existing?.ai_analysis as Record<string, unknown>) || {};
-      const mergedAi = { ...existingAi, ...(analysis as unknown as Record<string, unknown>) };
-      const updatePayload: Record<string, unknown> = {
-        ai_analysis: mergedAi,
-      };
-      // Só atualiza colunas denormalizadas se o analista ainda não decidiu
-      if (!parecerJaRegistrado) {
-        updatePayload.rating = analysis.rating ?? null;
-        updatePayload.decisao = (analysis.decisao as DocumentCollection["decisao"]) ?? null;
+        .neq("status", "finished")
+        .select("id")
+        .maybeSingle();
+
+      // Se a coleta já está finished (parecer registrado), faz merge seguro do JSONB
+      // preservando parecerAnalista e sem tocar em rating/decisao.
+      if (!updated) {
+        const { data: existing } = await supabase
+          .from("document_collections")
+          .select("ai_analysis")
+          .eq("id", colId)
+          .single();
+        if (!existing) return; // row deleted
+        const existingAi = (existing.ai_analysis as Record<string, unknown>) || {};
+        // Preserva chaves do analista: parecerAnalista nunca é sobrescrito pela IA
+        const parecerAnalista = existingAi.parecerAnalista;
+        const mergedAi = { ...existingAi, ...analysisData };
+        if (parecerAnalista) mergedAi.parecerAnalista = parecerAnalista;
+        await supabase
+          .from("document_collections")
+          .update({ ai_analysis: mergedAi })
+          .eq("id", colId);
       }
-      await supabase
-        .from("document_collections")
-        .update(updatePayload)
-        .eq("id", colId);
     } catch (err) {
       console.warn("[generate] Failed to cache analysis:", err);
     }
@@ -578,19 +589,23 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         }
 
         if (analysisJson?.success && analysisJson?.analysis) {
-          // 3. Garantir coleta no Supabase antes de salvar o cache
-          let idParaSalvar = collectionId;
+          // 3. Garantir coleta no Supabase antes de salvar o cache.
+          // Usa _uploadCtx.collectionId como fonte de verdade (set sincronamente pelo handleSave/auto-save),
+          // evitando race condition de criação duplicada com o auto-save useEffect.
+          let idParaSalvar = collectionId || _uploadCtx?.collectionId || null;
 
           if (!idParaSalvar) {
+            // Espera breve para o auto-save terminar (normalmente já completou)
+            await new Promise(r => setTimeout(r, 500));
+            idParaSalvar = _uploadCtx?.collectionId || null;
+          }
+
+          if (!idParaSalvar) {
+            // Auto-save não criou — cria a coleta aqui como fallback
             try {
               const supabase = createClient();
-
-              // Fix 1 — desestruturação correta do getUser
               const { data: userData, error: userError } = await supabase.auth.getUser();
-
-              if (userError) {
-                console.warn("[generate] getUser error:", userError.message);
-              }
+              if (userError) console.warn("[generate] getUser error:", userError.message);
 
               if (userData?.user?.id) {
                 const documents = buildDocuments();
@@ -600,13 +615,13 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
                     user_id: userData.user.id,
                     status: "in_progress",
                     documents,
+                    label: data.cnpj.razaoSocial || null,
                     company_name: data.cnpj?.razaoSocial || null,
                     cnpj: data.cnpj?.cnpj || null,
                   })
                   .select("id")
                   .single();
 
-                // Fix 2 — loga erro do insert em vez de engolir silenciosamente
                 if (insertError) {
                   console.error("[generate] Failed to insert collection:", insertError.message, insertError.details, insertError.hint);
                 } else if (row?.id) {
@@ -1032,6 +1047,25 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         }
       }
 
+      // ── Busca histórico de operações do cedente ────────────────────────────
+      let histOperacoes: import("@/types").Operacao[] = [];
+      const cnpjCedente = data.cnpj?.cnpj;
+      if (cnpjCedente) {
+        try {
+          const supabase = createClient();
+          const { data: { user: u } } = await supabase.auth.getUser();
+          if (u) {
+            const { data: ops } = await supabase
+              .from("operacoes")
+              .select("*")
+              .eq("user_id", u.id)
+              .eq("cnpj", cnpjCedente.replace(/\D/g, ""))
+              .order("data_operacao", { ascending: false });
+            if (ops) histOperacoes = ops as import("@/types").Operacao[];
+          }
+        } catch { /* histórico indisponível — segue sem */ }
+      }
+
       // ── Geração via Puppeteer (servidor) ──────────────────────────────────
       const payload = {
         data, aiAnalysis, decision, finalRating, alerts, alertsHigh,
@@ -1042,6 +1076,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         streetViewBase64,
         fundValidation,
         creditLimit,
+        histOperacoes: histOperacoes.length ? histOperacoes : undefined,
       };
 
       const res = await fetch("/api/exportar-pdf", {

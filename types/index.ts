@@ -560,6 +560,30 @@ export interface ExtractedData {
   historicoConsultas?: HistoricoConsultaItem[];
 }
 
+// ─── Histórico de Operações ───
+export type OperacaoStatus = 'ativa' | 'liquidada' | 'inadimplente' | 'prorrogada';
+export type OperacaoModalidade = 'duplicata' | 'CCB' | 'CRI' | 'NF' | 'LC' | 'outros';
+
+export interface Operacao {
+  id: string;
+  user_id: string;
+  cnpj: string;
+  company_name: string;
+  collection_id?: string | null;
+  numero_operacao?: string | null;
+  data_operacao: string;         // ISO date
+  data_vencimento?: string | null;
+  valor: number;
+  taxa_mensal?: number | null;   // % a.m.
+  prazo?: number | null;         // dias
+  modalidade: OperacaoModalidade;
+  status: OperacaoStatus;
+  sacado?: string | null;
+  observacoes?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // ─── App types ───
 export type DocumentType = 'cnpj' | 'qsa' | 'contrato' | 'faturamento' | 'scr' | 'protestos' | 'processos' | 'grupoEconomico';
 export type DocStatus = 'idle' | 'processing' | 'done' | 'error';

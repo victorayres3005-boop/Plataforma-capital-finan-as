@@ -1,4 +1,4 @@
-import type { ExtractedData, AIAnalysis, FundValidationResult, CreditLimitResult } from "@/types";
+import type { ExtractedData, AIAnalysis, FundValidationResult, CreditLimitResult, Operacao } from "@/types";
 import type { PdfCtx } from "./pdf-ctx";
 import { renderParecer } from "./sections/pdf-parecer";
 
@@ -32,6 +32,7 @@ export interface PDFReportParams {
   streetViewBase64?: string;
   fundValidation?: FundValidationResult;
   creditLimit?: CreditLimitResult;
+  histOperacoes?: Operacao[];
 }
 
 // ─── Design System ───────────────────────────────────────────────────────────
