@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Toaster } from "sonner";
+import { Download } from "lucide-react";
 
 // ── Logo ──────────────────────────────────────────────────────────────────
 function Logo({ height = 26 }: { height?: number }) {
@@ -370,7 +371,7 @@ function ParecerContent() {
   };
 
   // ── Derived ──
-  const showParams = decisao === "APROVADO" || decisao === "APROVACAO_CONDICIONAL";
+  const showParams = !!decisao; // Sempre mostra parâmetros quando há decisão selecionada
   const selectedD = DECISOES.find(d => d.value === decisao);
   const rating = ratingAnalista ?? collection?.rating ?? null;
   const ratingColor = rating != null ? (rating >= 7 ? "#16a34a" : rating >= 4 ? "#d97706" : "#dc2626") : "#94a3b8";
@@ -378,6 +379,194 @@ function ParecerContent() {
   const ratingIsAnalista = ratingAnalista != null;
   const companyName = collection?.company_name || collection?.label || "Empresa";
   const cnpj = collection?.cnpj || "—";
+
+  // ── Gerar PDF Decisão do Comitê ──
+  const [generatingPdf, setGeneratingPdf] = useState(false);
+
+  const gerarPDFDecisao = async () => {
+    setGeneratingPdf(true);
+    try {
+      const hoje = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
+      const esc = (s: string) => (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+      const decLabel: Record<string, string> = { APROVADO: "APROVADO", APROVACAO_CONDICIONAL: "APROVAÇÃO CONDICIONAL", PENDENTE: "EM ANÁLISE", REPROVADO: "REPROVADO" };
+      const decStyle: Record<string, { bg: string; color: string }> = {
+        APROVADO: { bg: "#dcfce7", color: "#166534" }, APROVACAO_CONDICIONAL: { bg: "#fef3c7", color: "#92400e" },
+        PENDENTE: { bg: "#fef3c7", color: "#92400e" }, REPROVADO: { bg: "#fee2e2", color: "#991b1b" },
+      };
+      const comiteLabel: Record<string, string> = { conforme_pleito: "Conforme Pleito", com_modificacoes: "Aprovado com Modificações", condicionado: "Condicionado" };
+
+      const rc = rating != null ? (rating >= 7 ? "#22c55e" : rating >= 4 ? "#f59e0b" : "#ef4444") : "#94a3b8";
+      const riskLabel = rating != null ? (rating >= 7 ? "BAIXO RISCO" : rating >= 4 ? "RISCO MODERADO" : "ALTO RISCO") : "";
+      const ds = decisao ? decStyle[decisao] || decStyle.PENDENTE : null;
+
+      // Comparativo rows
+      const rows: { label: string; pleito: string; aprovado: string }[] = [];
+      const addRow = (label: string, pleitoKey: string, aprovado: string) => {
+        const p = visitaParams[pleitoKey] || ""; const a = aprovado?.trim() || "";
+        if (p || a) rows.push({ label, pleito: p || "—", aprovado: a || "—" });
+      };
+      if (visitaParams.pleito) rows.push({ label: "Pleito / Solicitação", pleito: visitaParams.pleito, aprovado: "—" });
+      if (visitaParams.modalidade) rows.push({ label: "Modalidade", pleito: visitaParams.modalidade, aprovado: visitaParams.modalidade });
+      addRow("Taxa Convencional", "taxaConvencional", taxaConvencional);
+      addRow("Taxa Comissária", "taxaComissaria", taxaComissaria);
+      addRow("Cobrança de TAC", "cobrancaTAC", tac);
+      addRow("Limite de Crédito", "limiteTotal", limiteCredito || limiteTotal);
+      addRow("Limite Total", "limiteTotal", limiteTotal);
+      addRow("Limite Convencional", "limiteConvencional", limiteConvencional);
+      addRow("Limite Comissária", "limiteComissaria", limiteComissaria);
+      addRow("Limite por Sacado", "limitePorSacado", limitePorSacados);
+      addRow("Ticket Médio", "ticketMedio", ticketMedio);
+      addRow("Prazo Máximo", "prazoMaximoOp", prazoMaximo);
+      addRow("Recompra Cedente", "prazoRecompraCedente", prazoRecompra);
+      addRow("Envio Cartório", "prazoEnvioCartorio", prazoCartorio);
+      addRow("Tranche (R$)", "tranche", trancheValor);
+      addRow("Prazo Tranche", "prazoTranche", tranchePrazo);
+
+      const cond: { label: string; value: string }[] = [];
+      if (limiteCredito) cond.push({ label: "Limite de Crédito", value: limiteCredito });
+      if (concentracao) cond.push({ label: "Concentração máx/sacado", value: concentracao });
+      if (garantias) cond.push({ label: "Garantias", value: garantias });
+      if (prazoRevisao) cond.push({ label: "Prazo de Revisão", value: prazoRevisao });
+
+      const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+<title>Decisão do Comitê — ${esc(companyName)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter','Helvetica Neue',Arial,sans-serif;color:#111827;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+@page{margin:0}
+@media print{.no-print{display:none!important}}
+.page{min-height:100vh;display:flex;flex-direction:column}
+</style></head><body>
+<div class="page">
+
+<!-- ═══ HEADER BAR ═══ -->
+<div style="background:#0f1e3c;padding:28px 40px 0">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+    <div>
+      <div style="font-size:11px;font-weight:900;color:#fff;letter-spacing:.1em;text-transform:uppercase">CAPITAL <span style="color:#22c55e">FINANÇAS</span></div>
+      <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:2px;letter-spacing:.04em">DECISÃO DO COMITÊ DE CRÉDITO</div>
+    </div>
+    <div style="font-size:9px;color:rgba(255,255,255,.35)">${esc(hoje)}</div>
+  </div>
+  <div style="height:1px;background:rgba(255,255,255,.08);margin-bottom:24px"></div>
+
+  <!-- Empresa + Decisão + Rating -->
+  <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:32px;flex-wrap:wrap;padding-bottom:24px">
+    <div style="flex:1;min-width:280px">
+      ${ds ? `<span style="display:inline-block;padding:4px 14px;border-radius:4px;background:${ds.bg};color:${ds.color};font-size:10px;font-weight:800;letter-spacing:.06em;margin-bottom:10px">${decLabel[decisao!] || decisao}</span>` : ""}
+      <div style="font-size:24px;font-weight:900;color:#fff;line-height:1.2;margin-bottom:6px">${esc(companyName)}</div>
+      <div style="font-size:11px;color:rgba(255,255,255,.45)">CNPJ ${esc(cnpj)}</div>
+    </div>
+    ${rating != null ? `
+    <div style="text-align:center;flex-shrink:0">
+      <div style="font-size:9px;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Rating de Crédito</div>
+      <div style="font-size:42px;font-weight:900;color:${rc};line-height:1">${rating}<span style="font-size:16px;color:rgba(255,255,255,.3)"> / 10</span></div>
+      <span style="display:inline-block;margin-top:6px;padding:3px 12px;border-radius:99px;background:${rc};color:#fff;font-size:8px;font-weight:800;letter-spacing:.06em">${riskLabel}</span>
+    </div>` : ""}
+  </div>
+</div>
+
+<!-- ═══ TÍTULO DA DECISÃO DO COMITÊ ═══ -->
+<div style="background:rgba(0,0,0,.15);padding:10px 40px">
+  <div style="font-size:9px;font-weight:800;color:#22c55e;letter-spacing:.08em;text-transform:uppercase">DECISÃO DO COMITÊ DE CRÉDITO${decisaoComite ? ` — ${esc(comiteLabel[decisaoComite] || decisaoComite)}` : ""}</div>
+</div>
+
+<!-- ═══ CONTEÚDO ═══ -->
+<div style="padding:28px 40px;flex:1">
+
+${rows.length > 0 ? `
+<!-- Seção: Comparativo -->
+<div style="display:flex;align-items:center;gap:10px;background:#eef3fb;border-left:4px solid #22c55e;padding:8px 14px;margin-bottom:18px;border-radius:0 4px 4px 0">
+  <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;background:#1a2744;color:#fff;font-size:9px;font-weight:800;border-radius:6px;flex-shrink:0">CP</span>
+  <span style="font-size:11px;font-weight:800;color:#1a2744;text-transform:uppercase;letter-spacing:.04em">Comparativo: Pleito do Cedente × Aprovado pelo Comitê</span>
+</div>
+<table style="width:100%;border-collapse:collapse;margin-bottom:28px">
+  <thead>
+    <tr>
+      <th style="background:#1a2744;color:#fff;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:10px 14px;text-align:left;border-radius:6px 0 0 0">Parâmetro</th>
+      <th style="background:#1a2744;color:#fff;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:10px 14px;text-align:center">Pleito do Cedente</th>
+      <th style="background:#1a2744;color:#fff;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:10px 14px;text-align:center;border-radius:0 6px 0 0">Aprovado pelo Comitê</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${rows.map((r, i) => {
+      const diff = r.pleito !== "—" && r.aprovado !== "—" && r.pleito !== r.aprovado;
+      const bg = i % 2 === 0 ? "#fff" : "#f8fafc";
+      return `<tr style="background:${bg}">
+        <td style="padding:10px 14px;font-size:11px;font-weight:600;color:#64748b;border-bottom:1px solid #f1f5f9">${esc(r.label)}</td>
+        <td style="padding:10px 14px;font-size:11px;color:#374151;text-align:center;border-bottom:1px solid #f1f5f9">${esc(r.pleito)}</td>
+        <td style="padding:10px 14px;font-size:11px;font-weight:700;text-align:center;border-bottom:1px solid #f1f5f9;color:${diff ? "#7c3aed" : "#111827"}">${esc(r.aprovado)}${diff ? ' <span style="font-size:9px;color:#7c3aed;font-weight:800">●</span>' : ""}</td>
+      </tr>`;
+    }).join("")}
+  </tbody>
+</table>
+` : ""}
+
+${cond.length > 0 ? `
+<!-- Seção: Condições e Garantias -->
+<div style="display:flex;align-items:center;gap:10px;background:#eef3fb;border-left:4px solid #22c55e;padding:8px 14px;margin-bottom:18px;border-radius:0 4px 4px 0">
+  <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;background:#1a2744;color:#fff;font-size:9px;font-weight:800;border-radius:6px;flex-shrink:0">CG</span>
+  <span style="font-size:11px;font-weight:800;color:#1a2744;text-transform:uppercase;letter-spacing:.04em">Condições e Garantias</span>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:28px">
+  ${cond.map(c => `
+  <div style="background:#f8fafc;border-left:3px solid #1a2744;border-radius:0 8px 8px 0;padding:12px 16px">
+    <div style="font-size:9px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">${esc(c.label)}</div>
+    <div style="font-size:14px;font-weight:800;color:#1a2744">${esc(c.value)}</div>
+  </div>`).join("")}
+</div>
+` : ""}
+
+${notaComite.trim() || notas.trim() ? `
+<!-- Seção: Observações -->
+<div style="display:flex;align-items:center;gap:10px;background:#eef3fb;border-left:4px solid #22c55e;padding:8px 14px;margin-bottom:18px;border-radius:0 4px 4px 0">
+  <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;background:#1a2744;color:#fff;font-size:9px;font-weight:800;border-radius:6px;flex-shrink:0">NT</span>
+  <span style="font-size:11px;font-weight:800;color:#1a2744;text-transform:uppercase;letter-spacing:.04em">Observações</span>
+</div>
+${notaComite.trim() ? `
+<div style="background:#f0f4ff;border-left:4px solid #203b88;border-radius:0 8px 8px 0;padding:14px 18px;margin-bottom:12px">
+  <div style="font-size:8px;font-weight:800;color:#203b88;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Nota do Comitê</div>
+  <div style="font-size:12px;color:#374151;line-height:1.7;white-space:pre-wrap">${esc(notaComite.trim())}</div>
+</div>` : ""}
+${notas.trim() ? `
+<div style="background:#f8fafc;border-left:4px solid #94a3b8;border-radius:0 8px 8px 0;padding:14px 18px;margin-bottom:12px">
+  <div style="font-size:8px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Observações do Analista</div>
+  <div style="font-size:12px;color:#374151;line-height:1.7;white-space:pre-wrap">${esc(notas.trim())}</div>
+</div>` : ""}
+` : ""}
+
+</div>
+
+<!-- ═══ FOOTER ═══ -->
+<div style="background:#0f1e3c;padding:12px 40px;display:flex;justify-content:space-between;align-items:center;margin-top:auto">
+  <span style="font-size:9px;color:rgba(255,255,255,.3)">Documento confidencial — uso exclusivamente interno</span>
+  <span style="font-size:9px;color:rgba(255,255,255,.25)">Capital Finanças · ${esc(hoje)}</span>
+</div>
+
+</div>
+
+<!-- Botão imprimir (não aparece na impressão) -->
+<div class="no-print" style="position:fixed;bottom:24px;right:24px;display:flex;gap:10px;z-index:100">
+  <button onclick="window.print()" style="padding:12px 28px;background:#1a2744;color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.2);font-family:inherit">Salvar como PDF</button>
+</div>
+
+</body></html>`;
+
+      // Abre em nova aba para impressão
+      const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      toast.success("Documento aberto — clique em 'Salvar como PDF' para baixar.");
+    } catch (err) {
+      console.error("Erro ao gerar PDF:", err);
+      toast.error("Erro ao gerar documento.");
+    } finally {
+      setGeneratingPdf(false);
+    }
+  };
 
   // ── Loading ──
   if (loading) {
@@ -778,6 +967,25 @@ function ParecerContent() {
               style={{ fontSize: 13, fontWeight: 500, color: "#64748b", background: "none", border: "1px solid #e2e8f0", borderRadius: 8, padding: "9px 16px", cursor: "pointer" }}
             >
               Cancelar
+            </button>
+            <button
+              onClick={gerarPDFDecisao}
+              disabled={!decisao || generatingPdf}
+              style={{
+                display: "flex", alignItems: "center", gap: 7,
+                fontSize: 13, fontWeight: 600,
+                background: "none",
+                color: decisao ? "#203b88" : "#94a3b8",
+                border: `1px solid ${decisao ? "#203b88" : "#e2e8f0"}`,
+                borderRadius: 8, padding: "9px 16px",
+                cursor: decisao ? "pointer" : "not-allowed",
+                transition: "all 0.2s",
+              }}
+            >
+              {generatingPdf
+                ? <><Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Gerando...</>
+                : <><Download size={14} /> Baixar Decisão</>
+              }
             </button>
             <button
               onClick={handleConfirmar}
