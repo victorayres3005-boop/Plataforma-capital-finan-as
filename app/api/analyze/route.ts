@@ -102,10 +102,16 @@ function buildPayloadResumo(data: ExtractedData): string {
 const GEMINI_API_KEYS = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || "")
   .split(",").map(k => k.trim()).filter(Boolean);
 
-const GEMINI_MODELS = ["gemini-2.0-flash", "gemini-2.5-flash"];
+// Fase 3: modelo fine-tunado tem prioridade se configurado e ativo
+const FINETUNED_MODEL = process.env.GEMINI_FINETUNED_MODEL?.trim() || null;
+const GEMINI_MODELS = FINETUNED_MODEL
+  ? [FINETUNED_MODEL, "gemini-2.0-flash", "gemini-2.5-flash"]  // fine-tuned primeiro, fallback para base
+  : ["gemini-2.0-flash", "gemini-2.5-flash"];
 
 function geminiUrl(model: string, key: string) {
-  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+  // tunedModels/ usam endpoint diferente de models/
+  const prefix = model.startsWith("tunedModels/") ? "" : "models/";
+  return `https://generativelanguage.googleapis.com/v1beta/${prefix}${model}:generateContent?key=${key}`;
 }
 
 const OPENROUTER_API_KEYS = (process.env.OPENROUTER_API_KEYS || process.env.OPENROUTER_API_KEY || "")
