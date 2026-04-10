@@ -139,6 +139,11 @@ function ParecerContent() {
   const [ratingAnalista, setRatingAnalista] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Decisão do comitê
+  const [decisaoComite, setDecisaoComite] = useState<"conforme_pleito" | "com_modificacoes" | "condicionado" | null>(null);
+  const [notaComite, setNotaComite] = useState("");
+  const [visitaParams, setVisitaParams] = useState<Record<string, string>>({});
+
   const [limiteCredito, setLimiteCredito] = useState("");
   const [concentracao, setConcentracao] = useState("");
   const [garantias, setGarantias] = useState("");
@@ -182,6 +187,29 @@ function ParecerContent() {
         if (data.decisao) setDecisao(data.decisao as DecisaoValue);
         if (data.observacoes) setNotas(data.observacoes);
 
+        // Extrai parâmetros do Relatório de Visita
+        const visitaDoc = (data.documents || []).find((d: { type: string }) => d.type === "relatorio_visita");
+        if (visitaDoc?.extracted_data) {
+          const vd = visitaDoc.extracted_data as Record<string, string>;
+          setVisitaParams({
+            pleito: vd.pleito || "",
+            modalidade: vd.modalidade || "",
+            taxaConvencional: vd.taxaConvencional || "",
+            taxaComissaria: vd.taxaComissaria || "",
+            cobrancaTAC: vd.cobrancaTAC || "",
+            limiteTotal: vd.limiteTotal || "",
+            limiteConvencional: vd.limiteConvencional || "",
+            limiteComissaria: vd.limiteComissaria || "",
+            limitePorSacado: vd.limitePorSacado || "",
+            ticketMedio: vd.ticketMedio || "",
+            prazoRecompraCedente: vd.prazoRecompraCedente || "",
+            prazoEnvioCartorio: vd.prazoEnvioCartorio || "",
+            prazoMaximoOp: vd.prazoMaximoOp || "",
+            tranche: vd.tranche || "",
+            prazoTranche: vd.prazoTranche || "",
+          });
+        }
+
         const ai = data.ai_analysis as Record<string, unknown> | null;
         const analista = ai?.parecerAnalista as Record<string, unknown> | null;
 
@@ -216,6 +244,9 @@ function ParecerContent() {
         if (s("prazoMaximo")) setPrazoMaximo(s("prazoMaximo"));
         if (s("trancheValor")) setTrancheValor(s("trancheValor"));
         if (s("tranchePrazo")) setTranchePrazo(s("tranchePrazo"));
+        // Decisão do comitê
+        if (analista?.decisaoComite) setDecisaoComite(analista.decisaoComite as typeof decisaoComite);
+        if (analista?.notaComite) setNotaComite(analista.notaComite as string);
       } catch {
         toast.error("Erro ao carregar dados da coleta.");
       } finally {
@@ -258,6 +289,8 @@ function ParecerContent() {
         trancheValor: trancheValor.trim() || null,
         tranchePrazo: tranchePrazo.trim() || null,
         ratingAnalista: ratingAnalista ?? null,
+        decisaoComite: decisaoComite ?? null,
+        notaComite: notaComite.trim() || null,
         decidedAt: new Date().toISOString(),
       };
       const { error } = await supabase.from("document_collections").update({
@@ -470,166 +503,143 @@ function ParecerContent() {
           </p>
         </div>
 
-        {/* ── Operational parameters ── */}
-        {showParams && (
+        {/* ── Parâmetros Operacionais + Decisão do Comitê ── */}
+        {showParams && (<>
+
+          {/* ── Decisão do Comitê ── */}
           <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "24px", marginBottom: 20 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 24 }}>
-              <p style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.1em", margin: 0 }}>
-                Parâmetros Operacionais
-              </p>
-              {collection.ai_analysis && (
-                <span style={{ fontSize: 10, background: "#eff6ff", color: "#3b82f6", borderRadius: 99, padding: "2px 8px", fontWeight: 600 }}>
-                  pré-preenchido pela IA
-                </span>
-              )}
+            <p style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 16px" }}>
+              Decisão do Comitê sobre os Parâmetros
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 18 }}>
+              {([
+                { value: "conforme_pleito",   label: "Conforme Pleito",          sub: "Parâmetros aprovados exatamente como solicitado", color: "#16a34a", bg: "#f0fdf4", border: "#86efac" },
+                { value: "com_modificacoes",  label: "Aprovado com Modificações", sub: "Parâmetros ajustados pelo comitê em relação ao pleito", color: "#7c3aed", bg: "#faf5ff", border: "#c4b5fd" },
+                { value: "condicionado",      label: "Condicionado",              sub: "Aprovação sujeita a condições específicas", color: "#d97706", bg: "#fffbeb", border: "#fcd34d" },
+              ] as const).map(op => {
+                const sel = decisaoComite === op.value;
+                return (
+                  <button key={op.value} onClick={() => setDecisaoComite(sel ? null : op.value)}
+                    style={{ display: "flex", flexDirection: "column", gap: 4, padding: "14px 16px", borderRadius: 12, textAlign: "left", cursor: "pointer",
+                      border: sel ? `2px solid ${op.color}` : "1.5px solid #e5e7eb",
+                      background: sel ? op.bg : "#fafafa", outline: "none",
+                      boxShadow: sel ? `0 0 0 3px ${op.color}18` : "none", transition: "all 0.15s" }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: sel ? op.color : "#0f172a" }}>{op.label}</span>
+                    <span style={{ fontSize: 11, color: sel ? op.color : "#94a3b8", opacity: sel ? 0.85 : 1 }}>{op.sub}</span>
+                  </button>
+                );
+              })}
             </div>
-
-            {/* Crédito e Garantias */}
-            <p style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 12px" }}>Crédito e Garantias</p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 24 }}>
-              <InputField
-                label="Limite de Crédito"
-                value={limiteCredito}
-                onChange={setLimiteCredito}
-                placeholder="ex: R$ 150.000"
-                icon={DollarSign}
-                hint="Sugestão IA pré-preenchida"
-              />
-              <InputField
-                label="Concentração por Sacado"
-                value={concentracao}
-                onChange={setConcentracao}
-                placeholder="ex: até 25% por sacado"
-                icon={Users}
-              />
-              <InputField
-                label="Garantias"
-                value={garantias}
-                onChange={setGarantias}
-                placeholder="ex: Aval dos sócios"
-                icon={Shield}
-              />
-              <InputField
-                label="Prazo de Revisão"
-                value={prazoRevisao}
-                onChange={setPrazoRevisao}
-                placeholder="ex: 180 dias"
-                icon={RefreshCw}
-              />
-            </div>
-
-            {/* Taxas */}
-            <p style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 12px" }}>Taxas</p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 24 }}>
-              <InputField
-                label="Taxa Convencional"
-                value={taxaConvencional}
-                onChange={setTaxaConvencional}
-                placeholder="ex: 2,5% a.m."
-                icon={Percent}
-              />
-              <InputField
-                label="Taxa Comissária"
-                value={taxaComissaria}
-                onChange={setTaxaComissaria}
-                placeholder="ex: 1,8% a.m."
-                icon={Percent}
-              />
-              <InputField
-                label="Cobrança de TAC"
-                value={tac}
-                onChange={setTac}
-                placeholder="ex: 0,3%"
-                icon={TrendingUp}
-              />
-            </div>
-
-            {/* Limites */}
-            <p style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 12px" }}>Limites</p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 24 }}>
-              <InputField
-                label="Limite Total"
-                value={limiteTotal}
-                onChange={setLimiteTotal}
-                placeholder="ex: R$ 500.000"
-                icon={Landmark}
-              />
-              <InputField
-                label="Limite Convencional"
-                value={limiteConvencional}
-                onChange={setLimiteConvencional}
-                placeholder="ex: R$ 300.000"
-                icon={Landmark}
-              />
-              <InputField
-                label="Limite Comissária"
-                value={limiteComissaria}
-                onChange={setLimiteComissaria}
-                placeholder="ex: R$ 200.000"
-                icon={Landmark}
-              />
-              <InputField
-                label="Limite por Sacados"
-                value={limitePorSacados}
-                onChange={setLimitePorSacados}
-                placeholder="ex: R$ 50.000"
-                icon={Users}
-              />
-              <InputField
-                label="Ticket Médio"
-                value={ticketMedio}
-                onChange={setTicketMedio}
-                placeholder="ex: R$ 15.000"
-                icon={TrendingUp}
-              />
-            </div>
-
-            {/* Condições de Cobrança */}
-            <p style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 12px" }}>Condições de Cobrança</p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 24 }}>
-              <InputField
-                label="Prazo de Recompra do Cedente"
-                value={prazoRecompra}
-                onChange={setPrazoRecompra}
-                placeholder="ex: 3 dias"
-                icon={RefreshCw}
-              />
-              <InputField
-                label="Envio para Cartório em"
-                value={prazoCartorio}
-                onChange={setPrazoCartorio}
-                placeholder="ex: 5 dias"
-                icon={Send}
-              />
-            </div>
-
-            {/* Prazos e Tranche */}
-            <p style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 12px" }}>Prazos e Tranche</p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
-              <InputField
-                label="Prazo Máximo"
-                value={prazoMaximo}
-                onChange={setPrazoMaximo}
-                placeholder="ex: 120 dias"
-                icon={Calendar}
-              />
-              <InputField
-                label="Tranche em R$"
-                value={trancheValor}
-                onChange={setTrancheValor}
-                placeholder="ex: R$ 300.000,00"
-                icon={DollarSign}
-              />
-              <InputField
-                label="Prazo Tranche em Dias"
-                value={tranchePrazo}
-                onChange={setTranchePrazo}
-                placeholder="ex: 7 dias"
-                icon={Package}
-              />
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.08em" }}>Nota do Comitê</label>
+              <textarea value={notaComite} onChange={e => setNotaComite(e.target.value)} rows={3}
+                placeholder="Justificativa das modificações, condições impostas, observações do comitê..."
+                style={{ width: "100%", padding: "9px 12px", fontSize: 13, border: "1px solid #e2e8f0", borderRadius: 8, resize: "vertical",
+                  outline: "none", color: "#0f172a", background: "#fff", fontFamily: "inherit", boxSizing: "border-box" }}
+                onFocus={e => (e.target.style.borderColor = "#203b88")}
+                onBlur={e => (e.target.style.borderColor = "#e2e8f0")} />
             </div>
           </div>
-        )}
+
+          {/* ── Pleito vs Comitê ── */}
+          <div style={{ display: "grid", gridTemplateColumns: Object.values(visitaParams).some(v => v) ? "1fr 1fr" : "1fr", gap: 16, marginBottom: 20, alignItems: "start" }}>
+
+            {/* Coluna esquerda — Pleito do Cedente (só mostra se houver relatório de visita) */}
+            {Object.values(visitaParams).some(v => v) && (
+              <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 16, padding: "22px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
+                  <p style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.1em", margin: 0 }}>
+                    Pleito do Cedente
+                  </p>
+                  <span style={{ fontSize: 10, background: "#f1f5f9", color: "#64748b", borderRadius: 99, padding: "2px 8px", fontWeight: 600 }}>
+                    Relatório de Visita
+                  </span>
+                </div>
+                {[
+                  ["Pleito / Solicitação", visitaParams.pleito],
+                  ["Modalidade", visitaParams.modalidade],
+                  ["Taxa Convencional", visitaParams.taxaConvencional],
+                  ["Taxa Comissária", visitaParams.taxaComissaria],
+                  ["TAC", visitaParams.cobrancaTAC],
+                  ["Limite Total", visitaParams.limiteTotal],
+                  ["Limite Convencional", visitaParams.limiteConvencional],
+                  ["Limite Comissária", visitaParams.limiteComissaria],
+                  ["Limite por Sacado", visitaParams.limitePorSacado],
+                  ["Ticket Médio", visitaParams.ticketMedio],
+                  ["Prazo de Recompra", visitaParams.prazoRecompraCedente],
+                  ["Prazo p/ Cartório", visitaParams.prazoEnvioCartorio],
+                  ["Prazo Máximo Op.", visitaParams.prazoMaximoOp],
+                  ["Tranche", visitaParams.tranche],
+                  ["Prazo Tranche", visitaParams.prazoTranche],
+                ].filter(([, v]) => v).map(([label, value]) => (
+                  <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "8px 0", borderBottom: "1px solid #f1f5f9", gap: 12 }}>
+                    <span style={{ fontSize: 12, color: "#64748b", flexShrink: 0 }}>{label}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", textAlign: "right" }}>{value}</span>
+                  </div>
+                ))}
+                {!Object.values(visitaParams).some(v => v) && (
+                  <p style={{ fontSize: 12, color: "#cbd5e1", fontStyle: "italic" }}>Nenhum parâmetro registrado no relatório de visita.</p>
+                )}
+              </div>
+            )}
+
+            {/* Coluna direita — Parâmetros Aprovados pelo Comitê */}
+            <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "22px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20 }}>
+                <p style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.1em", margin: 0 }}>
+                  Parâmetros Aprovados pelo Comitê
+                </p>
+                {collection.ai_analysis && (
+                  <span style={{ fontSize: 10, background: "#eff6ff", color: "#3b82f6", borderRadius: 99, padding: "2px 8px", fontWeight: 600 }}>
+                    pré-preenchido pela IA
+                  </span>
+                )}
+              </div>
+
+              {/* Crédito e Garantias */}
+              <p style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 12px" }}>Crédito e Garantias</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+                <InputField label="Limite de Crédito" value={limiteCredito} onChange={setLimiteCredito} placeholder="ex: R$ 150.000" icon={DollarSign} hint="Sugestão IA" />
+                <InputField label="Concentração por Sacado" value={concentracao} onChange={setConcentracao} placeholder="ex: até 25%" icon={Users} />
+                <InputField label="Garantias" value={garantias} onChange={setGarantias} placeholder="ex: Aval dos sócios" icon={Shield} />
+                <InputField label="Prazo de Revisão" value={prazoRevisao} onChange={setPrazoRevisao} placeholder="ex: 180 dias" icon={RefreshCw} />
+              </div>
+
+              {/* Taxas */}
+              <p style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 12px" }}>Taxas</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+                <InputField label="Taxa Convencional" value={taxaConvencional} onChange={setTaxaConvencional} placeholder="ex: 2,5% a.m." icon={Percent} />
+                <InputField label="Taxa Comissária" value={taxaComissaria} onChange={setTaxaComissaria} placeholder="ex: 1,8% a.m." icon={Percent} />
+                <InputField label="Cobrança de TAC" value={tac} onChange={setTac} placeholder="ex: 0,3%" icon={TrendingUp} />
+              </div>
+
+              {/* Limites */}
+              <p style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 12px" }}>Limites</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+                <InputField label="Limite Total" value={limiteTotal} onChange={setLimiteTotal} placeholder="ex: R$ 500.000" icon={Landmark} />
+                <InputField label="Limite Convencional" value={limiteConvencional} onChange={setLimiteConvencional} placeholder="ex: R$ 300.000" icon={Landmark} />
+                <InputField label="Limite Comissária" value={limiteComissaria} onChange={setLimiteComissaria} placeholder="ex: R$ 200.000" icon={Landmark} />
+                <InputField label="Limite por Sacados" value={limitePorSacados} onChange={setLimitePorSacados} placeholder="ex: R$ 50.000" icon={Users} />
+                <InputField label="Ticket Médio" value={ticketMedio} onChange={setTicketMedio} placeholder="ex: R$ 15.000" icon={TrendingUp} />
+              </div>
+
+              {/* Condições de Cobrança */}
+              <p style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 12px" }}>Condições de Cobrança</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+                <InputField label="Prazo de Recompra" value={prazoRecompra} onChange={setPrazoRecompra} placeholder="ex: 3 dias" icon={RefreshCw} />
+                <InputField label="Envio para Cartório" value={prazoCartorio} onChange={setPrazoCartorio} placeholder="ex: 5 dias" icon={Send} />
+              </div>
+
+              {/* Prazos e Tranche */}
+              <p style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 12px" }}>Prazos e Tranche</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <InputField label="Prazo Máximo" value={prazoMaximo} onChange={setPrazoMaximo} placeholder="ex: 120 dias" icon={Calendar} />
+                <InputField label="Tranche em R$" value={trancheValor} onChange={setTrancheValor} placeholder="ex: R$ 300.000" icon={DollarSign} />
+                <InputField label="Prazo Tranche (dias)" value={tranchePrazo} onChange={setTranchePrazo} placeholder="ex: 7 dias" icon={Package} />
+              </div>
+            </div>
+          </div>
+        </>)}
 
         {/* ── Observações ── */}
         <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "24px", marginBottom: 20 }}>
