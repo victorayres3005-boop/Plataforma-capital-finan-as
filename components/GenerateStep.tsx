@@ -349,7 +349,8 @@ function validateExtractedData(data: ExtractedData): ValidationResult {
   };
 }
 
-export default function GenerateStep({ data: initialData, originalFiles, onBack, onReset, onNotify: _onNotify, onFirstCollection: _onFirstCollection }: GenerateStepProps) {
+export default function GenerateStep({ data: initialData, originalFiles, onBack, onReset, ...rest }: GenerateStepProps) {
+  void rest; // onNotify e onFirstCollection substituídos pela página /parecer
   const [data, setData] = useState<ExtractedData>(() => JSON.parse(JSON.stringify(initialData)));
   const [editing, setEditing] = useState(false);
   const [generatingFormat, setGeneratingFormat] = useState<Format | null>(null);
