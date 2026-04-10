@@ -1190,75 +1190,74 @@ export default function HomePage() {
 
                 {/* Funil de Aprovação */}
                 {metricas.totalRecebidas > 0 && (() => {
-                  const stageConfig = [
-                    { gradient: "linear-gradient(135deg, #1e3a5f 0%, #2d5298 100%)", dot: "#60a5fa", labelColor: "#bfdbfe" },
-                    { gradient: "linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%)", dot: "#93c5fd", labelColor: "#dbeafe" },
-                    { gradient: "linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)", dot: "#5eead4", labelColor: "#ccfbf1" },
-                    { gradient: "linear-gradient(135deg, #15803d 0%, #22c55e 100%)", dot: "#86efac", labelColor: "#dcfce7" },
+                  const stageColors = [
+                    { bar: "#1E3A5F", track: "#e8edf4", text: "#1E3A5F", dot: "#1E3A5F" },
+                    { bar: "#2563eb", track: "#dbeafe", text: "#1d4ed8", dot: "#2563eb" },
+                    { bar: "#0891b2", track: "#cffafe", text: "#0e7490", dot: "#0891b2" },
+                    { bar: "#16a34a", track: "#dcfce7", text: "#15803d", dot: "#16a34a" },
                   ];
-                  const taxaColor = metricas.taxaAprovacao >= 60 ? { fg: "#166534", bg: "#dcfce7" } : metricas.taxaAprovacao >= 30 ? { fg: "#92400e", bg: "#fef3c7" } : { fg: "#991b1b", bg: "#fee2e2" };
+                  const taxaColor = metricas.taxaAprovacao >= 60
+                    ? { fg: "#166534", bg: "#dcfce7", border: "#bbf7d0" }
+                    : metricas.taxaAprovacao >= 30
+                    ? { fg: "#92400e", bg: "#fef3c7", border: "#fde68a" }
+                    : { fg: "#991b1b", bg: "#fee2e2", border: "#fecaca" };
                   return (
-                    <div style={{ background: "linear-gradient(160deg, #0f172a 0%, #1e3a5f 100%)", borderRadius: 16, padding: "20px 20px 16px", marginTop: 16 }}>
+                    <div className="bg-white rounded-2xl border border-[#e5e7eb] mt-4" style={{ padding: "18px 18px 14px" }}>
                       {/* Header */}
-                      <div className="flex items-center justify-between mb-5">
+                      <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center gap-2">
-                          <div style={{ width: 3, height: 16, background: "#22c55e", borderRadius: 2 }} />
-                          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: "#94a3b8", textTransform: "uppercase" }}>Funil de Aprovação</span>
+                          <div style={{ width: 3, height: 14, background: "#22c55e", borderRadius: 2 }} />
+                          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.07em", color: "#6b7280", textTransform: "uppercase" }}>Funil de Aprovação</span>
                         </div>
-                        <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 8, color: taxaColor.fg, background: taxaColor.bg }}>
-                          Taxa final: {metricas.taxaAprovacao}%
+                        <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20, color: taxaColor.fg, background: taxaColor.bg, border: `1px solid ${taxaColor.border}` }}>
+                          {metricas.taxaAprovacao}% aprovação
                         </span>
                       </div>
 
-                      {/* Barras */}
-                      <div className="flex flex-col gap-0">
+                      {/* Etapas */}
+                      <div className="space-y-2">
                         {metricas.funil.map((etapa, i) => {
-                          const pctDoTotal = metricas.funil[0].value > 0 ? Math.round((etapa.value / metricas.funil[0].value) * 100) : 0;
-                          const barWidthPct = Math.max(pctDoTotal, etapa.value > 0 ? 22 : 10);
+                          const pctDoTotal = metricas.funil[0].value > 0
+                            ? Math.round((etapa.value / metricas.funil[0].value) * 100) : 0;
                           const convPct = i > 0 && metricas.funil[i - 1].value > 0
                             ? Math.round((etapa.value / metricas.funil[i - 1].value) * 100) : null;
-                          const cfg = stageConfig[i] ?? stageConfig[stageConfig.length - 1];
-                          const isLast = i === metricas.funil.length - 1;
+                          const cfg = stageColors[i] ?? stageColors[stageColors.length - 1];
                           return (
                             <div key={etapa.label}>
-                              {/* Conector entre etapas */}
+                              {/* Seta de conversão */}
                               {i > 0 && (
-                                <div className="flex items-center gap-2 py-2 pl-3">
-                                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
-                                    <div style={{ width: 1, height: 6, background: "#334155" }} />
-                                    <svg width="7" height="5" viewBox="0 0 7 5" fill="none">
-                                      <path d="M3.5 5L0 0h7L3.5 5z" fill="#334155" />
-                                    </svg>
-                                  </div>
-                                  <span style={{ fontSize: 10, color: convPct !== null && convPct >= 70 ? "#4ade80" : convPct !== null && convPct >= 40 ? "#fbbf24" : "#f87171", fontWeight: 600 }}>
-                                    {convPct !== null ? `${convPct}% converteram` : "—"}
+                                <div className="flex items-center gap-2 py-1 pl-1">
+                                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                                    <path d="M5 1v8M2 6l3 3 3-3" stroke="#d1d5db" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                  </svg>
+                                  <span style={{
+                                    fontSize: 10, fontWeight: 600,
+                                    color: convPct !== null && convPct >= 70 ? "#16a34a" : convPct !== null && convPct >= 40 ? "#d97706" : "#dc2626"
+                                  }}>
+                                    {convPct !== null ? `${convPct}% avançaram` : "—"}
                                   </span>
-                                  <div style={{ flex: 1, height: 1, background: "#1e293b" }} />
                                 </div>
                               )}
-                              {/* Barra */}
-                              <div style={{ width: `${barWidthPct}%`, minWidth: 120, transition: "width 0.6s ease" }}>
-                                <div style={{
-                                  background: cfg.gradient,
-                                  borderRadius: isLast ? "0 8px 8px 0" : "0 6px 6px 0",
-                                  padding: "10px 14px",
-                                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
-                                  boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
-                                  position: "relative", overflow: "hidden",
-                                }}>
-                                  {/* Brilho sutil no topo */}
-                                  <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 1, background: "rgba(255,255,255,0.15)" }} />
-                                  {/* Label + dot */}
-                                  <div className="flex items-center gap-2 min-w-0">
-                                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: cfg.dot, flexShrink: 0, boxShadow: `0 0 6px ${cfg.dot}` }} />
-                                    <span style={{ fontSize: 11, fontWeight: 600, color: cfg.labelColor, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                      {etapa.label}
-                                    </span>
+                              {/* Linha da etapa */}
+                              <div className="flex items-center gap-3">
+                                <div style={{ width: 8, height: 8, borderRadius: "50%", background: cfg.dot, flexShrink: 0 }} />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <span style={{ fontSize: 12, fontWeight: 600, color: "#111827" }}>{etapa.label}</span>
+                                    <div className="flex items-baseline gap-1">
+                                      <span style={{ fontSize: 15, fontWeight: 800, color: "#111827", lineHeight: 1 }}>{etapa.value}</span>
+                                      <span style={{ fontSize: 10, fontWeight: 500, color: "#9ca3af" }}>{pctDoTotal}%</span>
+                                    </div>
                                   </div>
-                                  {/* Valor + pct */}
-                                  <div className="flex items-baseline gap-1.5 flex-shrink-0">
-                                    <span style={{ fontSize: 18, fontWeight: 800, color: "#ffffff", lineHeight: 1 }}>{etapa.value}</span>
-                                    <span style={{ fontSize: 10, fontWeight: 600, color: "rgba(255,255,255,0.55)" }}>{pctDoTotal}%</span>
+                                  {/* Track */}
+                                  <div style={{ height: 8, background: cfg.track, borderRadius: 99, overflow: "hidden" }}>
+                                    <div style={{
+                                      width: `${Math.max(pctDoTotal, etapa.value > 0 ? 8 : 0)}%`,
+                                      height: "100%",
+                                      background: cfg.bar,
+                                      borderRadius: 99,
+                                      transition: "width 0.5s ease",
+                                    }} />
                                   </div>
                                 </div>
                               </div>
@@ -1268,15 +1267,15 @@ export default function HomePage() {
                       </div>
 
                       {/* Footer stats */}
-                      <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid #1e293b", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, textAlign: "center" }}>
+                      <div style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid #f3f4f6", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4, textAlign: "center" }}>
                         {[
-                          { label: "Em Análise", value: String(metricas.emAnalise), color: "#93c5fd" },
-                          { label: "Taxa Aprovação", value: `${metricas.taxaAprovacao}%`, color: metricas.taxaAprovacao >= 60 ? "#4ade80" : metricas.taxaAprovacao >= 30 ? "#fbbf24" : "#f87171" },
-                          { label: "Reprovadas", value: String(metricas.porDecisao.reprovado), color: "#f87171" },
+                          { label: "Em Análise", value: String(metricas.emAnalise), color: "#1E3A5F" },
+                          { label: "Taxa Aprovação", value: `${metricas.taxaAprovacao}%`, color: metricas.taxaAprovacao >= 60 ? "#16a34a" : metricas.taxaAprovacao >= 30 ? "#d97706" : "#dc2626" },
+                          { label: "Reprovadas", value: String(metricas.porDecisao.reprovado), color: "#dc2626" },
                         ].map((s, si) => (
-                          <div key={s.label} style={{ borderRight: si < 2 ? "1px solid #1e293b" : "none", padding: "0 4px" }}>
-                            <div style={{ fontSize: 9, color: "#475569", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>{s.label}</div>
-                            <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
+                          <div key={s.label} style={{ borderRight: si < 2 ? "1px solid #f3f4f6" : "none" }}>
+                            <div style={{ fontSize: 9, color: "#9ca3af", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 3 }}>{s.label}</div>
+                            <div style={{ fontSize: 18, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
                           </div>
                         ))}
                       </div>
