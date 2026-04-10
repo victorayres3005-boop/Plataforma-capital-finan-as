@@ -691,10 +691,13 @@ export interface AIAnalysis {
   impactoDocsFaltantes?: string;
   coberturaDocumental?: {
     cobertura: number;
+    coberturaEfetiva?: number;
     nivel: string;
     docsPresentes: string[];
     docsFaltantes: string[];
     confiancaBase: number;
+    chBonus?: number;
+    chSinais?: Array<{ label: string; valor: string; limpo: boolean }>;
   };
   // campos top-level para backward compat
   resumoExecutivo?: string;

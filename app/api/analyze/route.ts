@@ -517,12 +517,31 @@ const DOC_WEIGHTS: Record<string, number> = {
   relatorio_visita:  3,  // diferencial
 };
 
+// Pesos dos sinais CreditHub (bônus de cobertura — máx 18pts)
+const CH_WEIGHTS = {
+  protestos:         5,  // bureau de protestos consultado
+  ccf:               5,  // cheque sem fundo consultado
+  processos:         4,  // processos judiciais consultados
+  capitalSocial:     2,  // capital social informado → proxy financeiro
+  porteFuncionarios: 2,  // porte + funcionários → proxy operacional
+};
+
+type CreditHubSinal = {
+  chave: string;
+  label: string;
+  valor: string;        // valor textual para injetar no prompt
+  limpo: boolean;       // true = sinal positivo (sem ocorrências)
+};
+
 type CoberturaResult = {
-  cobertura: number;           // 0–100
+  cobertura: number;           // 0–100 (apenas documentos)
+  coberturaEfetiva: number;    // 0–100 (documentos + bônus CreditHub)
   nivel: "PRELIMINAR" | "BASICO" | "PADRAO" | "COMPLETO";
   docsPresentes: string[];
   docsFaltantes: string[];
   confiancaBase: number;       // 0–100
+  chBonus: number;             // pontos extras do CreditHub (0–18)
+  chSinais: CreditHubSinal[];  // sinais CH disponíveis para o prompt
 };
 
 function calcularCobertura(data: Record<string, unknown>): CoberturaResult {
@@ -548,19 +567,113 @@ function calcularCobertura(data: Record<string, unknown>): CoberturaResult {
   }
 
   const cobertura = Math.round((pesoPresente / pesoTotal) * 100);
+
+  // ── CreditHub: bônus de cobertura ──────────────────────────────
+  let chBonus = 0;
+  const chSinais: CreditHubSinal[] = [];
+
+  // Protestos
+  const protestos = data.protestos as Record<string, unknown> | null | undefined;
+  const protestosConsultado = protestos &&
+    (protestos.vigentesQtd !== undefined || protestos.detalhes !== undefined);
+  if (protestosConsultado) {
+    chBonus += CH_WEIGHTS.protestos;
+    const qtd = parseInt(String(protestos?.vigentesQtd ?? "0"), 10) || 0;
+    const val = String(protestos?.vigentesValor ?? "0").replace(/\D/g, "");
+    const limpo = qtd === 0;
+    chSinais.push({
+      chave: "protestos",
+      label: "Protestos",
+      valor: limpo
+        ? "Sem protestos vigentes"
+        : `${qtd} protesto(s) vigente(s) — R$ ${parseInt(val || "0").toLocaleString("pt-BR")}`,
+      limpo,
+    });
+  }
+
+  // CCF
+  const ccf = data.ccf as Record<string, unknown> | null | undefined;
+  if (ccf) {
+    chBonus += CH_WEIGHTS.ccf;
+    const qtd = Number(ccf.qtdRegistros ?? 0);
+    const limpo = qtd === 0;
+    chSinais.push({
+      chave: "ccf",
+      label: "CCF (Cheque Sem Fundo)",
+      valor: limpo
+        ? "Sem registros de cheque sem fundo"
+        : `${qtd} registro(s) de CCF`,
+      limpo,
+    });
+  }
+
+  // Processos
+  const processos = data.processos as Record<string, unknown> | null | undefined;
+  const processosConsultado = processos &&
+    (processos.passivosTotal !== undefined || processos.ativosTotal !== undefined);
+  if (processosConsultado) {
+    chBonus += CH_WEIGHTS.processos;
+    const passivos = parseInt(String(processos?.passivosTotal ?? "0"), 10) || 0;
+    const temRJ = Boolean(processos?.temRJ);
+    const limpo = passivos === 0 && !temRJ;
+    chSinais.push({
+      chave: "processos",
+      label: "Processos Judiciais",
+      valor: limpo
+        ? "Sem processos passivos relevantes"
+        : temRJ
+          ? `RECUPERAÇÃO JUDICIAL — ${passivos} processo(s) passivo(s)`
+          : `${passivos} processo(s) passivo(s)`,
+      limpo,
+    });
+  }
+
+  // Capital Social (proxy financeiro para quando DRE/Balanço não estão disponíveis)
+  const cnpj = data.cnpj as Record<string, unknown> | null | undefined;
+  const capitalSocial = cnpj?.capitalSocialCNPJ as string | undefined;
+  if (capitalSocial && capitalSocial !== "0" && capitalSocial !== "") {
+    chBonus += CH_WEIGHTS.capitalSocial;
+    chSinais.push({
+      chave: "capitalSocial",
+      label: "Capital Social",
+      valor: `R$ ${capitalSocial} (proxy de porte financeiro)`,
+      limpo: true,
+    });
+  }
+
+  // Porte + Funcionários (proxy operacional)
+  const porte = cnpj?.porte as string | undefined;
+  const funcionarios = cnpj?.funcionarios as string | undefined;
+  if (porte || funcionarios) {
+    chBonus += CH_WEIGHTS.porteFuncionarios;
+    const partes = [
+      porte ? `Porte: ${porte}` : null,
+      funcionarios ? `Funcionários: ${funcionarios}` : null,
+    ].filter(Boolean).join(" | ");
+    chSinais.push({
+      chave: "porteFuncionarios",
+      label: "Porte / Funcionários",
+      valor: partes,
+      limpo: true,
+    });
+  }
+
+  // ── Cobertura efetiva = docs + bônus CH (máx 100) ──────────────
+  const coberturaEfetiva = Math.min(100, cobertura + chBonus);
+
   const nivel: CoberturaResult["nivel"] =
-    cobertura < 45 ? "PRELIMINAR" :
-    cobertura < 65 ? "BASICO" :
-    cobertura < 85 ? "PADRAO" : "COMPLETO";
+    coberturaEfetiva < 45 ? "PRELIMINAR" :
+    coberturaEfetiva < 65 ? "BASICO" :
+    coberturaEfetiva < 85 ? "PADRAO" : "COMPLETO";
 
-  // Confiança base: cobertura ponderada com teto por nível
+  // Confiança base: cobertura efetiva ponderada com teto por nível
   const confiancaBase =
-    nivel === "PRELIMINAR" ? Math.min(55, Math.round(cobertura * 1.1)) :
-    nivel === "BASICO"     ? Math.min(72, Math.round(40 + cobertura * 0.5)) :
-    nivel === "PADRAO"     ? Math.min(88, Math.round(55 + cobertura * 0.4)) :
-    Math.min(100, Math.round(70 + cobertura * 0.3));
+    nivel === "PRELIMINAR" ? Math.min(55, Math.round(coberturaEfetiva * 1.1)) :
+    nivel === "BASICO"     ? Math.min(72, Math.round(40 + coberturaEfetiva * 0.5)) :
+    nivel === "PADRAO"     ? Math.min(88, Math.round(55 + coberturaEfetiva * 0.4)) :
+    Math.min(100, Math.round(70 + coberturaEfetiva * 0.3));
 
-  return { cobertura, nivel, docsPresentes, docsFaltantes, confiancaBase };
+  return { cobertura, coberturaEfetiva, nivel, docsPresentes, docsFaltantes, confiancaBase, chBonus, chSinais };
 }
 
 const DOC_LABELS: Record<string, string> = {
@@ -572,12 +685,57 @@ const DOC_LABELS: Record<string, string> = {
 function buildCoberturaBlock(cob: CoberturaResult): string {
   const presentesStr = cob.docsPresentes.map(d => DOC_LABELS[d] ?? d).join(", ") || "Nenhum";
   const faltantesStr = cob.docsFaltantes.map(d => DOC_LABELS[d] ?? d).join(", ") || "Nenhum";
+
+  // Bloco CreditHub — só exibe se houver sinais
+  let chBlock = "";
+  if (cob.chSinais.length > 0) {
+    const sinaisStr = cob.chSinais
+      .map(s => `  • ${s.label}: ${s.valor}`)
+      .join("\n");
+
+    // Regras de compensação: quando docs financeiros faltam, o que o CH pode suprir
+    const compensacoes: string[] = [];
+    const temCapital = cob.chSinais.find(s => s.chave === "capitalSocial");
+    const protestosLimpo = cob.chSinais.find(s => s.chave === "protestos" && s.limpo);
+    const ccfLimpo = cob.chSinais.find(s => s.chave === "ccf" && s.limpo);
+    const processosLimpo = cob.chSinais.find(s => s.chave === "processos" && s.limpo);
+    const protestosSujo = cob.chSinais.find(s => s.chave === "protestos" && !s.limpo);
+    const ccfSujo = cob.chSinais.find(s => s.chave === "ccf" && !s.limpo);
+    const processosSujo = cob.chSinais.find(s => s.chave === "processos" && !s.limpo);
+
+    const docsFaltantes = new Set(cob.docsFaltantes);
+    if (temCapital && (docsFaltantes.has("dre") || docsFaltantes.has("balanco"))) {
+      compensacoes.push(`Capital social disponível — use como referência de porte financeiro mínimo na ausência de DRE/Balanço`);
+    }
+    if (protestosLimpo && ccfLimpo) {
+      compensacoes.push(`Bureau limpo (sem protestos + sem CCF) — sinal positivo de histórico de pagamentos; pode atenuar limitação documental em até 0.5 ponto no rating`);
+    }
+    if (processosLimpo && (docsFaltantes.has("dre") || docsFaltantes.has("faturamento"))) {
+      compensacoes.push(`Sem passivos judiciais — reduz risco oculto; considere como fator positivo na análise`);
+    }
+    if (protestosSujo) {
+      compensacoes.push(`ATENÇÃO: ${protestosSujo.valor} — penalize o rating mesmo sem documentos financeiros`);
+    }
+    if (ccfSujo) {
+      compensacoes.push(`ATENÇÃO: ${ccfSujo.valor} — histórico de inadimplência bancária; limite rating a no máximo 6.0`);
+    }
+    if (processosSujo) {
+      compensacoes.push(`ATENÇÃO: ${processosSujo.valor} — penalize conforme gravidade dos processos`);
+    }
+
+    const compensacoesStr = compensacoes.length > 0
+      ? `\nRegras de compensação CH:\n${compensacoes.map(c => `  → ${c}`).join("\n")}`
+      : "";
+
+    chBlock = `\nDados CreditHub disponíveis (bônus +${cob.chBonus}pts na cobertura):\n${sinaisStr}${compensacoesStr}`;
+  }
+
   return `\n\n--- COBERTURA DOCUMENTAL ---
 Nível de análise: ${cob.nivel}
-Cobertura: ${cob.cobertura}% (${cob.docsPresentes.length}/${Object.keys(DOC_WEIGHTS).length} documentos)
+Cobertura documentos: ${cob.cobertura}% | Cobertura efetiva (c/ CreditHub): ${cob.coberturaEfetiva}%
 Confiança base: ${cob.confiancaBase}%
 Documentos disponíveis: ${presentesStr}
-Documentos ausentes: ${faltantesStr}
+Documentos ausentes: ${faltantesStr}${chBlock}
 --- FIM COBERTURA ---\n`;
 }
 
@@ -1254,7 +1412,7 @@ Dívida total SCR: R$ ${_alav.totalDivida.toLocaleString("pt-BR", { minimumFract
           // Cobertura documental — informa a IA sobre o que está disponível
           const cobertura = calcularCobertura(_body.data as Record<string, unknown>);
           const coberturaBlock = buildCoberturaBlock(cobertura);
-          console.log(`[analyze] Cobertura: ${cobertura.cobertura}% | Nível: ${cobertura.nivel} | Confiança base: ${cobertura.confiancaBase}%`);
+          console.log(`[analyze] Cobertura: ${cobertura.cobertura}% docs + ${cobertura.chBonus}pts CH = ${cobertura.coberturaEfetiva}% efetiva | Nível: ${cobertura.nivel} | Confiança base: ${cobertura.confiancaBase}% | CH sinais: ${cobertura.chSinais.map(s => s.chave).join(",")||"nenhum"}`);
 
           // Fase 1+2: injeta exemplos do comitê (vetorial se possível, divergência como fallback)
           const userId = _body.user_id as string | undefined;
@@ -1314,11 +1472,14 @@ Dívida total SCR: R$ ${_alav.totalDivida.toLocaleString("pt-BR", { minimumFract
             ? Math.min(cobertura.confiancaBase + 5, Math.max(cobertura.confiancaBase - 5, Number(analysis.ratingConfianca)))
             : cobertura.confiancaBase;
           analysis.coberturaDocumental = {
-            cobertura:       cobertura.cobertura,
-            nivel:           cobertura.nivel,
-            docsPresentes:   cobertura.docsPresentes,
-            docsFaltantes:   cobertura.docsFaltantes,
-            confiancaBase:   cobertura.confiancaBase,
+            cobertura:         cobertura.cobertura,
+            coberturaEfetiva:  cobertura.coberturaEfetiva,
+            nivel:             cobertura.nivel,
+            docsPresentes:     cobertura.docsPresentes,
+            docsFaltantes:     cobertura.docsFaltantes,
+            confiancaBase:     cobertura.confiancaBase,
+            chBonus:           cobertura.chBonus,
+            chSinais:          cobertura.chSinais.map(s => ({ label: s.label, valor: s.valor, limpo: s.limpo })),
           };
 
           // ── Cap de decisão por cobertura (segurança do analista) ──

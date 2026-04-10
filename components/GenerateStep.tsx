@@ -1586,15 +1586,36 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
                 <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>
                   {aiAnalysis.nivelAnalise === "PRELIMINAR" ? "⚠️" : aiAnalysis.nivelAnalise === "BASICO" ? "📋" : "📊"}
                 </span>
-                <div>
+                <div style={{ flex: 1, minWidth: 0 }}>
                   <p style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", margin: 0 }}>
                     Análise {aiAnalysis.nivelAnalise === "PRELIMINAR" ? "Preliminar" : aiAnalysis.nivelAnalise === "BASICO" ? "Básica" : "Padrão"}
                     {" "}· {aiAnalysis.ratingConfianca}% de confiança
+                    {(aiAnalysis.coberturaDocumental?.chBonus ?? 0) > 0 && (
+                      <span style={{ fontWeight: 400, color: "#0369a1", marginLeft: 6 }}>
+                        (+{aiAnalysis.coberturaDocumental!.chBonus}pts CreditHub)
+                      </span>
+                    )}
                   </p>
                   {aiAnalysis.impactoDocsFaltantes && (
                     <p style={{ fontSize: 11, color: "#64748b", margin: "2px 0 0" }}>
                       {aiAnalysis.impactoDocsFaltantes as string}
                     </p>
+                  )}
+                  {/* Sinais CreditHub que compensaram a falta de docs */}
+                  {(aiAnalysis.coberturaDocumental?.chSinais?.length ?? 0) > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+                      {aiAnalysis.coberturaDocumental!.chSinais!.map((s, i) => (
+                        <span key={i} style={{
+                          fontSize: 10, fontWeight: 500,
+                          padding: "2px 7px", borderRadius: 10,
+                          background: s.limpo ? "#dcfce7" : "#fee2e2",
+                          color: s.limpo ? "#166534" : "#991b1b",
+                          border: `1px solid ${s.limpo ? "#bbf7d0" : "#fecaca"}`,
+                        }}>
+                          {s.limpo ? "✓" : "!"} {s.label}
+                        </span>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>
