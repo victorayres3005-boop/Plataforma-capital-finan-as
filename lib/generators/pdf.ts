@@ -37,30 +37,69 @@ export interface PDFReportParams {
 // ─── Design System ───────────────────────────────────────────────────────────
 const DS = {
   colors: {
-    headerBg: [26, 46, 74] as [number,number,number],
-    accent: [232, 160, 32] as [number,number,number],
-    pageBg: [241, 243, 245] as [number,number,number],
-    cardBg: [255, 255, 255] as [number,number,number],
-    zebraRow: [248, 249, 250] as [number,number,number],
-    border: [229, 231, 235] as [number,number,number],
-    borderStrong: [209, 213, 219] as [number,number,number],
-    danger: [220, 38, 38] as [number,number,number],
-    dangerBg: [254, 226, 226] as [number,number,number],
-    dangerText: [153, 27, 27] as [number,number,number],
-    warn: [217, 119, 6] as [number,number,number],
-    warnBg: [254, 243, 199] as [number,number,number],
-    warnText: [133, 77, 14] as [number,number,number],
-    info: [37, 99, 235] as [number,number,number],
-    infoBg: [219, 234, 254] as [number,number,number],
-    infoText: [29, 78, 216] as [number,number,number],
-    success: [22, 163, 74] as [number,number,number],
-    successBg: [220, 252, 231] as [number,number,number],
-    successText: [22, 101, 52] as [number,number,number],
-    textPrimary: [17, 24, 39] as [number,number,number],
-    textMuted: [107, 114, 128] as [number,number,number],
-    textLight: [156, 163, 175] as [number,number,number],
+    navy:       '#1E3A5F',
+    navyLight:  '#2D5298',
+    green:      '#16A34A',
+    greenBg:    '#DCFCE7',
+    red:        '#DC2626',
+    redBg:      '#FEE2E2',
+    orange:     '#D97706',
+    orangeBg:   '#FEF3C7',
+    purple:     '#7C3AED',
+    purpleBg:   '#EDE9FE',
+    gray:       '#6B7280',
+    grayBg:     '#F1F5F9',
+    grayLight:  '#F8FAFC',
+    border:     '#E5E7EB',
+    text:       '#111827',
+    textLight:  '#6B7280',
+    white:      '#FFFFFF',
+    accent:     '#22C55E',
+    // RGB para helpers legados que usam spread
+    headerBg:   [30, 58, 95]    as [number,number,number],
+    accentRGB:  [34, 197, 94]   as [number,number,number],
+    pageBg:     [248, 250, 252] as [number,number,number],
+    cardBg:     [255, 255, 255] as [number,number,number],
+    zebraRow:   [249, 250, 251] as [number,number,number],
+    borderRGB:  [229, 231, 235] as [number,number,number],
+    borderStrong:[209, 213, 219] as [number,number,number],
+    danger:     [220, 38, 38]   as [number,number,number],
+    dangerBg:   [254, 226, 226] as [number,number,number],
+    dangerText: [153, 27, 27]   as [number,number,number],
+    warn:       [217, 119, 6]   as [number,number,number],
+    warnBg:     [254, 243, 199] as [number,number,number],
+    warnText:   [133, 77, 14]   as [number,number,number],
+    info:       [37, 99, 235]   as [number,number,number],
+    infoBg:     [219, 234, 254] as [number,number,number],
+    infoText:   [29, 78, 216]   as [number,number,number],
+    success:    [22, 163, 74]   as [number,number,number],
+    successBg:  [220, 252, 231] as [number,number,number],
+    successText:[22, 101, 52]   as [number,number,number],
+    textPrimary:[17, 24, 39]    as [number,number,number],
+    textMuted:  [107, 114, 128] as [number,number,number],
+    textLight2: [156, 163, 175] as [number,number,number],
   },
-};
+  font: {
+    xs:   7,
+    sm:   8,
+    base: 9,
+    md:   10,
+    lg:   12,
+    xl:   14,
+    xxl:  18,
+    hero: 24,
+  },
+  space: {
+    xs:  2,
+    sm:  4,
+    md:  8,
+    lg:  12,
+    xl:  16,
+    xxl: 24,
+  },
+  radius: 3,
+  lineH:  5.5,
+} as const
 
 // ─── Standalone helpers (não dependem de doc) ────────────────────────────────
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -671,11 +710,11 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     checkPageBreak(14);
     doc.setFillColor(...DS.colors.headerBg);
     doc.rect(margin, pos.y, contentW, 10, "F");
-    doc.setFillColor(...DS.colors.accent);
+    doc.setFillColor(...DS.colors.accentRGB);
     doc.rect(margin, pos.y + 10, contentW, 1.5, "F");
     doc.setFontSize(7);
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(...DS.colors.accent);
+    doc.setTextColor(...DS.colors.accentRGB);
     doc.text(num, margin + 4, pos.y + 6.5);
     doc.setFontSize(9);
     doc.setTextColor(255, 255, 255);
@@ -687,7 +726,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   const dsCard = (cx: number, cy: number, cw: number, ch: number, borderColor: [number,number,number]) => {
     doc.setFillColor(...DS.colors.cardBg);
     doc.roundedRect(cx, cy, cw, ch, 2, 2, "F");
-    doc.setDrawColor(...DS.colors.border);
+    doc.setDrawColor(...DS.colors.borderRGB);
     doc.setLineWidth(0.25);
     doc.roundedRect(cx, cy, cw, ch, 2, 2, "D");
     doc.setLineWidth(0.1);
@@ -721,7 +760,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       if (item.sub) {
         doc.setFontSize(6);
         doc.setFont("helvetica", "normal");
-        doc.setTextColor(...DS.colors.textLight);
+        doc.setTextColor(...DS.colors.textLight2);
         doc.text(item.sub, ix + 4.5, iy + 15.5);
       }
     });
@@ -738,7 +777,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     const badgeLabel = severity === "ALTA" ? "ALTA" : severity === "MODERADA" ? "MODERADO" : "INFO";
     doc.setFillColor(...DS.colors.cardBg);
     doc.roundedRect(margin, startY, contentW, h, 1.5, 1.5, "F");
-    doc.setDrawColor(...DS.colors.border);
+    doc.setDrawColor(...DS.colors.borderRGB);
     doc.setLineWidth(0.2);
     doc.roundedRect(margin, startY, contentW, h, 1.5, 1.5, "D");
     doc.setLineWidth(0.1);
@@ -821,7 +860,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     const vc = valueColor ?? DS.colors.textPrimary;
     doc.setFillColor(248, 249, 250);
     doc.roundedRect(cx, cy, cw, ch, 1.5, 1.5, 'F');
-    doc.setDrawColor(...DS.colors.border);
+    doc.setDrawColor(...DS.colors.borderRGB);
     doc.setLineWidth(0.3);
     doc.roundedRect(cx, cy, cw, ch, 1.5, 1.5, 'D');
     doc.setLineWidth(0.1);
@@ -840,7 +879,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     if (sub) {
       doc.setFontSize(7);
       doc.setFont('helvetica', 'normal');
-      doc.setTextColor(...DS.colors.textLight);
+      doc.setTextColor(...DS.colors.textLight2);
       doc.text(sub, cx + 5, cy + 17);
     }
   };
@@ -1127,40 +1166,65 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         doc.setLineWidth(0.2);
         doc.line(cx, iy + clRowH, cx + clColW, iy + clRowH);
 
-        // Ícone de status — círculo 8px diâmetro (raio 1.8mm)
-        const dotX = cx + 5.5;
-        const dotY = iy + clRowH / 2;
+        // Ícone de checklist — quadrado 3.6×3.6mm
+        const sqSize = 3.6;
+        const sqX = cx + 3.0;
+        const sqY = iy + (clRowH - sqSize) / 2;
         if (ok) {
+          // Quadrado preenchido verde com check branco
           doc.setFillColor(16, 185, 129); // #10B981
-          doc.circle(dotX, dotY, 1.8, "F");
+          doc.roundedRect(sqX, sqY, sqSize, sqSize, 0.5, 0.5, "F");
+          doc.setDrawColor(5, 150, 105); // #059669
+          doc.setLineWidth(0.2);
+          doc.roundedRect(sqX, sqY, sqSize, sqSize, 0.5, 0.5, "D");
+          doc.setDrawColor(255, 255, 255);
+          doc.setLineWidth(0.65);
+          doc.line(sqX + 0.7,              sqY + sqSize * 0.55,
+                   sqX + sqSize * 0.42,    sqY + sqSize * 0.82);
+          doc.line(sqX + sqSize * 0.42,    sqY + sqSize * 0.82,
+                   sqX + sqSize - 0.6,     sqY + sqSize * 0.22);
+          doc.setLineWidth(0.2);
         } else {
-          doc.setFillColor(229, 231, 235); // #E5E7EB
-          doc.circle(dotX, dotY, 1.8, "F");
-          doc.setDrawColor(209, 213, 219); // #D1D5DB borda 1px
-          doc.setLineWidth(0.25);
-          doc.circle(dotX, dotY, 1.8, "D");
+          // Quadrado vazio com borda tracejada (ausência, não erro)
+          doc.setFillColor(255, 255, 255);
+          doc.roundedRect(sqX, sqY, sqSize, sqSize, 0.5, 0.5, "F");
+          doc.setLineDashPattern([0.6, 0.5], 0);
+          doc.setDrawColor(209, 213, 219); // #D1D5DB
+          doc.setLineWidth(0.3);
+          doc.roundedRect(sqX, sqY, sqSize, sqSize, 0.5, 0.5, "D");
+          doc.setLineDashPattern([], 0);
           doc.setLineWidth(0.2);
         }
 
         // Nome do documento: 8pt; não enviado → itálico, #9CA3AF
+        // OBR ausente → nome sobe para abrir espaço ao subtexto
+        const nameY = (!ok && item.obrigatorio) ? iy + clRowH / 2 - 0.5 : iy + clRowH / 2 + 2;
         doc.setFontSize(8);
         doc.setFont("helvetica", ok ? "normal" : "italic");
         doc.setTextColor(...(ok
           ? [31, 41, 55]   as [number, number, number]  // #1F2937
           : [156, 163, 175] as [number, number, number] // #9CA3AF
         ));
-        doc.text(item.label, cx + 10, iy + clRowH / 2 + 2);
+        doc.text(item.label, cx + 10, nameY);
+
+        // Subtexto "Nao enviado" para obrigatórios ausentes
+        if (!ok && item.obrigatorio) {
+          doc.setFontSize(6.5);
+          doc.setFont("helvetica", "italic");
+          doc.setTextColor(217, 119, 6); // #D97706
+          doc.text("Nao enviado", cx + 10, iy + clRowH / 2 + 3.2);
+        }
 
         // Badge OBR / OPC
         const missing = item.obrigatorio && !ok;
         const badgeLabel = item.obrigatorio ? "OBR" : "OPC";
         const badgeBg: [number, number, number] = missing
-          ? [254, 226, 226]    // OBR ausente → vermelho
+          ? [254, 243, 199]    // OBR ausente → âmbar #FEF3C7 (pendência, não erro crítico)
           : item.obrigatorio
             ? [219, 234, 254]  // OBR presente → #DBEAFE
             : [243, 244, 246]; // OPC → #F3F4F6
         const badgeFg: [number, number, number] = missing
-          ? [220, 38, 38]      // #DC2626
+          ? [217, 119, 6]      // #D97706
           : item.obrigatorio
             ? [29, 78, 216]    // #1D4ED8
             : [107, 114, 128]; // #6B7280
@@ -1200,35 +1264,116 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       margin + clColW + clGap,
       clStartY
     );
-    // Margem entre cards e rodapé: 12px ≈ 4mm
+    // Margem entre cards e legenda: 4mm
     pos.y = Math.max(clEndY1, clEndY2) + 4;
+
+    // ── Legenda do Índice Documental ──────────────────────────────────────────
+    {
+      // Separador pontilhado superior
+      doc.setLineDashPattern([0.8, 0.6], 0);
+      doc.setDrawColor(229, 231, 235); // #E5E7EB
+      doc.setLineWidth(0.3);
+      doc.line(margin, pos.y, margin + contentW, pos.y);
+      doc.setLineDashPattern([], 0);
+      doc.setLineWidth(0.2);
+
+      const lY = pos.y + 5.5;
+      const lSq = 3.0;
+      let lX = margin;
+
+      // [✓] Documento recebido
+      doc.setFillColor(16, 185, 129);
+      doc.roundedRect(lX, lY - lSq + 0.5, lSq, lSq, 0.3, 0.3, "F");
+      doc.setDrawColor(255, 255, 255);
+      doc.setLineWidth(0.55);
+      doc.line(lX + 0.5,           lY - lSq + 0.5 + lSq * 0.55,
+               lX + lSq * 0.42,   lY - lSq + 0.5 + lSq * 0.82);
+      doc.line(lX + lSq * 0.42,   lY - lSq + 0.5 + lSq * 0.82,
+               lX + lSq - 0.4,    lY - lSq + 0.5 + lSq * 0.22);
+      doc.setLineWidth(0.2);
+      lX += lSq + 1.8;
+      doc.setFontSize(7.5);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(107, 114, 128); // #6B7280
+      doc.text("Documento recebido", lX, lY);
+      lX += doc.getTextWidth("Documento recebido") + 6;
+
+      // [☐] Nao enviado
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(lX, lY - lSq + 0.5, lSq, lSq, 0.3, 0.3, "F");
+      doc.setLineDashPattern([0.5, 0.4], 0);
+      doc.setDrawColor(209, 213, 219); // #D1D5DB
+      doc.setLineWidth(0.25);
+      doc.roundedRect(lX, lY - lSq + 0.5, lSq, lSq, 0.3, 0.3, "D");
+      doc.setLineDashPattern([], 0);
+      doc.setLineWidth(0.2);
+      lX += lSq + 1.8;
+      doc.setFontSize(7.5);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(107, 114, 128);
+      doc.text("Nao enviado", lX, lY);
+      lX += doc.getTextWidth("Nao enviado") + 6;
+
+      // [OBR] Obrigatorio
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "bold");
+      const obrW = doc.getTextWidth("OBR") + 4;
+      const lBh  = 3.2;
+      doc.setFillColor(219, 234, 254); // #DBEAFE
+      doc.roundedRect(lX, lY - lBh + 0.5, obrW, lBh, 0.4, 0.4, "F");
+      doc.setTextColor(29, 78, 216); // #1D4ED8
+      doc.text("OBR", lX + obrW / 2, lY - 0.1, { align: "center" });
+      lX += obrW + 1.8;
+      doc.setFontSize(7.5);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(107, 114, 128);
+      doc.text("Obrigatorio", lX, lY);
+      lX += doc.getTextWidth("Obrigatorio") + 6;
+
+      // [OPC] Opcional
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "bold");
+      const opcW = doc.getTextWidth("OPC") + 4;
+      doc.setFillColor(243, 244, 246); // #F3F4F6
+      doc.roundedRect(lX, lY - lBh + 0.5, opcW, lBh, 0.4, 0.4, "F");
+      doc.setTextColor(107, 114, 128); // #6B7280
+      doc.text("OPC", lX + opcW / 2, lY - 0.1, { align: "center" });
+      lX += opcW + 1.8;
+      doc.setFontSize(7.5);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(107, 114, 128);
+      doc.text("Opcional", lX, lY);
+
+      pos.y += 10;
+    }
 
     // ── Cobertura Documental Total ────────────────────────────────────────────
     checkPageBreak(30);
     const clTotal   = Object.keys(clStatus).length;
     const clPresent = Object.values(clStatus).filter(Boolean).length;
     const clPct     = Math.round((clPresent / clTotal) * 100);
-    const clNivel   = clPct >= 80 ? "COMPLETA" : clPct >= 50 ? "PARCIAL" : "INCOMPLETA";
+    // Nível baseado em contagem: 16/16 = COMPLETA, 10-15 = PARCIAL, <10 = INCOMPLETA
+    const clNivel   = clPresent === clTotal ? "COMPLETA" : clPresent >= 10 ? "PARCIAL" : "INCOMPLETA";
 
     // Cores do badge por nível
-    const clBadgeBg: [number, number, number] = clPct >= 80
+    const clBadgeBg: [number, number, number] = clNivel === "COMPLETA"
       ? [220, 252, 231]   // #DCFCE7
-      : clPct >= 50
+      : clNivel === "PARCIAL"
         ? [254, 243, 199]  // #FEF3C7
         : [254, 226, 226]; // #FEE2E2
-    const clBadgeFg: [number, number, number] = clPct >= 80
+    const clBadgeFg: [number, number, number] = clNivel === "COMPLETA"
       ? [21, 128, 61]     // #15803D
-      : clPct >= 50
+      : clNivel === "PARCIAL"
         ? [217, 119, 6]   // #D97706
         : [220, 38, 38];  // #DC2626
-    const clBadgeBorder: [number, number, number] = clPct >= 80
+    const clBadgeBorder: [number, number, number] = clNivel === "COMPLETA"
       ? [134, 239, 172]   // #86EFAC
-      : clPct >= 50
+      : clNivel === "PARCIAL"
         ? [252, 211, 77]  // #FCD34D
         : [252, 165, 165]; // #FCA5A5
 
     // Container: border-radius 8px, border 1px #E5E7EB, fundo #F8FAFC, padding 12×16
-    const clCardH = 26;
+    const clCardH = 32; // aumentado para acomodar subtexto abaixo da barra
     doc.setFillColor(248, 250, 252); // #F8FAFC
     doc.roundedRect(margin, pos.y, contentW, clCardH, 3, 3, "F");
     doc.setDrawColor(229, 231, 235); // #E5E7EB
@@ -1250,28 +1395,56 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     doc.text(clCountStr, margin + 6, pos.y + 16);
     const clCountW = doc.getTextWidth(clCountStr);
 
-    // Subtexto "documentos analisados": 9pt, #6B7280
+    // Subtexto inline: "documentos recebidos": 9pt, #6B7280
     doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(107, 114, 128);
-    doc.text("documentos analisados", margin + 8 + clCountW, pos.y + 16);
+    doc.text("documentos recebidos", margin + 8 + clCountW, pos.y + 16);
 
-    // Barra de progresso: 8px altura, #E5E7EB fundo, preenchimento #10B981
+    // Barra de progresso segmentada: verde (enviados) + cinza tracejado (pendentes)
     const clBarX = margin + 6;
     const clBarW = contentW - 68;
-    const clBarH = 3;
+    const clBarH = 4; // altura 4mm = ~6px
     const clBarY = pos.y + 20;
+    const clFillW = clBarW * (clPct / 100);
+
+    // Fundo cinza (pendentes)
     doc.setFillColor(229, 231, 235); // #E5E7EB
     doc.roundedRect(clBarX, clBarY, clBarW, clBarH, clBarH / 2, clBarH / 2, "F");
+
+    // Parte tracejada cinza sobre a área pendente (efeito visual de "ausência")
+    if (clPct < 100 && clFillW < clBarW) {
+      doc.setLineDashPattern([1.2, 0.8], 0);
+      doc.setDrawColor(156, 163, 175); // #9CA3AF
+      doc.setLineWidth(0.5);
+      const pendX = clBarX + clFillW + 1;
+      doc.line(pendX, clBarY + clBarH / 2, clBarX + clBarW - 1, clBarY + clBarH / 2);
+      doc.setLineDashPattern([], 0);
+      doc.setLineWidth(0.2);
+    }
+
+    // Preenchimento verde (enviados)
     if (clPct > 0) {
       doc.setFillColor(16, 185, 129); // #10B981
-      doc.roundedRect(clBarX, clBarY, clBarW * (clPct / 100), clBarH, clBarH / 2, clBarH / 2, "F");
+      doc.roundedRect(clBarX, clBarY, clFillW, clBarH, clBarH / 2, clBarH / 2, "F");
     }
-    // Percentual à direita: 9pt, #10B981, bold
+
+    // Percentual à direita da barra
     doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(16, 185, 129);
-    doc.text(`${clPct}%`, clBarX + clBarW + 2.5, clBarY + clBarH - 0.1);
+    doc.text(`${clPct}%`, clBarX + clBarW + 2.5, clBarY + clBarH - 0.3);
+
+    // Subtexto abaixo da barra: "13 de 16 documentos recebidos · 3 pendentes"
+    const clPendentes = clTotal - clPresent;
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(107, 114, 128); // #6B7280
+    doc.text(
+      `${clPresent} de ${clTotal} documentos recebidos  -  ${clPendentes} pendente${clPendentes !== 1 ? "s" : ""}`,
+      clBarX,
+      clBarY + clBarH + 5
+    );
 
     // Badge COMPLETA / PARCIAL / INCOMPLETA
     const clBadgeW = 28;
@@ -1660,7 +1833,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       checkPageBreak(36);
       doc.setFillColor(...DS.colors.zebraRow);
       doc.roundedRect(margin, pos.y, contentW, 28, 2, 2, "F");
-      doc.setDrawColor(...DS.colors.border);
+      doc.setDrawColor(...DS.colors.borderRGB);
       doc.setLineWidth(0.25);
       doc.roundedRect(margin, pos.y, contentW, 28, 2, 2, "D");
       doc.setLineWidth(0.1);
@@ -3715,7 +3888,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       doc.setFillColor(...bg);
       doc.rect(margin, pos.y, contentW, 6, "F");
       // Borda bottom sutil
-      doc.setDrawColor(...DS.colors.border);
+      doc.setDrawColor(...DS.colors.borderRGB);
       doc.setLineWidth(0.15);
       doc.line(margin, pos.y + 6, margin + contentW, pos.y + 6);
       doc.setLineWidth(0.1);
@@ -3727,14 +3900,14 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         const val = (ano as unknown as Record<string, string>)[linha.campo] || "0,00";
         const numVal = parseFloat(String(val).replace(/\./g, '').replace(',', '.')) || 0;
         const display = linha.isPct ? `${val}%` : `R$ ${fmtMoney(val)}`;
-        // Cor semântica: negativo = danger, zero/ausente = textLight, positivo = padrão
+        // Cor semântica: negativo = danger, zero/ausente = textLight2, positivo = padrão
         let valColor: [number,number,number] = DS.colors.textPrimary;
         if (linha.isPct) {
           if (numVal < 0) valColor = DS.colors.danger;
-          else if (numVal === 0) valColor = DS.colors.textLight;
+          else if (numVal === 0) valColor = DS.colors.textLight2;
         } else {
           if (numVal < 0) valColor = DS.colors.danger;
-          else if (numVal === 0) valColor = DS.colors.textLight;
+          else if (numVal === 0) valColor = DS.colors.textLight2;
         }
         doc.setTextColor(...valColor);
         doc.text(display, margin + dreColLabel + i * dreColAno + 2, pos.y + 4.2);
@@ -3811,7 +3984,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       const bg: [number, number, number] = idx % 2 === 0 ? DS.colors.zebraRow : DS.colors.cardBg;
       doc.setFillColor(...bg);
       doc.rect(margin, pos.y, contentW, 6, "F");
-      doc.setDrawColor(...DS.colors.border);
+      doc.setDrawColor(...DS.colors.borderRGB);
       doc.setLineWidth(0.15);
       doc.line(margin, pos.y + 6, margin + contentW, pos.y + 6);
       doc.setLineWidth(0.1);
@@ -3827,7 +4000,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         // Cor semântica: PL negativo, liquidez < 1 = perigo
         let valColor: [number,number,number] = DS.colors.textPrimary;
         if (numVal < 0) valColor = DS.colors.danger;
-        else if (numVal === 0 && display === "—") valColor = DS.colors.textLight;
+        else if (numVal === 0 && display === "—") valColor = DS.colors.textLight2;
         else if (linha.isIndice && numVal < 1 && numVal > 0) valColor = DS.colors.warn;
         else if (linha.campo === 'liquidezCorrente' && numVal < 1 && numVal > 0) valColor = DS.colors.warn;
         doc.setTextColor(...valColor);
@@ -4129,9 +4302,9 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         const labTrunc = b.label.length > 22 ? b.label.substring(0, 21) + '…' : b.label;
         doc.text(labTrunc, margin + 2, yL + 4);
         doc.text(String(b.qtd), margin + colWD * 0.72, yL + 4, { align: 'right' });
-        doc.setTextColor(...(b.qtd > 0 ? DS.colors.danger : DS.colors.textLight));
+        doc.setTextColor(...(b.qtd > 0 ? DS.colors.danger : DS.colors.textLight2));
         doc.text(b.qtd > 0 ? fmtProt(b.valor) : '—', margin + colWD - 1, yL + 4, { align: 'right' });
-        doc.setDrawColor(...DS.colors.border);
+        doc.setDrawColor(...DS.colors.borderRGB);
         doc.line(margin, yL + rowHD, margin + colWD, yL + rowHD);
         yL += rowHD;
       });
@@ -4147,9 +4320,9 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
         const labTrunc2 = b.label.length > 20 ? b.label.substring(0, 19) + '…' : b.label;
         doc.text(labTrunc2, cx2 + 2, yR + 4);
         doc.text(String(b.qtd), cx2 + colWD * 0.72, yR + 4, { align: 'right' });
-        doc.setTextColor(...(b.qtd > 0 ? DS.colors.textPrimary : DS.colors.textLight));
+        doc.setTextColor(...(b.qtd > 0 ? DS.colors.textPrimary : DS.colors.textLight2));
         doc.text(b.qtd > 0 ? fmtProt(b.valor) : '—', cx2 + colWD - 1, yR + 4, { align: 'right' });
-        doc.setDrawColor(...DS.colors.border);
+        doc.setDrawColor(...DS.colors.borderRGB);
         doc.line(cx2, yR + rowHD, cx2 + colWD, yR + rowHD);
         yR += rowHD;
       });
