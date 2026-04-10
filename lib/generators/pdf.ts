@@ -1,4 +1,4 @@
-import type { ExtractedData, AIAnalysis, FundValidationResult } from "@/types";
+import type { ExtractedData, AIAnalysis, FundValidationResult, CreditLimitResult } from "@/types";
 import type { PdfCtx } from "./pdf-ctx";
 import { renderParecer } from "./sections/pdf-parecer";
 
@@ -31,6 +31,7 @@ export interface PDFReportParams {
   observacoes?: string;
   streetViewBase64?: string;
   fundValidation?: FundValidationResult;
+  creditLimit?: CreditLimitResult;
 }
 
 // ─── Design System ───────────────────────────────────────────────────────────
@@ -970,20 +971,53 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   {
     newPage();
     drawHeader();
-    dsSectionHeader("IDX", "INDICE DOCUMENTAL — DOCUMENTOS ANALISADOS");
-    pos.y += 2;
 
-    // Empresa subtitle
+    // ── IDX Section Header (custom) ──────────────────────────────────────────
+    const idxHdrH = 12;
+    doc.setFillColor(30, 58, 95); // #1E3A5F
+    doc.rect(margin, pos.y, contentW, idxHdrH, "F");
+
+    // Badge "IDX" — #F59E0B, border-radius 4px, padding 3×8
+    const idxBadgeW = 14;
+    const idxBadgeH = 6;
+    const idxBadgeX = margin + 4;
+    const idxBadgeY = pos.y + (idxHdrH - idxBadgeH) / 2;
+    doc.setFillColor(245, 158, 11); // #F59E0B
+    doc.roundedRect(idxBadgeX, idxBadgeY, idxBadgeW, idxBadgeH, 1, 1, "F");
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("IDX", idxBadgeX + idxBadgeW / 2, idxBadgeY + 4.1, { align: "center" });
+
+    // Title: 13px bold white
+    doc.setFontSize(13);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text(
+      "INDICE DOCUMENTAL \u2014 DOCUMENTOS ANALISADOS",
+      idxBadgeX + idxBadgeW + 4,
+      pos.y + idxHdrH / 2 + 2
+    );
+
+    // Linha laranja abaixo do header: 2px = 0.7mm
+    doc.setFillColor(245, 158, 11); // #F59E0B
+    doc.rect(margin, pos.y + idxHdrH, contentW, 0.7, "F");
+    pos.y += idxHdrH + 0.7;
+
+    // Subtítulo empresa + CNPJ: 9px, #94A3B8, centralizado, padding-top 6px
     const clEmpresa = [
       data.cnpj?.razaoSocial?.substring(0, 45),
       data.cnpj?.cnpj ? "CNPJ: " + data.cnpj.cnpj : "",
     ].filter(Boolean).join("   |   ");
     if (clEmpresa) {
-      doc.setFontSize(7.5);
+      pos.y += 2.5;
+      doc.setFontSize(9);
       doc.setFont("helvetica", "normal");
-      doc.setTextColor(...colors.textMuted);
+      doc.setTextColor(148, 163, 184); // #94A3B8
       doc.text(clEmpresa, W / 2, pos.y, { align: "center" });
-      pos.y += 7;
+      pos.y += 5.5;
+    } else {
+      pos.y += 3;
     }
 
     // ── Status detection ─────────────────────────────────────────────────────
@@ -1030,86 +1064,116 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       { key: "score",          label: "Score Bureau",          obrigatorio: false },
     ];
 
-    const clGap  = 5;
-    const clColW = (contentW - clGap) / 2;
-    const clRowH = 8.5;
-    const clHdrH = 13;
+    // Layout: 48% / 4% gap / 48%
+    const clGap  = contentW * 0.04;
+    const clColW = contentW * 0.48;
+    const clRowH = 7;
+    const clHdrH = 14;
 
     const clDrawCol = (
       frente: string,
       subtitle: string,
-      hdrBg: [number, number, number],
+      borderColor: [number, number, number],
       items: ClItem[],
       cx: number,
       startY: number
     ): number => {
-      // Column header card
-      doc.setFillColor(...hdrBg);
-      doc.roundedRect(cx, startY, clColW, clHdrH, 1.5, 1.5, "F");
-      doc.setFillColor(...colors.accent);
-      doc.rect(cx, startY + clHdrH - 1.5, clColW, 1.5, "F");
+      // Header: gradient simulation #1E3A5F → #2D5298
+      const gradSteps = 6;
+      const stepW = clColW / gradSteps;
+      for (let s = 0; s < gradSteps; s++) {
+        const t = s / (gradSteps - 1);
+        const r = Math.round(30  + t * (45  - 30));
+        const g = Math.round(58  + t * (82  - 58));
+        const b = Math.round(95  + t * (152 - 95));
+        doc.setFillColor(r, g, b);
+        doc.rect(cx + s * stepW, startY, stepW + 0.4, clHdrH, "F");
+      }
 
-      doc.setFontSize(8);
+      // Borda esquerda 3px ≈ 1.1mm
+      doc.setFillColor(...borderColor);
+      doc.rect(cx, startY, 1.1, clHdrH, "F");
+
+      // "FRENTE 1" / "FRENTE 2": 11pt bold, branco
+      doc.setFontSize(11);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(255, 255, 255);
-      doc.text(frente, cx + 5, startY + 5.5);
-      doc.setFontSize(5.5);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(180, 205, 245);
-      doc.text(subtitle, cx + 5, startY + 10);
+      doc.text(frente, cx + 5.5, startY + 6.2);
 
-      let iy = startY + clHdrH + 2;
+      // Subtítulo descritivo: 7pt, rgba(255,255,255,0.65)
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(180, 200, 235);
+      doc.text(subtitle, cx + 5.5, startY + 11.5);
+
+      // Linha colorida abaixo do header: 0.7mm
+      doc.setFillColor(...borderColor);
+      doc.rect(cx, startY + clHdrH, clColW, 0.7, "F");
+
+      let iy = startY + clHdrH + 0.7;
 
       items.forEach((item, idx) => {
         const ok = !!clStatus[item.key];
-        const rowBg: [number, number, number] = idx % 2 === 0 ? [248, 250, 255] : [255, 255, 255];
+        // Zebra suave: branco / #FAFAFA
+        const rowBg: [number, number, number] = idx % 2 === 0
+          ? [255, 255, 255]
+          : [250, 250, 250];
 
         doc.setFillColor(...rowBg);
         doc.rect(cx, iy, clColW, clRowH, "F");
-        doc.setDrawColor(229, 231, 235);
-        doc.setLineWidth(0.15);
+
+        // Separador tracejado leve: 0.2mm, #F1F5F9
+        doc.setDrawColor(241, 245, 249);
+        doc.setLineWidth(0.2);
         doc.line(cx, iy + clRowH, cx + clColW, iy + clRowH);
 
-        // Status dot
+        // Ícone de status — círculo 8px diâmetro (raio 1.8mm)
         const dotX = cx + 5.5;
         const dotY = iy + clRowH / 2;
-        doc.setFillColor(...(ok ? [22, 163, 74] as [number,number,number] : [209, 213, 219] as [number,number,number]));
-        doc.circle(dotX, dotY, 2, "F");
-        doc.setFontSize(5);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(255, 255, 255);
-        doc.text(ok ? "+" : "-", dotX, dotY + 1.8, { align: "center" });
+        if (ok) {
+          doc.setFillColor(16, 185, 129); // #10B981
+          doc.circle(dotX, dotY, 1.8, "F");
+        } else {
+          doc.setFillColor(229, 231, 235); // #E5E7EB
+          doc.circle(dotX, dotY, 1.8, "F");
+          doc.setDrawColor(209, 213, 219); // #D1D5DB borda 1px
+          doc.setLineWidth(0.25);
+          doc.circle(dotX, dotY, 1.8, "D");
+          doc.setLineWidth(0.2);
+        }
 
-        // Document label
-        doc.setFontSize(7);
-        doc.setFont("helvetica", ok ? "bold" : "normal");
+        // Nome do documento: 8pt; não enviado → itálico, #9CA3AF
+        doc.setFontSize(8);
+        doc.setFont("helvetica", ok ? "normal" : "italic");
         doc.setTextColor(...(ok
-          ? [17, 24, 39] as [number,number,number]
-          : [107, 114, 128] as [number,number,number]));
+          ? [31, 41, 55]   as [number, number, number]  // #1F2937
+          : [156, 163, 175] as [number, number, number] // #9CA3AF
+        ));
         doc.text(item.label, cx + 10, iy + clRowH / 2 + 2);
 
-        // Badge (OBR / OPC) — vermelho se obrigatório ausente, âmbar se presente, cinza se opcional
+        // Badge OBR / OPC
         const missing = item.obrigatorio && !ok;
         const badgeLabel = item.obrigatorio ? "OBR" : "OPC";
-        const badgeBg: [number,number,number] = missing
-          ? [254, 226, 226]
+        const badgeBg: [number, number, number] = missing
+          ? [254, 226, 226]    // OBR ausente → vermelho
           : item.obrigatorio
-            ? [220, 252, 231]
-            : [241, 245, 249];
-        const badgeFg: [number,number,number] = missing
-          ? [185, 28, 28]
+            ? [219, 234, 254]  // OBR presente → #DBEAFE
+            : [243, 244, 246]; // OPC → #F3F4F6
+        const badgeFg: [number, number, number] = missing
+          ? [220, 38, 38]      // #DC2626
           : item.obrigatorio
-            ? [22, 101, 52]
-            : [107, 114, 128];
+            ? [29, 78, 216]    // #1D4ED8
+            : [107, 114, 128]; // #6B7280
         const bw = 11;
-        const bx = cx + clColW - bw - 2;
-        const by = iy + (clRowH - 4.5) / 2;
+        const bh = 4;
+        const bx = cx + clColW - bw - 2.5;
+        const by = iy + (clRowH - bh) / 2;
         doc.setFillColor(...badgeBg);
-        doc.roundedRect(bx, by, bw, 4.5, 0.8, 0.8, "F");
-        doc.setFontSize(5);
+        doc.roundedRect(bx, by, bw, bh, 0.8, 0.8, "F");
+        doc.setFontSize(7.5);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(...badgeFg);
-        doc.text(badgeLabel, bx + bw / 2, by + 3.1, { align: "center" });
+        doc.text(badgeLabel, bx + bw / 2, by + bh - 0.8, { align: "center" });
 
         iy += clRowH;
       });
@@ -1117,85 +1181,113 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       return iy;
     };
 
+    // Margem entre header IDX e cards: 10px ≈ 3.5mm
+    pos.y += 3.5;
     const clStartY = pos.y;
     const clEndY1 = clDrawCol(
       "FRENTE 1",
-      "Consolidacao de Documentos — dados financeiros e societarios",
-      colors.navy,
+      "Consolidacao de Documentos \u2014 dados financeiros e societarios",
+      [16, 185, 129] as [number, number, number],  // #10B981 verde
       clFrente1,
       margin,
       clStartY
     );
     const clEndY2 = clDrawCol(
       "FRENTE 2",
-      "Tomada de Decisao para Credito — risco e historico",
-      [42, 58, 92] as [number, number, number],
+      "Tomada de Decisao para Credito \u2014 risco e historico",
+      [59, 130, 246] as [number, number, number],  // #3B82F6 azul
       clFrente2,
       margin + clColW + clGap,
       clStartY
     );
-    pos.y = Math.max(clEndY1, clEndY2) + 6;
+    // Margem entre cards e rodapé: 12px ≈ 4mm
+    pos.y = Math.max(clEndY1, clEndY2) + 4;
 
-    // ── Barra de cobertura documental ─────────────────────────────────────────
-    checkPageBreak(24);
-    const clTotal    = Object.keys(clStatus).length;
-    const clPresent  = Object.values(clStatus).filter(Boolean).length;
-    const clPct      = Math.round((clPresent / clTotal) * 100);
-    const clNivel    = clPct >= 80 ? "COMPLETA" : clPct >= 50 ? "PARCIAL" : "MINIMA";
-    const clNivelClr: [number,number,number] = clPct >= 80
-      ? [22, 163, 74]
+    // ── Cobertura Documental Total ────────────────────────────────────────────
+    checkPageBreak(30);
+    const clTotal   = Object.keys(clStatus).length;
+    const clPresent = Object.values(clStatus).filter(Boolean).length;
+    const clPct     = Math.round((clPresent / clTotal) * 100);
+    const clNivel   = clPct >= 80 ? "COMPLETA" : clPct >= 50 ? "PARCIAL" : "INCOMPLETA";
+
+    // Cores do badge por nível
+    const clBadgeBg: [number, number, number] = clPct >= 80
+      ? [220, 252, 231]   // #DCFCE7
       : clPct >= 50
-        ? [217, 119, 6]
-        : [220, 38, 38];
+        ? [254, 243, 199]  // #FEF3C7
+        : [254, 226, 226]; // #FEE2E2
+    const clBadgeFg: [number, number, number] = clPct >= 80
+      ? [21, 128, 61]     // #15803D
+      : clPct >= 50
+        ? [217, 119, 6]   // #D97706
+        : [220, 38, 38];  // #DC2626
+    const clBadgeBorder: [number, number, number] = clPct >= 80
+      ? [134, 239, 172]   // #86EFAC
+      : clPct >= 50
+        ? [252, 211, 77]  // #FCD34D
+        : [252, 165, 165]; // #FCA5A5
 
-    const clCardH = 22;
-    doc.setFillColor(248, 250, 255);
-    doc.roundedRect(margin, pos.y, contentW, clCardH, 2, 2, "F");
-    doc.setDrawColor(...colors.border);
-    doc.setLineWidth(0.25);
-    doc.roundedRect(margin, pos.y, contentW, clCardH, 2, 2, "D");
+    // Container: border-radius 8px, border 1px #E5E7EB, fundo #F8FAFC, padding 12×16
+    const clCardH = 26;
+    doc.setFillColor(248, 250, 252); // #F8FAFC
+    doc.roundedRect(margin, pos.y, contentW, clCardH, 3, 3, "F");
+    doc.setDrawColor(229, 231, 235); // #E5E7EB
+    doc.setLineWidth(0.35);
+    doc.roundedRect(margin, pos.y, contentW, clCardH, 3, 3, "D");
     doc.setLineWidth(0.1);
 
-    doc.setFontSize(6);
+    // Label "COBERTURA DOCUMENTAL TOTAL": 8pt, uppercase, #6B7280
+    doc.setFontSize(8);
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(...colors.textMuted);
-    doc.text("COBERTURA DOCUMENTAL TOTAL", margin + 5, pos.y + 6);
+    doc.setTextColor(107, 114, 128); // #6B7280
+    doc.text("COBERTURA DOCUMENTAL TOTAL", margin + 6, pos.y + 6);
 
-    doc.setFontSize(13);
+    // Número "13/16": 18pt, bold, #1E3A5F
+    doc.setFontSize(18);
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(...clNivelClr);
+    doc.setTextColor(30, 58, 95); // #1E3A5F
     const clCountStr = `${clPresent}/${clTotal}`;
-    doc.text(clCountStr, margin + 5, pos.y + 17);
+    doc.text(clCountStr, margin + 6, pos.y + 16);
     const clCountW = doc.getTextWidth(clCountStr);
-    doc.setFontSize(7);
+
+    // Subtexto "documentos analisados": 9pt, #6B7280
+    doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(...colors.textMuted);
-    doc.text("documentos analisados", margin + 7 + clCountW, pos.y + 17);
+    doc.setTextColor(107, 114, 128);
+    doc.text("documentos analisados", margin + 8 + clCountW, pos.y + 16);
 
-    // Nivel badge (right)
-    const clBadgeW = 24;
-    doc.setFillColor(...clNivelClr);
-    doc.roundedRect(W - margin - clBadgeW - 4, pos.y + (clCardH - 8) / 2, clBadgeW, 8, 1.5, 1.5, "F");
-    doc.setFontSize(7);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(255, 255, 255);
-    doc.text(clNivel, W - margin - clBadgeW / 2 - 4, pos.y + clCardH / 2 + 2.5, { align: "center" });
-
-    // Progress bar (center)
-    const clBarX = margin + 60;
-    const clBarW = contentW - 105;
-    const clBarH = 4;
-    const clBarY = pos.y + 14;
-    doc.setFillColor(229, 231, 235);
+    // Barra de progresso: 8px altura, #E5E7EB fundo, preenchimento #10B981
+    const clBarX = margin + 6;
+    const clBarW = contentW - 68;
+    const clBarH = 3;
+    const clBarY = pos.y + 20;
+    doc.setFillColor(229, 231, 235); // #E5E7EB
     doc.roundedRect(clBarX, clBarY, clBarW, clBarH, clBarH / 2, clBarH / 2, "F");
     if (clPct > 0) {
-      doc.setFillColor(...clNivelClr);
+      doc.setFillColor(16, 185, 129); // #10B981
       doc.roundedRect(clBarX, clBarY, clBarW * (clPct / 100), clBarH, clBarH / 2, clBarH / 2, "F");
     }
-    doc.setFontSize(7);
+    // Percentual à direita: 9pt, #10B981, bold
+    doc.setFontSize(9);
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(...clNivelClr);
-    doc.text(`${clPct}%`, clBarX + clBarW + 3, clBarY + 3.5);
+    doc.setTextColor(16, 185, 129);
+    doc.text(`${clPct}%`, clBarX + clBarW + 2.5, clBarY + clBarH - 0.1);
+
+    // Badge COMPLETA / PARCIAL / INCOMPLETA
+    const clBadgeW = 28;
+    const clBadgeH = 9;
+    const clBadgeX = margin + contentW - clBadgeW - 4;
+    const clBadgeY = pos.y + (clCardH - clBadgeH) / 2;
+    doc.setFillColor(...clBadgeBg);
+    doc.roundedRect(clBadgeX, clBadgeY, clBadgeW, clBadgeH, 1.5, 1.5, "F");
+    doc.setDrawColor(...clBadgeBorder);
+    doc.setLineWidth(0.35);
+    doc.roundedRect(clBadgeX, clBadgeY, clBadgeW, clBadgeH, 1.5, 1.5, "D");
+    doc.setLineWidth(0.1);
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...clBadgeFg);
+    doc.text(clNivel, clBadgeX + clBadgeW / 2, clBadgeY + clBadgeH - 2.1, { align: "center" });
 
     pos.y += clCardH + 4;
   }
@@ -1620,227 +1712,438 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   }
 
 
-  // ===== SEÇÃO FS — PARAMETROS DO FUNDO =====
+  // ===== SEÇÃO FS — CONFORMIDADE COM PARAMETROS DO FUNDO =====
   if (p.fundValidation && p.fundValidation.criteria.length > 0) {
     const fv = p.fundValidation;
     drawSpacer(10);
 
-    const fsNeeded = 14 + fv.criteria.length * 10 + 8;
-    checkPageBreak(Math.min(fsNeeded, 60));
+    // Bug fix 1: calcula altura total e força nova página se a seção não couber inteira
+    const fsRowH = 14;
+    const fsElimFailCount = fv.criteria.filter(c => c.eliminatoria && c.status === 'error').length;
+    const fsHasElimFail = fsElimFailCount > 0;
+    const fsHasAnyElim = fv.criteria.some(c => c.eliminatoria);
+    const fsAlturaTotal = 13 + 12 + 8 + fv.criteria.length * (fsRowH + 1) + 13 + (fsHasAnyElim ? 10 : 0);
+    if (pos.y + fsAlturaTotal > 265) { newPage(); drawHeader(); }
+
+    // Bug fix 2: normaliza ≥ e ≤ → >= e <= para evitar corrupção de caracteres no jsPDF
+    const normalizeThreshold = (t: string) => t.replace(/≥/g, '>=').replace(/≤/g, '<=');
 
     // Section header
     dsSectionHeader('FS', 'CONFORMIDADE COM PARAMETROS DO FUNDO');
 
-    // Summary bar
-    const summaryBg: [number,number,number] = fv.hasEliminatoria ? [254,226,226] : fv.warnCount > 0 ? [254,243,199] : [220,252,231];
-    const summaryTxt: [number,number,number] = fv.hasEliminatoria ? [153,27,27] : fv.warnCount > 0 ? [133,77,14] : [22,101,52];
-    doc.setFillColor(...summaryBg);
-    doc.rect(margin, pos.y, contentW, 8, 'F');
-    doc.setFontSize(6.5);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...summaryTxt);
-    const summaryText = fv.hasEliminatoria
-      ? "REPROVADO — criterio eliminatorio nao atendido"
-      : fv.warnCount > 0
-        ? "CONDICIONAL — ha pontos de atencao nos parametros do fundo"
-        : "APROVADO — todos os parametros do fundo foram atendidos";
-    doc.text(summaryText, margin + 4, pos.y + 5);
-    pos.y += 10;
+    // Column positions (margin=20, contentW=170)
+    const fsColBadge = margin + 7;
+    const fsColCrit  = margin + 17;
+    const fsColLim   = margin + 76;
+    const fsColApur  = margin + 118;
+    const fsColStat  = margin + 143;
 
-    // Column headers
-    const col1 = margin;
-    const col2 = margin + 55;
-    const col3 = margin + 105;
-    const col4 = margin + 150;
-    doc.setFontSize(6);
+    // ── BANNER DE AVISO ──────────────────────────────────────────────
+    const fsBannerBg: [number,number,number] = fv.hasEliminatoria
+      ? [254, 226, 226] : fv.warnCount > 0 ? [254, 243, 199] : [220, 252, 231];
+    const fsBannerTxt: [number,number,number] = fv.hasEliminatoria
+      ? [220, 38, 38] : fv.warnCount > 0 ? [133, 77, 14] : [21, 128, 61];
+    doc.setFillColor(...fsBannerBg);
+    doc.roundedRect(margin, pos.y, contentW, 10, 2, 2, 'F');
+    if (fv.hasEliminatoria || fv.warnCount > 0) {
+      doc.setFillColor(...fsBannerTxt);
+      doc.rect(margin, pos.y, 3, 10, 'F');
+    }
+    doc.setFontSize(8.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...fsBannerTxt);
+    const fsBannerText = fv.hasEliminatoria
+      ? `! ATENCAO: criterio eliminatorio nao atendido — ${fv.failCount} reprovado(s), ${fv.passCount} de ${fv.criteria.length} aprovados`
+      : fv.warnCount > 0
+        ? `${fv.passCount} criterios aprovados · ${fv.warnCount} atencao · ${fv.failCount} reprovado(s)`
+        : `Todos os ${fv.passCount} criterios atendidos — empresa elegivel`;
+    doc.text(fsBannerText, margin + 6, pos.y + 6.5);
+    pos.y += 12;
+
+    // ── HEADER DAS COLUNAS ───────────────────────────────────────────
+    doc.setFillColor(241, 245, 249);
+    doc.rect(margin, pos.y, contentW, 7, 'F');
+    doc.setFontSize(8);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(107, 114, 128);
-    doc.setFillColor(248, 249, 250);
-    doc.rect(margin, pos.y, contentW, 6, 'F');
-    doc.text('CRITERIO', col1 + 10, pos.y + 4);
-    doc.text('LIMITE DO FUNDO', col2, pos.y + 4);
-    doc.text('APURADO', col3, pos.y + 4);
-    doc.text('STATUS', col4, pos.y + 4);
-    pos.y += 7;
+    doc.text('CRITERIO',        fsColCrit,  pos.y + 5);
+    doc.text('LIMITE DO FUNDO', fsColLim,   pos.y + 5);
+    doc.text('APURADO',         fsColApur,  pos.y + 5);
+    doc.text('STATUS',          fsColStat,  pos.y + 5);
+    doc.setDrawColor(229, 231, 235);
+    doc.setLineWidth(0.5);
+    doc.line(margin, pos.y + 7, margin + contentW, pos.y + 7);
+    pos.y += 8;
 
-    // Criterion rows
-    fv.criteria.forEach((cr, idx2) => {
-      const rowH = 9;
-      checkPageBreak(rowH + 1);
+    // ── LINHAS DE CRITÉRIOS ──────────────────────────────────────────
+    fv.criteria.forEach((cr, idx) => {
+      checkPageBreak(fsRowH + 1);
+      const isOk   = cr.status === 'ok';
+      const isErr  = cr.status === 'error';
+      const isWarn = cr.status === 'warning';
 
-      const rowBg: [number,number,number] = cr.status === 'error' ? [255,250,250] : cr.status === 'warning' ? [255,253,244] : idx2 % 2 === 0 ? [255,255,255] : [248,249,250];
+      // Zebra + reprovado override
+      const rowBg: [number,number,number] = isErr
+        ? [255, 245, 245] : idx % 2 === 0 ? [255, 255, 255] : [250, 250, 250];
       doc.setFillColor(...rowBg);
-      doc.rect(margin, pos.y, contentW, rowH, 'F');
+      doc.rect(margin, pos.y, contentW, fsRowH, 'F');
 
-      // Left accent strip
-      const stripColor: [number,number,number] = cr.status === 'error' ? [220,38,38] : cr.status === 'warning' ? [217,119,6] : cr.status === 'ok' ? [22,163,74] : [156,163,175];
-      doc.setFillColor(...stripColor);
-      doc.rect(margin, pos.y, 3, rowH, 'F');
+      // Barra lateral colorida 3px
+      const stripC: [number,number,number] = isErr
+        ? [220, 38, 38] : isWarn ? [217, 119, 6] : isOk ? [16, 185, 129] : [156, 163, 175];
+      doc.setFillColor(...stripC);
+      doc.rect(margin, pos.y, 3, fsRowH, 'F');
 
-      // Status icon text (circle placeholder)
+      // Badge OK / X / !
+      const badgeLabel = isOk ? 'OK' : isErr ? 'X' : '!';
+      const badgeBg: [number,number,number] = isOk ? [220,252,231] : isErr ? [254,226,226] : [254,243,199];
+      const badgeTxt: [number,number,number] = isOk ? [21,128,61] : isErr ? [220,38,38] : [133,77,14];
       doc.setFontSize(7);
       doc.setFont('helvetica', 'bold');
-      doc.setTextColor(...stripColor);
-      const icon = cr.status === 'ok' ? 'OK' : cr.status === 'warning' ? '!' : cr.status === 'error' ? 'X' : '?';
-      doc.text(icon, col1 + 4.5, pos.y + 6);
+      const badgeW = doc.getTextWidth(badgeLabel) + 8;
+      doc.setFillColor(...badgeBg);
+      doc.roundedRect(fsColBadge, pos.y + (fsRowH - 5) / 2, badgeW, 5, 1.5, 1.5, 'F');
+      doc.setTextColor(...badgeTxt);
+      doc.text(badgeLabel, fsColBadge + 4, pos.y + fsRowH / 2 + 1.5);
 
-      // Label
-      doc.setFontSize(7);
-      doc.setFont('helvetica', cr.status === 'error' ? 'bold' : 'normal');
-      doc.setTextColor(17, 24, 39);
-      const labelText = cr.eliminatoria && cr.status === 'error' ? cr.label + ' *' : cr.label;
-      doc.text(labelText, col1 + 12, pos.y + 6);
+      // Critério label (* em todos os eliminatórios)
+      const labelText = cr.eliminatoria ? cr.label + ' *' : cr.label;
+      doc.setFontSize(9);
+      doc.setFont('helvetica', isErr ? 'bold' : 'normal');
+      doc.setTextColor(...(isErr ? [220,38,38] as [number,number,number] : [31,41,55] as [number,number,number]));
+      doc.text(labelText, fsColCrit, pos.y + fsRowH / 2 + 1.5);
 
-      // Threshold
-      doc.setFontSize(6.5);
+      // Limite do fundo
+      doc.setFontSize(8.5);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(107, 114, 128);
-      doc.text(cr.threshold, col2, pos.y + 6);
+      const threshNorm = normalizeThreshold(cr.threshold);
+      const threshLines = doc.splitTextToSize(threshNorm, fsColApur - fsColLim - 4);
+      doc.text(threshLines[0], fsColLim, pos.y + fsRowH / 2 + 1.5);
 
-      // Actual
-      doc.setFontSize(7);
+      // Apurado
+      doc.setFontSize(9);
       doc.setFont('helvetica', 'bold');
-      doc.setTextColor(...stripColor);
-      doc.text(cr.actual, col3, pos.y + 6);
+      doc.setTextColor(...stripC);
+      doc.text(cr.actual, fsColApur, pos.y + fsRowH / 2 + 1.5);
 
-      // Status pill text
-      doc.setFontSize(6);
+      // Badge de status
+      const sLabel = isOk ? 'APROVADO' : isWarn ? 'ATENCAO' : isErr ? 'REPROVADO' : 'S/DADO';
+      const sBg: [number,number,number] = isOk ? [220,252,231] : isWarn ? [254,243,199] : isErr ? [254,226,226] : [243,244,246];
+      const sTxt: [number,number,number] = isOk ? [21,128,61] : isWarn ? [133,77,14] : isErr ? [220,38,38] : [107,114,128];
+      doc.setFontSize(7.5);
       doc.setFont('helvetica', 'bold');
-      const statusLabel = cr.status === 'ok' ? 'APROVADO' : cr.status === 'warning' ? 'ATENCAO' : cr.status === 'error' ? 'REPROVADO' : 'S/DADO';
-      const pillBg: [number,number,number] = cr.status === 'ok' ? [220,252,231] : cr.status === 'warning' ? [254,243,199] : cr.status === 'error' ? [254,226,226] : [243,244,246];
-      const pillTxt: [number,number,number] = cr.status === 'ok' ? [22,101,52] : cr.status === 'warning' ? [133,77,14] : cr.status === 'error' ? [153,27,27] : [107,114,128];
-      const pw = doc.getTextWidth(statusLabel) + 6;
-      doc.setFillColor(...pillBg);
-      doc.roundedRect(col4, pos.y + 1.5, pw, 5.5, 1, 1, 'F');
-      doc.setTextColor(...pillTxt);
-      doc.text(statusLabel, col4 + 3, pos.y + 5.8);
+      const sPw = doc.getTextWidth(sLabel) + 10;
+      doc.setFillColor(...sBg);
+      doc.roundedRect(fsColStat, pos.y + (fsRowH - 6) / 2, sPw, 6, 1.5, 1.5, 'F');
+      doc.setTextColor(...sTxt);
+      doc.text(sLabel, fsColStat + 5, pos.y + fsRowH / 2 + 1.5);
 
-      pos.y += rowH + 1;
+      // Separador horizontal suave entre linhas
+      doc.setDrawColor(241, 245, 249);
+      doc.setLineWidth(0.2);
+      doc.line(margin, pos.y + fsRowH, margin + contentW, pos.y + fsRowH);
+
+      pos.y += fsRowH + 1;
     });
 
-    // Eliminatória footnote
-    const hasElimNote = fv.criteria.some(c => c.eliminatoria && c.status === 'error');
-    if (hasElimNote) {
-      pos.y += 2;
-      doc.setFontSize(6);
-      doc.setFont('helvetica', 'italic');
-      doc.setTextColor(153, 27, 27);
-      doc.text('* Criterio eliminatorio — impede aprovacao pelos parametros do fundo', margin + 3, pos.y);
+    // ── LINHA DE RESUMO ──────────────────────────────────────────────
+    doc.setDrawColor(229, 231, 235);
+    doc.setLineWidth(1);
+    doc.line(margin, pos.y, margin + contentW, pos.y);
+    doc.setFillColor(248, 250, 252);
+    doc.rect(margin, pos.y, contentW, 12, 'F');
+
+    const fsResultText = fsHasElimFail
+      ? `Resultado: ${fv.passCount}/${fv.criteria.length} aprovados · ${fv.failCount} reprovados (${fsElimFailCount} elim.)`
+      : `Resultado: ${fv.passCount}/${fv.criteria.length} aprovados · ${fv.failCount} reprovados`;
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(107, 114, 128);
+    doc.text(fsResultText, margin + 4, pos.y + 8);
+
+    const fsFinalStatus = fv.hasEliminatoria || fv.failCount > 0
+      ? 'REPROVADO PELO FUNDO' : fv.warnCount > 0 ? 'CONDICIONAL' : 'APROVADO PELO FUNDO';
+    const fsFinalBg: [number,number,number] = fsFinalStatus === 'APROVADO PELO FUNDO'
+      ? [220,252,231] : fsFinalStatus === 'CONDICIONAL' ? [254,243,199] : [254,226,226];
+    const fsFinalTxt: [number,number,number] = fsFinalStatus === 'APROVADO PELO FUNDO'
+      ? [21,128,61] : fsFinalStatus === 'CONDICIONAL' ? [133,77,14] : [220,38,38];
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    const fsFPw = doc.getTextWidth(fsFinalStatus) + 14;
+    doc.setFillColor(...fsFinalBg);
+    doc.roundedRect(margin + contentW - fsFPw - 4, pos.y + 2.5, fsFPw, 7, 2, 2, 'F');
+    doc.setTextColor(...fsFinalTxt);
+    doc.text(fsFinalStatus, margin + contentW - fsFPw - 4 + 7, pos.y + 8);
+    pos.y += 13;
+
+    // ── RODAPÉ COM ASTERISCO ─────────────────────────────────────────
+    if (fsHasAnyElim) {
+      doc.setDrawColor(229, 231, 235);
+      doc.setLineWidth(0.5);
+      doc.line(margin, pos.y, margin + contentW, pos.y);
       pos.y += 4;
+      doc.setFontSize(7.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(156, 163, 175);
+      doc.text('* Criterio eliminatorio — impede aprovacao pelos parametros configurados do fundo', margin + 3, pos.y);
+      pos.y += 6;
     }
 
     pos.y += 6;
   }
 
 
-  // ===== SEÇÃO FS — PARAMETROS DO FUNDO =====
+  // ===== SEÇÃO FS — CONFORMIDADE COM PARAMETROS DO FUNDO =====
   if (p.fundValidation && p.fundValidation.criteria.length > 0) {
     const fv = p.fundValidation;
     drawSpacer(10);
-    checkPageBreak(Math.min(14 + fv.criteria.length * 10 + 8, 60));
+
+    // Bug fix 1: calcula altura total e força nova página se a seção não couber inteira
+    const fsRowH2 = 14;
+    const fsElimFailCount2 = fv.criteria.filter(c => c.eliminatoria && c.status === 'error').length;
+    const fsHasElimFail2 = fsElimFailCount2 > 0;
+    const fsHasAnyElim2 = fv.criteria.some(c => c.eliminatoria);
+    const fsAlturaTotal2 = 13 + 12 + 8 + fv.criteria.length * (fsRowH2 + 1) + 13 + (fsHasAnyElim2 ? 10 : 0);
+    if (pos.y + fsAlturaTotal2 > 265) { newPage(); drawHeader(); }
+
+    // Bug fix 2: normaliza ≥ e ≤ → >= e <= para evitar corrupção de caracteres no jsPDF
+    const normalizeThreshold2 = (t: string) => t.replace(/≥/g, '>=').replace(/≤/g, '<=');
 
     // Section header
-    dsSectionHeader("FS", "CONFORMIDADE COM PARAMETROS DO FUNDO");
+    dsSectionHeader('FS', 'CONFORMIDADE COM PARAMETROS DO FUNDO');
 
-    // Summary bar
-    const fsSummaryBg: [number,number,number] = fv.hasEliminatoria ? [254,226,226] : fv.warnCount > 0 ? [254,243,199] : [220,252,231];
-    const fsSummaryTxt: [number,number,number] = fv.hasEliminatoria ? [153,27,27] : fv.warnCount > 0 ? [133,77,14] : [22,101,52];
-    doc.setFillColor(...fsSummaryBg);
-    doc.rect(margin, pos.y, contentW, 8, "F");
-    doc.setFontSize(6.5);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...fsSummaryTxt);
-    const fsSummaryText = fv.hasEliminatoria
-      ? `ATENCAO: criterio eliminatorio nao atendido — ${fv.failCount} reprovado(s), ${fv.passCount} de ${fv.criteria.length} aprovados`
+    // Column positions (margin=20, contentW=170)
+    const fs2ColBadge = margin + 7;
+    const fs2ColCrit  = margin + 17;
+    const fs2ColLim   = margin + 76;
+    const fs2ColApur  = margin + 118;
+    const fs2ColStat  = margin + 143;
+
+    // ── BANNER DE AVISO ──────────────────────────────────────────────
+    const fs2BannerBg: [number,number,number] = fv.hasEliminatoria
+      ? [254, 226, 226] : fv.warnCount > 0 ? [254, 243, 199] : [220, 252, 231];
+    const fs2BannerTxt: [number,number,number] = fv.hasEliminatoria
+      ? [220, 38, 38] : fv.warnCount > 0 ? [133, 77, 14] : [21, 128, 61];
+    doc.setFillColor(...fs2BannerBg);
+    doc.roundedRect(margin, pos.y, contentW, 10, 2, 2, 'F');
+    if (fv.hasEliminatoria || fv.warnCount > 0) {
+      doc.setFillColor(...fs2BannerTxt);
+      doc.rect(margin, pos.y, 3, 10, 'F');
+    }
+    doc.setFontSize(8.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...fs2BannerTxt);
+    const fs2BannerText = fv.hasEliminatoria
+      ? `! ATENCAO: criterio eliminatorio nao atendido — ${fv.failCount} reprovado(s), ${fv.passCount} de ${fv.criteria.length} aprovados`
       : fv.warnCount > 0
         ? `${fv.passCount} criterios aprovados · ${fv.warnCount} atencao · ${fv.failCount} reprovado(s)`
         : `Todos os ${fv.passCount} criterios atendidos — empresa elegivel`;
-    doc.text(fsSummaryText, margin + 4, pos.y + 5);
-    pos.y += 10;
+    doc.text(fs2BannerText, margin + 6, pos.y + 6.5);
+    pos.y += 12;
 
-    // Column headers row
-    const fsCol1 = margin;
-    const fsCol2 = margin + 55;
-    const fsCol3 = margin + 112;
-    const fsCol4 = margin + 155;
-    doc.setFontSize(6);
-    doc.setFont("helvetica", "bold");
+    // ── HEADER DAS COLUNAS ───────────────────────────────────────────
+    doc.setFillColor(241, 245, 249);
+    doc.rect(margin, pos.y, contentW, 7, 'F');
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
     doc.setTextColor(107, 114, 128);
-    doc.setFillColor(248, 249, 250);
-    doc.rect(margin, pos.y, contentW, 6, "F");
-    doc.text("CRITERIO", fsCol1 + 12, pos.y + 4);
-    doc.text("LIMITE DO FUNDO", fsCol2, pos.y + 4);
-    doc.text("APURADO", fsCol3, pos.y + 4);
-    doc.text("STATUS", fsCol4, pos.y + 4);
-    pos.y += 7;
+    doc.text('CRITERIO',        fs2ColCrit,  pos.y + 5);
+    doc.text('LIMITE DO FUNDO', fs2ColLim,   pos.y + 5);
+    doc.text('APURADO',         fs2ColApur,  pos.y + 5);
+    doc.text('STATUS',          fs2ColStat,  pos.y + 5);
+    doc.setDrawColor(229, 231, 235);
+    doc.setLineWidth(0.5);
+    doc.line(margin, pos.y + 7, margin + contentW, pos.y + 7);
+    pos.y += 8;
 
-    // Criterion rows
-    fv.criteria.forEach((cr, fsIdx) => {
-      const fsRowH = 9;
-      checkPageBreak(fsRowH + 1);
+    // ── LINHAS DE CRITÉRIOS ──────────────────────────────────────────
+    fv.criteria.forEach((cr, idx) => {
+      checkPageBreak(fsRowH2 + 1);
+      const isOk   = cr.status === 'ok';
+      const isErr  = cr.status === 'error';
+      const isWarn = cr.status === 'warning';
 
-      const fsRowBg: [number,number,number] = cr.status === "error" ? [255,250,250] : cr.status === "warning" ? [255,253,244] : fsIdx % 2 === 0 ? [255,255,255] : [248,249,250];
-      doc.setFillColor(...fsRowBg);
-      doc.rect(margin, pos.y, contentW, fsRowH, "F");
+      // Zebra + reprovado override
+      const rowBg2: [number,number,number] = isErr
+        ? [255, 245, 245] : idx % 2 === 0 ? [255, 255, 255] : [250, 250, 250];
+      doc.setFillColor(...rowBg2);
+      doc.rect(margin, pos.y, contentW, fsRowH2, 'F');
 
-      // Left accent strip
-      const fsStripC: [number,number,number] = cr.status === "error" ? [220,38,38] : cr.status === "warning" ? [217,119,6] : cr.status === "ok" ? [22,163,74] : [156,163,175];
-      doc.setFillColor(...fsStripC);
-      doc.rect(margin, pos.y, 3, fsRowH, "F");
+      // Barra lateral colorida 3px
+      const stripC2: [number,number,number] = isErr
+        ? [220, 38, 38] : isWarn ? [217, 119, 6] : isOk ? [16, 185, 129] : [156, 163, 175];
+      doc.setFillColor(...stripC2);
+      doc.rect(margin, pos.y, 3, fsRowH2, 'F');
 
-      // Status abbreviation
-      doc.setFontSize(6.5);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(...fsStripC);
-      const fsIcon = cr.status === "ok" ? "OK" : cr.status === "warning" ? "!" : cr.status === "error" ? "X" : "?";
-      doc.text(fsIcon, fsCol1 + 4.5, pos.y + 6);
-
-      // Label
+      // Badge OK / X / !
+      const badgeLabel2 = isOk ? 'OK' : isErr ? 'X' : '!';
+      const badgeBg2: [number,number,number] = isOk ? [220,252,231] : isErr ? [254,226,226] : [254,243,199];
+      const badgeTxt2: [number,number,number] = isOk ? [21,128,61] : isErr ? [220,38,38] : [133,77,14];
       doc.setFontSize(7);
-      doc.setFont("helvetica", cr.status === "error" ? "bold" : "normal");
-      doc.setTextColor(17, 24, 39);
-      const fsLabelTxt = cr.eliminatoria && cr.status === "error" ? cr.label + " *" : cr.label;
-      doc.text(fsLabelTxt, fsCol1 + 12, pos.y + 6);
+      doc.setFont('helvetica', 'bold');
+      const badgeW2 = doc.getTextWidth(badgeLabel2) + 8;
+      doc.setFillColor(...badgeBg2);
+      doc.roundedRect(fs2ColBadge, pos.y + (fsRowH2 - 5) / 2, badgeW2, 5, 1.5, 1.5, 'F');
+      doc.setTextColor(...badgeTxt2);
+      doc.text(badgeLabel2, fs2ColBadge + 4, pos.y + fsRowH2 / 2 + 1.5);
 
-      // Threshold
-      doc.setFontSize(6.5);
-      doc.setFont("helvetica", "normal");
+      // Critério label (* em todos os eliminatórios)
+      const labelText2 = cr.eliminatoria ? cr.label + ' *' : cr.label;
+      doc.setFontSize(9);
+      doc.setFont('helvetica', isErr ? 'bold' : 'normal');
+      doc.setTextColor(...(isErr ? [220,38,38] as [number,number,number] : [31,41,55] as [number,number,number]));
+      doc.text(labelText2, fs2ColCrit, pos.y + fsRowH2 / 2 + 1.5);
+
+      // Limite do fundo
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'normal');
       doc.setTextColor(107, 114, 128);
-      const fsThreshLines = doc.splitTextToSize(cr.threshold, 52);
-      doc.text(fsThreshLines[0], fsCol2, pos.y + 6);
+      const threshNorm2 = normalizeThreshold2(cr.threshold);
+      const threshLines2 = doc.splitTextToSize(threshNorm2, fs2ColApur - fs2ColLim - 4);
+      doc.text(threshLines2[0], fs2ColLim, pos.y + fsRowH2 / 2 + 1.5);
 
-      // Actual value
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(...fsStripC);
-      doc.text(cr.actual, fsCol3, pos.y + 6);
+      // Apurado
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...stripC2);
+      doc.text(cr.actual, fs2ColApur, pos.y + fsRowH2 / 2 + 1.5);
 
-      // Status pill
-      doc.setFontSize(6);
-      doc.setFont("helvetica", "bold");
-      const fsStatusLabel = cr.status === "ok" ? "APROVADO" : cr.status === "warning" ? "ATENCAO" : cr.status === "error" ? "REPROVADO" : "S/DADO";
-      const fsPillBg: [number,number,number] = cr.status === "ok" ? [220,252,231] : cr.status === "warning" ? [254,243,199] : cr.status === "error" ? [254,226,226] : [243,244,246];
-      const fsPillTxt: [number,number,number] = cr.status === "ok" ? [22,101,52] : cr.status === "warning" ? [133,77,14] : cr.status === "error" ? [153,27,27] : [107,114,128];
-      const fsPw = doc.getTextWidth(fsStatusLabel) + 6;
-      doc.setFillColor(...fsPillBg);
-      doc.roundedRect(fsCol4, pos.y + 1.5, fsPw, 5.5, 1, 1, "F");
-      doc.setTextColor(...fsPillTxt);
-      doc.text(fsStatusLabel, fsCol4 + 3, pos.y + 5.8);
+      // Badge de status
+      const sLabel2 = isOk ? 'APROVADO' : isWarn ? 'ATENCAO' : isErr ? 'REPROVADO' : 'S/DADO';
+      const sBg2: [number,number,number] = isOk ? [220,252,231] : isWarn ? [254,243,199] : isErr ? [254,226,226] : [243,244,246];
+      const sTxt2: [number,number,number] = isOk ? [21,128,61] : isWarn ? [133,77,14] : isErr ? [220,38,38] : [107,114,128];
+      doc.setFontSize(7.5);
+      doc.setFont('helvetica', 'bold');
+      const sPw2 = doc.getTextWidth(sLabel2) + 10;
+      doc.setFillColor(...sBg2);
+      doc.roundedRect(fs2ColStat, pos.y + (fsRowH2 - 6) / 2, sPw2, 6, 1.5, 1.5, 'F');
+      doc.setTextColor(...sTxt2);
+      doc.text(sLabel2, fs2ColStat + 5, pos.y + fsRowH2 / 2 + 1.5);
 
-      pos.y += fsRowH + 1;
+      // Separador horizontal suave entre linhas
+      doc.setDrawColor(241, 245, 249);
+      doc.setLineWidth(0.2);
+      doc.line(margin, pos.y + fsRowH2, margin + contentW, pos.y + fsRowH2);
+
+      pos.y += fsRowH2 + 1;
     });
 
-    // Eliminatória footnote
-    if (fv.criteria.some(c => c.eliminatoria && c.status === "error")) {
-      pos.y += 2;
-      doc.setFontSize(6);
-      doc.setFont("helvetica", "italic");
-      doc.setTextColor(153, 27, 27);
-      doc.text("* Criterio eliminatorio — impede aprovacao pelos parametros configurados do fundo", margin + 3, pos.y);
+    // ── LINHA DE RESUMO ──────────────────────────────────────────────
+    doc.setDrawColor(229, 231, 235);
+    doc.setLineWidth(1);
+    doc.line(margin, pos.y, margin + contentW, pos.y);
+    doc.setFillColor(248, 250, 252);
+    doc.rect(margin, pos.y, contentW, 12, 'F');
+
+    const fs2ResultText = fsHasElimFail2
+      ? `Resultado: ${fv.passCount}/${fv.criteria.length} aprovados · ${fv.failCount} reprovados (${fsElimFailCount2} elim.)`
+      : `Resultado: ${fv.passCount}/${fv.criteria.length} aprovados · ${fv.failCount} reprovados`;
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(107, 114, 128);
+    doc.text(fs2ResultText, margin + 4, pos.y + 8);
+
+    const fs2FinalStatus = fv.hasEliminatoria || fv.failCount > 0
+      ? 'REPROVADO PELO FUNDO' : fv.warnCount > 0 ? 'CONDICIONAL' : 'APROVADO PELO FUNDO';
+    const fs2FinalBg: [number,number,number] = fs2FinalStatus === 'APROVADO PELO FUNDO'
+      ? [220,252,231] : fs2FinalStatus === 'CONDICIONAL' ? [254,243,199] : [254,226,226];
+    const fs2FinalTxt: [number,number,number] = fs2FinalStatus === 'APROVADO PELO FUNDO'
+      ? [21,128,61] : fs2FinalStatus === 'CONDICIONAL' ? [133,77,14] : [220,38,38];
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    const fs2FPw = doc.getTextWidth(fs2FinalStatus) + 14;
+    doc.setFillColor(...fs2FinalBg);
+    doc.roundedRect(margin + contentW - fs2FPw - 4, pos.y + 2.5, fs2FPw, 7, 2, 2, 'F');
+    doc.setTextColor(...fs2FinalTxt);
+    doc.text(fs2FinalStatus, margin + contentW - fs2FPw - 4 + 7, pos.y + 8);
+    pos.y += 13;
+
+    // ── RODAPÉ COM ASTERISCO ─────────────────────────────────────────
+    if (fsHasAnyElim2) {
+      doc.setDrawColor(229, 231, 235);
+      doc.setLineWidth(0.5);
+      doc.line(margin, pos.y, margin + contentW, pos.y);
       pos.y += 4;
+      doc.setFontSize(7.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(156, 163, 175);
+      doc.text('* Criterio eliminatorio — impede aprovacao pelos parametros configurados do fundo', margin + 3, pos.y);
+      pos.y += 6;
     }
 
     pos.y += 6;
+  }
+
+
+  // ===== SEÇÃO LC — LIMITE DE CRÉDITO SUGERIDO =====
+  if (p.creditLimit) {
+    const lc = p.creditLimit;
+    const lcColor = lc.classificacao === 'APROVADO' ? [22, 101, 52] as [number,number,number]
+      : lc.classificacao === 'CONDICIONAL' ? [120, 53, 15] as [number,number,number]
+      : [127, 29, 29] as [number,number,number];
+    // lcBgHex reserved for future use
+    const fmtM = (v: number) => 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+
+    drawSpacer(10);
+    checkPageBreak(55);
+
+    dsSectionHeader('LC', 'LIMITE DE CREDITO SUGERIDO');
+    pos.y += 4;
+
+    checkPageBreak(40);
+
+    // Classificação banner
+    const bannerBg = lc.classificacao === 'APROVADO' ? [220, 252, 231] as [number,number,number]
+      : lc.classificacao === 'CONDICIONAL' ? [254, 243, 199] as [number,number,number]
+      : [254, 226, 226] as [number,number,number];
+    doc.setFillColor(...bannerBg);
+    doc.rect(margin, pos.y, contentW, 10, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(...lcColor);
+    const bannerText = lc.classificacao === 'REPROVADO'
+      ? 'NAO ELEGIVEL — Criterio eliminatorio nao atendido'
+      : lc.classificacao === 'CONDICIONAL'
+        ? `APROVACAO CONDICIONAL — Limite de ${fmtM(lc.limiteAjustado)} (reduzido 30%)`
+        : `APROVADO — Limite de ${fmtM(lc.limiteAjustado)}`;
+    doc.text(bannerText, margin + 4, pos.y + 6.5);
+    pos.y += 14;
+
+    if (lc.classificacao !== 'REPROVADO') {
+      // Details grid: 4 items
+      const cols = [
+        { label: 'PRAZO MAXIMO', value: lc.prazo + ' dias' },
+        { label: 'REVISAO EM', value: new Date(lc.dataRevisao).toLocaleDateString('pt-BR') },
+        { label: 'CONC. MAX/SACADO', value: fmtM(lc.limiteConcentracao) },
+        { label: 'BASE (FMM x FATOR)', value: `${fmtM(lc.fmmBase)} x ${lc.fatorBase}` },
+      ];
+      const cellW = contentW / 4;
+      cols.forEach((col, i) => {
+        const cx = margin + i * cellW;
+        doc.setFillColor(248, 250, 252);
+        doc.rect(cx, pos.y, cellW - 1, 16, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7);
+        doc.setTextColor(156, 163, 175);
+        doc.text(col.label, cx + 3, pos.y + 5);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.setTextColor(...lcColor);
+        doc.text(col.value, cx + 3, pos.y + 12);
+      });
+      pos.y += 20;
+    }
+
+    // Note line
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(8);
+    doc.setTextColor(107, 114, 128);
+    const noteText = lc.classificacao === 'REPROVADO'
+      ? `Perfil: ${lc.presetName} — revise os criterios eliminatorios antes de prosseguir.`
+      : `Perfil: ${lc.presetName} | Base: FMM ${fmtM(lc.fmmBase)} x ${lc.fatorBase} = ${fmtM(lc.limiteBase)}${lc.fatorReducao < 1 ? ` | Fator reducao: ${Math.round((1 - lc.fatorReducao) * 100)}%` : ''}`;
+    doc.text(noteText, margin + 2, pos.y + 3);
+    pos.y += 8;
   }
 
   // ===== SEÇÃO 01 — CARTAO CNPJ (flui se couber na página) =====
