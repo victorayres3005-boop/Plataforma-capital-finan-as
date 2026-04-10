@@ -1219,14 +1219,34 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             </div>
           )}
           {aiAnalysis && !analyzingAI && (
-            <div className="flex items-center justify-between">
-              {analysisFromCache && (
-                <span className="text-[10px] text-cf-text-4">Analise carregada do cache</span>
-              )}
-              <button onClick={handleReanalyze} disabled={analyzingAI} className="text-[11px] text-cf-text-4 hover:text-cf-navy underline transition-colors ml-auto" style={{ minHeight: "auto" }}>
-                Reanalisar
-              </button>
-            </div>
+            <>
+              {/* Badge de análise parcial */}
+              {aiAnalysis.coberturaAnalise && aiAnalysis.coberturaAnalise.nivel !== "completa" && (() => {
+                const ausentes = aiAnalysis.coberturaAnalise!.documentos
+                  .filter((d) => !d.presente)
+                  .map((d) => d.label);
+                return ausentes.length > 0 ? (
+                  <div className="bg-amber-50 border border-amber-300 rounded-lg px-3 py-2.5 flex items-start gap-2">
+                    <AlertTriangle size={13} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-[10px] font-bold text-amber-800 uppercase tracking-wide">Análise Parcial</p>
+                      <p className="text-[11px] text-amber-700 mt-0.5">
+                        Documentos ausentes: <span className="font-semibold">{ausentes.join(", ")}</span>.
+                        Score calculado com dados disponíveis. Solicite a documentação completa para decisão definitiva.
+                      </p>
+                    </div>
+                  </div>
+                ) : null;
+              })()}
+              <div className="flex items-center justify-between">
+                {analysisFromCache && (
+                  <span className="text-[10px] text-cf-text-4">Analise carregada do cache</span>
+                )}
+                <button onClick={handleReanalyze} disabled={analyzingAI} className="text-[11px] text-cf-text-4 hover:text-cf-navy underline transition-colors ml-auto" style={{ minHeight: "auto" }}>
+                  Reanalisar
+                </button>
+              </div>
+            </>
           )}
           {resumoExecutivo && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">

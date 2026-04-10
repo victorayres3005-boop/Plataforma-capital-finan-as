@@ -16,11 +16,12 @@ export interface ParecerParams {
   pontosFracos: string[];
   perguntasVisita: { pergunta: string; contexto: string }[];
   observacoes?: string;
+  coberturaAnalise?: AIAnalysis["coberturaAnalise"];
 }
 
 export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
   const { doc, pos, margin, contentW, colors, DS, newPage, drawHeader, checkPageBreak, dsSectionHeader, dsMiniHeader, autoT } = ctx;
-  const { aiAnalysis, decision, finalRating, resumoExecutivo, pontosFortes, pontosFracos, perguntasVisita, observacoes } = params;
+  const { aiAnalysis, decision, finalRating, resumoExecutivo, pontosFortes, pontosFracos, perguntasVisita, observacoes, coberturaAnalise } = params;
 
   newPage();
   drawHeader();
@@ -116,6 +117,46 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
   doc.text(decSubtitle, bX2p + bW2p / 2, bY2p + bH2p / 2 + 6.5, { align: "center" });
 
   pos.y = heroY + heroH + 6;
+
+  // ── Badge de Análise Parcial ──
+  const cobertura = coberturaAnalise ?? aiAnalysis?.coberturaAnalise;
+  if (cobertura && cobertura.nivel !== "completa") {
+    const ausentes = cobertura.documentos
+      .filter((d) => !d.presente && !d.automatico)
+      .map((d) => d.label);
+    const ausentesAuto = cobertura.documentos
+      .filter((d) => !d.presente && d.automatico)
+      .map((d) => d.label);
+    const todosAusentes = [...ausentes, ...ausentesAuto];
+
+    if (todosAusentes.length > 0) {
+      checkPageBreak(16);
+      const badgeH = 12;
+      const badgeY = pos.y;
+      // Fundo laranja-claro
+      doc.setFillColor(255, 247, 230);
+      doc.roundedRect(margin, badgeY, contentW, badgeH, 1.5, 1.5, "F");
+      doc.setDrawColor(217, 119, 6);
+      doc.setLineWidth(0.4);
+      doc.roundedRect(margin, badgeY, contentW, badgeH, 1.5, 1.5, "D");
+      doc.setLineWidth(0.1);
+      // Barra lateral laranja
+      doc.setFillColor(217, 119, 6);
+      doc.roundedRect(margin, badgeY, 3, badgeH, 0.5, 0.5, "F");
+      // Texto
+      doc.setFontSize(6.5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(161, 98, 7);
+      doc.text("ANÁLISE PARCIAL", margin + 6, badgeY + 5);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(6);
+      doc.setTextColor(120, 70, 0);
+      const ausentesStr = `Documentos ausentes: ${todosAusentes.join(", ")}. Score reflete apenas dados disponíveis — solicitar documentação antes de decisão final.`;
+      const ausentesLines = doc.splitTextToSize(ausentesStr, contentW - 10) as string[];
+      doc.text(ausentesLines[0] || "", margin + 6, badgeY + 9.5);
+      pos.y = badgeY + badgeH + 4;
+    }
+  }
 
   if (resumoFinal) {
     checkPageBreak(14);

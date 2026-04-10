@@ -750,20 +750,22 @@ export async function POST(request: NextRequest) {
     const settings: FundSettings = { ...DEFAULT_FUND_SETTINGS, ...(body.settings || {}) };
 
     // ──── Validação dos dados de entrada ────
+    // Bloqueia apenas se CNPJ não puder ser identificado (mínimo absoluto)
+    const temCNPJ = !!(body.data?.cnpj?.cnpj || body.data?.cnpj?.razaoSocial);
+    if (!temCNPJ) {
+      console.log(`[analyze] Bloqueado: CNPJ ausente — impossível identificar o cedente`);
+      return NextResponse.json({
+        error: "CNPJ do cedente não identificado. Verifique o Cartão CNPJ.",
+      }, { status: 400 });
+    }
+
+    // Docs com erro de extração viram alertas DADOS_PARCIAIS (não bloqueiam mais)
     const docsWithError = Object.entries(body.data)
       .filter(([, v]) => (v as Record<string, unknown>)?.aiError === true)
       .map(([k]) => k);
 
     const emptyFieldRatio = countEmptyFieldRatio(body.data);
-
-    if (docsWithError.length > 0 || emptyFieldRatio > 0.7) {
-      console.log(`[analyze] Insufficient data: docs with error = [${docsWithError.join(", ")}], empty field ratio = ${(emptyFieldRatio * 100).toFixed(1)}%`);
-      return NextResponse.json({
-        error: "Dados insuficientes para análise.",
-        docsWithError,
-        emptyFieldRatio: Math.round(emptyFieldRatio * 100),
-      }, { status: 400 });
-    }
+    console.log(`[analyze] Cobertura: docs_com_erro=[${docsWithError.join(", ")}], empty_ratio=${(emptyFieldRatio * 100).toFixed(1)}%`);
 
     // ──── Pré-requisitos determinísticos ────
     const preReq = calcularPreRequisitos(body.data, settings);
@@ -895,6 +897,23 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // ──── Docs com erro de extração → alertas DADOS_PARCIAIS ────
+    const docErrorLabels: Record<string, string> = {
+      scr: "SCR/Bacen", faturamento: "Faturamento", contrato: "Contrato Social",
+      qsa: "QSA (Quadro Societário)", dre: "DRE", balanco: "Balanço Patrimonial",
+      irSocios: "IR dos Sócios", curvaABC: "Curva ABC",
+    };
+    for (const doc of docsWithError) {
+      const label = docErrorLabels[doc] || doc;
+      alertasDeterministicos.push({
+        codigo: "DADOS_PARCIAIS",
+        severidade: "INFO",
+        descricao: `Extração com erro no documento: ${label}`,
+        impacto: "Dados deste documento podem estar incompletos ou ausentes",
+        mitigacao: `Verificar o arquivo original de ${label} e reprocessar se necessário`,
+      });
+    }
+
     // ──── Cache validation ────
     if (body.cachedAnalysis) {
       const aiAnalysis = body.cachedAnalysis;
@@ -962,9 +981,23 @@ export async function POST(request: NextRequest) {
             !temBal && "Balanço",
             !temIR  && "IR dos Sócios",
             !temABC && "Curva ABC",
-          ].filter(Boolean).join(", ");
+          ].filter(Boolean) as string[];
 
-          let extras = `\nCOBERTURA DA ANÁLISE: ${ausentes ? `Documentos ausentes — ${ausentes}. Para componentes sem dados, use a nota neutra conforme o prompt (não penalize além do previsto).` : "Todos os documentos relevantes foram informados."}`;
+          // Tabela de notas neutras para componentes ausentes
+          const notasNeutras = [
+            !temSCR     && "SCR (peso 25%): usar nota neutra 3,0 — ausência é sinal de alerta",
+            !temFat     && "Faturamento (peso 20%): usar nota neutra 3,0 — sem dados de receita",
+            !temBureau  && "CCF (peso 15%): usar nota neutra 7,0 — benefício da dúvida moderado",
+            !temBureau  && "Protestos (peso 15%): usar nota neutra 5,0",
+            !temBureau  && "Processos (peso 10%): usar nota neutra 5,0",
+            !temDRE && !temBal && "Balanço/DRE (peso 10%): usar nota neutra 5,0",
+            !temIR      && "Sócios/Governança (peso 5%): usar nota neutra 4,0",
+          ].filter(Boolean).join("\n  ");
+
+          let extras = `\nCOBERTURA DA ANÁLISE — ANÁLISE ${ausentes.length === 0 ? "COMPLETA" : "PARCIAL"}:
+Documentos ausentes: ${ausentes.length === 0 ? "nenhum" : ausentes.join(", ")}
+${notasNeutras ? `Notas neutras a aplicar nos componentes ausentes:\n  ${notasNeutras}` : ""}
+IMPORTANTE: Para componentes ausentes, aplique EXATAMENTE as notas neutras acima e inclua alerta DADOS_PARCIAIS. Não invente dados. Não penalize além do previsto.`;
           if (dre?.anos && dre.anos.length > 0) {
             const a = dre.anos[dre.anos.length - 1];
             extras += `\nDRE (${a.ano ?? ""}): Receita R$ ${a.receitaBruta ?? "—"}, Lucro R$ ${a.lucroLiquido ?? "—"}, Margem ${a.margemLiquida ?? "—"}, EBITDA R$ ${a.ebitda ?? "—"}. Tendência: ${dre.tendenciaLucro ?? "—"}. Crescimento: ${dre.crescimentoReceita ?? "—"}.`;
@@ -1040,6 +1073,36 @@ Dívida total SCR: R$ ${_alav.totalDivida.toLocaleString("pt-BR", { minimumFract
 
           // Cobertura determinística
           analysis.coberturaAnalise = calcularCobertura(_body.data as ExtractedData);
+
+          // ── Cap de decisão por cobertura (segurança do analista) ──
+          // SCR ausente: não pode aprovar sem saber o endividamento bancário
+          if (!_data.scr?.periodoReferencia) {
+            if (analysis.decisao === "APROVADO" || analysis.decisao === "APROVACAO_CONDICIONAL") {
+              analysis.decisao = "PENDENTE";
+              analysis.alertas = [...(analysis.alertas ?? []), {
+                severidade: "ALTA",
+                codigo: "DADOS_PARCIAIS_SCR",
+                descricao: "SCR/Bacen não informado — endividamento bancário desconhecido",
+                impacto: "Impossível avaliar alavancagem e capacidade de pagamento sem dados do Bacen",
+                mitigacao: "Solicitar SCR atualizado (máximo 60 dias) antes de aprovar a operação",
+              }];
+              console.log(`[analyze] Decisão capada para PENDENTE (SCR ausente)`);
+            }
+          }
+          // Faturamento ausente: no máximo condicional
+          if (!_data.faturamento || _data.faturamento.faturamentoZerado || (_data.faturamento.meses?.length ?? 0) === 0) {
+            if (analysis.decisao === "APROVADO") {
+              analysis.decisao = "APROVACAO_CONDICIONAL";
+              analysis.alertas = [...(analysis.alertas ?? []), {
+                severidade: "ALTA",
+                codigo: "DADOS_PARCIAIS_FAT",
+                descricao: "Faturamento não informado ou zerado — receita não verificada",
+                impacto: "FMM não calculável — parâmetros operacionais são estimativas",
+                mitigacao: "Solicitar extrato bancário ou NF-e dos últimos 12 meses",
+              }];
+              console.log(`[analyze] Decisão capada para APROVACAO_CONDICIONAL (Faturamento ausente)`);
+            }
+          }
 
           // Defaults
           analysis.rating = analysis.rating ?? 0;
