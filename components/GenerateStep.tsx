@@ -468,9 +468,14 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   const saveAnalysisCache = async (colId: string, analysis: AIAnalysis) => {
     try {
       const supabase = createClient();
+      // Salva o JSONB completo E as colunas denormalizadas que alimentam o dashboard
       await supabase
         .from("document_collections")
-        .update({ ai_analysis: analysis as unknown as Record<string, unknown> })
+        .update({
+          ai_analysis: analysis as unknown as Record<string, unknown>,
+          rating: analysis.rating ?? null,
+          decisao: (analysis.decisao as DocumentCollection["decisao"]) ?? null,
+        })
         .eq("id", colId);
     } catch (err) {
       console.warn("[generate] Failed to cache analysis:", err);
@@ -652,15 +657,21 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   const [pendingDecision, setPendingDecision] = useState<"APROVADO" | "REPROVADO" | "PENDENTE" | null>(null);
 
   // Helper: campos desnormalizados para a tabela
+  // IMPORTANTE: só inclui rating/decisao quando aiAnalysis está disponível,
+  // para não sobrescrever valores existentes no banco durante o auto-save inicial.
   const getCollectionMeta = () => {
     const mediaStr = data.faturamento.mediaAno || "0";
     const fmm = parseFloat(mediaStr.replace(/\./g, "").replace(",", ".")) || null;
-    return {
+    const base = {
       company_name: data.cnpj.razaoSocial || null,
       cnpj: data.cnpj.cnpj || null,
-      rating: aiAnalysis?.rating ?? null,
-      decisao: aiAnalysis?.decisao as DocumentCollection["decisao"] ?? null,
       fmm_12m: fmm,
+    };
+    if (!aiAnalysis) return base;
+    return {
+      ...base,
+      rating: aiAnalysis.rating ?? null,
+      decisao: (aiAnalysis.decisao as DocumentCollection["decisao"]) ?? null,
     };
   };
 
@@ -763,10 +774,24 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       if (!idToFinish) throw new Error("Não foi possível salvar a coleta");
 
       const meta = getCollectionMeta();
+      // Se aiAnalysis ainda não chegou, busca o rating do banco para não perder o dado
+      let ratingFinal: number | null = aiAnalysis?.rating ?? null;
+      if (ratingFinal === null) {
+        try {
+          const { data: row } = await supabase
+            .from("document_collections")
+            .select("rating")
+            .eq("id", idToFinish)
+            .single();
+          ratingFinal = row?.rating ?? null;
+        } catch { /* ignora */ }
+      }
+
       const { error } = await supabase.from("document_collections").update({
         status: "finished",
         finished_at: new Date().toISOString(),
         ...meta,
+        ...(ratingFinal !== null ? { rating: ratingFinal } : {}),
         decisao,
       }).eq("id", idToFinish);
       if (error) throw error;
