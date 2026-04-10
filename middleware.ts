@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const PUBLIC_ROUTES = ["/login", "/auth/confirm", "/api/extract", "/api/analyze"];
+const PUBLIC_ROUTES = ["/login", "/auth/confirm", "/api/diag-credithub"];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -41,8 +41,12 @@ export async function middleware(request: NextRequest) {
   // 4. Check if route is public
   const isPublic = PUBLIC_ROUTES.some((route) => pathname.startsWith(route));
 
-  // 5. Redirect logic
+  // 5. Redirect/reject logic
   if (!user && !isPublic) {
+    // Rotas API retornam 401 JSON em vez de redirect
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+    }
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
     return NextResponse.redirect(loginUrl);
