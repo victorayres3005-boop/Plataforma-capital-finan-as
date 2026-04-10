@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { DocumentCollection } from "@/types";
@@ -138,6 +138,9 @@ function ParecerContent() {
   const [decisao, setDecisao] = useState<DecisaoValue | null>(null);
   const [ratingAnalista, setRatingAnalista] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [autoSaved, setAutoSaved] = useState(false);
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initialLoadDone = useRef(false);
 
   // Decisão do comitê
   const [decisaoComite, setDecisaoComite] = useState<"conforme_pleito" | "com_modificacoes" | "condicionado" | null>(null);
@@ -247,6 +250,9 @@ function ParecerContent() {
         // Decisão do comitê
         if (analista?.decisaoComite) setDecisaoComite(analista.decisaoComite as typeof decisaoComite);
         if (analista?.notaComite) setNotaComite(analista.notaComite as string);
+
+        // Marca que o carregamento inicial terminou — libera o auto-save
+        setTimeout(() => { initialLoadDone.current = true; }, 100);
       } catch {
         toast.error("Erro ao carregar dados da coleta.");
       } finally {
@@ -254,6 +260,58 @@ function ParecerContent() {
       }
     })();
   }, [id]);
+
+  // ── Auto-save (debounced 2s) ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!initialLoadDone.current || !id) return;
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(async () => {
+      try {
+        const supabase = createClient();
+        const { data: session } = await supabase.auth.getUser();
+        if (!session.user) return;
+        const { data: current } = await supabase
+          .from("document_collections").select("ai_analysis").eq("id", id).single();
+        const existingAi = (current?.ai_analysis as Record<string, unknown>) || {};
+        const parecerAnalista = {
+          limiteCredito: limiteCredito.trim() || null,
+          concentracaoSacado: concentracao.trim() || null,
+          garantias: garantias.trim() || null,
+          prazoRevisao: prazoRevisao.trim() || null,
+          taxaConvencional: taxaConvencional.trim() || null,
+          taxaComissaria: taxaComissaria.trim() || null,
+          tac: tac.trim() || null,
+          limiteTotal: limiteTotal.trim() || null,
+          limiteConvencional: limiteConvencional.trim() || null,
+          limiteComissaria: limiteComissaria.trim() || null,
+          limitePorSacados: limitePorSacados.trim() || null,
+          ticketMedio: ticketMedio.trim() || null,
+          prazoRecompra: prazoRecompra.trim() || null,
+          prazoCartorio: prazoCartorio.trim() || null,
+          prazoMaximo: prazoMaximo.trim() || null,
+          trancheValor: trancheValor.trim() || null,
+          tranchePrazo: tranchePrazo.trim() || null,
+          ratingAnalista: ratingAnalista ?? null,
+          decisaoComite: decisaoComite ?? null,
+          notaComite: notaComite.trim() || null,
+        };
+        await supabase.from("document_collections").update({
+          ai_analysis: { ...existingAi, parecerAnalista },
+          ...(decisao ? { decisao } : {}),
+          ...(ratingAnalista != null ? { rating: ratingAnalista } : {}),
+          ...(notas.trim() ? { observacoes: notas.trim() } : {}),
+        }).eq("id", id).eq("user_id", session.user.id);
+        setAutoSaved(true);
+        setTimeout(() => setAutoSaved(false), 2000);
+      } catch { /* silently ignore auto-save errors */ }
+    }, 2000);
+    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [decisao, ratingAnalista, decisaoComite, notaComite, notas,
+      limiteCredito, concentracao, garantias, prazoRevisao,
+      taxaConvencional, taxaComissaria, tac,
+      limiteTotal, limiteConvencional, limiteComissaria, limitePorSacados, ticketMedio,
+      prazoRecompra, prazoCartorio, prazoMaximo, trancheValor, tranchePrazo]);
 
   const handleConfirmar = async () => {
     if (!decisao) { toast.error("Selecione uma decisão antes de confirmar."); return; }
@@ -352,12 +410,19 @@ function ParecerContent() {
       }}>
         <div style={{ maxWidth: 880, margin: "0 auto", padding: "0 24px", height: 56, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <Logo height={24} />
-          <button
-            onClick={() => window.history.back()}
-            style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 500, color: "#64748b", background: "none", border: "1px solid #e2e8f0", borderRadius: 8, padding: "6px 12px", cursor: "pointer" }}
-          >
-            <ArrowLeft size={13} /> Voltar ao relatório
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {autoSaved && (
+              <span style={{ fontSize: 12, color: "#16a34a", display: "flex", alignItems: "center", gap: 4 }}>
+                <CheckCircle2 size={13} /> Salvo automaticamente
+              </span>
+            )}
+            <button
+              onClick={() => { window.location.href = id ? `/?resume=${id}` : "/"; }}
+              style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 500, color: "#64748b", background: "none", border: "1px solid #e2e8f0", borderRadius: 8, padding: "6px 12px", cursor: "pointer" }}
+            >
+              <ArrowLeft size={13} /> Voltar ao relatório
+            </button>
+          </div>
         </div>
       </header>
 
