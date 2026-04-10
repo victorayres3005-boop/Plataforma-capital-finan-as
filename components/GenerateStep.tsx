@@ -1152,6 +1152,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   ];
 
   return (
+    <div className="max-w-5xl mx-auto w-full px-6 sm:px-8">
     <div className="animate-slide-up flex gap-6 items-start">
 
       {/* ── Sidebar de navegação (desktop) ── */}

@@ -783,7 +783,7 @@ export default function HomePage() {
       {/* ══════════════════════════════════════════════
           MAIN CONTENT
           ══════════════════════════════════════════════ */}
-      <main className="flex-1 max-w-6xl mx-auto w-full px-5 sm:px-8 py-8">
+      <main className={`flex-1 w-full ${step === "generate" ? "py-8" : "max-w-6xl mx-auto px-5 sm:px-8 py-8"}`}>
 
         {resumingCollection ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3 animate-fade-in">
