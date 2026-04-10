@@ -239,7 +239,7 @@ export default function ConfiguracoesPage() {
       <header style={{ background: "white", borderBottom: "1px solid #F1F5F9", position: "sticky", top: 0, zIndex: 50, boxShadow: "0 1px 3px rgba(32,59,136,0.06)" }}>
         <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "0 24px", height: "56px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <Link href="/" style={{ display: "flex", alignItems: "center" }}><Logo /></Link>
-          <span style={{ fontSize: "11px", fontWeight: 700, color: "#203b88", opacity: 0.5, textTransform: "uppercase", letterSpacing: "0.1em" }}>Parâmetros do Fundo</span>
+          <span style={{ fontSize: "11px", fontWeight: 700, color: "#203b88", opacity: 0.5, textTransform: "uppercase", letterSpacing: "0.1em" }}>Política do Fundo</span>
         </div>
       </header>
 
