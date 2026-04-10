@@ -3,6 +3,7 @@ import type { FundSettings, ExtractedData } from "@/types";
 import { DEFAULT_FUND_SETTINGS } from "@/types";
 import { calcularCobertura } from "@/lib/generators/helpers";
 import { createClient } from "@supabase/supabase-js";
+import { generateEmbedding, buildEmbeddingText } from "@/lib/embeddings";
 
 export const runtime = "nodejs";
 export const maxDuration = 90;
@@ -452,7 +453,8 @@ NÃO recalcule os indicadores já fornecidos no início do prompt. Use os valore
 NÃO invente dados. Se ausente: "—" e alerta DADOS_PARCIAIS quando relevante.`;
 
 // ─────────────────────────────────────────
-// Few-shot: busca exemplos históricos do comitê para calibrar o rating
+// Few-shot: calibração do rating via histórico do comitê
+// Fase 2 (vetorial) com fallback automático para Fase 1 (divergência)
 // ─────────────────────────────────────────
 type FewShotRow = {
   company_name: string;
@@ -463,55 +465,83 @@ type FewShotRow = {
   decisao_comite: string;
   justificativa_comite: string | null;
   resumo_ia: string | null;
-  pontos_fracos: unknown;
-  alertas_ia: unknown;
 };
 
-async function getFewShotExamples(userId: string): Promise<string> {
+function formatFewShotBlock(rows: FewShotRow[], mode: "vetorial" | "divergencia"): string {
+  if (rows.length === 0) return "";
+
+  const header = mode === "vetorial"
+    ? "CASOS SIMILARES DO COMITÊ (empresas com perfil parecido — use como referência de rating)"
+    : "CALIBRAÇÃO DO COMITÊ (casos com maior divergência IA vs comitê)";
+
+  const exemplos = rows.map((r, i) => {
+    const correcao = r.delta_rating > 0
+      ? `comitê elevou ${r.rating_ia} → ${r.rating_comite} (+${Number(r.delta_rating).toFixed(1)})`
+      : r.delta_rating < 0
+      ? `comitê reduziu ${r.rating_ia} → ${r.rating_comite} (${Number(r.delta_rating).toFixed(1)})`
+      : `comitê confirmou ${r.rating_comite} (sem correção)`;
+
+    const decisaoMudou = r.decisao_ia !== r.decisao_comite
+      ? ` | Decisão: IA=${r.decisao_ia} → Comitê=${r.decisao_comite}`
+      : "";
+
+    const justificativa = r.justificativa_comite
+      ? `\n   Motivo: "${r.justificativa_comite}"`
+      : "";
+
+    return `Caso ${i + 1} — ${r.company_name || "Empresa"}: ${correcao}${decisaoMudou}${justificativa}`;
+  }).join("\n\n");
+
+  return `\n\n--- ${header} ---\n${exemplos}\n--- FIM ---\n`;
+}
+
+async function getFewShotExamples(userId: string, currentSnapshot?: Record<string, unknown>): Promise<string> {
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!supabaseKey || !process.env.NEXT_PUBLIC_SUPABASE_URL) return "";
+
+  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, supabaseKey);
+
   try {
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      supabaseKey,
-    );
+    // ── Fase 2: busca vetorial por similaridade ──────────────────────────────
+    // Tenta gerar embedding da empresa atual e buscar casos similares
+    if (currentSnapshot) {
+      try {
+        const text = buildEmbeddingText(currentSnapshot);
+        if (text.length >= 30) {
+          const vector = await generateEmbedding(text);
+          const vectorStr = `[${vector.join(",")}]`;
+
+          // Busca os 5 casos mais similares com embedding populado
+          const { data: similar } = await supabase.rpc("match_rating_feedback", {
+            p_user_id:       userId,
+            p_embedding:     vectorStr,
+            p_match_count:   5,
+            p_min_similarity: 0.70,
+          });
+
+          if (similar && similar.length >= 2) {
+            console.log(`[analyze] Fase 2 (vetorial): ${similar.length} casos similares encontrados`);
+            return formatFewShotBlock(similar as FewShotRow[], "vetorial");
+          }
+        }
+      } catch (embErr) {
+        console.warn("[analyze] Embedding falhou, usando Fase 1:", embErr instanceof Error ? embErr.message : embErr);
+      }
+    }
+
+    // ── Fase 1 fallback: casos com maior divergência ─────────────────────────
     const { data, error } = await supabase
       .from("vw_few_shot_candidates")
-      .select("company_name,rating_ia,rating_comite,delta_rating,decisao_ia,decisao_comite,justificativa_comite,resumo_ia,pontos_fracos,alertas_ia")
+      .select("company_name,rating_ia,rating_comite,delta_rating,decisao_ia,decisao_comite,justificativa_comite,resumo_ia")
       .eq("user_id", userId)
       .limit(5);
 
     if (error || !data || data.length === 0) return "";
+    console.log(`[analyze] Fase 1 (divergência): ${data.length} exemplos injetados`);
+    return formatFewShotBlock(data as FewShotRow[], "divergencia");
 
-    const rows = data as FewShotRow[];
-    const exemplos = rows.map((r, i) => {
-      const correcao = r.delta_rating > 0
-        ? `comitê elevou de ${r.rating_ia} → ${r.rating_comite} (+${r.delta_rating.toFixed(1)})`
-        : r.delta_rating < 0
-        ? `comitê reduziu de ${r.rating_ia} → ${r.rating_comite} (${r.delta_rating.toFixed(1)})`
-        : `comitê confirmou ${r.rating_comite} (sem correção)`;
-
-      const decisaoMudou = r.decisao_ia !== r.decisao_comite
-        ? ` | Decisão: IA=${r.decisao_ia} → Comitê=${r.decisao_comite}`
-        : "";
-
-      const justificativa = r.justificativa_comite
-        ? `\n   Motivo da correção: "${r.justificativa_comite}"`
-        : "";
-
-      return `Exemplo ${i + 1} — ${r.company_name || "Empresa"}
-   ${correcao}${decisaoMudou}${justificativa}`;
-    }).join("\n\n");
-
-    return `\n\n--- CALIBRAÇÃO DO COMITÊ (use para ajustar o rating) ---
-Os exemplos abaixo mostram casos reais onde o comitê humano corrigiu o rating da IA.
-Analise os padrões de correção ao definir o rating desta empresa:
-
-${exemplos}
-
---- FIM DA CALIBRAÇÃO ---\n`;
   } catch {
-    return ""; // falha silenciosa — não bloqueia a análise
+    return "";
   }
 }
 
@@ -1092,14 +1122,14 @@ Dívida total SCR: R$ ${_alav.totalDivida.toLocaleString("pt-BR", { minimumFract
             .replace(/`ALAV_SAUDAVEL`/g, String(_settings.alavancagem_saudavel))
             .replace(/`ALAV_MAXIMA`/g, String(_settings.alavancagem_maxima));
 
-          // Fase 1: injeta exemplos históricos do comitê para calibrar o rating
+          // Fase 1+2: injeta exemplos do comitê (vetorial se possível, divergência como fallback)
           const userId = _body.user_id as string | undefined;
-          const fewShotBlock = userId ? await getFewShotExamples(userId) : "";
+          // Snapshot parcial da empresa atual para busca vetorial (sem rating, pois ainda não foi gerado)
+          const currentSnapshot: Record<string, unknown> = {
+            indicadores: { idadeEmpresa: String(_preReq.idadeAnos) + " anos", alavancagem: alav.label },
+          };
+          const fewShotBlock = userId ? await getFewShotExamples(userId, currentSnapshot) : "";
           const dynamicPrompt = fewShotBlock ? basePrompt + fewShotBlock : basePrompt;
-
-          if (fewShotBlock) {
-            console.log(`[analyze] Few-shot: injetados ${fewShotBlock.split("Exemplo").length - 1} exemplos históricos`);
-          }
 
           const sintesePrompt = PROMPT_SINTESE(_body.data as ExtractedData, _settings, _preReq);
 
