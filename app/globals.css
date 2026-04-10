@@ -27,6 +27,23 @@
   --shadow-navy: 0 4px 16px rgba(32,59,136,0.40);
   --shadow-green:0 4px 16px rgba(115,184,21,0.40);
   --shadow-input:0 0 0 3px rgba(32,59,136,0.12);
+
+  /* ── Design-system semantic tokens ── */
+  --ds-danger-text:    #c0392b;
+  --ds-danger-bg:      #FCEBEB;
+  --ds-danger-border:  #f0c4c4;
+  --ds-warning-text:   #b96b00;
+  --ds-warning-bg:     #fef8e7;
+  --ds-warning-border: #e8d490;
+  --ds-success-text:   #1a7a4a;
+  --ds-success-bg:     #EAF3DE;
+  --ds-success-border: #b5d6a0;
+  --ds-surface-2:      #f7f8fa;
+  --ds-border-t:       rgba(17,24,39,0.08);
+  --ds-border-s:       rgba(17,24,39,0.16);
+  --ds-radius-md:      8px;
+  --ds-radius-lg:      12px;
+  --ds-radius-xl:      16px;
 }
 
 @layer base {
@@ -121,6 +138,13 @@
 @layer utilities {
   .text-balance { text-wrap: balance; }
   .bg-hero-gradient { background: linear-gradient(135deg, #0f1f5c 0%, #203b88 60%, #1a4fa8 100%); }
+}
+
+/* ── Responsive KPI grid ── */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
 }
 
 /* ── Skeleton shimmer ── */

@@ -10,6 +10,9 @@ export type AutoCell = string | { content: string; styles?: Record<string, unkno
 // ─── Colors object shape ──────────────────────────────────────────────────────
 export type RGB = [number, number, number];
 export type PdfColors = Record<string, RGB>;
+// Flexible DS colors — supports both hex strings and RGB tuples (new design system)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type DSColors = Record<string, any>;
 
 // ─── Shared context passed to every section renderer ─────────────────────────
 export interface PdfCtx {
@@ -22,7 +25,7 @@ export interface PdfCtx {
   margin: number;
   contentW: number;
   colors: PdfColors;
-  DS: { colors: PdfColors };
+  DS: { colors: DSColors };
   // ── Core helpers ──────────────────────────────────────────────────────────
   newPage: () => void;
   drawHeader: () => void;
