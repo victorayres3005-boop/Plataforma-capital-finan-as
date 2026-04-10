@@ -748,10 +748,15 @@ function secProtestos(p: PDFReportParams): string {
 // ─── Processos ────────────────────────────────────────────────────────────────
 function secProcessos(p: PDFReportParams): string {
   const proc=p.data.processos;
-  if(!proc) return "";
+  if(!proc) return `<div class="pb avoid">${secHdr("07","Processos Judiciais")}
+    <div style="background:#f0fdf4;border-left:4px solid #22c55e;border-radius:0 6px 6px 0;padding:14px 18px;font-size:12px;color:#166534;font-weight:600">Não consultado — bureau de crédito não retornou dados de processos</div>
+  </div>`;
   const total=parseInt(proc.passivosTotal||"0");
   const ativo=parseInt(proc.poloAtivoQtd||"0");
   const passiv=parseInt(proc.poloPassivoQtd||"0");
+  if(total===0&&ativo===0&&passiv===0&&!proc.temRJ&&(!proc.distribuicao||proc.distribuicao.length===0)) return `<div class="pb avoid">${secHdr("07","Processos Judiciais")}
+    <div style="background:#f0fdf4;border-left:4px solid #22c55e;border-radius:0 6px 6px 0;padding:14px 18px;font-size:12px;color:#166534;font-weight:600">Nada consta — nenhum processo judicial identificado</div>
+  </div>`;
   const top=((proc.top10Valor||proc.top10Recentes||[]) as ProcessoItem[]).slice(0,8);
   const tipoColors:Record<string,string>={
     TRABALHISTA:"#f59e0b",FISCAL:"#ef4444",BANCARIO:"#3b82f6",BANCÁRIO:"#3b82f6",
@@ -1463,7 +1468,12 @@ function secBureau(p: PDFReportParams): string {
 // ─── CCF ──────────────────────────────────────────────────────────────────────
 function secCcf(p: PDFReportParams): string {
   const ccf=p.data.ccf;
-  if(!ccf||ccf.qtdRegistros===0) return "";
+  if(!ccf) return `<div class="pb avoid">${secHdr("CF","CCF — Cheque Sem Fundo")}
+    <div style="background:#f8fafc;border-left:4px solid #94a3b8;border-radius:0 6px 6px 0;padding:14px 18px;font-size:12px;color:#64748b;font-weight:600">Não consultado — bureau de crédito não retornou dados de CCF</div>
+  </div>`;
+  if(ccf.qtdRegistros===0) return `<div class="pb avoid">${secHdr("CF","CCF — Cheque Sem Fundo")}
+    <div style="background:#f0fdf4;border-left:4px solid #22c55e;border-radius:0 6px 6px 0;padding:14px 18px;font-size:12px;color:#166534;font-weight:600">Nada consta — nenhum registro de cheque sem fundo</div>
+  </div>`;
   const tend=ccf.tendenciaLabel;
   return `<div class="pb">${secHdr("CF","CCF — Cheque Sem Fundo")}
   ${ccf.qtdRegistros>0?alertBox(`${ccf.qtdRegistros} registro(s) de cheque sem fundo identificado(s)`,"ALTA"):""}

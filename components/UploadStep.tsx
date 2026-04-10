@@ -546,7 +546,7 @@ export default function UploadStep({
   const totalRequired = 5;
   const [forcarAvancar, setForcarAvancar] = useState(false);
 
-  const canProceed = (allRequiredDone || forcarAvancar) && !anyProcessing && !anyRetrying;
+  const canProceed = (allRequiredDone || forcarAvancar) && !anyProcessing && !anyRetrying && bureauStatus !== "loading";
 
   const handleSubmit = () => {
     if (!canProceed) return;
