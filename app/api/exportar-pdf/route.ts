@@ -26,14 +26,16 @@ export async function POST(req: Request) {
 
   try {
     const page = await browser.newPage();
-    await page.setContent(gerarHtmlRelatorio(dados), {
-      waitUntil: "networkidle0",
-    });
+    const { html, headerTemplate, footerTemplate } = gerarHtmlRelatorio(dados);
+    await page.setContent(html, { waitUntil: "networkidle0" });
 
     const pdfBuffer = await page.pdf({
       format: "A4",
       printBackground: true,
-      margin: { top: "20mm", bottom: "20mm", left: "16mm", right: "16mm" },
+      displayHeaderFooter: true,
+      headerTemplate,
+      footerTemplate,
+      margin: { top: "28mm", bottom: "18mm", left: "16mm", right: "16mm" },
     });
 
     const cnpj = dados.data?.cnpj?.cnpj ?? "cedente";
