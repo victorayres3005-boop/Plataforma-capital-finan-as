@@ -1490,18 +1490,15 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
       {/* ── Sidebar de navegação (desktop) ── */}
       <nav className="hidden lg:flex flex-col gap-0.5 w-[188px] flex-shrink-0 sticky top-4 self-start">
-        <p style={{ fontSize: 9, fontWeight: 700, color: "var(--text-4)", textTransform: "uppercase", letterSpacing: "0.14em", padding: "0 10px", marginBottom: 6 }}>Seções</p>
+        <p className="text-[9px] font-bold text-cf-text-4 uppercase tracking-[0.14em] px-2.5 mb-1.5">Seções</p>
         {navItems.map(item => (
           <a
             key={item.id}
             href={`#${item.id}`}
-            className="hover:text-cf-navy group"
-            style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 8, fontSize: 12, fontWeight: 500, color: "var(--text-2)", textDecoration: "none", transition: "background 0.15s" }}
-            onMouseEnter={e => (e.currentTarget.style.background = "#eff6ff")}
-            onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+            className="flex items-center gap-2 py-[7px] px-2.5 rounded-lg text-xs font-medium text-cf-text-2 no-underline transition-colors hover:bg-blue-50 hover:text-cf-navy"
             onClick={e => { e.preventDefault(); document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
           >
-            <span style={{ width: 24, height: 24, borderRadius: 6, background: "var(--ds-surface-2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "var(--text-3)", flexShrink: 0 }}>
+            <span className="w-6 h-6 rounded-md bg-cf-surface-2 flex items-center justify-center text-[9px] font-bold text-cf-text-3 shrink-0">
               {item.icon}
             </span>
             <span className="leading-snug">{item.label}</span>
@@ -1510,7 +1507,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       </nav>
 
       {/* ── Conteúdo principal ── */}
-      <div className="flex-1 min-w-0 pb-28" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div className="flex-1 min-w-0 pb-28 flex flex-col gap-4">
 
         {/* ════════════════════════════════════════
             SEÇÃO 00 — SUMÁRIO EXECUTIVO
@@ -1529,7 +1526,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             />
           }
         >
-          <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: 20 }}>
+          <div className="p-5 flex flex-col gap-5">
 
             {/* Alert banner: SCR vencidos ou prejuízos */}
             {(vencidosSCR > 0 || prejuizosVal > 0) && (
@@ -1584,41 +1581,35 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
             {/* Banner de cobertura parcial */}
             {aiAnalysis?.nivelAnalise && aiAnalysis.nivelAnalise !== "COMPLETO" && (
-              <div style={{
-                display: "flex", alignItems: "flex-start", gap: 10,
-                background: aiAnalysis.nivelAnalise === "PRELIMINAR" ? "#fff7ed" : aiAnalysis.nivelAnalise === "BASICO" ? "#fffbeb" : "#f0f9ff",
-                border: `1px solid ${aiAnalysis.nivelAnalise === "PRELIMINAR" ? "#fed7aa" : aiAnalysis.nivelAnalise === "BASICO" ? "#fde68a" : "#bae6fd"}`,
-                borderRadius: 10, padding: "10px 14px", marginTop: 4,
-              }}>
-                <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>
+              <div className={`flex items-start gap-2.5 rounded-[10px] px-3.5 py-2.5 mt-1 border ${
+                aiAnalysis.nivelAnalise === "PRELIMINAR" ? "bg-orange-50 border-orange-200" :
+                aiAnalysis.nivelAnalise === "BASICO" ? "bg-amber-50 border-amber-200" : "bg-sky-50 border-sky-200"
+              }`}>
+                <span className="text-base shrink-0 mt-px">
                   {aiAnalysis.nivelAnalise === "PRELIMINAR" ? "⚠️" : aiAnalysis.nivelAnalise === "BASICO" ? "📋" : "📊"}
                 </span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", margin: 0 }}>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-slate-900">
                     Análise {aiAnalysis.nivelAnalise === "PRELIMINAR" ? "Preliminar" : aiAnalysis.nivelAnalise === "BASICO" ? "Básica" : "Padrão"}
                     {" "}· {aiAnalysis.ratingConfianca}% de confiança
                     {(aiAnalysis.coberturaDocumental?.chBonus ?? 0) > 0 && (
-                      <span style={{ fontWeight: 400, color: "#0369a1", marginLeft: 6 }}>
+                      <span className="font-normal text-sky-700 ml-1.5">
                         (+{aiAnalysis.coberturaDocumental!.chBonus}pts CreditHub)
                       </span>
                     )}
                   </p>
                   {aiAnalysis.impactoDocsFaltantes && (
-                    <p style={{ fontSize: 11, color: "#64748b", margin: "2px 0 0" }}>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
                       {aiAnalysis.impactoDocsFaltantes as string}
                     </p>
                   )}
                   {/* Sinais CreditHub que compensaram a falta de docs */}
                   {(aiAnalysis.coberturaDocumental?.chSinais?.length ?? 0) > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+                    <div className="flex flex-wrap gap-1 mt-1.5">
                       {aiAnalysis.coberturaDocumental!.chSinais!.map((s, i) => (
-                        <span key={i} style={{
-                          fontSize: 10, fontWeight: 500,
-                          padding: "2px 7px", borderRadius: 10,
-                          background: s.limpo ? "#dcfce7" : "#fee2e2",
-                          color: s.limpo ? "#166534" : "#991b1b",
-                          border: `1px solid ${s.limpo ? "#bbf7d0" : "#fecaca"}`,
-                        }}>
+                        <span key={i} className={`text-[10px] font-medium px-[7px] py-0.5 rounded-[10px] border ${
+                          s.limpo ? "bg-green-100 text-green-800 border-green-200" : "bg-red-100 text-red-800 border-red-200"
+                        }`}>
                           {s.limpo ? "✓" : "!"} {s.label}
                         </span>
                       ))}
@@ -1629,66 +1620,66 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             )}
 
             {/* Info row 1: Empresa, CNPJ, Situação, Idade, Sócios */}
-            <div style={{ borderTop: "0.5px solid var(--ds-border-t)", paddingTop: 16 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "12px 20px" }}>
+            <div className="border-t border-gray-200 pt-4">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-px bg-gray-100 rounded-lg overflow-hidden">
                 {([
-                  { label: "Empresa",     value: data.cnpj.razaoSocial || "—" },
-                  { label: "CNPJ",        value: data.cnpj.cnpj || "—" },
-                  { label: "Situação",    value: data.cnpj.situacaoCadastral || "—" },
-                  { label: "Idade",       value: companyAge || "—" },
-                  { label: "Sócios (QSA)", value: String(qsaCount) },
-                ] as { label: string; value: string }[]).map(({ label, value }) => (
-                  <div key={label}>
-                    <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-4)", marginBottom: 3 }}>{label}</p>
-                    <p style={{ fontSize: 14, fontWeight: 500, color: "var(--text-1)" }}>{value}</p>
+                  { label: "Empresa",     value: data.cnpj.razaoSocial || "—", mono: false },
+                  { label: "CNPJ",        value: data.cnpj.cnpj || "—", mono: true },
+                  { label: "Situação",    value: data.cnpj.situacaoCadastral || "—", mono: false },
+                  { label: "Idade",       value: companyAge || "—", mono: false },
+                  { label: "Sócios (QSA)", value: String(qsaCount), mono: false },
+                ] as { label: string; value: string; mono: boolean }[]).map(({ label, value, mono }) => (
+                  <div key={label} className="bg-white p-3.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1">{label}</p>
+                    <p className={`text-sm font-medium text-gray-900 ${mono ? "font-mono" : ""}`}>{value}</p>
                   </div>
                 ))}
               </div>
             </div>
 
             {/* Info row 2: Capital, Fat. Anual, Em Atraso, Prejuízos */}
-            <div style={{ borderTop: "0.5px solid var(--ds-border-t)", paddingTop: 16 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "12px 20px" }}>
-                <div>
-                  <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-4)", marginBottom: 3 }}>Capital Social</p>
-                  <p style={{ fontSize: 14, fontWeight: 500, color: "var(--text-1)" }}>{data.qsa.capitalSocial || data.contrato.capitalSocial || "—"}</p>
+            <div className="border-t border-gray-200 pt-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-gray-100 rounded-lg overflow-hidden">
+                <div className="bg-white p-3.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1">Capital Social</p>
+                  <p className="text-sm font-medium text-gray-900 font-mono">{data.qsa.capitalSocial || data.contrato.capitalSocial || "—"}</p>
                 </div>
-                <div>
-                  <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-4)", marginBottom: 3 }}>Fat. Anual</p>
-                  <p style={{ fontSize: 14, fontWeight: 500, color: "var(--text-1)" }}>{data.faturamento.somatoriaAno ? `R$ ${data.faturamento.somatoriaAno}` : "—"}</p>
+                <div className="bg-white p-3.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1">Fat. Anual</p>
+                  <p className="text-sm font-medium text-gray-900 font-mono">{data.faturamento.somatoriaAno ? `R$ ${data.faturamento.somatoriaAno}` : "—"}</p>
                 </div>
-                <div>
-                  <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-4)", marginBottom: 3 }}>Em Atraso</p>
-                  <p style={{ fontSize: 14, fontWeight: 500, color: atraso > 0 ? "var(--ds-danger-text)" : "var(--text-1)" }}>{atraso > 0 ? `R$ ${data.scr.operacoesEmAtraso}` : "—"}</p>
+                <div className="bg-white p-3.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1">Em Atraso</p>
+                  <p className={`text-sm font-medium font-mono ${atraso > 0 ? "text-red-600" : "text-gray-900"}`}>{atraso > 0 ? `R$ ${data.scr.operacoesEmAtraso}` : "—"}</p>
                 </div>
-                <div>
-                  <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-4)", marginBottom: 3 }}>Prejuízos</p>
-                  <p style={{ fontSize: 14, fontWeight: 500, color: prejuizosVal > 0 ? "var(--ds-danger-text)" : "var(--text-1)" }}>{prejuizosVal > 0 ? `R$ ${data.scr.prejuizos}` : "—"}</p>
+                <div className="bg-white p-3.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1">Prejuízos</p>
+                  <p className={`text-sm font-medium font-mono ${prejuizosVal > 0 ? "text-red-600" : "text-gray-900"}`}>{prejuizosVal > 0 ? `R$ ${data.scr.prejuizos}` : "—"}</p>
                 </div>
               </div>
             </div>
 
             {/* IA: loading */}
             {analyzingAI && (
-              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", background: "var(--ds-surface-2)", borderRadius: "var(--ds-radius-md)" }}>
-                <Loader2 size={14} className="animate-spin" style={{ color: "var(--navy)", flexShrink: 0 }} />
+              <div className="flex items-center gap-2.5 px-3.5 py-3 bg-cf-surface-2 rounded-lg">
+                <Loader2 size={14} className="animate-spin text-cf-navy shrink-0" />
                 <div>
-                  <p style={{ fontSize: 12, fontWeight: 500, color: "var(--text-2)" }}>Analisando com IA...</p>
-                  {analysisStatus && <p style={{ fontSize: 11, color: "var(--text-4)", marginTop: 2 }}>{analysisStatus}</p>}
+                  <p className="text-xs font-medium text-cf-text-2">Analisando com IA...</p>
+                  {analysisStatus && <p className="text-[11px] text-cf-text-4 mt-0.5">{analysisStatus}</p>}
                 </div>
               </div>
             )}
 
             {/* IA: erro */}
             {!analyzingAI && analysisError && (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px 16px", background: "var(--ds-danger-bg)", border: "0.5px solid var(--ds-danger-border)", borderRadius: "var(--ds-radius-md)" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <AlertTriangle size={14} style={{ color: "var(--ds-danger-text)", flexShrink: 0 }} />
-                  <span style={{ fontSize: 12, color: "var(--ds-danger-text)" }}>{analysisError}</span>
+              <div className="flex items-center justify-between gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle size={14} className="text-red-600 shrink-0" />
+                  <span className="text-xs text-red-600">{analysisError}</span>
                 </div>
                 <button
                   onClick={handleReanalyze}
-                  style={{ fontSize: 12, fontWeight: 600, color: "white", background: "var(--ds-danger-text)", border: "none", borderRadius: 6, padding: "6px 12px", cursor: "pointer", flexShrink: 0 }}
+                  className="text-xs font-semibold text-white bg-red-600 border-none rounded-md px-3 py-1.5 cursor-pointer shrink-0 hover:bg-red-700 transition-colors"
                 >
                   Tentar novamente
                 </button>
@@ -1704,11 +1695,11 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
                     <AlertBanner variant="warn" label="Análise Parcial" message={`Documentos ausentes: ${ausentes.join(", ")}. Score calculado com dados disponíveis.`} />
                   ) : null;
                 })()}
-                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <div className="flex justify-end">
                   {analysisFromCache && (
-                    <span style={{ fontSize: 11, color: "var(--text-4)", marginRight: 12 }}>Análise carregada do cache</span>
+                    <span className="text-[11px] text-cf-text-4 mr-3">Análise carregada do cache</span>
                   )}
-                  <button onClick={handleReanalyze} disabled={analyzingAI} style={{ fontSize: 11, color: "var(--text-4)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+                  <button onClick={handleReanalyze} disabled={analyzingAI} className="text-[11px] text-cf-text-4 bg-transparent border-none cursor-pointer underline hover:text-cf-text-2">
                     Reanalisar
                   </button>
                 </div>
@@ -1720,54 +1711,60 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
             {/* Resumo executivo */}
             {resumoExecutivo && (
-              <div style={{ padding: "14px 16px", background: "#eff6ff", border: "0.5px solid #bfdbfe", borderRadius: "var(--ds-radius-md)" }}>
-                <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "#1d4ed8", marginBottom: 6 }}>Resumo Executivo</p>
-                <p style={{ fontSize: 12, color: "#1e40af", lineHeight: 1.65 }}>{resumoExecutivo}</p>
+              <div className="px-4 py-3.5 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-[11px] font-bold uppercase tracking-[0.04em] text-blue-700 mb-1.5">Resumo Executivo</p>
+                <p className="text-xs text-blue-800 leading-relaxed">{resumoExecutivo}</p>
               </div>
             )}
 
             {/* Pontos fortes */}
             {pontosFortes.length > 0 && (
-              <div style={{ padding: "14px 16px", background: "var(--ds-success-bg)", border: "0.5px solid var(--ds-success-border)", borderRadius: "var(--ds-radius-md)" }}>
-                <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--ds-success-text)", marginBottom: 8 }}>
+              <div className="px-4 py-3.5 bg-green-50 border border-green-200 rounded-lg">
+                <p className="text-[11px] font-bold uppercase tracking-[0.04em] text-green-700 mb-2">
                   Pontos Fortes ({pontosFortes.length})
                 </p>
-                {pontosFortes.map((p, i) => (
-                  <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: i > 0 ? 6 : 0 }}>
-                    <CheckCircle2 size={12} style={{ color: "var(--ds-success-text)", flexShrink: 0, marginTop: 2 }} />
-                    <span style={{ fontSize: 12, color: "var(--ds-success-text)" }}>{p}</span>
-                  </div>
-                ))}
+                <div className="flex flex-col gap-1.5">
+                  {pontosFortes.map((p, i) => (
+                    <div key={i} className="flex items-start gap-2">
+                      <CheckCircle2 size={12} className="text-green-600 shrink-0 mt-0.5" />
+                      <span className="text-xs text-green-700">{p}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
             {/* Pontos fracos */}
             {pontosFracos.length > 0 && (
-              <div style={{ padding: "14px 16px", background: "var(--ds-danger-bg)", border: "0.5px solid var(--ds-danger-border)", borderRadius: "var(--ds-radius-md)" }}>
-                <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--ds-danger-text)", marginBottom: 8 }}>
+              <div className="px-4 py-3.5 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-[11px] font-bold uppercase tracking-[0.04em] text-red-700 mb-2">
                   Pontos Fracos ({pontosFracos.length})
                 </p>
-                {pontosFracos.map((p, i) => (
-                  <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: i > 0 ? 6 : 0 }}>
-                    <AlertTriangle size={12} style={{ color: "var(--ds-danger-text)", flexShrink: 0, marginTop: 2 }} />
-                    <span style={{ fontSize: 12, color: "var(--ds-danger-text)" }}>{p}</span>
-                  </div>
-                ))}
+                <div className="flex flex-col gap-1.5">
+                  {pontosFracos.map((p, i) => (
+                    <div key={i} className="flex items-start gap-2">
+                      <AlertTriangle size={12} className="text-red-600 shrink-0 mt-0.5" />
+                      <span className="text-xs text-red-600">{p}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
             {/* Perguntas para visita */}
             {perguntasVisita.length > 0 && (
-              <div style={{ padding: "14px 16px", background: "var(--ds-warning-bg)", border: "0.5px solid var(--ds-warning-border)", borderRadius: "var(--ds-radius-md)" }}>
-                <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--ds-warning-text)", marginBottom: 8 }}>
+              <div className="px-4 py-3.5 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="text-[11px] font-bold uppercase tracking-[0.04em] text-amber-700 mb-2">
                   Perguntas para Visita ({perguntasVisita.length})
                 </p>
-                {perguntasVisita.map((q, i) => (
-                  <div key={i} style={{ marginTop: i > 0 ? 10 : 0 }}>
-                    <p style={{ fontSize: 12, fontWeight: 600, color: "var(--ds-warning-text)" }}>{i + 1}. {q.pergunta}</p>
-                    <p style={{ fontSize: 11, color: "#78350f", marginTop: 3 }}>{q.contexto}</p>
-                  </div>
-                ))}
+                <div className="flex flex-col gap-2.5">
+                  {perguntasVisita.map((q, i) => (
+                    <div key={i}>
+                      <p className="text-xs font-semibold text-amber-700">{i + 1}. {q.pergunta}</p>
+                      <p className="text-[11px] text-amber-900 mt-0.5">{q.contexto}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -1775,31 +1772,31 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         </SectionCard>
 
         {/* ── Editar dados do relatório (collapsible) ── */}
-        <div className="bg-white overflow-hidden" style={{ border: "0.5px solid var(--ds-border-t)", borderRadius: "var(--ds-radius-lg)" }}>
+        <div className="bg-white overflow-hidden border border-gray-200 rounded-[14px]">
           <button
             onClick={() => setEditing(p => !p)}
-            className="w-full flex items-center justify-between px-5 py-4 hover:bg-[#fafafa] transition-colors text-left"
+            className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors text-left"
           >
             <div className="flex items-center gap-3">
-              <div style={{ width: 32, height: 32, borderRadius: "var(--ds-radius-md)", background: editing ? "var(--navy)" : "var(--ds-surface-2)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "background 0.2s" }}>
-                <Pencil size={14} style={{ color: editing ? "white" : "var(--text-3)" }} />
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors duration-200 ${editing ? "bg-cf-navy" : "bg-cf-surface-2"}`}>
+                <Pencil size={14} className={editing ? "text-white" : "text-cf-text-3"} />
               </div>
               <div>
-                <p style={{ fontSize: 13, fontWeight: 500, color: "var(--text-1)" }}>Editar dados do relatório</p>
-                <p style={{ fontSize: 11, color: "var(--text-4)", marginTop: 1 }}>Ajuste os campos antes de gerar</p>
+                <p className="text-[13px] font-medium text-cf-text-1">Editar dados do relatório</p>
+                <p className="text-[11px] text-cf-text-4 mt-px">Ajuste os campos antes de gerar</p>
               </div>
             </div>
-            <span style={{ fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 99, background: editing ? "var(--navy)" : "var(--ds-surface-2)", color: editing ? "white" : "var(--text-3)", transition: "all 0.2s" }}>
+            <span className={`text-[11px] font-semibold px-3 py-1 rounded-full transition-all duration-200 ${editing ? "bg-cf-navy text-white" : "bg-cf-surface-2 text-cf-text-3"}`}>
               {editing ? "Fechar" : "Abrir"}
             </span>
           </button>
 
           {editing && (
-            <div style={{ borderTop: "0.5px solid var(--ds-border-t)", padding: "16px 20px 20px" }} className="animate-fade-in space-y-5">
+            <div className="border-t border-gray-200 px-5 pt-4 pb-5 animate-fade-in space-y-5">
               {/* Identificação */}
               <div>
                 <p className="section-label mb-2 flex items-center gap-2">
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--navy)", display: "inline-block" }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-cf-navy inline-block" />
                   Identificação da Empresa
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1821,7 +1818,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
               {/* Estrutura Societária */}
               <div>
                 <p className="section-label mb-2 flex items-center gap-2">
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--green)", display: "inline-block" }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-cf-green inline-block" />
                   Estrutura Societária
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1841,7 +1838,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
               {/* Perfil de Crédito */}
               <div>
                 <p className="section-label mb-2 flex items-center gap-2">
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--warning)", display: "inline-block" }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-cf-warning inline-block" />
                   Perfil de Crédito
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1867,7 +1864,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
               {/* Parecer */}
               <div>
                 <p className="section-label mb-2 flex items-center gap-2">
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--navy)", display: "inline-block" }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-cf-navy inline-block" />
                   Parecer Final
                 </p>
                 <label className="text-[10px] font-semibold text-cf-text-3 uppercase tracking-wide">Resumo do Risco / Parecer</label>
@@ -1887,12 +1884,12 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           sectionLabel="Critérios de Elegibilidade"
           title="Política do Fundo"
           headerRight={
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div className="flex items-center gap-2">
               {fundPresets.length > 0 && (
                 <select
                   value={selectedPresetId ?? "active"}
                   onChange={e => setSelectedPresetId(e.target.value)}
-                  style={{ fontSize: 11, fontWeight: 500, color: "var(--text-2)", background: "var(--ds-surface-2)", border: "0.5px solid var(--ds-border-s)", borderRadius: 6, padding: "4px 8px", cursor: "pointer", outline: "none", maxWidth: 160 }}
+                  className="text-[11px] font-medium text-cf-text-2 bg-cf-surface-2 border border-cf-border rounded-md px-2 py-1 cursor-pointer outline-none max-w-[160px]"
                 >
                   <option value="active">Configurações Ativas</option>
                   {fundPresets.map(p => (
@@ -1914,9 +1911,9 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           }
         >
           {/* Critérios */}
-          <div style={{ borderBottom: "0.5px solid var(--ds-border-t)" }}>
-            {fundValidation.criteria.map((c, idx) => (
-              <div key={c.id} style={{ borderTop: idx > 0 ? "0.5px solid var(--ds-border-t)" : "none" }}>
+          <div className="border-b border-gray-200 divide-y divide-gray-100">
+            {fundValidation.criteria.map((c) => (
+              <div key={c.id}>
                 <CriteriaItem
                   status={c.status}
                   name={c.label}
@@ -1930,7 +1927,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           </div>
 
           {/* Resultado + detalhes LC */}
-          <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
+          <div className="px-5 py-4 flex flex-col gap-3">
             <ResultadoBox
               title={
                 creditLimit.classificacao === "REPROVADO"
@@ -1973,12 +1970,12 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
               </div>
             )}
 
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ width: 8, height: 8, borderRadius: "50%", background: selectedPresetColor, display: "inline-block" }} />
-                <span style={{ fontSize: 11, color: "var(--text-4)" }}>{selectedPresetName}</span>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full inline-block" style={{ background: selectedPresetColor }} />
+                <span className="text-[11px] text-cf-text-4">{selectedPresetName}</span>
               </div>
-              <a href="/configuracoes" target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, fontWeight: 600, color: "var(--navy)", textDecoration: "none" }}>
+              <a href="/configuracoes" target="_blank" rel="noopener noreferrer" className="text-[11px] font-semibold text-cf-navy no-underline hover:underline">
                 Gerenciar perfis →
               </a>
             </div>
@@ -1995,7 +1992,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           sectionLabel="Perfil de Crédito"
           title="SCR / Bacen"
         >
-          <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
+          <div className="px-5 py-4 flex flex-col gap-4">
 
             {data.scr.semHistorico && (
               <AlertBanner variant="warn" label="Sem histórico bancário" message="Empresa sem operações registradas no SCR / Banco Central" />
@@ -2050,8 +2047,8 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             {/* Modalidades */}
             {data.scr.modalidades.length > 0 && (
               <div>
-                <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-4)", marginBottom: 8 }}>Modalidades de Crédito</p>
-                <div style={{ border: "0.5px solid var(--ds-border-s)", borderRadius: "var(--ds-radius-md)", overflow: "hidden" }}>
+                <p className="text-[11px] font-medium uppercase tracking-[0.05em] text-cf-text-4 mb-2">Modalidades de Crédito</p>
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
                   <ScrTable
                     columns={["Modalidade", "Total", "A Vencer", "Vencido", "Part."]}
                     rows={data.scr.modalidades.map(m => [m.nome, m.total, m.aVencer, m.vencido, m.participacao])}
@@ -2063,11 +2060,11 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             {/* Instituições */}
             {data.scr.instituicoes.length > 0 && (
               <div>
-                <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-4)", marginBottom: 8 }}>Instituições Credoras</p>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <p className="text-[11px] font-medium uppercase tracking-[0.05em] text-cf-text-4 mb-2">Instituições Credoras</p>
+                <div className="flex flex-wrap gap-1.5">
                   {data.scr.instituicoes.map((inst, i) => (
-                    <span key={i} style={{ background: "var(--ds-surface-2)", color: "var(--text-2)", fontSize: 12, fontWeight: 500, padding: "4px 10px", borderRadius: 6 }}>
-                      {inst.nome}: R$ {inst.valor}
+                    <span key={i} className="bg-gray-100 text-cf-text-2 text-xs font-medium px-2.5 py-1 rounded-md">
+                      {inst.nome}: <span className="font-mono">R$ {inst.valor}</span>
                     </span>
                   ))}
                 </div>
@@ -2076,13 +2073,13 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
             {/* Inadimplência */}
             <div>
-              <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-4)", marginBottom: 8 }}>Histórico de Inadimplência</p>
+              <p className="text-[11px] font-medium uppercase tracking-[0.05em] text-cf-text-4 mb-2">Histórico de Inadimplência</p>
               {data.scr.historicoInadimplencia ? (
                 <AlertBanner variant="warn" label="Histórico" message={data.scr.historicoInadimplencia} />
               ) : (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 14px", background: "var(--ds-success-bg)", border: "0.5px solid var(--ds-success-border)", borderRadius: "var(--ds-radius-md)" }}>
-                  <CheckCircle2 size={14} style={{ color: "var(--ds-success-text)", flexShrink: 0 }} />
-                  <p style={{ fontSize: 12, fontWeight: 500, color: "var(--ds-success-text)" }}>Sem registro de operações vencidas ou prejuízos</p>
+                <div className="flex items-center gap-2 px-3.5 py-3 bg-green-50 border border-green-200 rounded-lg">
+                  <CheckCircle2 size={14} className="text-green-600 shrink-0" />
+                  <p className="text-xs font-medium text-green-700">Sem registro de operações vencidas ou prejuízos</p>
                 </div>
               )}
             </div>
@@ -2110,7 +2107,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
               title="Credit Hub"
               headerRight={proc.temRJ ? <StatusPill label="RECUPERAÇÃO JUDICIAL" variant="red" /> : undefined}
             >
-              <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
+              <div className="px-5 py-4 flex flex-col gap-4">
 
                 <div className="kpi-grid">
                   <KpiCard label="Total Processos" value={passivosN > 0 ? String(passivosN) : "—"} sub="todos os polos" variant={passivosN > 0 ? "warning" : "default"} />
@@ -2120,15 +2117,15 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
                 </div>
 
                 {proc.valorTotalEstimado && proc.valorTotalEstimado !== "0,00" && (
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: "var(--ds-warning-bg)", border: "0.5px solid var(--ds-warning-border)", borderRadius: "var(--ds-radius-md)" }}>
-                    <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--ds-warning-text)" }}>Valor Total Estimado</p>
-                    <p style={{ fontSize: 20, fontWeight: 500, color: "var(--ds-warning-text)" }}>R$ {proc.valorTotalEstimado}</p>
+                  <div className="flex items-center justify-between px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.05em] text-amber-700">Valor Total Estimado</p>
+                    <p className="text-xl font-medium text-amber-700 font-mono">R$ {proc.valorTotalEstimado}</p>
                   </div>
                 )}
 
                 {(proc.distribuicao?.length ?? 0) > 0 && (
                   <div>
-                    <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-4)", marginBottom: 10 }}>Distribuição por Tipo</p>
+                    <p className="text-[11px] font-medium uppercase tracking-[0.05em] text-cf-text-4 mb-2.5">Distribuição por Tipo</p>
                     <MetricBarChart
                       items={proc.distribuicao!.slice(0, 8).map(d => ({
                         label: d.tipo,
@@ -2142,7 +2139,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
                 {(proc.distribuicaoTemporal?.length ?? 0) > 0 && (
                   <div>
-                    <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-4)", marginBottom: 10 }}>Antiguidade dos Processos</p>
+                    <p className="text-[11px] font-medium uppercase tracking-[0.05em] text-cf-text-4 mb-2.5">Antiguidade dos Processos</p>
                     <div className="kpi-grid">
                       {proc.distribuicaoTemporal!.map((dt, i) => (
                         <KpiCard key={i} label={dt.periodo} value={String(dt.qtd)} sub={`R$ ${dt.valor}`} />
@@ -2156,16 +2153,16 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
                   if (reais.length === 0) return null;
                   return (
                     <div>
-                      <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-4)", marginBottom: 10 }}>Maiores Processos por Valor</p>
-                      <div style={{ border: "0.5px solid var(--ds-border-s)", borderRadius: "var(--ds-radius-md)", overflow: "hidden" }}>
+                      <p className="text-[11px] font-medium uppercase tracking-[0.05em] text-cf-text-4 mb-2.5">Maiores Processos por Valor</p>
+                      <div className="border border-gray-200 rounded-lg overflow-hidden">
                         <ScrTable
                           columns={["Número", "Tipo", "Data", "Valor", "Status"]}
                           rows={reais.slice(0, 5).map(p => [
-                            <span key="n" style={{ fontFamily: "monospace", fontSize: 10 }}>{p.numero || "—"}</span>,
+                            <span key="n" className="font-mono text-[10px]">{p.numero || "—"}</span>,
                             p.tipo || "—",
                             p.data || "—",
-                            <span key="v" style={{ fontWeight: 500, color: "var(--ds-warning-text)" }}>R$ {p.valor}</span>,
-                            p.status ? <StatusPill key="s" label={p.status.slice(0, 20)} variant="gray" /> : <span key="s" style={{ color: "var(--text-4)" }}>—</span>,
+                            <span key="v" className="font-medium text-amber-700 font-mono">R$ {p.valor}</span>,
+                            p.status ? <StatusPill key="s" label={p.status.slice(0, 20)} variant="gray" /> : <span key="s" className="text-cf-text-4">—</span>,
                           ])}
                         />
                       </div>
@@ -2189,11 +2186,11 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             sectionLabel="Parâmetros Operacionais"
             title="Relatório de Visita"
           >
-            <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 20 }}>
+            <div className="px-5 py-4 flex flex-col gap-5">
 
               {/* Taxas e Limites */}
               <div>
-                <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-3)", paddingBottom: 8, marginBottom: 10, borderBottom: "0.5px solid var(--ds-border-t)" }}>Taxas e Limites</p>
+                <p className="text-[11px] font-bold uppercase tracking-[0.05em] text-gray-500 pb-2 mb-2.5 border-b border-gray-200">Taxas e Limites</p>
                 <div className="kpi-grid">
                   {([
                     ["Taxa Convencional",    data.relatorioVisita.taxaConvencional],
@@ -2212,7 +2209,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
               {/* Condições e Prazos */}
               <div>
-                <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-3)", paddingBottom: 8, marginBottom: 10, borderBottom: "0.5px solid var(--ds-border-t)" }}>Condições e Prazos</p>
+                <p className="text-[11px] font-bold uppercase tracking-[0.05em] text-gray-500 pb-2 mb-2.5 border-b border-gray-200">Condições e Prazos</p>
                 <div className="kpi-grid">
                   {([
                     ["Prazo Recompra",   data.relatorioVisita.prazoRecompraCedente ? `${data.relatorioVisita.prazoRecompraCedente} dias` : ""],
@@ -2229,7 +2226,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
               {/* Mix de Vendas */}
               <div>
-                <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-3)", paddingBottom: 8, marginBottom: 10, borderBottom: "0.5px solid var(--ds-border-t)" }}>Dados da Empresa</p>
+                <p className="text-[11px] font-bold uppercase tracking-[0.05em] text-gray-500 pb-2 mb-2.5 border-b border-gray-200">Dados da Empresa</p>
                 <div className="kpi-grid">
                   {([
                     ["Funcionários",        String(data.relatorioVisita.funcionariosObservados || "—")],
@@ -2246,9 +2243,9 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
                   ))}
                 </div>
                 {data.relatorioVisita.referenciasFornecedores && (
-                  <div style={{ marginTop: 12 }}>
-                    <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-4)", marginBottom: 4 }}>Referências Comerciais / Fornecedores</p>
-                    <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.6 }}>{data.relatorioVisita.referenciasFornecedores}</p>
+                  <div className="mt-3">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.05em] text-cf-text-4 mb-1">Referências Comerciais / Fornecedores</p>
+                    <p className="text-[13px] text-cf-text-2 leading-relaxed">{data.relatorioVisita.referenciasFornecedores}</p>
                   </div>
                 )}
               </div>
@@ -2265,28 +2262,19 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           badgeVariant="navy"
           sectionLabel="Observações do Analista"
           title="Anotações"
-          headerRight={savingNotes ? <span style={{ fontSize: 11, color: "var(--text-4)" }}>Salvando...</span> : undefined}
+          headerRight={savingNotes ? <span className="text-[11px] text-cf-text-4">Salvando...</span> : undefined}
         >
-          <div style={{ padding: "16px 20px" }}>
+          <div className="px-5 py-4">
             <textarea
               value={analystNotes}
               onChange={e => setAnalystNotes(e.target.value)}
               onBlur={() => saveNotes(analystNotes)}
               placeholder="Registre aqui observações sobre a empresa, pontos de atenção identificados na visita, pendências de documentação, ou qualquer informação relevante para a tomada de decisão de crédito..."
-              style={{
-                width: "100%", minHeight: 180, resize: "vertical",
-                background: "var(--ds-surface-2)",
-                border: "0.5px solid var(--ds-border-t)",
-                borderRadius: "var(--ds-radius-md)",
-                padding: "12px 14px",
-                fontSize: 13, color: "var(--text-1)", lineHeight: 1.65,
-                fontFamily: "inherit", outline: "none",
-              }}
-              className="focus:ring-2 focus:ring-cf-navy/20 placeholder:text-cf-text-4"
+              className="w-full min-h-[180px] resize-y bg-gray-50 border border-gray-200 rounded-lg px-3.5 py-3 text-[13px] text-cf-text-1 leading-relaxed font-sans outline-none focus:border-navy-800 focus:ring-1 focus:ring-navy-800/20 placeholder:text-cf-text-4"
             />
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, padding: "0 2px" }}>
-              <span style={{ fontSize: 11, color: "var(--text-4)" }}>Salvo automaticamente ao sair do campo</span>
-              <span style={{ fontSize: 11, color: "var(--text-4)", fontFamily: "monospace" }}>{analystNotes.length} caracteres</span>
+            <div className="flex justify-between mt-1.5 px-0.5">
+              <span className="text-[11px] text-cf-text-4">Salvo automaticamente ao sair do campo</span>
+              <span className="text-[11px] text-cf-text-4 font-mono">{analystNotes.length} caracteres</span>
             </div>
           </div>
         </SectionCard>
@@ -2301,15 +2289,15 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           sectionLabel="Download"
           title="Exportar Relatório"
         >
-          <div style={{ padding: "16px 20px" }}>
+          <div className="px-5 py-4">
             {generatedFormats.size > 0 && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: "var(--ds-success-bg)", border: "0.5px solid var(--ds-success-border)", borderRadius: "var(--ds-radius-md)", marginBottom: 14 }}>
-                <CheckCircle2 size={14} style={{ color: "var(--ds-success-text)" }} />
-                <span style={{ fontSize: 12, fontWeight: 500, color: "var(--ds-success-text)" }}>Relatório gerado com sucesso!</span>
+              <div className="flex items-center gap-2 px-3.5 py-2.5 bg-green-50 border border-green-200 rounded-lg mb-3.5">
+                <CheckCircle2 size={14} className="text-green-600" />
+                <span className="text-xs font-medium text-green-700">Relatório gerado com sucesso!</span>
               </div>
             )}
 
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <div className="flex gap-2.5 flex-wrap">
               {([
                 { fmt: "pdf"  as Format, label: "PDF",   sub: "Completo e formatado", fn: generatePDF,   ext: ".pdf",  dot: "#dc2626", recommended: true },
                 { fmt: "docx" as Format, label: "Word",  sub: "Editável (.docx)",     fn: generateDOCX,  ext: ".docx", dot: "#2b5eb7", recommended: false },
@@ -2323,32 +2311,26 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
                     key={fmt}
                     onClick={fn}
                     disabled={!!generatingFormat}
-                    style={{
-                      flex: "1 1 140px", display: "flex", alignItems: "center", gap: 10,
-                      padding: "12px 14px", borderRadius: "var(--ds-radius-md)",
-                      border: `0.5px solid ${done ? "var(--ds-success-border)" : recommended ? "var(--navy)" : "var(--ds-border-s)"}`,
-                      background: done ? "var(--ds-success-bg)" : recommended ? "#eff6ff" : "white",
-                      cursor: !!generatingFormat ? "not-allowed" : "pointer",
-                      opacity: !!generatingFormat && !loading ? 0.55 : 1,
-                      transition: "all 0.15s",
-                      position: "relative",
-                      textAlign: "left",
-                    }}
+                    className={`flex-[1_1_140px] flex items-center gap-2.5 px-3.5 py-3 rounded-lg border relative text-left transition-all duration-150 hover:shadow-sm ${
+                      done ? "bg-green-50 border-green-200" :
+                      recommended ? "bg-blue-50 border-cf-navy" :
+                      "bg-white border-gray-200"
+                    } ${!!generatingFormat ? "cursor-not-allowed" : "cursor-pointer"} ${!!generatingFormat && !loading ? "opacity-55" : "opacity-100"}`}
                   >
-                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: done ? "var(--ds-success-text)" : dot, flexShrink: 0 }} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
-                        <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-1)" }}>{label}</span>
-                        <span style={{ fontSize: 11, color: "var(--text-4)", fontFamily: "monospace" }}>{ext}</span>
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: done ? "#16a34a" : dot }} />
+                    <div className="flex-1">
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-[13px] font-medium text-cf-text-1">{label}</span>
+                        <span className="text-[11px] text-cf-text-4 font-mono">{ext}</span>
                       </div>
-                      <p style={{ fontSize: 11, color: loading ? dot : done ? "var(--ds-success-text)" : "var(--text-4)", marginTop: 2 }}>
-                        {loading ? "Gerando..." : done ? "Pronto!" : sub}
+                      <p className="text-[11px] mt-0.5" style={{ color: loading ? dot : done ? "#16a34a" : undefined }}>
+                        {loading ? "Gerando..." : done ? "Pronto!" : <span className="text-cf-text-4">{sub}</span>}
                       </p>
                     </div>
-                    {loading && <Loader2 size={14} className="animate-spin" style={{ color: dot, flexShrink: 0 }} />}
-                    {done    && <CheckCircle2 size={14} style={{ color: "var(--ds-success-text)", flexShrink: 0 }} />}
+                    {loading && <Loader2 size={14} className="animate-spin shrink-0" style={{ color: dot }} />}
+                    {done    && <CheckCircle2 size={14} className="text-green-600 shrink-0" />}
                     {recommended && !done && (
-                      <span style={{ position: "absolute", top: -9, right: 10, fontSize: 9, fontWeight: 700, color: "white", background: "var(--navy)", borderRadius: 99, padding: "2px 6px", letterSpacing: "0.03em" }}>
+                      <span className="absolute -top-2.5 right-2.5 text-[9px] font-bold text-white bg-cf-navy rounded-full px-1.5 py-0.5 tracking-[0.03em]">
                         Recomendado
                       </span>
                     )}
@@ -2360,16 +2342,16 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         </SectionCard>
 
         {/* ── Sticky bottom action bar ── */}
-        <div className="fixed bottom-0 left-0 right-0 z-50 bg-white" style={{ borderTop: "0.5px solid var(--ds-border-s)" }}>
+        <div className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200">
           <div className="max-w-screen-xl mx-auto px-5 py-3 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <button onClick={onBack} className="btn-secondary" style={{ minHeight: "auto", padding: "8px 16px", fontSize: "13px" }}>
+              <button onClick={onBack} className="btn-secondary min-h-0 px-4 py-2 text-[13px]">
                 <ArrowLeft size={13} /> Voltar
               </button>
               {onReset && (
                 <button
                   onClick={() => { try { localStorage.removeItem(NOTES_KEY); } catch { /* ignore */ } onReset(); }}
-                  style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--text-4)", background: "none", border: "none", cursor: "pointer", padding: "6px 8px", borderRadius: 6 }}
+                  className="flex items-center gap-1 text-xs text-cf-text-4 bg-transparent border-none cursor-pointer px-2 py-1.5 rounded-md hover:text-cf-text-2 hover:bg-gray-100 transition-colors"
                 >
                   <RotateCcw size={12} /> Recomeçar
                 </button>
@@ -2392,8 +2374,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
               <button
                 onClick={handleGoToParecer}
                 disabled={finishing}
-                className="btn-green"
-                style={{ minHeight: "auto", padding: "8px 18px", fontSize: "13px", display: "flex", alignItems: "center", gap: 6 }}
+                className="btn-green min-h-0 px-[18px] py-2 text-[13px] flex items-center gap-1.5"
               >
                 {finishing
                   ? <><Loader2 size={13} className="animate-spin" /> Salvando...</>

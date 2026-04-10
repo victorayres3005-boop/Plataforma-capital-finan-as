@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Open_Sans, DM_Sans } from "next/font/google";
+import { Open_Sans, DM_Sans, JetBrains_Mono } from "next/font/google";
 import { Toaster } from "sonner";
 import PageTransition from "@/components/PageTransition";
 import "./globals.css";
@@ -16,6 +16,13 @@ const dmSans = DM_Sans({
   weight: ["400", "500", "600", "700"],
   display: "swap",
   variable: "--font-dm-sans",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
+  variable: "--font-jetbrains",
 });
 
 export const metadata: Metadata = {
@@ -42,7 +49,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
       </head>
-      <body className={`${openSans.variable} ${dmSans.variable} ${openSans.className} antialiased`}>
+      <body className={`${openSans.variable} ${dmSans.variable} ${jetbrainsMono.variable} ${dmSans.className} antialiased`}>
         <PageTransition>{children}</PageTransition>
         <Toaster richColors position="top-right" />
       </body>

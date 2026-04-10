@@ -36,9 +36,22 @@ const config: Config = {
           success:     "#16a34a",
           "success-bg":"#f0fdf4",
         },
+        navy: {
+          50:  "#eef3fb",
+          100: "#dce6f5",
+          200: "#b5c8ea",
+          800: "#132952",
+          900: "#0c1b3a",
+        },
+        amber: {
+          50:  "#fef9ec",
+          100: "#fdf3d7",
+          500: "#d4940a",
+        },
       },
       fontFamily: {
-        sans: ["'Open Sans'", "system-ui", "sans-serif"],
+        sans: ["var(--font-dm-sans)", "'DM Sans'", "system-ui", "sans-serif"],
+        mono: ["var(--font-jetbrains)", "'JetBrains Mono'", "ui-monospace", "monospace"],
       },
       boxShadow: {
         sm:    "0 1px 3px rgba(32,59,136,0.07), 0 1px 2px rgba(32,59,136,0.05)",
