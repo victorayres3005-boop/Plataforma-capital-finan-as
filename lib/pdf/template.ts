@@ -286,6 +286,7 @@ function secSumario(p: PDFReportParams): string {
     ["01","Cartão CNPJ","Dados cadastrais, sócios, endereço e faturamento"],
   ];
   if(p.creditLimit) itens.push(["CL","Limite de Crédito","Cálculo e parâmetros do limite aprovado"]);
+  if(p.creditLimit||p.data.faturamento?.fmm12m) itens.push(["RC","Capacidade de Recompra","Alavancagem, cobertura anual e patrimonial para FIDC"]);
   if(p.fundValidation?.criteria.length) itens.push(["FS","Conformidade com o Fundo","Critérios e parâmetros avaliados"]);
   itens.push(["05","SCR / Bacen","Histórico de crédito, exposição bancária e faixas de vencimento"]);
   if(p.data.scrSocios?.length) itens.push(["SS","SCR dos Sócios","Exposição de crédito individual de cada sócio"]);
@@ -294,6 +295,9 @@ function secSumario(p: PDFReportParams): string {
   itens.push(["07","Processos Judiciais","Distribuição por tipo e principais processos"]);
   if(p.data.score&&(p.data.score.serasa||p.data.score.spc||p.data.score.quod)) itens.push(["BS","Bureau Score","Serasa, SPC e Quod — scores externos de crédito"]);
   if(p.data.ccf&&p.data.ccf.qtdRegistros>0) itens.push(["CF","CCF — Cheque Sem Fundo","Registros de cheques sem cobertura por banco"]);
+  if(p.data.curvaABC?.clientes?.length) itens.push(["SA","Análise de Sacados FIDC","Concentração, risco por sacado e perfil da carteira"]);
+  if(p.data.relatorioVisita||p.fundValidation) itens.push(["ET","Elegibilidade dos Títulos","Mix de instrumentos, prazo médio e risco de diluição"]);
+  if(p.creditLimit||p.fundValidation||p.data.relatorioVisita) itens.push(["CV","Covenants e Condições","Parâmetros operacionais e gatilhos de monitoramento"]);
   if(p.data.curvaABC?.clientes?.length) itens.push(["CA","Curva ABC de Clientes","Concentração de receita e carteira de sacados"]);
   if(p.data.grupoEconomico?.empresas?.length) itens.push(["GE","Grupo Econômico","Empresas vinculadas e risco consolidado do grupo"]);
   if(p.data.dre?.anos?.length) itens.push(["DR","DRE","Demonstração de resultado e análise de margens"]);
@@ -838,6 +842,304 @@ function secAnotacoes(p: PDFReportParams): string {
   return `<div class="pb">${secHdr("NT","Anotações do Analista")}<div style="background:#f8fafc;border-left:4px solid #1a2744;border-radius:0 8px 8px 0;padding:18px 20px;font-size:12px;line-height:1.9;color:#374151;white-space:pre-wrap;page-break-inside:avoid">${esc(t)}</div></div>`;
 }
 
+// ─── FIDC: Capacidade de Recompra ────────────────────────────────────────────
+function secRecompra(p: PDFReportParams): string {
+  const cl=p.creditLimit;
+  const fmm=numVal(cl?.fmmBase||p.data.faturamento?.fmm12m||p.data.faturamento?.mediaAno);
+  const limite=numVal(cl?.limiteAjustado);
+  if(!limite||!fmm) return "";
+  const v=p.data.relatorioVisita;
+  const capSocial=numVal(p.data.qsa?.capitalSocial||p.data.cnpj?.capitalSocialCNPJ);
+  const endivBanco=numVal(v?.endividamentoBanco);
+  const endivFIDC=numVal(v?.endividamentoFactoring);
+  const endivTotal=endivBanco+endivFIDC;
+
+  // Metrics
+  const alavLimit=fmm>0?(limite/fmm):0;        // limite ÷ FMM (meses)
+  const cobAnual=fmm>0?((fmm*12)/limite)*100:0; // FMM×12/limite (%)
+  const cobPatrim=capSocial>0?(capSocial/limite)*100:0;
+  const exposTotal=endivTotal+limite;
+  const expVsFmm12=fmm>0?(exposTotal/(fmm*12))*100:0;
+
+  const alvClr=alavLimit<=2?"#16a34a":alavLimit<=4?"#d97706":"#dc2626";
+  const alvLabel=alavLimit<=2?"SAUDÁVEL":alavLimit<=4?"ATENÇÃO":"ALTO RISCO";
+  const cobClr=cobAnual>=100?"#16a34a":cobAnual>=50?"#d97706":"#dc2626";
+  const patClr=cobPatrim>=100?"#16a34a":cobPatrim>=50?"#d97706":"#dc2626";
+
+  function meter(pct:number,color:string,max=200):string{
+    const w=Math.min(100,Math.round((pct/max)*100));
+    return `<div style="height:8px;background:#f3f4f6;border-radius:4px;overflow:hidden;margin-top:6px">
+      <div style="height:100%;width:${w}%;background:${color};border-radius:4px"></div>
+    </div>`;
+  }
+
+  return `<div class="pb">${secHdr("RC","Capacidade de Recompra — FIDC")}
+  <div style="background:#fff9eb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:11px;color:#92400e">
+    <strong>Recompra</strong>: se o sacado não pagar, o cedente é obrigado a recomprar o título. Esta seção avalia se o cedente tem capacidade financeira para honrar essa obrigação.
+  </div>
+
+  <!-- Main metrics -->
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:16px">
+    <div style="border:1px solid #e5e7eb;border-top:3px solid ${alvClr};border-radius:8px;padding:14px 16px;page-break-inside:avoid">
+      <div style="font-size:9px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Alavancagem do Limite</div>
+      <div style="font-size:26px;font-weight:900;color:${alvClr};line-height:1">${alavLimit.toFixed(1)}<span style="font-size:12px;color:#9ca3af">× FMM</span></div>
+      ${meter(alavLimit,alvClr,6)}
+      <div style="font-size:9px;margin-top:6px"><span style="display:inline-block;padding:2px 7px;border-radius:99px;background:${alvClr}18;color:${alvClr};font-weight:700;font-size:8px">${alvLabel}</span></div>
+      <div style="font-size:9px;color:#9ca3af;margin-top:4px">Limite representa ${alavLimit.toFixed(1)} meses de receita</div>
+    </div>
+    <div style="border:1px solid #e5e7eb;border-top:3px solid ${cobClr};border-radius:8px;padding:14px 16px;page-break-inside:avoid">
+      <div style="font-size:9px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Cobertura Anual</div>
+      <div style="font-size:26px;font-weight:900;color:${cobClr};line-height:1">${cobAnual.toFixed(0)}<span style="font-size:12px;color:#9ca3af">%</span></div>
+      ${meter(cobAnual,cobClr,200)}
+      <div style="font-size:9px;color:#9ca3af;margin-top:10px">FMM × 12 ÷ limite = ${fmtMoney(String(fmm*12))} ÷ ${fmtMoney(String(limite))}</div>
+    </div>
+    <div style="border:1px solid #e5e7eb;border-top:3px solid ${capSocial>0?patClr:"#9ca3af"};border-radius:8px;padding:14px 16px;page-break-inside:avoid">
+      <div style="font-size:9px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Cobertura Patrimonial</div>
+      <div style="font-size:26px;font-weight:900;color:${capSocial>0?patClr:"#9ca3af"};line-height:1">${capSocial>0?cobPatrim.toFixed(0)+"<span style='font-size:12px;color:#9ca3af'>%</span>":"—"}</div>
+      ${capSocial>0?meter(cobPatrim,patClr,200):""}
+      <div style="font-size:9px;color:#9ca3af;margin-top:${capSocial>0?"10":"14"}px">Capital social ÷ limite: ${capSocial>0?fmtMoney(String(capSocial)):"não informado"}</div>
+    </div>
+  </div>
+
+  <!-- Exposure table -->
+  ${subTitle("Composição da Exposição")}
+  <table style="${TS_AVOID}">
+    <thead>${row(["Componente","Valor","% da Receita Anual"],true)}</thead>
+    <tbody>
+      ${row(["Limite FIDC solicitado",`<strong>${fmtMoney(String(limite))}</strong>`,`${((limite/(fmm*12))*100).toFixed(1)}%`])}
+      ${endivBanco>0?row(["Endividamento Bancário",fmtMoney(String(endivBanco)),`${((endivBanco/(fmm*12))*100).toFixed(1)}%`]):""}
+      ${endivFIDC>0?row(["Endividamento Factoring/FIDC",fmtMoney(String(endivFIDC)),`${((endivFIDC/(fmm*12))*100).toFixed(1)}%`]):""}
+      ${endivTotal>0?row([`<strong>Exposição Total</strong>`,`<strong style="color:${expVsFmm12>100?"#dc2626":"#111827"}">${fmtMoney(String(exposTotal))}</strong>`,`<strong style="color:${expVsFmm12>100?"#dc2626":"#111827"}">${expVsFmm12.toFixed(1)}%</strong>`]):""}
+    </tbody>
+  </table>
+
+  <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:12px 16px;font-size:11px;color:#0369a1">
+    <strong>Interpretação:</strong> alavancagem ≤ 2× é considerada saudável para FIDC. Cobertura anual ≥ 100% significa que a receita de 1 ano cobre o limite. Cobertura patrimonial ≥ 100% significa que o capital social da empresa garante o limite.
+  </div>
+</div>`;
+}
+
+// ─── FIDC: Elegibilidade dos Títulos ─────────────────────────────────────────
+function secElegibilidade(p: PDFReportParams): string {
+  const v=p.data.relatorioVisita;
+  const fv=p.fundValidation;
+  const dupPct=parseFloat(v?.vendasDuplicata||"0");
+  const chqPct=parseFloat(v?.vendasCheque||"0");
+  const outrPct=parseFloat(v?.vendasOutras||"0");
+  const hasMix=dupPct>0||chqPct>0||outrPct>0;
+  const prazoMedio=parseInt(v?.prazoMedioFaturamento||"0");
+  const ticketMedio=numVal(v?.ticketMedio);
+  const prazoMax=parseInt(v?.prazoMaximoOp||p.creditLimit?.prazo?.toString()||"0");
+
+  // Eligibility evaluation
+  type EligRow={tipo:string;pct:string;status:"ok"|"warn"|"fail"|"info";nota:string};
+  const tipos:EligRow[]=[
+    {tipo:"Duplicata Mercantil",pct:dupPct>0?dupPct+"% do mix":"—",
+     status:dupPct>=50?"ok":dupPct>0?"warn":"info",
+     nota:dupPct>=50?"Principal instrumento. Elegível com endosso.":dupPct>0?"Presente mas não predominante.":"Não identificado no mix."},
+    {tipo:"Cheque",pct:chqPct>0?chqPct+"% do mix":"—",
+     status:chqPct===0?"ok":chqPct<=20?"warn":"fail",
+     nota:chqPct===0?"Ausente — sem risco de diluição por cheque.":chqPct<=20?"Baixa concentração. Verificar política do fundo.":"Alta concentração. Risco elevado de diluição e devoluções."},
+    {tipo:"Outras Formas",pct:outrPct>0?outrPct+"% do mix":"—",
+     status:outrPct===0?"ok":outrPct<=30?"warn":"fail",
+     nota:outrPct===0?"Ausente.":outrPct<=30?"Verificar tipos — boleto, PIX, cartão não são cedíveis.":"Alto percentual. Verificar quais são cedíveis ao FIDC."},
+  ];
+
+  // Diluição risk
+  const dilRisk=chqPct>30?"alto":chqPct>10||outrPct>30?"medio":"baixo";
+  const dilClr=dilRisk==="baixo"?"#16a34a":dilRisk==="medio"?"#d97706":"#dc2626";
+
+  // Prazo assessment
+  const prazoOk=prazoMax>0&&prazoMedio>0&&prazoMedio<=prazoMax;
+  const prazoClr=prazoMedio===0?"#9ca3af":prazoOk?"#16a34a":prazoMedio<=prazoMax*1.2?"#d97706":"#dc2626";
+
+  const sClr:{ok:string;warn:string;fail:string;info:string}={ok:"#16a34a",warn:"#d97706",fail:"#dc2626",info:"#6b7280"};
+  const sBg:{ok:string;warn:string;fail:string;info:string}={ok:"#dcfce7",warn:"#fef3c7",fail:"#fee2e2",info:"#f3f4f6"};
+  const sIcon:{ok:string;warn:string;fail:string;info:string}={ok:"✓",warn:"!",fail:"✗",info:"—"};
+
+  return `<div class="pb">${secHdr("ET","Elegibilidade dos Títulos — FIDC")}
+  ${!hasMix&&!prazoMedio?`<div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;font-size:11px;color:#6b7280">Dados do relatório de visita não disponíveis. Preencha o mix de vendas durante a visita para análise completa.</div>`:`
+  ${hasMix?`
+  ${subTitle("Mix de Instrumentos de Venda")}
+  <!-- Visual mix bar -->
+  <div style="height:20px;border-radius:6px;overflow:hidden;display:flex;margin-bottom:8px;page-break-inside:avoid">
+    ${dupPct>0?`<div style="width:${dupPct}%;background:#22c55e;display:flex;align-items:center;justify-content:center"><span style="font-size:8px;font-weight:700;color:#fff">${dupPct>8?dupPct+"% Dup.":""}</span></div>`:""}
+    ${chqPct>0?`<div style="width:${chqPct}%;background:#f59e0b;display:flex;align-items:center;justify-content:center"><span style="font-size:8px;font-weight:700;color:#fff">${chqPct>8?chqPct+"% Cheq.":""}</span></div>`:""}
+    ${outrPct>0?`<div style="width:${outrPct}%;background:#94a3b8;display:flex;align-items:center;justify-content:center"><span style="font-size:8px;font-weight:700;color:#fff">${outrPct>8?outrPct+"% Outros":""}</span></div>`:""}
+  </div>
+  <div style="display:flex;gap:12px;margin-bottom:16px;font-size:9px;color:#6b7280">
+    ${dupPct>0?`<span>🟢 Duplicata ${dupPct}%</span>`:""}
+    ${chqPct>0?`<span>🟡 Cheque ${chqPct}%</span>`:""}
+    ${outrPct>0?`<span>⚪ Outros ${outrPct}%</span>`:""}
+  </div>
+  <div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;margin-bottom:14px">
+    ${tipos.map(t=>`<div style="display:grid;grid-template-columns:160px 80px 1fr 90px;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #f3f4f6">
+      <div style="font-size:11px;font-weight:600;color:#111827">${esc(t.tipo)}</div>
+      <div style="font-size:11px;color:#374151">${t.pct}</div>
+      <div style="font-size:10px;color:#6b7280;font-style:italic">${t.nota}</div>
+      <div style="text-align:right"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${sBg[t.status]};color:${sClr[t.status]};font-size:12px;font-weight:900">${sIcon[t.status]}</span></div>
+    </div>`).join("")}
+  </div>`:""}
+
+  ${grid(3,[
+    prazoMedio>0?kpi("Prazo Médio de Fat.",`${prazoMedio} dias`,prazoClr,prazoMax>0?`Máx. fundo: ${prazoMax}d`:""):"",
+    ticketMedio>0?kpi("Ticket Médio",fmtMoney(String(ticketMedio))):"",
+    kpi("Risco de Diluição",dilRisk==="baixo"?"BAIXO":dilRisk==="medio"?"MÉDIO":"ALTO",dilClr),
+  ].filter(Boolean))}
+
+  ${fv?.criteria.length?`${subTitle("Critérios de Elegibilidade do Fundo")}
+  <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px">
+    ${fv.criteria.slice(0,6).map((cr:FundCriterion)=>{
+      const ok=cr.status==="ok",err=cr.status==="error";
+      const clr=ok?"#16a34a":err?"#dc2626":"#d97706";
+      const bg=ok?"#f0fdf4":err?"#fff1f2":"#fffbeb";
+      return `<div style="background:${bg};border:1px solid ${clr}30;border-radius:6px;padding:8px 12px;display:flex;align-items:center;gap:8px;page-break-inside:avoid">
+        <span style="font-size:14px;color:${clr};font-weight:900;flex-shrink:0">${ok?"✓":err?"✗":"!"}</span>
+        <div><div style="font-size:10px;font-weight:600;color:#111827">${esc(cr.label)}</div><div style="font-size:9px;color:${clr}">${esc(cr.actual||"—")} ${cr.threshold?"(lim: "+cr.threshold+")":""}</div></div>
+      </div>`;
+    }).join("")}
+  </div>`:""}
+  `}
+</div>`;
+}
+
+// ─── FIDC: Análise de Sacados ─────────────────────────────────────────────────
+function secSacados(p: PDFReportParams): string {
+  const abc=p.data.curvaABC;
+  if(!abc||!abc.clientes?.length) return "";
+  const clientes=abc.clientes.slice(0,20);
+  const total=abc.totalClientesNaBase||abc.totalClientesExtraidos||clientes.length;
+  const concTop1=parseFloat(abc.maiorClientePct||"0");
+  const concTop3=parseFloat(abc.concentracaoTop3||"0");
+  const concTop5=parseFloat(abc.concentracaoTop5||"0");
+
+  // FIDC risk classification
+  const fidcRisk=concTop1>=40||concTop3>=70?"CRÍTICO":concTop1>=25||concTop3>=55?"ELEVADO":concTop3>=40?"MODERADO":"DIVERSIFICADO";
+  const fidcClr=fidcRisk==="CRÍTICO"?"#dc2626":fidcRisk==="ELEVADO"?"#d97706":fidcRisk==="MODERADO"?"#f59e0b":"#16a34a";
+  const fidcBg=fidcRisk==="CRÍTICO"?"#fff1f2":fidcRisk==="ELEVADO"?"#fffbeb":fidcRisk==="MODERADO"?"#fefce8":"#f0fdf4";
+
+  // Limite por sacado
+  const limiteSacado=numVal(p.creditLimit?.limiteConcentracao||p.data.relatorioVisita?.limitePorSacado);
+  const concMaxPct=p.creditLimit?.concentracaoMaxPct||0;
+
+  return `<div class="pb">${secHdr("SA","Análise de Sacados — Risco de Concentração FIDC")}
+  <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:11px;color:#0369a1;page-break-inside:avoid">
+    <strong>Para um FIDC</strong>, o risco de inadimplência recai sobre os <strong>sacados</strong> (quem deve pagar os títulos). Alta concentração em poucos sacados amplifica o impacto de uma inadimplência.
+  </div>
+
+  <!-- FIDC Risk badge -->
+  <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;padding:14px 18px;background:${fidcBg};border:1px solid ${fidcClr}30;border-radius:8px;page-break-inside:avoid">
+    <div style="flex:1">
+      <div style="font-size:9px;color:#6b7280;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Perfil de Concentração FIDC</div>
+      <div style="font-size:18px;font-weight:900;color:${fidcClr}">${fidcRisk}</div>
+      <div style="font-size:10px;color:#6b7280;margin-top:2px">Baseado na concentração dos top sacados</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+      ${kpiSm("Top 1 sacado",concTop1.toFixed(1)+"%",concTop1>=40?"#dc2626":concTop1>=25?"#d97706":"#16a34a")}
+      ${kpiSm("Top 3 sacados",concTop3.toFixed(1)+"%",concTop3>=70?"#dc2626":concTop3>=55?"#d97706":"#16a34a")}
+      ${kpiSm("Top 5 sacados",concTop5.toFixed(1)+"%",concTop5>=80?"#dc2626":concTop5>=65?"#d97706":"#16a34a")}
+    </div>
+  </div>
+
+  ${grid(4,[
+    kpi("Total de Sacados",String(total)),
+    kpi("Sacados Classe A",String(abc.totalClientesClasseA||"—")),
+    limiteSacado>0?kpi("Limite por Sacado",fmtMoney(String(limiteSacado))):"",
+    concMaxPct>0?kpi("Concentração Máx.",concMaxPct+"%"):"",
+  ].filter(Boolean))}
+
+  ${subTitle("Top Sacados — Risco de Concentração")}
+  <table style="${TS_AVOID}">
+    <thead>${row(["#","Sacado","Valor Faturado","% Receita","% Acum.","Cl.","Risco FIDC"],true)}</thead>
+    <tbody>${clientes.map(c=>{
+      const pct=parseFloat(c.percentualReceita||"0");
+      const fidcR=pct>=40?"CRÍTICO":pct>=25?"ELEVADO":pct>=15?"MODERADO":"BAIXO";
+      const fr=fidcR==="CRÍTICO"?"#dc2626":fidcR==="ELEVADO"?"#d97706":fidcR==="MODERADO"?"#f59e0b":"#16a34a";
+      const classCor:Record<string,string>={A:"#16a34a",B:"#d97706",C:"#6b7280"};
+      return row([
+        String(c.posicao||""),
+        `<strong>${esc(c.nome)}</strong>`,
+        fmtMoney(c.valorFaturado),
+        `<span style="font-weight:700;color:${pct>=25?"#dc2626":pct>=15?"#d97706":"#374151"}">${fmt(c.percentualReceita)}</span>`,
+        fmt(c.percentualAcumulado),
+        `<span style="font-size:9px;font-weight:700;color:${classCor[c.classe]||"#6b7280"}">${esc(c.classe)}</span>`,
+        `<span style="display:inline-block;padding:2px 7px;border-radius:99px;background:${fr}15;color:${fr};font-size:8px;font-weight:800">${fidcR}</span>`,
+      ]);
+    }).join("")}</tbody>
+  </table>
+</div>`;
+}
+
+// ─── FIDC: Covenants e Condições ─────────────────────────────────────────────
+function secCovenants(p: PDFReportParams): string {
+  const cl=p.creditLimit;
+  const fv=p.fundValidation;
+  const v=p.data.relatorioVisita;
+  if(!cl&&!fv&&!v) return "";
+  const dataRev=cl?.dataRevisao?new Date(cl.dataRevisao).toLocaleDateString("pt-BR"):"—";
+
+  type CV={categoria:string;condicao:string;parametro:string;status:"ok"|"warn"|"fail"|"info"};
+  const covenants:CV[]=[];
+
+  // From creditLimit
+  if(cl){
+    covenants.push({categoria:"Limite",condicao:"Limite Total Aprovado",parametro:fmtMoney(cl.limiteAjustado),status:"ok"});
+    if(cl.concentracaoMaxPct) covenants.push({categoria:"Concentração",condicao:"Máximo por Sacado",parametro:`${cl.concentracaoMaxPct}% / ${fmtMoney(cl.limiteConcentracao)}`,status:"info"});
+    if(cl.prazo) covenants.push({categoria:"Prazo",condicao:"Prazo Máximo de Operação",parametro:`${cl.prazo} dias`,status:"info"});
+    covenants.push({categoria:"Revisão",condicao:"Próxima Revisão do Cedente",parametro:`${cl.revisaoDias} dias (${dataRev})`,status:"info"});
+  }
+  // From visit
+  if(v?.prazoRecompraCedente) covenants.push({categoria:"Recompra",condicao:"Prazo de Recompra pelo Cedente",parametro:`${v.prazoRecompraCedente} dias`,status:"info"});
+  if(v?.prazoEnvioCartorio) covenants.push({categoria:"Cartório",condicao:"Prazo para Envio ao Cartório",parametro:`${v.prazoEnvioCartorio} dias`,status:"info"});
+  if(v?.cobrancaTAC) covenants.push({categoria:"TAC",condicao:"Cobrança de TAC",parametro:esc(v.cobrancaTAC),status:"info"});
+  if(v?.modalidade) covenants.push({categoria:"Modalidade",condicao:"Modalidade Operacional",parametro:v.modalidade.charAt(0).toUpperCase()+v.modalidade.slice(1),status:"info"});
+
+  // Monitoring triggers (from current state vs. fund limits)
+  const protests=p.protestosVigentes;
+  const vencPct=numVal(p.data.scr?.vencidos)>0&&numVal(p.data.scr?.totalDividasAtivas)>0
+    ?Math.round((numVal(p.data.scr.vencidos)/numVal(p.data.scr.totalDividasAtivas))*100):0;
+
+  const catClr:Record<string,string>={Limite:"#1a2744",Concentração:"#7c3aed",Prazo:"#0369a1",Revisão:"#6b7280",Recompra:"#d97706",Cartório:"#6b7280",TAC:"#6b7280",Modalidade:"#0891b2"};
+  const stClr:{ok:string;warn:string;fail:string;info:string}={ok:"#16a34a",warn:"#d97706",fail:"#dc2626",info:"#374151"};
+  const stBg:{ok:string;warn:string;fail:string;info:string}={ok:"#f0fdf4",warn:"#fffbeb",fail:"#fff1f2",info:"#f8fafc"};
+
+  return `<div class="pb">${secHdr("CV","Covenants e Condições Operacionais")}
+  <div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;margin-bottom:16px;page-break-inside:avoid">
+    <div style="background:#f1f5f9;padding:8px 14px;display:grid;grid-template-columns:90px 1fr 1fr 70px;font-size:9px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.04em;gap:8px">
+      <span>Categoria</span><span>Condição</span><span>Parâmetro</span><span style="text-align:right">Status</span>
+    </div>
+    ${covenants.map((cv,i)=>`<div style="display:grid;grid-template-columns:90px 1fr 1fr 70px;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid #f3f4f6;background:${i%2===0?"#fff":"#fafafa"}">
+      <span style="display:inline-block;padding:2px 8px;border-radius:4px;background:${catClr[cv.categoria]||"#1a2744"}15;color:${catClr[cv.categoria]||"#1a2744"};font-size:8px;font-weight:700;text-align:center">${esc(cv.categoria)}</span>
+      <div style="font-size:11px;font-weight:600;color:#111827">${esc(cv.condicao)}</div>
+      <div style="font-size:11px;color:#374151">${cv.parametro}</div>
+      <div style="text-align:right"><span style="display:inline-block;padding:2px 8px;border-radius:99px;background:${stBg[cv.status]};color:${stClr[cv.status]};font-size:8px;font-weight:700">${cv.status==="ok"?"ATENDIDO":cv.status==="warn"?"ATENÇÃO":cv.status==="fail"?"VIOLADO":"—"}</span></div>
+    </div>`).join("")}
+  </div>
+
+  ${subTitle("Gatilhos de Monitoramento")}
+  <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px">
+    <div style="border:1px solid ${protests===0?"#86efac":"#fca5a5"};border-radius:8px;padding:12px 14px;background:${protests===0?"#f0fdf4":"#fff1f2"};page-break-inside:avoid">
+      <div style="font-size:9px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:4px">Protestos Vigentes</div>
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:18px;font-weight:900;color:${protests===0?"#16a34a":"#dc2626"}">${protests}</span>
+        <span class="badge ${protests===0?"ok":"fail"}">${protests===0?"NORMAL":"GATILHO ATIVO"}</span>
+      </div>
+    </div>
+    <div style="border:1px solid ${vencPct===0?"#86efac":vencPct<=10?"#fde68a":"#fca5a5"};border-radius:8px;padding:12px 14px;background:${vencPct===0?"#f0fdf4":vencPct<=10?"#fffbeb":"#fff1f2"};page-break-inside:avoid">
+      <div style="font-size:9px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:4px">SCR Vencidos / Carteira</div>
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:18px;font-weight:900;color:${vencPct===0?"#16a34a":vencPct<=10?"#d97706":"#dc2626"}">${vencPct}%</span>
+        <span class="badge ${vencPct===0?"ok":vencPct<=10?"warn":"fail"}">${vencPct===0?"NORMAL":vencPct<=10?"ATENÇÃO":"GATILHO ATIVO"}</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:12px 16px;font-size:10px;color:#6b7280;line-height:1.7">
+    <strong style="color:#1a2744">Monitoramento Contínuo:</strong> O cedente deve ser monitorado mensalmente quanto a protestos, SCR, processos e faturamento. Gatilhos de bloqueio automático devem ser configurados no sistema do FIDC.
+  </div>
+</div>`;
+}
+
 // ─── Risk Heatmap ─────────────────────────────────────────────────────────────
 function secHeatmap(p: PDFReportParams): string {
   const {data,finalRating,vencidosSCR,prejuizosVal,protestosVigentes,fundValidation}=p;
@@ -1167,6 +1469,7 @@ export function gerarHtmlRelatorio(p: PDFReportParams): {
   ${secScorecard(p)}
   ${secCnpj(p)}
   ${secCreditLimit(p)}
+  ${secRecompra(p)}
   ${secFundo(p)}
   ${secScr(p)}
   ${secScrSocios(p)}
@@ -1174,6 +1477,9 @@ export function gerarHtmlRelatorio(p: PDFReportParams): {
   ${secProcessos(p)}
   ${secBureau(p)}
   ${secCcf(p)}
+  ${secSacados(p)}
+  ${secElegibilidade(p)}
+  ${secCovenants(p)}
   ${secCurvaAbc(p)}
   ${secGrupoEconomico(p)}
   ${secDre(p)}
