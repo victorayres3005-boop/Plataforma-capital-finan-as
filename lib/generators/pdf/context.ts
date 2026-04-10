@@ -37,6 +37,7 @@ export interface PDFReportParams {
   alavancagem?: number;
   observacoes?: string;
   streetViewBase64?: string;
+  mapStaticBase64?: string;
   fundValidation?: FundValidationResult;
   creditLimit?: CreditLimitResult;
   histOperacoes?: Operacao[];
