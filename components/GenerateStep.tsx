@@ -249,6 +249,13 @@ function calcFaturamentoZerado(fat: ExtractedData["faturamento"]): boolean {
 function validateExtractedData(data: ExtractedData): ValidationResult {
   const errors: ValidationIssue[] = [];
   const warnings: ValidationIssue[] = [];
+  const parseFatVal = (v: string) => parseFloat((v || "0").replace(/\./g, "").replace(",", ".")) || 0;
+  const now = new Date();
+  const anoAtual = now.getFullYear();
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DADOS OBRIGATÓRIOS (erros que impedem análise)
+  // ═══════════════════════════════════════════════════════════════════════════
 
   // ── CNPJ ──
   if (!data.cnpj.razaoSocial) {
@@ -262,6 +269,10 @@ function validateExtractedData(data: ExtractedData): ValidationResult {
   }
   if (!data.cnpj.cnaePrincipal) {
     warnings.push({ field: "cnaePrincipal", document: "cnpj", message: "CNAE principal não encontrado", severity: "warning" });
+  }
+  const situacao = data.cnpj.situacaoCadastral?.toUpperCase().trim() || "";
+  if (situacao && !situacao.includes("ATIVA")) {
+    errors.push({ field: "situacaoCadastral", document: "cnpj", message: `Situação cadastral: ${situacao} — empresa não está ativa`, severity: "error" });
   }
 
   // ── QSA ──
@@ -291,7 +302,7 @@ function validateExtractedData(data: ExtractedData): ValidationResult {
   if (data.faturamento.meses.length === 0) {
     errors.push({ field: "meses", document: "faturamento", message: "Nenhum mês de faturamento extraído", severity: "error" });
   }
-  const mediaNum = parseFloat(data.faturamento.mediaAno.replace(/\./g, "").replace(",", ".")) || 0;
+  const mediaNum = parseFatVal(data.faturamento.mediaAno);
   if (data.faturamento.meses.length > 0 && mediaNum === 0) {
     errors.push({ field: "mediaAno", document: "faturamento", message: "Faturamento médio é zero", severity: "error" });
   }
@@ -319,7 +330,271 @@ function validateExtractedData(data: ExtractedData): ValidationResult {
     errors.push({ field: "temRJ", document: "processos", message: "Recuperação Judicial detectada", severity: "error" });
   }
 
-  // ── Coverage ──
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ALERTAS DE VALIDADE TEMPORAL
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // IR dos sócios — ano-base desatualizado
+  if (data.irSocios && data.irSocios.length > 0) {
+    for (const ir of data.irSocios) {
+      const anoBase = parseInt(ir.anoBase, 10);
+      if (anoBase && anoBase < anoAtual - 1) {
+        warnings.push({ field: "anoBase", document: "ir_socio", message: `IR de ${ir.nomeSocio || "sócio"}: ano-base ${anoBase} — desatualizado (esperado ${anoAtual - 1} ou ${anoAtual})`, severity: "warning" });
+      }
+    }
+  }
+
+  // SCR — período de referência antigo (> 90 dias)
+  if (data.scr.periodoReferencia) {
+    const parts = data.scr.periodoReferencia.match(/(\d{1,2})[\/\-](\d{4})/);
+    if (parts) {
+      const scrDate = new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, 28);
+      const diffDays = Math.floor((now.getTime() - scrDate.getTime()) / 86400000);
+      if (diffDays > 90) {
+        warnings.push({ field: "periodoReferencia", document: "scr", message: `SCR com data de referência ${data.scr.periodoReferencia} — ${diffDays} dias atrás (> 90 dias)`, severity: "warning" });
+      }
+    }
+  }
+
+  // Faturamento — último mês com dados defasado (> 3 meses)
+  if (data.faturamento.ultimoMesComDados) {
+    const parts = data.faturamento.ultimoMesComDados.match(/(\d{1,2})[\/\-](\d{4})/);
+    if (parts) {
+      const fatDate = new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, 28);
+      const diffMonths = (now.getFullYear() - fatDate.getFullYear()) * 12 + (now.getMonth() - fatDate.getMonth());
+      if (diffMonths > 3) {
+        warnings.push({ field: "ultimoMesComDados", document: "faturamento", message: `Faturamento defasado — último mês: ${data.faturamento.ultimoMesComDados} (${diffMonths} meses atrás)`, severity: "warning" });
+      }
+    }
+  }
+
+  // Balanço — ano mais recente desatualizado
+  if (data.balanco?.anos && data.balanco.anos.length > 0) {
+    const anosBalanco = data.balanco.anos.map(a => parseInt(a.ano, 10)).filter(a => !isNaN(a));
+    const maxAno = Math.max(...anosBalanco);
+    if (maxAno < anoAtual - 1) {
+      warnings.push({ field: "anos", document: "balanco", message: `Balanço mais recente: ${maxAno} — desatualizado (esperado ${anoAtual - 1} ou ${anoAtual})`, severity: "warning" });
+    }
+  }
+
+  // DRE — ano mais recente desatualizado
+  if (data.dre?.anos && data.dre.anos.length > 0) {
+    const anosDRE = data.dre.anos.map(a => parseInt(a.ano, 10)).filter(a => !isNaN(a));
+    const maxAno = Math.max(...anosDRE);
+    if (maxAno < anoAtual - 1) {
+      warnings.push({ field: "anos", document: "dre", message: `DRE mais recente: ${maxAno} — desatualizado (esperado ${anoAtual - 1} ou ${anoAtual})`, severity: "warning" });
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ALERTAS DE IR DOS SÓCIOS (risco pessoal)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  if (data.irSocios && data.irSocios.length > 0) {
+    for (const ir of data.irSocios) {
+      const nome = ir.nomeSocio || "Sócio";
+      if (ir.situacaoMalhas) {
+        errors.push({ field: "situacaoMalhas", document: "ir_socio", message: `${nome}: retido em MALHA FINA na Receita Federal`, severity: "error" });
+      }
+      if (ir.debitosEmAberto) {
+        warnings.push({ field: "debitosEmAberto", document: "ir_socio", message: `${nome}: possui débitos em aberto na Receita Federal${ir.descricaoDebitos ? ` (${ir.descricaoDebitos})` : ""}`, severity: "warning" });
+      }
+      const pl = parseFatVal(ir.patrimonioLiquido);
+      if (ir.patrimonioLiquido && pl < 0) {
+        warnings.push({ field: "patrimonioLiquido", document: "ir_socio", message: `${nome}: patrimônio líquido negativo (${ir.patrimonioLiquido})`, severity: "warning" });
+      }
+    }
+  }
+
+  // Sócios do QSA sem IR enviado
+  if (sociosQSA.length > 0 && (!data.irSocios || data.irSocios.length === 0)) {
+    warnings.push({ field: "irSocios", document: "ir_socio", message: "Nenhum IR de sócio enviado — impossível avaliar capacidade patrimonial", severity: "warning" });
+  } else if (data.irSocios && sociosQSA.length > data.irSocios.length) {
+    warnings.push({ field: "irSocios", document: "ir_socio", message: `IR enviado para ${data.irSocios.length} de ${sociosQSA.length} sócios — faltam ${sociosQSA.length - data.irSocios.length}`, severity: "warning" });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ALERTAS FINANCEIROS (saúde da empresa)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // Faturamento em queda
+  if (data.faturamento.tendencia === "queda") {
+    warnings.push({ field: "tendencia", document: "faturamento", message: "Faturamento em tendência de queda", severity: "warning" });
+  }
+
+  // Meses zerados intercalados
+  if (data.faturamento.meses.length >= 3) {
+    const vals = data.faturamento.meses.map(m => parseFatVal(m.valor));
+    const temZeroIntercalado = vals.some((v, i) => v === 0 && i > 0 && i < vals.length - 1 && vals[i - 1] > 0 && vals[i + 1] > 0);
+    if (temZeroIntercalado) {
+      warnings.push({ field: "mesesZerados", document: "faturamento", message: "Faturamento com meses zerados intercalados — possível irregularidade ou sazonalidade extrema", severity: "warning" });
+    }
+  }
+
+  // Variação brusca entre meses (> 80%)
+  if (data.faturamento.meses.length >= 2) {
+    const vals = data.faturamento.meses.map(m => parseFatVal(m.valor)).filter(v => v > 0);
+    for (let i = 1; i < vals.length; i++) {
+      const variacao = Math.abs(vals[i] - vals[i - 1]) / vals[i - 1];
+      if (variacao > 0.8) {
+        warnings.push({ field: "variacaoBrusca", document: "faturamento", message: `Variação brusca de ${Math.round(variacao * 100)}% entre meses consecutivos no faturamento`, severity: "warning" });
+        break; // só alerta uma vez
+      }
+    }
+  }
+
+  // Balanço — patrimônio líquido negativo
+  if (data.balanco?.anos && data.balanco.anos.length > 0) {
+    const maisRecente = data.balanco.anos[data.balanco.anos.length - 1];
+    const plEmpresa = parseFatVal(maisRecente.patrimonioLiquido);
+    if (maisRecente.patrimonioLiquido && plEmpresa < 0) {
+      errors.push({ field: "patrimonioLiquido", document: "balanco", message: `Patrimônio líquido negativo no balanço (${maisRecente.ano}): ${maisRecente.patrimonioLiquido}`, severity: "error" });
+    }
+    // Liquidez corrente < 1
+    const lc = parseFloat(maisRecente.liquidezCorrente?.replace(",", ".") || "0");
+    if (lc > 0 && lc < 1) {
+      warnings.push({ field: "liquidezCorrente", document: "balanco", message: `Liquidez corrente ${maisRecente.liquidezCorrente} (< 1.0) — passivo circulante supera ativo circulante`, severity: "warning" });
+    }
+  }
+
+  // DRE — prejuízo no exercício mais recente
+  if (data.dre?.anos && data.dre.anos.length > 0) {
+    const maisRecente = data.dre.anos[data.dre.anos.length - 1];
+    const lucro = parseFatVal(maisRecente.lucroLiquido);
+    if (maisRecente.lucroLiquido && lucro < 0) {
+      warnings.push({ field: "lucroLiquido", document: "dre", message: `Prejuízo líquido no exercício ${maisRecente.ano}: ${maisRecente.lucroLiquido}`, severity: "warning" });
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ALERTAS DE CONCENTRAÇÃO (risco de carteira)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  if (data.curvaABC) {
+    const pctTop1 = parseFloat(data.curvaABC.maiorClientePct?.replace(",", ".").replace("%", "") || "0");
+    if (pctTop1 > 30) {
+      warnings.push({ field: "concentracaoTop1", document: "curva_abc", message: `Maior cliente concentra ${data.curvaABC.maiorClientePct} da receita (${data.curvaABC.maiorCliente || "N/I"}) — risco de dependência`, severity: "warning" });
+    }
+    const pctTop3 = parseFloat(data.curvaABC.concentracaoTop3?.replace(",", ".").replace("%", "") || "0");
+    if (pctTop3 > 60) {
+      warnings.push({ field: "concentracaoTop3", document: "curva_abc", message: `Top 3 clientes concentram ${data.curvaABC.concentracaoTop3} da receita — alta dependência`, severity: "warning" });
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ALERTAS DE CRÉDITO (SCR / Endividamento)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  if (!scrVazio) {
+    const emAtraso = parseFatVal(data.scr.operacoesEmAtraso);
+    if (emAtraso > 0) {
+      warnings.push({ field: "operacoesEmAtraso", document: "scr", message: `Operações em atraso no SCR: R$ ${data.scr.operacoesEmAtraso}`, severity: "warning" });
+    }
+    const vencidas = parseFatVal(data.scr.operacoesVencidas || data.scr.vencidos);
+    if (vencidas > 0) {
+      warnings.push({ field: "vencidos", document: "scr", message: `Operações vencidas no SCR: R$ ${data.scr.vencidos || data.scr.operacoesVencidas}`, severity: "warning" });
+    }
+    const prejuizos = parseFatVal(data.scr.prejuizos);
+    if (prejuizos > 0) {
+      errors.push({ field: "prejuizos", document: "scr", message: `Prejuízos registrados no SCR: R$ ${data.scr.prejuizos}`, severity: "error" });
+    }
+    const qtdeInst = parseInt(data.scr.qtdeInstituicoes || "0", 10);
+    if (qtdeInst > 5) {
+      warnings.push({ field: "qtdeInstituicoes", document: "scr", message: `${qtdeInst} instituições financeiras — possível busca excessiva por crédito`, severity: "warning" });
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ALERTAS SOCIETÁRIOS (risco estrutural)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // Sócio com participação > 95%
+  if (sociosQSA.length > 0) {
+    for (const s of sociosQSA) {
+      const pctNum = parseFloat(s.participacao?.replace(",", ".").replace("%", "") || "0");
+      if (pctNum > 95) {
+        warnings.push({ field: "participacao", document: "qsa", message: `${s.nome}: participação de ${s.participacao} — empresa unipessoal de fato`, severity: "warning" });
+        break;
+      }
+    }
+  }
+
+  // Capital social muito baixo vs faturamento
+  const capitalStr = data.contrato.capitalSocial || data.cnpj.capitalSocialCNPJ || "";
+  const capitalVal = parseFatVal(capitalStr);
+  const fmmAnual = mediaNum * 12;
+  if (capitalVal > 0 && fmmAnual > 0 && capitalVal < fmmAnual * 0.01) {
+    warnings.push({ field: "capitalSocial", document: "contrato", message: `Capital social (${capitalStr}) inferior a 1% do faturamento anual — possível subcapitalização`, severity: "warning" });
+  }
+
+  // Divergência de sócios QSA vs Contrato
+  if (sociosQSA.length > 0 && sociosContrato.length > 0) {
+    const nomesQSA = new Set(sociosQSA.map(s => s.nome.toUpperCase().trim()));
+    const nomesContrato = new Set(sociosContrato.map(s => s.nome.toUpperCase().trim()));
+    const apenasQSA = sociosQSA.filter(s => !nomesContrato.has(s.nome.toUpperCase().trim()));
+    const apenasContrato = sociosContrato.filter(s => !nomesQSA.has(s.nome.toUpperCase().trim()));
+    if (apenasQSA.length > 0 || apenasContrato.length > 0) {
+      warnings.push({ field: "divergenciaSocios", document: "qsa", message: `Divergência no quadro societário: ${apenasQSA.length} sócio(s) só no QSA, ${apenasContrato.length} só no Contrato — verificar alteração contratual`, severity: "warning" });
+    }
+  }
+
+  // Grupo econômico com empresa em situação irregular
+  if (data.grupoEconomico?.empresas && data.grupoEconomico.empresas.length > 0) {
+    const irregulares = data.grupoEconomico.empresas.filter(e => e.situacao && !e.situacao.toUpperCase().includes("ATIVA"));
+    if (irregulares.length > 0) {
+      warnings.push({ field: "grupoIrregular", document: "grupo_economico", message: `${irregulares.length} empresa(s) do grupo econômico com situação irregular: ${irregulares.map(e => e.razaoSocial).join(", ")}`, severity: "warning" });
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ALERTAS DE PROCESSOS (risco jurídico)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  if (data.processos) {
+    // Processos bancários ativos
+    const bancarios = data.processos.bancarios?.filter(p => p.status?.toUpperCase().includes("ANDAMENTO")) || [];
+    if (bancarios.length > 0) {
+      warnings.push({ field: "processosBancarios", document: "processos", message: `${bancarios.length} processo(s) bancário(s) em andamento — indica inadimplência com instituições financeiras`, severity: "warning" });
+    }
+
+    // Valor total de processos vs faturamento
+    const valorEstimado = parseFatVal(data.processos.valorTotalEstimado);
+    if (valorEstimado > 0 && fmmAnual > 0 && valorEstimado > fmmAnual * 0.5) {
+      const pct = Math.round((valorEstimado / fmmAnual) * 100);
+      warnings.push({ field: "valorTotalEstimado", document: "processos", message: `Valor estimado de processos (R$ ${data.processos.valorTotalEstimado}) representa ${pct}% do faturamento anual — risco jurídico elevado`, severity: "warning" });
+    }
+
+    // Muitos processos passivos
+    const passivos = parseInt(data.processos.passivosTotal || data.processos.poloPassivoQtd || "0", 10) || 0;
+    if (passivos > 10) {
+      warnings.push({ field: "passivosTotal", document: "processos", message: `${passivos} processos no polo passivo — volume elevado`, severity: "warning" });
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ALERTAS DE PROTESTOS (valor vs faturamento)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  if (protestosQtd > 0 && mediaNum > 0) {
+    const protestosValor = parseFatVal(data.protestos?.vigentesValor || "0");
+    if (protestosValor > 0 && protestosValor > mediaNum * 0.1) {
+      const pct = Math.round((protestosValor / mediaNum) * 100);
+      warnings.push({ field: "protestosValor", document: "protestos", message: `Valor de protestos (R$ ${data.protestos?.vigentesValor}) = ${pct}% do faturamento mensal`, severity: "warning" });
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ALERTA DE VISITA
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  if (!data.relatorioVisita || (!data.relatorioVisita.dataVisita && !data.relatorioVisita.descricaoEstrutura)) {
+    warnings.push({ field: "relatorioVisita", document: "relatorio_visita", message: "Relatório de visita não enviado — recomendado para operações acima de R$ 100 mil", severity: "warning" });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // COBERTURA DE DADOS
+  // ═══════════════════════════════════════════════════════════════════════════
+
   let total = 0;
   let filled = 0;
   function countFields(obj: unknown) {
@@ -1195,7 +1470,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   // Sidebar nav items
   const navItems = [
     { id: "sec-00", icon: "00", label: "Sumário Executivo" },
-    { id: "sec-fs", icon: "FS", label: "Parâmetros do Fundo" },
+    { id: "sec-fs", icon: "FS", label: "Política do Fundo" },
     { id: "sec-05", icon: "05", label: "SCR / Bacen" },
     { id: "sec-07", icon: "07", label: "Processos Judiciais" },
     { id: "sec-op", icon: "OP", label: "Relatório de Visita" },
@@ -1269,7 +1544,15 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
               <KpiCard
                 label="Rating"
                 value={`${finalRating}/10`}
-                sub={finalRating >= 7 ? "Perfil saudável" : finalRating >= 4 ? "Atenção recomendada" : "Perfil crítico"}
+                sub={(() => {
+                  const conf = aiAnalysis?.ratingConfianca;
+                  const nivel = aiAnalysis?.nivelAnalise;
+                  if (conf != null) {
+                    const nivelLabel = nivel === "PRELIMINAR" ? "Preliminar" : nivel === "BASICO" ? "Básica" : nivel === "PADRAO" ? "Padrão" : nivel === "COMPLETO" ? "Completa" : "";
+                    return `${nivelLabel ? `${nivelLabel} · ` : ""}${conf}% confiança`;
+                  }
+                  return finalRating >= 7 ? "Perfil saudável" : finalRating >= 4 ? "Atenção recomendada" : "Perfil crítico";
+                })()}
                 variant={decision === "APROVADO" ? "success" : decision === "REPROVADO" ? "danger" : "warning"}
               />
               <KpiCard
@@ -1291,6 +1574,31 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
                 variant={data.processos && parseInt(data.processos.poloPassivoQtd || "0") > 0 ? "warning" : "default"}
               />
             </div>
+
+            {/* Banner de cobertura parcial */}
+            {aiAnalysis?.nivelAnalise && aiAnalysis.nivelAnalise !== "COMPLETO" && (
+              <div style={{
+                display: "flex", alignItems: "flex-start", gap: 10,
+                background: aiAnalysis.nivelAnalise === "PRELIMINAR" ? "#fff7ed" : aiAnalysis.nivelAnalise === "BASICO" ? "#fffbeb" : "#f0f9ff",
+                border: `1px solid ${aiAnalysis.nivelAnalise === "PRELIMINAR" ? "#fed7aa" : aiAnalysis.nivelAnalise === "BASICO" ? "#fde68a" : "#bae6fd"}`,
+                borderRadius: 10, padding: "10px 14px", marginTop: 4,
+              }}>
+                <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>
+                  {aiAnalysis.nivelAnalise === "PRELIMINAR" ? "⚠️" : aiAnalysis.nivelAnalise === "BASICO" ? "📋" : "📊"}
+                </span>
+                <div>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", margin: 0 }}>
+                    Análise {aiAnalysis.nivelAnalise === "PRELIMINAR" ? "Preliminar" : aiAnalysis.nivelAnalise === "BASICO" ? "Básica" : "Padrão"}
+                    {" "}· {aiAnalysis.ratingConfianca}% de confiança
+                  </p>
+                  {aiAnalysis.impactoDocsFaltantes && (
+                    <p style={{ fontSize: 11, color: "#64748b", margin: "2px 0 0" }}>
+                      {aiAnalysis.impactoDocsFaltantes as string}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Info row 1: Empresa, CNPJ, Situação, Idade, Sócios */}
             <div style={{ borderTop: "0.5px solid var(--ds-border-t)", paddingTop: 16 }}>
@@ -1549,7 +1857,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           badge="FS"
           badgeVariant="navy"
           sectionLabel="Critérios de Elegibilidade"
-          title="Parâmetros do Fundo"
+          title="Política do Fundo"
           headerRight={
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               {fundPresets.length > 0 && (

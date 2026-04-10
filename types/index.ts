@@ -685,6 +685,17 @@ export interface AIAnalysis {
     limiteCredito: string;
     numeroIfs: string;
   };
+  // Cobertura documental e confiança do rating
+  ratingConfianca?: number;
+  nivelAnalise?: "PRELIMINAR" | "BASICO" | "PADRAO" | "COMPLETO";
+  impactoDocsFaltantes?: string;
+  coberturaDocumental?: {
+    cobertura: number;
+    nivel: string;
+    docsPresentes: string[];
+    docsFaltantes: string[];
+    confiancaBase: number;
+  };
   // campos top-level para backward compat
   resumoExecutivo?: string;
   pontosFortes?: string[];

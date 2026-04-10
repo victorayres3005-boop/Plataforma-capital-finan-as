@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { FundSettings, ExtractedData } from "@/types";
 import { DEFAULT_FUND_SETTINGS } from "@/types";
-import { calcularCobertura } from "@/lib/generators/helpers";
+
 import { createClient } from "@supabase/supabase-js";
 import { generateEmbedding, buildEmbeddingText } from "@/lib/embeddings";
 
@@ -250,6 +250,9 @@ Retorne APENAS um JSON válido com esta estrutura exata:
 {
   "rating": 0.0,
   "ratingMax": 10,
+  "ratingConfianca": 80,
+  "nivelAnalise": "PRELIMINAR | BASICO | PADRAO | COMPLETO",
+  "impactoDocsFaltantes": "",
   "decisao": "APROVADO | APROVACAO_CONDICIONAL | PENDENTE | REPROVADO",
   "alertas": [
     {
@@ -456,7 +459,127 @@ revisao:
 baseCalculo: descreva resumidamente o raciocínio do limite (ex: "FMM de R$ X × 0,6 pelo score de Y/10 com Z alertas [ALTA]")
 
 NÃO recalcule os indicadores já fornecidos no início do prompt. Use os valores pré-calculados.
-NÃO invente dados. Se ausente: "—" e alerta DADOS_PARCIAIS quando relevante.`;
+NÃO invente dados. Se ausente: "—" e alerta DADOS_PARCIAIS quando relevante.
+
+=== ANÁLISE COM DOCUMENTAÇÃO PARCIAL ===
+
+Você receberá um bloco "COBERTURA DOCUMENTAL" indicando quais documentos estão disponíveis, o nível de análise e a confiança base. Siga estas regras por nível:
+
+NÍVEL PRELIMINAR (cobertura < 45%) — apenas bureaus e CNPJ:
+- Base da análise: dados de bureau (Serasa, SCR, CreditHub) + informações cadastrais
+- O SCR e o score de bureau são os principais indicadores de risco
+- Gere rating entre 3.0 e 7.5 (nunca acima de 7.5 sem dados financeiros próprios)
+- ratingConfianca deve refletir a limitação: máximo 55%
+- Seja explícito no resumoExecutivo: "Análise baseada exclusivamente em dados de bureau"
+- impactoDocsFaltantes: liste os documentos que mais aumentariam a confiança
+
+NÍVEL BÁSICO (cobertura 45–65%) — CNPJ + SCR + Faturamento:
+- Base: faturamento real + histórico bancário
+- FMM 12M é o principal indicador de capacidade operacional
+- Alavancagem SCR vs FMM é o principal indicador de risco
+- ratingConfianca: 55–72%
+- Gere rating completo mas destaque limitações no textoCompleto
+
+NÍVEL PADRÃO (cobertura 65–85%) — inclui DRE ou Balanço:
+- Análise financeira estruturada possível
+- Cruze DRE (se disponível) com SCR e Faturamento
+- ratingConfianca: 72–88%
+- Gere análise normal com nota sobre docs faltantes
+
+NÍVEL COMPLETO (cobertura > 85%) — documentação plena:
+- Análise sem restrições
+- ratingConfianca: 88–100%
+- Comportamento padrão
+
+COMPENSAÇÕES quando docs financeiros estão ausentes:
+- Sem DRE → use FMM 12M como proxy de receita; alavancagem SCR como proxy de endividamento
+- Sem Balanço → use histórico SCR (vencidos, prejuízos) como proxy de liquidez
+- Sem IR dos Sócios → use score bureau dos sócios (se disponível) como proxy patrimonial
+- Sem Curva ABC → use concentração SCR como proxy de diversificação
+
+Adicione ao JSON de resposta:
+"ratingConfianca": número inteiro 0-100 (confiança do rating dado a documentação disponível),
+"nivelAnalise": "PRELIMINAR" | "BASICO" | "PADRAO" | "COMPLETO",
+"impactoDocsFaltantes": string descrevendo quais docs faltantes teriam maior impacto e quanto aumentariam a confiança`;
+
+// ─────────────────────────────────────────
+// Calculadora de cobertura documental
+// Facilmente ajustável: altere os pesos conforme necessidade
+// ─────────────────────────────────────────
+const DOC_WEIGHTS: Record<string, number> = {
+  cnpj:             15,  // obrigatório
+  scr:              25,  // essencial
+  faturamento:      20,  // essencial
+  dre:              15,  // complementar
+  balanco:          10,  // complementar
+  irSocios:          8,  // complementar
+  curvaABC:          4,  // diferencial
+  relatorio_visita:  3,  // diferencial
+};
+
+type CoberturaResult = {
+  cobertura: number;           // 0–100
+  nivel: "PRELIMINAR" | "BASICO" | "PADRAO" | "COMPLETO";
+  docsPresentes: string[];
+  docsFaltantes: string[];
+  confiancaBase: number;       // 0–100
+};
+
+function calcularCobertura(data: Record<string, unknown>): CoberturaResult {
+  const docsPresentes: string[] = [];
+  const docsFaltantes: string[] = [];
+  let pesoTotal = 0;
+  let pesoPresente = 0;
+
+  for (const [doc, peso] of Object.entries(DOC_WEIGHTS)) {
+    pesoTotal += peso;
+    const val = data[doc];
+    // Considera presente se tem dados extraídos e não é só erro de IA
+    const temDados = val && typeof val === "object" &&
+      !(val as Record<string, unknown>).aiError &&
+      Object.values(val as Record<string, unknown>).some(v => v !== null && v !== "" && v !== undefined);
+
+    if (temDados) {
+      docsPresentes.push(doc);
+      pesoPresente += peso;
+    } else {
+      docsFaltantes.push(doc);
+    }
+  }
+
+  const cobertura = Math.round((pesoPresente / pesoTotal) * 100);
+  const nivel: CoberturaResult["nivel"] =
+    cobertura < 45 ? "PRELIMINAR" :
+    cobertura < 65 ? "BASICO" :
+    cobertura < 85 ? "PADRAO" : "COMPLETO";
+
+  // Confiança base: cobertura ponderada com teto por nível
+  const confiancaBase =
+    nivel === "PRELIMINAR" ? Math.min(55, Math.round(cobertura * 1.1)) :
+    nivel === "BASICO"     ? Math.min(72, Math.round(40 + cobertura * 0.5)) :
+    nivel === "PADRAO"     ? Math.min(88, Math.round(55 + cobertura * 0.4)) :
+    Math.min(100, Math.round(70 + cobertura * 0.3));
+
+  return { cobertura, nivel, docsPresentes, docsFaltantes, confiancaBase };
+}
+
+const DOC_LABELS: Record<string, string> = {
+  cnpj: "Cartão CNPJ", scr: "SCR/Bacen", faturamento: "Extrato de Faturamento",
+  dre: "DRE", balanco: "Balanço Patrimonial", irSocios: "IR dos Sócios",
+  curvaABC: "Curva ABC de Clientes", relatorio_visita: "Relatório de Visita",
+};
+
+function buildCoberturaBlock(cob: CoberturaResult): string {
+  const presentesStr = cob.docsPresentes.map(d => DOC_LABELS[d] ?? d).join(", ") || "Nenhum";
+  const faltantesStr = cob.docsFaltantes.map(d => DOC_LABELS[d] ?? d).join(", ") || "Nenhum";
+  return `\n\n--- COBERTURA DOCUMENTAL ---
+Nível de análise: ${cob.nivel}
+Cobertura: ${cob.cobertura}% (${cob.docsPresentes.length}/${Object.keys(DOC_WEIGHTS).length} documentos)
+Confiança base: ${cob.confiancaBase}%
+Documentos disponíveis: ${presentesStr}
+Documentos ausentes: ${faltantesStr}
+--- FIM COBERTURA ---\n`;
+}
 
 // ─────────────────────────────────────────
 // Few-shot: calibração do rating via histórico do comitê
@@ -1128,14 +1251,18 @@ Dívida total SCR: R$ ${_alav.totalDivida.toLocaleString("pt-BR", { minimumFract
             .replace(/`ALAV_SAUDAVEL`/g, String(_settings.alavancagem_saudavel))
             .replace(/`ALAV_MAXIMA`/g, String(_settings.alavancagem_maxima));
 
+          // Cobertura documental — informa a IA sobre o que está disponível
+          const cobertura = calcularCobertura(_body.data as Record<string, unknown>);
+          const coberturaBlock = buildCoberturaBlock(cobertura);
+          console.log(`[analyze] Cobertura: ${cobertura.cobertura}% | Nível: ${cobertura.nivel} | Confiança base: ${cobertura.confiancaBase}%`);
+
           // Fase 1+2: injeta exemplos do comitê (vetorial se possível, divergência como fallback)
           const userId = _body.user_id as string | undefined;
-          // Snapshot parcial da empresa atual para busca vetorial (sem rating, pois ainda não foi gerado)
           const currentSnapshot: Record<string, unknown> = {
             indicadores: { idadeEmpresa: String(_preReq.idadeAnos) + " anos", alavancagem: alav.label },
           };
           const fewShotBlock = userId ? await getFewShotExamples(userId, currentSnapshot) : "";
-          const dynamicPrompt = fewShotBlock ? basePrompt + fewShotBlock : basePrompt;
+          const dynamicPrompt = basePrompt + coberturaBlock + (fewShotBlock || "");
 
           const sintesePrompt = PROMPT_SINTESE(_body.data as ExtractedData, _settings, _preReq);
 
@@ -1181,8 +1308,18 @@ Dívida total SCR: R$ ${_alav.totalDivida.toLocaleString("pt-BR", { minimumFract
           });
           analysis.alertas = [..._alertas, ...alertasIA];
 
-          // Cobertura determinística
-          analysis.coberturaAnalise = calcularCobertura(_body.data as ExtractedData);
+          // Cobertura determinística — sobrescreve com valores calculados (mais confiável que a IA)
+          analysis.nivelAnalise    = cobertura.nivel;
+          analysis.ratingConfianca = analysis.ratingConfianca
+            ? Math.min(cobertura.confiancaBase + 5, Math.max(cobertura.confiancaBase - 5, Number(analysis.ratingConfianca)))
+            : cobertura.confiancaBase;
+          analysis.coberturaDocumental = {
+            cobertura:       cobertura.cobertura,
+            nivel:           cobertura.nivel,
+            docsPresentes:   cobertura.docsPresentes,
+            docsFaltantes:   cobertura.docsFaltantes,
+            confiancaBase:   cobertura.confiancaBase,
+          };
 
           // ── Cap de decisão por cobertura (segurança do analista) ──
           // SCR ausente: não pode aprovar sem saber o endividamento bancário
