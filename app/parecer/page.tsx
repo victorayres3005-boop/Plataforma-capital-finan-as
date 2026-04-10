@@ -449,58 +449,87 @@ function ParecerContent() {
           </div>
         </div>
 
-        {/* ── Rating do Analista ── */}
+        {/* ── Rating do Comitê ── */}
         <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "24px", marginBottom: 20 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, gap: 16, flexWrap: "wrap" }}>
             <div>
               <p style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.1em", margin: 0 }}>
-                Rating do Analista
+                Rating do Comitê
               </p>
-              <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>
-                {collection.rating != null ? `IA sugeriu: ${collection.rating.toFixed(1)}/10` : "IA não gerou rating"}
+              <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 4, maxWidth: 420 }}>
+                Definido manualmente pelo comitê — este valor vai para o dashboard e histórico.
+                {collection.rating != null && (
+                  <span style={{ color: "#cbd5e1" }}> IA gerou {collection.rating.toFixed(1)}/10 apenas como referência.</span>
+                )}
               </p>
             </div>
             {ratingAnalista != null && (
               <div style={{
                 background: ratingAnalista >= 7 ? "#f0fdf4" : ratingAnalista >= 4 ? "#fffbeb" : "#fff1f2",
-                border: `1px solid ${ratingAnalista >= 7 ? "#86efac" : ratingAnalista >= 4 ? "#fcd34d" : "#fca5a5"}`,
-                borderRadius: 12, padding: "8px 16px", textAlign: "center",
+                border: `2px solid ${ratingAnalista >= 7 ? "#86efac" : ratingAnalista >= 4 ? "#fcd34d" : "#fca5a5"}`,
+                borderRadius: 14, padding: "10px 20px", textAlign: "center", flexShrink: 0,
               }}>
-                <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", margin: 0, color: ratingAnalista >= 7 ? "#16a34a" : ratingAnalista >= 4 ? "#d97706" : "#dc2626" }}>Rating</p>
-                <p style={{ fontSize: 24, fontWeight: 800, margin: 0, lineHeight: 1.2, color: ratingAnalista >= 7 ? "#16a34a" : ratingAnalista >= 4 ? "#d97706" : "#dc2626" }}>
-                  {ratingAnalista}<span style={{ fontSize: 12, fontWeight: 500 }}>/10</span>
+                <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", margin: 0, color: ratingAnalista >= 7 ? "#16a34a" : ratingAnalista >= 4 ? "#d97706" : "#dc2626" }}>Comitê</p>
+                <p style={{ fontSize: 28, fontWeight: 900, margin: 0, lineHeight: 1.1, color: ratingAnalista >= 7 ? "#16a34a" : ratingAnalista >= 4 ? "#d97706" : "#dc2626" }}>
+                  {ratingAnalista.toFixed(1)}<span style={{ fontSize: 13, fontWeight: 500 }}>/10</span>
                 </p>
               </div>
             )}
           </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+
+          {/* Atalhos por inteiro */}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
             {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => {
-              const selected = ratingAnalista === n;
+              const active = ratingAnalista != null && Math.floor(ratingAnalista) === n && ratingAnalista % 1 === 0;
+              const inRange = ratingAnalista != null && ratingAnalista >= n && ratingAnalista < n + 1;
               const color = n >= 7 ? "#16a34a" : n >= 4 ? "#d97706" : "#dc2626";
               const lightBg = n >= 7 ? "#f0fdf4" : n >= 4 ? "#fffbeb" : "#fff1f2";
               return (
-                <button
-                  key={n}
-                  onClick={() => setRatingAnalista(selected ? null : n)}
+                <button key={n} onClick={() => setRatingAnalista(active ? null : n)}
                   style={{
                     width: 44, height: 44, borderRadius: 10, fontSize: 15, fontWeight: 700,
-                    border: selected ? `2px solid ${color}` : "1.5px solid #e5e7eb",
-                    background: selected ? lightBg : "#fafafa",
-                    color: selected ? color : "#64748b",
+                    border: (active || inRange) ? `2px solid ${color}` : "1.5px solid #e5e7eb",
+                    background: (active || inRange) ? lightBg : "#fafafa",
+                    color: (active || inRange) ? color : "#64748b",
                     cursor: "pointer", transition: "all 0.12s",
-                    boxShadow: selected ? `0 0 0 3px ${color}18` : "none",
+                    boxShadow: active ? `0 0 0 3px ${color}18` : "none",
                   }}
-                  onMouseEnter={e => { if (!selected) { (e.currentTarget as HTMLElement).style.borderColor = color; (e.currentTarget as HTMLElement).style.color = color; } }}
-                  onMouseLeave={e => { if (!selected) { (e.currentTarget as HTMLElement).style.borderColor = "#e5e7eb"; (e.currentTarget as HTMLElement).style.color = "#64748b"; } }}
-                >
-                  {n}
-                </button>
+                  onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLElement).style.borderColor = color; (e.currentTarget as HTMLElement).style.color = color; } }}
+                  onMouseLeave={e => { if (!active) { (e.currentTarget as HTMLElement).style.borderColor = (active || inRange) ? color : "#e5e7eb"; (e.currentTarget as HTMLElement).style.color = (active || inRange) ? color : "#64748b"; } }}
+                >{n}</button>
               );
             })}
           </div>
-          <p style={{ fontSize: 11, color: "#cbd5e1", marginTop: 10, fontStyle: "italic" }}>
-            Clique novamente no número selecionado para desmarcar
-          </p>
+
+          {/* Input decimal preciso */}
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Valor exato (decimal)
+              </label>
+              <input
+                type="number" min="0" max="10" step="0.1"
+                value={ratingAnalista ?? ""}
+                onChange={e => {
+                  const v = parseFloat(e.target.value);
+                  if (e.target.value === "") { setRatingAnalista(null); return; }
+                  if (!isNaN(v) && v >= 0 && v <= 10) setRatingAnalista(Math.round(v * 10) / 10);
+                }}
+                placeholder="ex: 7.5"
+                style={{
+                  width: 120, padding: "9px 12px", fontSize: 16, fontWeight: 700,
+                  border: "1.5px solid #e2e8f0", borderRadius: 10, outline: "none",
+                  color: ratingAnalista != null ? (ratingAnalista >= 7 ? "#16a34a" : ratingAnalista >= 4 ? "#d97706" : "#dc2626") : "#94a3b8",
+                  background: "#fafafa", textAlign: "center",
+                }}
+                onFocus={e => (e.target.style.borderColor = "#203b88")}
+                onBlur={e => (e.target.style.borderColor = "#e2e8f0")}
+              />
+            </div>
+            <p style={{ fontSize: 11, color: "#cbd5e1", marginTop: 18, fontStyle: "italic" }}>
+              Use os botões para seleção rápida ou digite o decimal exato
+            </p>
+          </div>
         </div>
 
         {/* ── Parâmetros Operacionais + Decisão do Comitê ── */}
