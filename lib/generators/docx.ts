@@ -21,7 +21,7 @@ export interface DOCXReportParams {
 
 function parseMoneyToNumber(val: string): number {
   if (!val) return 0;
-  return parseFloat(val.replace(/./g, "").replace(",", ".")) || 0;
+  return parseFloat(val.replace(/\./g, "").replace(",", ".")) || 0;
 }
 
 export async function buildDOCXReport(p: DOCXReportParams): Promise<Blob> {

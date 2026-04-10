@@ -79,7 +79,8 @@ function LoginContent() {
     if (!validateEmail()) return;
     await withMinDelay(async () => {
       const supabase = createClient();
-      await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/auth/confirm?next=/perfil` });
+      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/auth/confirm?next=/perfil` });
+      if (error) { toast.error("Erro ao enviar email. Tente novamente."); return; }
       // Mensagem genérica — nunca confirma se o email existe
       toast.success("Se este email estiver cadastrado, você receberá as instruções em breve.");
       setMode("login");

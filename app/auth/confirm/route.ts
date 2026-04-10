@@ -41,7 +41,11 @@ export async function GET(request: NextRequest) {
     console.error("[auth/confirm] OTP verification failed:", error.message);
   }
 
-  // Fallback — redirect to login with success message
-  // (even if verification failed, the link may have already been used)
-  return NextResponse.redirect(`${origin}/login?message=Email+confirmado+com+sucesso`);
+  // Fallback — redirect to login with appropriate message
+  const safeNext = next.startsWith("/") && !next.startsWith("//") ? next : "/";
+  if (token_hash && type) {
+    // OTP verification was attempted but failed
+    return NextResponse.redirect(`${origin}/login?message=Link+expirado+ou+ja+utilizado.+Tente+novamente.&type=error`);
+  }
+  return NextResponse.redirect(`${origin}${safeNext}`);
 }

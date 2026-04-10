@@ -170,7 +170,7 @@ export default function ConfiguracoesPage() {
         setIsNew(false);
         toast.success("Perfil criado!");
       } else {
-        const { error } = await supabase.from("fund_presets").update(payload).eq("id", selectedId!);
+        const { error } = await supabase.from("fund_presets").update(payload).eq("id", selectedId!).eq("user_id", user!.id);
         if (error) throw error;
         setPresets(prev => prev.map(p => p.id === selectedId ? { ...p, ...payload, id: p.id, description: payload.description ?? undefined } : p));
         setEditing(prev => ({ ...prev, ...payload, description: payload.description ?? undefined }));
@@ -213,7 +213,8 @@ export default function ConfiguracoesPage() {
     setDeleting(true);
     try {
       const supabase = createClient();
-      await supabase.from("fund_presets").delete().eq("id", selectedId);
+      const { error } = await supabase.from("fund_presets").delete().eq("id", selectedId).eq("user_id", user!.id);
+      if (error) throw error;
       const updated = presets.filter(p => p.id !== selectedId);
       setPresets(updated);
       if (activePresetId === selectedId) setActivePresetId(null);

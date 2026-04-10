@@ -7,6 +7,7 @@ import { DocumentCollection } from "@/types";
 import {
   ArrowLeft, CheckCircle2, Clock, XCircle, AlertTriangle,
   Loader2, Building2, DollarSign, Calendar, Users, Shield, RefreshCw, FileText,
+  Percent, TrendingUp, Landmark, Package, Send,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Toaster } from "sonner";
@@ -135,14 +136,35 @@ function ParecerContent() {
   const [loading, setLoading] = useState(true);
   const [collection, setCollection] = useState<DocumentCollection | null>(null);
   const [decisao, setDecisao] = useState<DecisaoValue | null>(null);
+  const [ratingAnalista, setRatingAnalista] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
 
   const [limiteCredito, setLimiteCredito] = useState("");
-  const [prazoMaximo, setPrazoMaximo] = useState("");
   const [concentracao, setConcentracao] = useState("");
   const [garantias, setGarantias] = useState("");
   const [prazoRevisao, setPrazoRevisao] = useState("");
   const [notas, setNotas] = useState("");
+
+  // Taxas
+  const [taxaConvencional, setTaxaConvencional] = useState("");
+  const [taxaComissaria, setTaxaComissaria] = useState("");
+  const [tac, setTac] = useState("0,3%");
+
+  // Limites
+  const [limiteTotal, setLimiteTotal] = useState("");
+  const [limiteConvencional, setLimiteConvencional] = useState("");
+  const [limiteComissaria, setLimiteComissaria] = useState("");
+  const [limitePorSacados, setLimitePorSacados] = useState("");
+  const [ticketMedio, setTicketMedio] = useState("");
+
+  // Condições de cobrança
+  const [prazoRecompra, setPrazoRecompra] = useState("3 dias");
+  const [prazoCartorio, setPrazoCartorio] = useState("5 dias");
+
+  // Prazos e Tranche
+  const [prazoMaximo, setPrazoMaximo] = useState("120 dias");
+  const [trancheValor, setTrancheValor] = useState("R$ 300.000,00");
+  const [tranchePrazo, setTranchePrazo] = useState("7 dias");
 
   useEffect(() => {
     if (!id) { setLoading(false); return; }
@@ -161,15 +183,39 @@ function ParecerContent() {
         if (data.observacoes) setNotas(data.observacoes);
 
         const ai = data.ai_analysis as Record<string, unknown> | null;
-        const analista = ai?.parecerAnalista as Record<string, string> | null;
-        const aiParams = ai?.parametrosOperacionais as Record<string, string> | null;
-        const src = analista ?? aiParams ?? {};
+        const analista = ai?.parecerAnalista as Record<string, unknown> | null;
 
-        if (src.limiteCredito || src.limiteAproximado) setLimiteCredito(src.limiteCredito || src.limiteAproximado || "");
-        if (src.prazoMaximo) setPrazoMaximo(src.prazoMaximo);
-        if (src.concentracaoSacado) setConcentracao(src.concentracaoSacado);
-        if (src.garantias) setGarantias(src.garantias);
-        if (src.prazoRevisao || src.revisao) setPrazoRevisao(src.prazoRevisao || src.revisao || "");
+        // Rating: prioriza o valor salvo pelo analista no parecerAnalista, depois a coluna denormalizada
+        if (analista?.ratingAnalista != null) {
+          setRatingAnalista(Number(analista.ratingAnalista));
+        } else if (data.rating != null) {
+          setRatingAnalista(Math.round(data.rating));
+        }
+        const aiParams = ai?.parametrosOperacionais as Record<string, unknown> | null;
+        const src = (analista ?? aiParams ?? {}) as Record<string, unknown>;
+        const s = (k: string) => (src[k] as string) || "";
+
+        if (s("limiteCredito") || s("limiteAproximado")) setLimiteCredito(s("limiteCredito") || s("limiteAproximado"));
+        if (s("concentracaoSacado")) setConcentracao(s("concentracaoSacado"));
+        if (s("garantias")) setGarantias(s("garantias"));
+        if (s("prazoRevisao") || s("revisao")) setPrazoRevisao(s("prazoRevisao") || s("revisao"));
+        // Taxas
+        if (s("taxaConvencional")) setTaxaConvencional(s("taxaConvencional"));
+        if (s("taxaComissaria")) setTaxaComissaria(s("taxaComissaria"));
+        if (s("tac")) setTac(s("tac"));
+        // Limites
+        if (s("limiteTotal")) setLimiteTotal(s("limiteTotal"));
+        if (s("limiteConvencional")) setLimiteConvencional(s("limiteConvencional"));
+        if (s("limiteComissaria")) setLimiteComissaria(s("limiteComissaria"));
+        if (s("limitePorSacados")) setLimitePorSacados(s("limitePorSacados"));
+        if (s("ticketMedio")) setTicketMedio(s("ticketMedio"));
+        // Condições de cobrança
+        if (s("prazoRecompra")) setPrazoRecompra(s("prazoRecompra"));
+        if (s("prazoCartorio")) setPrazoCartorio(s("prazoCartorio"));
+        // Prazos e Tranche
+        if (s("prazoMaximo")) setPrazoMaximo(s("prazoMaximo"));
+        if (s("trancheValor")) setTrancheValor(s("trancheValor"));
+        if (s("tranchePrazo")) setTranchePrazo(s("tranchePrazo"));
       } catch {
         toast.error("Erro ao carregar dados da coleta.");
       } finally {
@@ -184,22 +230,44 @@ function ParecerContent() {
     setSaving(true);
     try {
       const supabase = createClient();
+      // Verificação de propriedade: garante que o update só afeta coletas do próprio usuário
+      const { data: session } = await supabase.auth.getUser();
+      if (!session.user) { toast.error("Sessão expirada. Faça login novamente."); return; }
       const existingAi = (collection.ai_analysis as Record<string, unknown>) || {};
       const parecerAnalista = {
+        // Crédito e garantias
         limiteCredito: limiteCredito.trim() || null,
-        prazoMaximo: prazoMaximo.trim() || null,
         concentracaoSacado: concentracao.trim() || null,
         garantias: garantias.trim() || null,
         prazoRevisao: prazoRevisao.trim() || null,
+        // Taxas
+        taxaConvencional: taxaConvencional.trim() || null,
+        taxaComissaria: taxaComissaria.trim() || null,
+        tac: tac.trim() || null,
+        // Limites
+        limiteTotal: limiteTotal.trim() || null,
+        limiteConvencional: limiteConvencional.trim() || null,
+        limiteComissaria: limiteComissaria.trim() || null,
+        limitePorSacados: limitePorSacados.trim() || null,
+        ticketMedio: ticketMedio.trim() || null,
+        // Condições de cobrança
+        prazoRecompra: prazoRecompra.trim() || null,
+        prazoCartorio: prazoCartorio.trim() || null,
+        // Prazos e Tranche
+        prazoMaximo: prazoMaximo.trim() || null,
+        trancheValor: trancheValor.trim() || null,
+        tranchePrazo: tranchePrazo.trim() || null,
+        ratingAnalista: ratingAnalista ?? null,
         decidedAt: new Date().toISOString(),
       };
       const { error } = await supabase.from("document_collections").update({
         status: "finished",
         finished_at: new Date().toISOString(),
         decisao,
+        rating: ratingAnalista ?? collection.rating ?? null,
         observacoes: notas.trim() || null,
         ai_analysis: { ...existingAi, parecerAnalista },
-      }).eq("id", id);
+      }).eq("id", id).eq("user_id", session.user.id);
       if (error) throw error;
       toast.success("Parecer registrado com sucesso!");
       setTimeout(() => { window.location.href = `/historico?highlight=${id}`; }, 800);
@@ -213,9 +281,10 @@ function ParecerContent() {
   // ── Derived ──
   const showParams = decisao === "APROVADO" || decisao === "APROVACAO_CONDICIONAL";
   const selectedD = DECISOES.find(d => d.value === decisao);
-  const rating = collection?.rating ?? null;
+  const rating = ratingAnalista ?? collection?.rating ?? null;
   const ratingColor = rating != null ? (rating >= 7 ? "#16a34a" : rating >= 4 ? "#d97706" : "#dc2626") : "#94a3b8";
   const ratingBg = rating != null ? (rating >= 7 ? "#f0fdf4" : rating >= 4 ? "#fffbeb" : "#fff1f2") : "#f8fafc";
+  const ratingIsAnalista = ratingAnalista != null;
   const companyName = collection?.company_name || collection?.label || "Empresa";
   const cnpj = collection?.cnpj || "—";
 
@@ -288,7 +357,7 @@ function ParecerContent() {
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             {rating != null && (
               <div style={{ background: ratingBg, border: `1px solid ${ratingColor}22`, borderRadius: 10, padding: "6px 14px", textAlign: "center" }}>
-                <p style={{ fontSize: 10, fontWeight: 700, color: ratingColor, textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>Rating IA</p>
+                <p style={{ fontSize: 10, fontWeight: 700, color: ratingColor, textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>{ratingIsAnalista ? "Rating Analista" : "Rating IA"}</p>
                 <p style={{ fontSize: 20, fontWeight: 800, color: ratingColor, margin: 0, lineHeight: 1.2 }}>{rating.toFixed(1)}<span style={{ fontSize: 11, fontWeight: 500 }}>/10</span></p>
               </div>
             )}
@@ -347,10 +416,64 @@ function ParecerContent() {
           </div>
         </div>
 
+        {/* ── Rating do Analista ── */}
+        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "24px", marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+            <div>
+              <p style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.1em", margin: 0 }}>
+                Rating do Analista
+              </p>
+              <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>
+                {collection.rating != null ? `IA sugeriu: ${collection.rating.toFixed(1)}/10` : "IA não gerou rating"}
+              </p>
+            </div>
+            {ratingAnalista != null && (
+              <div style={{
+                background: ratingAnalista >= 7 ? "#f0fdf4" : ratingAnalista >= 4 ? "#fffbeb" : "#fff1f2",
+                border: `1px solid ${ratingAnalista >= 7 ? "#86efac" : ratingAnalista >= 4 ? "#fcd34d" : "#fca5a5"}`,
+                borderRadius: 12, padding: "8px 16px", textAlign: "center",
+              }}>
+                <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", margin: 0, color: ratingAnalista >= 7 ? "#16a34a" : ratingAnalista >= 4 ? "#d97706" : "#dc2626" }}>Rating</p>
+                <p style={{ fontSize: 24, fontWeight: 800, margin: 0, lineHeight: 1.2, color: ratingAnalista >= 7 ? "#16a34a" : ratingAnalista >= 4 ? "#d97706" : "#dc2626" }}>
+                  {ratingAnalista}<span style={{ fontSize: 12, fontWeight: 500 }}>/10</span>
+                </p>
+              </div>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => {
+              const selected = ratingAnalista === n;
+              const color = n >= 7 ? "#16a34a" : n >= 4 ? "#d97706" : "#dc2626";
+              const lightBg = n >= 7 ? "#f0fdf4" : n >= 4 ? "#fffbeb" : "#fff1f2";
+              return (
+                <button
+                  key={n}
+                  onClick={() => setRatingAnalista(selected ? null : n)}
+                  style={{
+                    width: 44, height: 44, borderRadius: 10, fontSize: 15, fontWeight: 700,
+                    border: selected ? `2px solid ${color}` : "1.5px solid #e5e7eb",
+                    background: selected ? lightBg : "#fafafa",
+                    color: selected ? color : "#64748b",
+                    cursor: "pointer", transition: "all 0.12s",
+                    boxShadow: selected ? `0 0 0 3px ${color}18` : "none",
+                  }}
+                  onMouseEnter={e => { if (!selected) { (e.currentTarget as HTMLElement).style.borderColor = color; (e.currentTarget as HTMLElement).style.color = color; } }}
+                  onMouseLeave={e => { if (!selected) { (e.currentTarget as HTMLElement).style.borderColor = "#e5e7eb"; (e.currentTarget as HTMLElement).style.color = "#64748b"; } }}
+                >
+                  {n}
+                </button>
+              );
+            })}
+          </div>
+          <p style={{ fontSize: 11, color: "#cbd5e1", marginTop: 10, fontStyle: "italic" }}>
+            Clique novamente no número selecionado para desmarcar
+          </p>
+        </div>
+
         {/* ── Operational parameters ── */}
         {showParams && (
           <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "24px", marginBottom: 20 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 24 }}>
               <p style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.1em", margin: 0 }}>
                 Parâmetros Operacionais
               </p>
@@ -360,7 +483,10 @@ function ParecerContent() {
                 </span>
               )}
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+
+            {/* Crédito e Garantias */}
+            <p style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 12px" }}>Crédito e Garantias</p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 24 }}>
               <InputField
                 label="Limite de Crédito"
                 value={limiteCredito}
@@ -368,13 +494,6 @@ function ParecerContent() {
                 placeholder="ex: R$ 150.000"
                 icon={DollarSign}
                 hint="Sugestão IA pré-preenchida"
-              />
-              <InputField
-                label="Prazo Máximo"
-                value={prazoMaximo}
-                onChange={setPrazoMaximo}
-                placeholder="ex: 90 dias"
-                icon={Calendar}
               />
               <InputField
                 label="Concentração por Sacado"
@@ -396,6 +515,117 @@ function ParecerContent() {
                 onChange={setPrazoRevisao}
                 placeholder="ex: 180 dias"
                 icon={RefreshCw}
+              />
+            </div>
+
+            {/* Taxas */}
+            <p style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 12px" }}>Taxas</p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 24 }}>
+              <InputField
+                label="Taxa Convencional"
+                value={taxaConvencional}
+                onChange={setTaxaConvencional}
+                placeholder="ex: 2,5% a.m."
+                icon={Percent}
+              />
+              <InputField
+                label="Taxa Comissária"
+                value={taxaComissaria}
+                onChange={setTaxaComissaria}
+                placeholder="ex: 1,8% a.m."
+                icon={Percent}
+              />
+              <InputField
+                label="Cobrança de TAC"
+                value={tac}
+                onChange={setTac}
+                placeholder="ex: 0,3%"
+                icon={TrendingUp}
+              />
+            </div>
+
+            {/* Limites */}
+            <p style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 12px" }}>Limites</p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 24 }}>
+              <InputField
+                label="Limite Total"
+                value={limiteTotal}
+                onChange={setLimiteTotal}
+                placeholder="ex: R$ 500.000"
+                icon={Landmark}
+              />
+              <InputField
+                label="Limite Convencional"
+                value={limiteConvencional}
+                onChange={setLimiteConvencional}
+                placeholder="ex: R$ 300.000"
+                icon={Landmark}
+              />
+              <InputField
+                label="Limite Comissária"
+                value={limiteComissaria}
+                onChange={setLimiteComissaria}
+                placeholder="ex: R$ 200.000"
+                icon={Landmark}
+              />
+              <InputField
+                label="Limite por Sacados"
+                value={limitePorSacados}
+                onChange={setLimitePorSacados}
+                placeholder="ex: R$ 50.000"
+                icon={Users}
+              />
+              <InputField
+                label="Ticket Médio"
+                value={ticketMedio}
+                onChange={setTicketMedio}
+                placeholder="ex: R$ 15.000"
+                icon={TrendingUp}
+              />
+            </div>
+
+            {/* Condições de Cobrança */}
+            <p style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 12px" }}>Condições de Cobrança</p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 24 }}>
+              <InputField
+                label="Prazo de Recompra do Cedente"
+                value={prazoRecompra}
+                onChange={setPrazoRecompra}
+                placeholder="ex: 3 dias"
+                icon={RefreshCw}
+              />
+              <InputField
+                label="Envio para Cartório em"
+                value={prazoCartorio}
+                onChange={setPrazoCartorio}
+                placeholder="ex: 5 dias"
+                icon={Send}
+              />
+            </div>
+
+            {/* Prazos e Tranche */}
+            <p style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 12px" }}>Prazos e Tranche</p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
+              <InputField
+                label="Prazo Máximo"
+                value={prazoMaximo}
+                onChange={setPrazoMaximo}
+                placeholder="ex: 120 dias"
+                icon={Calendar}
+              />
+              <InputField
+                label="Tranche em R$"
+                value={trancheValor}
+                onChange={setTrancheValor}
+                placeholder="ex: R$ 300.000,00"
+                icon={DollarSign}
+              />
+              <InputField
+                label="Prazo Tranche em Dias"
+                value={tranchePrazo}
+                onChange={setTranchePrazo}
+                placeholder="ex: 7 dias"
+                icon={Package}
               />
             </div>
           </div>

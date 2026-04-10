@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { ProcessoItem } from "@/types";
 
-const DATAJUD_BASE = "https://api-publica.datajud.cnj.jus.br";
-const DATAJUD_KEY  = "cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==";
+const DATAJUD_BASE = process.env.DATAJUD_BASE_URL || "https://api-publica.datajud.cnj.jus.br";
+const DATAJUD_KEY  = process.env.DATAJUD_API_KEY || "";
 
 // ─── Mapeamento tribunal → índice DataJud ───────────────────────────────────
 const TRIBUNAL_INDEX: Record<string, string> = {

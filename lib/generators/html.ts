@@ -31,7 +31,7 @@ export function buildHTMLReport(p: HTMLReportParams): string {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { decision, finalRating, alerts, alertsHigh, pontosFortes, pontosFracos, perguntasVisita, resumoExecutivo, companyAge, vencidosSCR, vencidas, prejuizosVal, protestosVigentes } = p;
 
-  const esc = (s: string) => (s || "—").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const esc = (s: string) => (s || "—").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#x27;");
   const maskCpf = (cpf: string) => cpf ? cpf.replace(/(\d{3})\.(\d{3})\.(\d{3})-(\d{2})/, "$1.***.*$3-$4") : "—";
   const genDt = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
   const vs = d.contrato.socios.filter(s => s.nome);

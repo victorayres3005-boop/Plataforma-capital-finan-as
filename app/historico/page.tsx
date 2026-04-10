@@ -255,7 +255,7 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate }
     setSavingNotes(true);
     try {
       const supabase = createClient();
-      await supabase.from("document_collections").update({ observacoes: observacoes.trim() || null }).eq("id", col.id);
+      await supabase.from("document_collections").update({ observacoes: observacoes.trim() || null }).eq("id", col.id).eq("user_id", userId);
       setEditingNotes(false);
       toast.success("Observações salvas");
     } catch { toast.error("Erro ao salvar observações"); }
@@ -279,7 +279,7 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate }
         }
         return { ...d, extracted_data: newData };
       });
-      const { error } = await supabase.from("document_collections").update({ documents: updatedDocs }).eq("id", col.id);
+      const { error } = await supabase.from("document_collections").update({ documents: updatedDocs }).eq("id", col.id).eq("user_id", userId);
       if (error) throw error;
       onUpdate(col.id, updatedDocs);
       setEditingDoc(null);
@@ -420,6 +420,79 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate }
             )}
           </div>
 
+          {/* Parâmetros do Parecer */}
+          {(() => {
+            const ai = col.ai_analysis as Record<string, unknown> | null;
+            const parecer = ai?.parecerAnalista as Record<string, string | null> | null;
+            if (!parecer) return null;
+            const paramGroups: { label: string; items: { k: string; l: string }[] }[] = [
+              { label: "Crédito", items: [
+                { k: "limiteCredito", l: "Limite de Crédito" },
+                { k: "concentracaoSacado", l: "Concentração/Sacado" },
+                { k: "garantias", l: "Garantias" },
+                { k: "prazoRevisao", l: "Prazo de Revisão" },
+              ]},
+              { label: "Taxas", items: [
+                { k: "taxaConvencional", l: "Taxa Convencional" },
+                { k: "taxaComissaria", l: "Taxa Comissária" },
+                { k: "tac", l: "TAC" },
+              ]},
+              { label: "Limites", items: [
+                { k: "limiteTotal", l: "Limite Total" },
+                { k: "limiteConvencional", l: "Limite Convencional" },
+                { k: "limiteComissaria", l: "Limite Comissária" },
+                { k: "limitePorSacados", l: "Limite/Sacado" },
+                { k: "ticketMedio", l: "Ticket Médio" },
+              ]},
+              { label: "Cobrança e Tranche", items: [
+                { k: "prazoMaximo", l: "Prazo Máximo" },
+                { k: "prazoRecompra", l: "Recompra Cedente" },
+                { k: "prazoCartorio", l: "Envio Cartório" },
+                { k: "trancheValor", l: "Tranche (R$)" },
+                { k: "tranchePrazo", l: "Tranche (dias)" },
+              ]},
+            ];
+            const hasAnyValue = paramGroups.some(g => g.items.some(i => parecer[i.k]));
+            if (!hasAnyValue) return null;
+            return (
+              <div className="mb-4">
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                  <p style={{ fontSize: 10, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.07em", margin: 0 }}>Parâmetros do Parecer</p>
+                  {parecer.ratingAnalista != null && (
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: 6,
+                      background: Number(parecer.ratingAnalista) >= 7 ? "#f0fdf4" : Number(parecer.ratingAnalista) >= 4 ? "#fffbeb" : "#fff1f2",
+                      border: `1px solid ${Number(parecer.ratingAnalista) >= 7 ? "#86efac" : Number(parecer.ratingAnalista) >= 4 ? "#fcd34d" : "#fca5a5"}`,
+                      borderRadius: 8, padding: "3px 10px",
+                    }}>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: Number(parecer.ratingAnalista) >= 7 ? "#16a34a" : Number(parecer.ratingAnalista) >= 4 ? "#d97706" : "#dc2626", textTransform: "uppercase", letterSpacing: "0.06em" }}>Rating Analista</span>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: Number(parecer.ratingAnalista) >= 7 ? "#16a34a" : Number(parecer.ratingAnalista) >= 4 ? "#d97706" : "#dc2626" }}>{parecer.ratingAnalista}/10</span>
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {paramGroups.map(group => {
+                    const filled = group.items.filter(i => parecer[i.k]);
+                    if (filled.length === 0) return null;
+                    return (
+                      <div key={group.label}>
+                        <p style={{ fontSize: 9, fontWeight: 700, color: "#CBD5E1", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 5 }}>{group.label}</p>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {filled.map(item => (
+                            <div key={item.k} style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: "4px 10px", display: "flex", flexDirection: "column", gap: 1, minWidth: 100 }}>
+                              <span style={{ fontSize: 9, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.07em" }}>{item.l}</span>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: "#1E3A5F" }}>{parecer[item.k]}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Footer */}
           <div className="flex items-center justify-between pt-2 border-t border-[#F1F5F9]">
             <button
@@ -430,14 +503,22 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate }
               Ver documentos ({docs.length})
             </button>
             {isFinished ? (
-              <button
-                onClick={handleReopen}
-                disabled={reopening}
-                className="text-xs font-semibold text-[#203b88] hover:underline transition-colors disabled:opacity-50 flex items-center gap-1"
-              >
-                {reopening ? <Loader2 size={12} className="animate-spin" /> : null}
-                Reabrir edição →
-              </button>
+              <div className="flex items-center gap-3">
+                <a
+                  href={`/parecer?id=${col.id}`}
+                  className="text-xs font-semibold text-[#7c3aed] hover:underline transition-colors"
+                >
+                  Editar parecer →
+                </a>
+                <button
+                  onClick={handleReopen}
+                  disabled={reopening}
+                  className="text-xs font-semibold text-[#203b88] hover:underline transition-colors disabled:opacity-50 flex items-center gap-1"
+                >
+                  {reopening ? <Loader2 size={12} className="animate-spin" /> : null}
+                  Reabrir edição →
+                </button>
+              </div>
             ) : (
               <Link href={`/?resume=${col.id}`} className="text-xs font-semibold text-[#203b88] hover:underline">
                 Retomar →
