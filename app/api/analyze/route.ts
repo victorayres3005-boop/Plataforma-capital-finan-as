@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { FundSettings, ExtractedData } from "@/types";
 import { DEFAULT_FUND_SETTINGS } from "@/types";
 import { calcularCobertura } from "@/lib/generators/helpers";
+import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 export const maxDuration = 90;
@@ -449,6 +450,70 @@ baseCalculo: descreva resumidamente o raciocínio do limite (ex: "FMM de R$ X ×
 
 NÃO recalcule os indicadores já fornecidos no início do prompt. Use os valores pré-calculados.
 NÃO invente dados. Se ausente: "—" e alerta DADOS_PARCIAIS quando relevante.`;
+
+// ─────────────────────────────────────────
+// Few-shot: busca exemplos históricos do comitê para calibrar o rating
+// ─────────────────────────────────────────
+type FewShotRow = {
+  company_name: string;
+  rating_ia: number;
+  rating_comite: number;
+  delta_rating: number;
+  decisao_ia: string;
+  decisao_comite: string;
+  justificativa_comite: string | null;
+  resumo_ia: string | null;
+  pontos_fracos: unknown;
+  alertas_ia: unknown;
+};
+
+async function getFewShotExamples(userId: string): Promise<string> {
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!supabaseKey || !process.env.NEXT_PUBLIC_SUPABASE_URL) return "";
+  try {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      supabaseKey,
+    );
+    const { data, error } = await supabase
+      .from("vw_few_shot_candidates")
+      .select("company_name,rating_ia,rating_comite,delta_rating,decisao_ia,decisao_comite,justificativa_comite,resumo_ia,pontos_fracos,alertas_ia")
+      .eq("user_id", userId)
+      .limit(5);
+
+    if (error || !data || data.length === 0) return "";
+
+    const rows = data as FewShotRow[];
+    const exemplos = rows.map((r, i) => {
+      const correcao = r.delta_rating > 0
+        ? `comitê elevou de ${r.rating_ia} → ${r.rating_comite} (+${r.delta_rating.toFixed(1)})`
+        : r.delta_rating < 0
+        ? `comitê reduziu de ${r.rating_ia} → ${r.rating_comite} (${r.delta_rating.toFixed(1)})`
+        : `comitê confirmou ${r.rating_comite} (sem correção)`;
+
+      const decisaoMudou = r.decisao_ia !== r.decisao_comite
+        ? ` | Decisão: IA=${r.decisao_ia} → Comitê=${r.decisao_comite}`
+        : "";
+
+      const justificativa = r.justificativa_comite
+        ? `\n   Motivo da correção: "${r.justificativa_comite}"`
+        : "";
+
+      return `Exemplo ${i + 1} — ${r.company_name || "Empresa"}
+   ${correcao}${decisaoMudou}${justificativa}`;
+    }).join("\n\n");
+
+    return `\n\n--- CALIBRAÇÃO DO COMITÊ (use para ajustar o rating) ---
+Os exemplos abaixo mostram casos reais onde o comitê humano corrigiu o rating da IA.
+Analise os padrões de correção ao definir o rating desta empresa:
+
+${exemplos}
+
+--- FIM DA CALIBRAÇÃO ---\n`;
+  } catch {
+    return ""; // falha silenciosa — não bloqueia a análise
+  }
+}
 
 // ─────────────────────────────────────────
 // Helpers: parse de valores BR
@@ -1021,11 +1086,20 @@ Dívida total SCR: R$ ${_alav.totalDivida.toLocaleString("pt-BR", { minimumFract
           console.log(`[analyze] Payload: ${dataStr.length} chars (payload compacto) → Gemini`);
           send(controller, "status", { message: "Consultando modelo de IA..." });
 
-          const dynamicPrompt = ANALYSIS_PROMPT
+          const basePrompt = ANALYSIS_PROMPT
             .replace(/`FMM_MINIMO`/g, `R$ ${_settings.fmm_minimo.toLocaleString("pt-BR")}`)
             .replace(/`IDADE_MINIMA`/g, String(_settings.idade_minima_anos))
             .replace(/`ALAV_SAUDAVEL`/g, String(_settings.alavancagem_saudavel))
             .replace(/`ALAV_MAXIMA`/g, String(_settings.alavancagem_maxima));
+
+          // Fase 1: injeta exemplos históricos do comitê para calibrar o rating
+          const userId = _body.user_id as string | undefined;
+          const fewShotBlock = userId ? await getFewShotExamples(userId) : "";
+          const dynamicPrompt = fewShotBlock ? basePrompt + fewShotBlock : basePrompt;
+
+          if (fewShotBlock) {
+            console.log(`[analyze] Few-shot: injetados ${fewShotBlock.split("Exemplo").length - 1} exemplos históricos`);
+          }
 
           const sintesePrompt = PROMPT_SINTESE(_body.data as ExtractedData, _settings, _preReq);
 

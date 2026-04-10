@@ -542,10 +542,12 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       setAnalysisError(null);
       setAnalysisStatus("Iniciando análise...");
       try {
+        const supabase = createClient();
+        const { data: { user: currentUser } } = await supabase.auth.getUser();
         const res = await fetch("/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ data, settings: fundSettings }),
+          body: JSON.stringify({ data, settings: fundSettings, user_id: currentUser?.id }),
         });
         if (!res.ok) {
           throw new Error(res.status === 504 ? "Timeout (504) — tente novamente." : `Erro HTTP ${res.status}`);
@@ -1202,7 +1204,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   ];
 
   return (
-    <div className="max-w-5xl mx-auto w-full px-6 sm:px-8 animate-slide-up flex gap-6 items-start">
+    <div className="w-full animate-slide-up flex gap-6 items-start">
 
       {/* ── Sidebar de navegação (desktop) ── */}
       <nav className="hidden lg:flex flex-col gap-0.5 w-[188px] flex-shrink-0 sticky top-4 self-start">
