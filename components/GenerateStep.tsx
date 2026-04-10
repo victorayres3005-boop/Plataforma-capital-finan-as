@@ -469,14 +469,29 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   const saveAnalysisCache = async (colId: string, analysis: AIAnalysis) => {
     try {
       const supabase = createClient();
-      // Salva o JSONB completo E as colunas denormalizadas que alimentam o dashboard
+      // Verifica se o analista já registrou parecer — nesse caso, não sobrescreve rating/decisao
+      const { data: existing } = await supabase
+        .from("document_collections")
+        .select("status, decisao, ai_analysis")
+        .eq("id", colId)
+        .single();
+      const parecerJaRegistrado = existing?.status === "finished"
+        && existing?.decisao != null
+        && (existing?.ai_analysis as Record<string, unknown> | null)?.parecerAnalista != null;
+      // Salva o JSONB completo, preservando parecerAnalista se existir
+      const existingAi = (existing?.ai_analysis as Record<string, unknown>) || {};
+      const mergedAi = { ...existingAi, ...(analysis as unknown as Record<string, unknown>) };
+      const updatePayload: Record<string, unknown> = {
+        ai_analysis: mergedAi,
+      };
+      // Só atualiza colunas denormalizadas se o analista ainda não decidiu
+      if (!parecerJaRegistrado) {
+        updatePayload.rating = analysis.rating ?? null;
+        updatePayload.decisao = (analysis.decisao as DocumentCollection["decisao"]) ?? null;
+      }
       await supabase
         .from("document_collections")
-        .update({
-          ai_analysis: analysis as unknown as Record<string, unknown>,
-          rating: analysis.rating ?? null,
-          decisao: (analysis.decisao as DocumentCollection["decisao"]) ?? null,
-        })
+        .update(updatePayload)
         .eq("id", colId);
     } catch (err) {
       console.warn("[generate] Failed to cache analysis:", err);
@@ -1017,20 +1032,55 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         }
       }
 
-      const blob = await buildPDFReport({
+      // ── Geração via Puppeteer (servidor) ──────────────────────────────────
+      const payload = {
         data, aiAnalysis, decision, finalRating, alerts, alertsHigh,
         pontosFortes, pontosFracos, perguntasVisita, resumoExecutivo,
         companyAge, protestosVigentes, vencidosSCR, vencidas, prejuizosVal,
-        dividaAtiva, atraso, riskScore, decisionColor, decisionBg, decisionBorder,
+        dividaAtiva, atraso, riskScore: riskScore as "alto" | "medio" | "baixo", decisionColor, decisionBg, decisionBorder,
         observacoes: analystNotes.trim() || undefined,
         streetViewBase64,
         fundValidation,
         creditLimit,
+      };
+
+      const res = await fetch("/api/exportar-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
-      triggerDownload(blob, `capital-financas-${safeName}-${dateStr}.pdf`);
+
+      if (!res.ok) {
+        // Fallback: se a API falhar, usa jsPDF local
+        console.warn("API Puppeteer indisponível, usando fallback jsPDF");
+        const blob = await buildPDFReport(payload);
+        triggerDownload(blob, `capital-financas-${safeName}-${dateStr}.pdf`);
+      } else {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `capital-financas-${safeName}-${dateStr}.pdf`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
       setGeneratedFormats(p => new Set(p).add("pdf"));
     } catch (err) {
       console.error("PDF generation error:", err);
+      // Fallback final: jsPDF
+      try {
+        const blob = await buildPDFReport({
+          data, aiAnalysis, decision, finalRating, alerts, alertsHigh,
+          pontosFortes, pontosFracos, perguntasVisita, resumoExecutivo,
+          companyAge, protestosVigentes, vencidosSCR, vencidas, prejuizosVal,
+          dividaAtiva, atraso, riskScore, decisionColor, decisionBg, decisionBorder,
+          observacoes: analystNotes.trim() || undefined,
+          fundValidation, creditLimit,
+        });
+        triggerDownload(blob, `capital-financas-${safeName}-${dateStr}.pdf`);
+        setGeneratedFormats(p => new Set(p).add("pdf"));
+      } catch { /* silencia */ }
     } finally {
       setGeneratingFormat(null);
     }
