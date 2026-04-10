@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useState, useEffect, useRef } from "react";
-import { ArrowLeft, Loader2, CheckCircle2, AlertTriangle, Pencil, RotateCcw, ThumbsUp, ThumbsDown, Clock } from "lucide-react";
+import { ArrowLeft, Loader2, CheckCircle2, AlertTriangle, Pencil, RotateCcw, ArrowRight } from "lucide-react";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import Image from "next/image";
 import { buildHTMLReport } from "@/lib/generators/html";
@@ -654,7 +654,6 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   const [, setSaving] = useState(false);
   const [savedFeedback, setSavedFeedback] = useState(false);
   const [finishing, setFinishing] = useState(false);
-  const [pendingDecision, setPendingDecision] = useState<"APROVADO" | "REPROVADO" | "PENDENTE" | null>(null);
 
   // Helper: campos desnormalizados para a tabela
   // IMPORTANTE: só inclui rating/decisao quando aiAnalysis está disponível,
@@ -762,52 +761,17 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     }
   };
 
-  const handleDecisionFinish = async (decisao: "APROVADO" | "REPROVADO" | "PENDENTE") => {
+  const handleGoToParecer = async () => {
     setFinishing(true);
-    setPendingDecision(null);
     try {
-      const supabase = createClient();
-      let idToFinish = collectionId;
-      if (!idToFinish) {
-        idToFinish = await handleSave();
+      let id = collectionId;
+      if (!id) {
+        id = await handleSave();
       }
-      if (!idToFinish) throw new Error("Não foi possível salvar a coleta");
-
-      const meta = getCollectionMeta();
-      // Se aiAnalysis ainda não chegou, busca o rating do banco para não perder o dado
-      let ratingFinal: number | null = aiAnalysis?.rating ?? null;
-      if (ratingFinal === null) {
-        try {
-          const { data: row } = await supabase
-            .from("document_collections")
-            .select("rating")
-            .eq("id", idToFinish)
-            .single();
-          ratingFinal = row?.rating ?? null;
-        } catch { /* ignora */ }
-      }
-
-      const { error } = await supabase.from("document_collections").update({
-        status: "finished",
-        finished_at: new Date().toISOString(),
-        ...meta,
-        ...(ratingFinal !== null ? { rating: ratingFinal } : {}),
-        decisao,
-      }).eq("id", idToFinish);
-      if (error) throw error;
-
-      const labels: Record<typeof decisao, string> = {
-        APROVADO: "Aprovado",
-        REPROVADO: "Recusado",
-        PENDENTE: "Mantido em análise",
-      };
-      toast.success(`Parecer registrado: ${labels[decisao]}!`);
-      onNotify?.(`${labels[decisao]}: "${data.cnpj.razaoSocial || "empresa"}"`);
-      onFirstCollection?.();
-      window.location.href = `/historico?highlight=${idToFinish}`;
+      if (!id) throw new Error("Não foi possível salvar a coleta");
+      window.location.href = `/parecer?id=${id}`;
     } catch (err) {
-      toast.error("Erro ao registrar parecer: " + (err instanceof Error ? err.message : "Verifique a conexão"));
-    } finally {
+      toast.error("Erro ao salvar: " + (err instanceof Error ? err.message : "Verifique a conexão"));
       setFinishing(false);
     }
   };
@@ -2001,52 +1965,17 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
             <div className="flex items-center gap-2.5">
               <GoalfyButton data={data} aiAnalysis={aiAnalysis} settings={fundSettings} disabled={!aiAnalysis} />
-
-              {finishing ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 8, background: "#f8fafc", border: "0.5px solid #e2e8f0" }}>
-                  <Loader2 size={13} className="animate-spin" style={{ color: "#64748b" }} />
-                  <span style={{ fontSize: 12, color: "#64748b", fontWeight: 500 }}>Registrando...</span>
-                </div>
-              ) : pendingDecision !== null ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 6, borderRadius: 8, padding: "6px 12px", border: "0.5px solid #e2e8f0", background: "#f8fafc" }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}>
-                    Confirmar{" "}
-                    <span style={{ color: pendingDecision === "APROVADO" ? "#16a34a" : pendingDecision === "REPROVADO" ? "#dc2626" : "#d97706" }}>
-                      {pendingDecision === "APROVADO" ? "Aprovação" : pendingDecision === "REPROVADO" ? "Recusa" : "Em Análise"}
-                    </span>
-                    ?
-                  </span>
-                  <button
-                    onClick={() => handleDecisionFinish(pendingDecision)}
-                    style={{ fontSize: 12, fontWeight: 700, color: pendingDecision === "APROVADO" ? "#16a34a" : pendingDecision === "REPROVADO" ? "#dc2626" : "#d97706", background: "none", border: "none", cursor: "pointer" }}
-                  >
-                    Sim
-                  </button>
-                  <span style={{ color: "#cbd5e1", fontSize: 12 }}>·</span>
-                  <button onClick={() => setPendingDecision(null)} style={{ fontSize: 12, color: "#94a3b8", background: "none", border: "none", cursor: "pointer" }}>Não</button>
-                </div>
-              ) : (
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <button
-                    onClick={() => setPendingDecision("REPROVADO")}
-                    style={{ display: "flex", alignItems: "center", gap: 5, minHeight: "auto", padding: "8px 14px", fontSize: "13px", fontWeight: 600, borderRadius: 8, border: "1px solid #fca5a5", background: "#fff1f2", color: "#dc2626", cursor: "pointer" }}
-                  >
-                    <ThumbsDown size={13} /> Recusar
-                  </button>
-                  <button
-                    onClick={() => setPendingDecision("PENDENTE")}
-                    style={{ display: "flex", alignItems: "center", gap: 5, minHeight: "auto", padding: "8px 14px", fontSize: "13px", fontWeight: 600, borderRadius: 8, border: "1px solid #fcd34d", background: "#fffbeb", color: "#d97706", cursor: "pointer" }}
-                  >
-                    <Clock size={13} /> Em Análise
-                  </button>
-                  <button
-                    onClick={() => setPendingDecision("APROVADO")}
-                    style={{ display: "flex", alignItems: "center", gap: 5, minHeight: "auto", padding: "8px 14px", fontSize: "13px", fontWeight: 600, borderRadius: 8, border: "1px solid #86efac", background: "#f0fdf4", color: "#16a34a", cursor: "pointer" }}
-                  >
-                    <ThumbsUp size={13} /> Aprovar
-                  </button>
-                </div>
-              )}
+              <button
+                onClick={handleGoToParecer}
+                disabled={finishing}
+                className="btn-green"
+                style={{ minHeight: "auto", padding: "8px 18px", fontSize: "13px", display: "flex", alignItems: "center", gap: 6 }}
+              >
+                {finishing
+                  ? <><Loader2 size={13} className="animate-spin" /> Salvando...</>
+                  : <>Registrar Parecer <ArrowRight size={13} /></>
+                }
+              </button>
             </div>
           </div>
         </div>
