@@ -30,10 +30,17 @@ export function mergeBureauResults(
     if (chp && (Number(chp.vigentesQtd) > 0 || Number(chp.regularizadosQtd) > 0 || (chp.detalhes?.length ?? 0) > 0)) {
       protestos = chp;
     }
-    if (results.credithub.processos) processos = results.credithub.processos;
+    // Só sobrescreve processos se CreditHub retornou dados reais (evita apagar dados do documento)
+    const chProc = results.credithub.processos;
+    if (chProc && (Number(chProc.passivosTotal ?? 0) > 0 || (chProc.top10Valor?.length ?? 0) > 0)) {
+      processos = chProc;
+    }
 
-    // CCF
-    if (results.credithub.ccf) merged.ccf = results.credithub.ccf;
+    // CCF — só sobrescreve se veio dado real
+    const chCCF = results.credithub.ccf;
+    if (chCCF && (chCCF.qtdRegistros > 0 || chCCF.bancos.length > 0)) {
+      merged.ccf = chCCF;
+    }
 
     // Histórico de consultas ao mercado
     if (results.credithub.historicoConsultas?.length) {

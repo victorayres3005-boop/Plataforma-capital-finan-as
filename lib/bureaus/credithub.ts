@@ -194,8 +194,28 @@ function parseProtestos(d: any): ProtestosData {
 
 // ─── Processos + Dívidas ────────────────────────────────────────────────────
 function parseProcessos(d: any): ProcessosData {
-  const processos: any[] = Array.isArray(d?.processos) ? d.processos : [];
-  const dividas: any[] = Array.isArray(d?.dividas) ? d.dividas : [];
+  // Tenta todas as variações de nome que diferentes versões da API CreditHub usam
+  const processos: any[] = (
+    Array.isArray(d?.processos)               ? d.processos               :
+    Array.isArray(d?.processosJudiciais)      ? d.processosJudiciais      :
+    Array.isArray(d?.processos_judiciais)     ? d.processos_judiciais     :
+    Array.isArray(d?.acoesJudiciais)          ? d.acoesJudiciais          :
+    Array.isArray(d?.acoes_judiciais)         ? d.acoes_judiciais         :
+    Array.isArray(d?.acoesjudiciais)          ? d.acoesjudiciais          :
+    Array.isArray(d?.litigios)                ? d.litigios                :
+    Array.isArray(d?.judicial)                ? d.judicial                :
+    Array.isArray(d?.acoes)                   ? d.acoes                   :
+    Array.isArray(d?.demandasJudiciais)       ? d.demandasJudiciais       :
+    Array.isArray(d?.demandas_judiciais)      ? d.demandas_judiciais      :
+    []
+  );
+  const dividas: any[] = (
+    Array.isArray(d?.dividas)    ? d.dividas    :
+    Array.isArray(d?.debitos)    ? d.debitos    :
+    Array.isArray(d?.negativacoes) ? d.negativacoes :
+    []
+  );
+  console.log(`[credithub][processos] field usado: processos=${processos.length} | dividas=${dividas.length} | topKeys: ${Object.keys(d ?? {}).join(",")}`);
 
   // Valor dos processos judiciais
   const valorProcessos = processos.reduce(
@@ -713,7 +733,7 @@ async function consultarCreditHubPorCPF(cpf: string, nomeSocio: string): Promise
     });
     if (!res.ok) return [];
     const raw = await res.json();
-    console.log(`[credithub][grupo-economico] CPF=${cpfNum} NOME=${nomeSocio} RAW_KEYS=${Object.keys(raw ?? {}).join(",")} RAW=${JSON.stringify(raw).substring(0, 2000)}`);
+    console.log(`[credithub][grupo-economico] CPF=${cpfNum.substring(0, 3)}*** KEYS=${Object.keys(raw ?? {}).join(",")}`);
     const d = raw?.data ?? raw;
     console.log(`[credithub][grupo-economico] DATA_KEYS=${Object.keys(d ?? {}).join(",")}`);
     return parseEmpresasVinculadas(d, cpfNum, nomeSocio);
@@ -781,9 +801,17 @@ export async function consultarCreditHub(cnpj: string): Promise<CreditHubResult>
     const temCCFKey = !!(d?.ccf ?? d?.chequesSemFundo ?? d?.cheque_sem_fundo ?? d?.ccfData ?? d?.CCF ?? d?.cheques ?? d?.ocorrencias_ccf ?? d?.chequesSemCobertura ?? d?.chequeSemFundo ?? d?.restricoes?.ccf ?? d?.negativacoes?.ccf);
     console.log(`[credithub] CNPJ=${cnpjNum} protestos=${temProtestos} processos=${temProcessos} ccf=${temCCFKey}`);
     console.log(`[credithub] API top-level keys: ${topKeys}`);
+    // Dump de segundo nível para diagnóstico — ajuda a identificar onde estão processos/ccf
+    const d2 = d ?? {};
+    const nested: Record<string,string> = {};
+    for (const k of Object.keys(d2)) {
+      const v = d2[k];
+      if (v && typeof v === "object") nested[k] = Array.isArray(v) ? `array[${v.length}]` : `obj{${Object.keys(v).slice(0,5).join(",")}}`;
+    }
+    console.log(`[credithub] API nested types: ${JSON.stringify(nested)}`);
     // Log CCF bruto para diagnóstico
     const ccfRaw = d?.ccf ?? d?.chequesSemFundo ?? d?.cheque_sem_fundo ?? d?.ccfData ?? d?.CCF ?? d?.cheques ?? d?.ocorrencias_ccf ?? d?.chequesSemCobertura ?? d?.chequeSemFundo ?? null;
-    console.log(`[credithub] CCF raw: ${JSON.stringify(ccfRaw).substring(0, 500)}`);
+    console.log(`[credithub] CCF keys: ${Object.keys(ccfRaw ?? {}).join(",")} | hasData: ${ccfRaw != null}`);
   } catch (err: any) {
     return { success: false, mock: false, error: String(err?.message ?? err) };
   }
