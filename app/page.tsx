@@ -502,7 +502,7 @@ export default function HomePage() {
         className="sticky top-0 z-50"
         style={{ backgroundColor: "#ffffff", borderBottom: "1px solid #F1F5F9", boxShadow: "0 1px 3px rgba(0,0,0,0.06)", height: "56px" }}
       >
-        <div className="max-w-6xl mx-auto px-6" style={{ height: "56px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div className={`mx-auto px-6 ${step === "generate" && !showDashboard ? "max-w-[1720px]" : "max-w-6xl"}`} style={{ height: "56px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
 
           {/* ── Left: Logo ── */}
           <div>
@@ -754,7 +754,7 @@ export default function HomePage() {
       ) : (
         /* Barra compacta — etapas upload/review/generate */
         <div className="bg-white border-b border-[#E5E7EB]" style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
-          <div className="max-w-6xl mx-auto px-5 sm:px-8 h-14 flex items-center justify-between">
+          <div className={`mx-auto px-5 sm:px-8 h-14 flex items-center justify-between ${step === "generate" ? "max-w-[1720px]" : "max-w-6xl"}`}>
             <div className="flex items-center gap-2 sm:gap-4">
               {(["upload", "review", "generate"] as AppStep[]).map((s, i) => {
                 const idx = ["upload", "review", "generate"].indexOf(step);
@@ -788,7 +788,7 @@ export default function HomePage() {
       {/* ══════════════════════════════════════════════
           MAIN CONTENT
           ══════════════════════════════════════════════ */}
-      <main className={`flex-1 w-full mx-auto px-5 sm:px-8 py-8 ${step === "generate" && !showDashboard ? "max-w-7xl" : "max-w-6xl"}`}>
+      <main className={`flex-1 w-full mx-auto px-5 sm:px-8 py-8 ${step === "generate" && !showDashboard ? "max-w-[1720px]" : "max-w-6xl"}`}>
 
         {resumingCollection ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3 animate-fade-in">
