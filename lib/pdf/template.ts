@@ -292,8 +292,14 @@ function secSumario(p: PDFReportParams): string {
   const temProt=(p.data.protestos?.vigentesQtd&&p.data.protestos.vigentesQtd!=="0")||p.data.protestos?.detalhes?.length;
   if(temProt) itens.push(["PR","Protestos","Protestos vigentes e histórico de regularizações"]);
   itens.push(["07","Processos Judiciais","Distribuição por tipo e principais processos"]);
+  if(p.data.score&&(p.data.score.serasa||p.data.score.spc||p.data.score.quod)) itens.push(["BS","Bureau Score","Serasa, SPC e Quod — scores externos de crédito"]);
+  if(p.data.ccf&&p.data.ccf.qtdRegistros>0) itens.push(["CF","CCF — Cheque Sem Fundo","Registros de cheques sem cobertura por banco"]);
+  if(p.data.curvaABC?.clientes?.length) itens.push(["CA","Curva ABC de Clientes","Concentração de receita e carteira de sacados"]);
+  if(p.data.grupoEconomico?.empresas?.length) itens.push(["GE","Grupo Econômico","Empresas vinculadas e risco consolidado do grupo"]);
+  if(p.data.dre?.anos?.length) itens.push(["DR","DRE","Demonstração de resultado e análise de margens"]);
   if(p.data.relatorioVisita||p.perguntasVisita?.length) itens.push(["OP","Relatório de Visita","Taxas, limites, condições e observações de campo"]);
   if(p.observacoes?.trim()) itens.push(["NT","Anotações do Analista","Observações e notas livres do analista"]);
+  itens.push(["DF","Parecer Final","Decisão consolidada, condições e assinatura do analista"]);
   return `<div style="page-break-after:always;padding:4px 0">
   <h2 style="font-size:22px;font-weight:900;color:#1a2744;margin-bottom:6px">Índice do Relatório</h2>
   <div style="height:3px;background:linear-gradient(to right,#22c55e,#1a2744,transparent);margin-bottom:24px;border-radius:2px"></div>
@@ -832,6 +838,313 @@ function secAnotacoes(p: PDFReportParams): string {
   return `<div class="pb">${secHdr("NT","Anotações do Analista")}<div style="background:#f8fafc;border-left:4px solid #1a2744;border-radius:0 8px 8px 0;padding:18px 20px;font-size:12px;line-height:1.9;color:#374151;white-space:pre-wrap;page-break-inside:avoid">${esc(t)}</div></div>`;
 }
 
+// ─── Risk Heatmap ─────────────────────────────────────────────────────────────
+function secHeatmap(p: PDFReportParams): string {
+  const {data,finalRating,vencidosSCR,prejuizosVal,protestosVigentes,fundValidation}=p;
+  const fmm=numVal(data.faturamento?.fmm12m||data.faturamento?.mediaAno);
+  type Row={label:string;score:number;detail:string;status:"ok"|"warn"|"fail"};
+  const rows:Row[]=[
+    {label:"CNPJ / Cadastral",
+     score:(data.cnpj?.situacaoCadastral||"").toUpperCase().includes("ATIVA")?90:20,
+     detail:`${esc(data.cnpj?.situacaoCadastral||"—")} · ${esc(p.companyAge||"—")}`,
+     status:(data.cnpj?.situacaoCadastral||"").toUpperCase().includes("ATIVA")?"ok":"fail"},
+    {label:"Faturamento",
+     score:data.faturamento?.faturamentoZerado?10:data.faturamento?.dadosAtualizados?85:60,
+     detail:fmm>0?`FMM ${fmtMoney(String(fmm))}`:data.faturamento?.faturamentoZerado?"Zerado":"—",
+     status:data.faturamento?.faturamentoZerado?"fail":data.faturamento?.dadosAtualizados?"ok":"warn"},
+    {label:"SCR / Bacen",
+     score:vencidosSCR===0&&prejuizosVal===0?85:vencidosSCR>0&&prejuizosVal>0?10:35,
+     detail:vencidosSCR===0&&prejuizosVal===0?"Sem vencidos":`Vencidos ${fmtMoney(data.scr?.vencidos)}`,
+     status:vencidosSCR===0&&prejuizosVal===0?"ok":vencidosSCR>0&&prejuizosVal>0?"fail":"warn"},
+    {label:"Protestos",
+     score:protestosVigentes===0?100:protestosVigentes<=2?50:15,
+     detail:protestosVigentes===0?"Nenhum vigente":`${protestosVigentes} vigente(s) · ${fmtMoney(data.protestos?.vigentesValor)}`,
+     status:protestosVigentes===0?"ok":protestosVigentes<=2?"warn":"fail"},
+    {label:"Processos",
+     score:data.processos?.temRJ?5:parseInt(data.processos?.passivosTotal||"0")<=5?90:parseInt(data.processos?.passivosTotal||"0")<=15?65:35,
+     detail:data.processos?.temRJ?"RJ/Falência identificado":`${fmt(data.processos?.passivosTotal)} processos passivos`,
+     status:data.processos?.temRJ?"fail":parseInt(data.processos?.passivosTotal||"0")<=15?"ok":"warn"},
+    ...(p.data.scrSocios?.length?[{
+      label:"SCR dos Sócios",
+      score:p.data.scrSocios.every(s=>numVal(s.periodoAtual.vencidos)===0)?90:40,
+      detail:p.data.scrSocios.every(s=>numVal(s.periodoAtual.vencidos)===0)?`${p.data.scrSocios.length} sócio(s) sem vencidos`:"Vencidos identificados",
+      status:(p.data.scrSocios.every(s=>numVal(s.periodoAtual.vencidos)===0)?"ok":"fail") as "ok"|"fail",
+    }]:[]),
+    ...(fundValidation?.criteria.length?[{
+      label:"Parâmetros do Fundo",
+      score:fundValidation.failCount===0?Math.round((fundValidation.passCount/fundValidation.criteria.length)*100):Math.round((fundValidation.passCount/fundValidation.criteria.length)*70),
+      detail:`${fundValidation.passCount}/${fundValidation.criteria.length} critérios aprovados`,
+      status:(fundValidation.failCount===0&&!fundValidation.hasEliminatoria?"ok":fundValidation.failCount>0?"fail":"warn") as "ok"|"warn"|"fail",
+    }]:[]),
+  ];
+  const clr={ok:"#22c55e",warn:"#f59e0b",fail:"#ef4444"};
+  const bg={ok:"#f0fdf4",warn:"#fffbeb",fail:"#fff1f2"};
+  const lbl={ok:"OK",warn:"ATENÇÃO",fail:"RISCO"};
+  const rc=finalRating>=7?"#22c55e":finalRating>=4?"#f59e0b":"#ef4444";
+  return `<div style="margin-bottom:24px;page-break-inside:avoid">
+  <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+    <div style="flex:1"><div style="font-size:11px;font-weight:800;color:#1a2744;text-transform:uppercase;letter-spacing:.05em">Mapa de Risco</div><div style="font-size:9px;color:#9ca3af;margin-top:1px">Visão consolidada dos indicadores de risco</div></div>
+    <div style="text-align:right"><div style="font-size:9px;color:#6b7280;font-weight:700;text-transform:uppercase">Rating Geral</div><div style="font-size:22px;font-weight:900;color:${rc}">${finalRating}<span style="font-size:11px;color:#9ca3af"> /10</span></div></div>
+  </div>
+  <div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">
+    ${rows.map((r,i)=>`<div style="display:grid;grid-template-columns:140px 1fr 80px;align-items:center;gap:12px;padding:9px 14px;background:${i%2===0?"#fff":"#fafafa"};border-bottom:1px solid #f3f4f6">
+      <div style="font-size:10px;font-weight:700;color:#374151">${r.label}</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="flex:1;height:8px;background:#f3f4f6;border-radius:4px;overflow:hidden">
+          <div style="height:100%;width:${r.score}%;background:${clr[r.status]};border-radius:4px"></div>
+        </div>
+        <div style="font-size:10px;color:#6b7280;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px">${r.detail}</div>
+      </div>
+      <div style="text-align:right"><span style="display:inline-block;padding:2px 8px;border-radius:99px;background:${bg[r.status]};color:${clr[r.status]};font-size:8px;font-weight:800;letter-spacing:.04em">${lbl[r.status]}</span></div>
+    </div>`).join("")}
+  </div>
+</div>`;
+}
+
+// ─── Bureau Score ─────────────────────────────────────────────────────────────
+function secBureau(p: PDFReportParams): string {
+  const score=p.data.score;
+  if(!score||(!score.serasa&&!score.spc&&!score.quod)) return "";
+  function scoreBar(s:number,max=1000):string{
+    const pct=Math.round((s/max)*100);
+    const clr=pct>=70?"#22c55e":pct>=50?"#f59e0b":"#ef4444";
+    return `<div style="height:8px;background:#f3f4f6;border-radius:4px;overflow:hidden;margin:6px 0 2px">
+      <div style="height:100%;width:${pct}%;background:${clr};border-radius:4px"></div>
+    </div><div style="display:flex;justify-content:space-between;font-size:8px;color:#9ca3af"><span>0</span><span>${max}</span></div>`;
+  }
+  const bureaus=[];
+  if(score.serasa){const s=score.serasa;const clr=s.score>=700?"#16a34a":s.score>=500?"#d97706":"#dc2626";
+    bureaus.push(`<div style="border:1px solid ${s.inadimplente?"#fca5a5":"#e5e7eb"};border-top:3px solid ${clr};border-radius:8px;padding:14px 16px;page-break-inside:avoid">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+        <div><div style="font-size:10px;font-weight:800;color:#6b7280;text-transform:uppercase;letter-spacing:.06em">Serasa</div>
+        ${s.faixa?`<div style="font-size:9px;color:${clr};font-weight:700;margin-top:2px">${esc(s.faixa)}</div>`:""}
+        </div>
+        ${s.inadimplente?`<span class="badge fail">INADIMPLENTE</span>`:`<span class="badge ok">ADIMPLENTE</span>`}
+      </div>
+      <div style="font-size:30px;font-weight:900;color:${clr};line-height:1">${s.score}</div>
+      ${scoreBar(s.score)}
+      ${s.consultadoEm?`<div style="font-size:8px;color:#9ca3af;margin-top:4px">Consultado em ${esc(s.consultadoEm)}</div>`:""}
+    </div>`);}
+  if(score.spc){const s=score.spc;const clr=s.score>=700?"#16a34a":s.score>=500?"#d97706":"#dc2626";
+    bureaus.push(`<div style="border:1px solid ${s.inadimplente?"#fca5a5":"#e5e7eb"};border-top:3px solid ${clr};border-radius:8px;padding:14px 16px;page-break-inside:avoid">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+        <div><div style="font-size:10px;font-weight:800;color:#6b7280;text-transform:uppercase;letter-spacing:.06em">SPC</div>
+        ${s.pendencias>0?`<div style="font-size:9px;color:#dc2626;font-weight:700;margin-top:2px">${s.pendencias} pendência(s)</div>`:`<div style="font-size:9px;color:#16a34a;margin-top:2px">Sem pendências</div>`}
+        </div>
+        ${s.inadimplente?`<span class="badge fail">INADIMPLENTE</span>`:`<span class="badge ok">ADIMPLENTE</span>`}
+      </div>
+      <div style="font-size:30px;font-weight:900;color:${clr};line-height:1">${s.score}</div>
+      ${scoreBar(s.score)}
+      ${s.consultadoEm?`<div style="font-size:8px;color:#9ca3af;margin-top:4px">Consultado em ${esc(s.consultadoEm)}</div>`:""}
+    </div>`);}
+  if(score.quod){const s=score.quod;const clr=s.score>=700?"#16a34a":s.score>=500?"#d97706":"#dc2626";
+    bureaus.push(`<div style="border:1px solid #e5e7eb;border-top:3px solid ${clr};border-radius:8px;padding:14px 16px;page-break-inside:avoid">
+      <div style="margin-bottom:8px"><div style="font-size:10px;font-weight:800;color:#6b7280;text-transform:uppercase;letter-spacing:.06em">Quod</div>
+      ${s.faixa?`<div style="font-size:9px;color:${clr};font-weight:700;margin-top:2px">${esc(s.faixa)}</div>`:""}
+      </div>
+      <div style="font-size:30px;font-weight:900;color:${clr};line-height:1">${s.score}</div>
+      ${scoreBar(s.score)}
+      ${s.consultadoEm?`<div style="font-size:8px;color:#9ca3af;margin-top:4px">Consultado em ${esc(s.consultadoEm)}</div>`:""}
+    </div>`);}
+  const cols=bureaus.length;
+  return `<div class="pb">${secHdr("BS","Bureau Score — Birôs de Crédito")}
+  <div style="display:grid;grid-template-columns:repeat(${cols},1fr);gap:14px;margin-bottom:14px">${bureaus.join("")}</div>
+</div>`;
+}
+
+// ─── CCF ──────────────────────────────────────────────────────────────────────
+function secCcf(p: PDFReportParams): string {
+  const ccf=p.data.ccf;
+  if(!ccf||ccf.qtdRegistros===0) return "";
+  const tend=ccf.tendenciaLabel;
+  return `<div class="pb">${secHdr("CF","CCF — Cheque Sem Fundo")}
+  ${ccf.qtdRegistros>0?alertBox(`${ccf.qtdRegistros} registro(s) de cheque sem fundo identificado(s)`,"ALTA"):""}
+  ${grid(3,[
+    kpi("Total Registros",String(ccf.qtdRegistros),"#dc2626"),
+    kpi("Bancos Afetados",String((ccf.bancos||[]).length)),
+    tend?kpi("Tendência",tend==="crescimento"?"↑ Aumentando":tend==="queda"?"↓ Diminuindo":"→ Estável",tend==="crescimento"?"#dc2626":tend==="queda"?"#16a34a":"#d97706"):"",
+  ])}
+  ${(ccf.bancos||[]).length>0?`${subTitle("Detalhes por Banco")}
+  <table style="${TS_AVOID}">
+    <thead>${row(["Banco","Quantidade","Último Ocorrência","Motivo"],true)}</thead>
+    <tbody>${ccf.bancos.map(b=>row([esc(b.banco),`<strong style="color:#dc2626">${b.quantidade}</strong>`,fmt(b.dataUltimo),fmt(b.motivo)])).join("")}</tbody>
+  </table>`:""}
+</div>`;
+}
+
+// ─── Curva ABC ────────────────────────────────────────────────────────────────
+function secCurvaAbc(p: PDFReportParams): string {
+  const abc=p.data.curvaABC;
+  if(!abc||!abc.clientes?.length) return "";
+  const clientes=abc.clientes.slice(0,15);
+  const classCor:Record<string,string>={A:"#16a34a",B:"#d97706",C:"#6b7280"};
+  return `<div class="pb">${secHdr("CA","Curva ABC — Concentração de Clientes")}
+  ${abc.alertaConcentracao?alertBox(`Alta concentração de receita: maior cliente representa ${esc(abc.maiorClientePct)} do faturamento`,"MODERADA"):""}
+  ${grid(4,[
+    kpi("Total Clientes",String(abc.totalClientesNaBase||abc.totalClientesExtraidos||clientes.length)),
+    kpi("Concentração Top 3",fmt(abc.concentracaoTop3),parseFloat(abc.concentracaoTop3||"0")>60?"#dc2626":parseFloat(abc.concentracaoTop3||"0")>40?"#d97706":"#16a34a"),
+    kpi("Concentração Top 5",fmt(abc.concentracaoTop5),parseFloat(abc.concentracaoTop5||"0")>70?"#dc2626":parseFloat(abc.concentracaoTop5||"0")>50?"#d97706":"#16a34a"),
+    kpi("Maior Cliente",fmt(abc.maiorClientePct),parseFloat(abc.maiorClientePct||"0")>30?"#dc2626":"#111827",esc(abc.maiorCliente||"")),
+  ])}
+  ${abc.periodoReferencia?`<div style="font-size:9px;color:#6b7280;margin-bottom:12px">Período de referência: <strong>${esc(abc.periodoReferencia)}</strong>${abc.receitaTotalBase?` · Receita total: <strong>${fmtMoney(abc.receitaTotalBase)}</strong>`:""}</div>`:""}
+  ${subTitle("Principais Clientes")}
+  <table style="${TS_AVOID}">
+    <thead>${row(["#","Cliente","CNPJ/CPF","Valor","% Receita","% Acum.","Classe"],true)}</thead>
+    <tbody>${clientes.map(c=>row([
+      String(c.posicao||""),
+      `<strong>${esc(c.nome)}</strong>`,
+      fmtCnpj(c.cnpjCpf),
+      fmtMoney(c.valorFaturado),
+      fmt(c.percentualReceita),
+      fmt(c.percentualAcumulado),
+      `<span class="badge" style="background:${classCor[c.classe]||"#6b7280"}20;color:${classCor[c.classe]||"#6b7280"};border:1px solid ${classCor[c.classe]||"#6b7280"}40">${esc(c.classe)}</span>`,
+    ])).join("")}</tbody>
+  </table>
+</div>`;
+}
+
+// ─── DRE ─────────────────────────────────────────────────────────────────────
+function secDre(p: PDFReportParams): string {
+  const dre=p.data.dre;
+  if(!dre||!dre.anos?.length) return "";
+  const anos=dre.anos.slice(-3); // last 3 years
+  const tlClr=dre.tendenciaLucro==="crescimento"?"#16a34a":dre.tendenciaLucro==="queda"?"#dc2626":"#d97706";
+  const tlLbl=dre.tendenciaLucro==="crescimento"?"↑ Crescimento":dre.tendenciaLucro==="queda"?"↓ Queda":"→ Estável";
+  const metricas:[string,keyof typeof anos[0]][]=[
+    ["Receita Bruta","receitaBruta"],
+    ["Receita Líquida","receitaLiquida"],
+    ["Lucro Bruto","lucroBruto"],
+    ["Margem Bruta","margemBruta"],
+    ["EBITDA","ebitda"],
+    ["Margem EBITDA","margemEbitda"],
+    ["Lucro Líquido","lucroLiquido"],
+    ["Margem Líquida","margemLiquida"],
+  ];
+  const isMargin=(k:string)=>k.toLowerCase().includes("margem");
+  return `<div class="pb">${secHdr("DR","DRE — Demonstração de Resultado")}
+  ${grid(3,[
+    kpi("Tendência de Lucro",tlLbl,tlClr),
+    dre.crescimentoReceita?kpi("Crescimento Receita",fmt(dre.crescimentoReceita),parseFloat(dre.crescimentoReceita||"0")>=0?"#16a34a":"#dc2626"):"",
+    dre.periodoMaisRecente?kpi("Período Mais Recente",fmt(dre.periodoMaisRecente)):"",
+  ].filter(Boolean))}
+  <table style="${TS_AVOID}">
+    <thead>${row(["Indicador",...anos.map(a=>`<strong>${esc(a.ano)}</strong>`)],true)}</thead>
+    <tbody>${metricas.map(([label,key])=>{
+      const vals=anos.map(a=>String(a[key]||""));
+      if(vals.every(v=>!v||v==="0"||v==="")) return "";
+      return row([label,...vals.map(v=>v?isMargin(key)?esc(v):fmtMoney(v):"—")]);
+    }).filter(Boolean).join("")}</tbody>
+  </table>
+  ${dre.observacoes?`${subTitle("Observações")}${paraBox(dre.observacoes)}`:""}
+</div>`;
+}
+
+// ─── Grupo Econômico ──────────────────────────────────────────────────────────
+function secGrupoEconomico(p: PDFReportParams): string {
+  const ge=p.data.grupoEconomico;
+  if(!ge||!ge.empresas?.length) return "";
+  const totalSCR=ge.empresas.reduce((s,e)=>s+numVal(e.scrTotal),0);
+  const comProblemas=ge.empresas.filter(e=>numVal(e.protestos)>0||numVal(e.processos)>10||numVal(e.scrTotal)>500000);
+  return `<div class="pb">${secHdr("GE","Grupo Econômico")}
+  ${ge.alertaParentesco?alertBox(`Possível parentesco entre sócios detectado: ${(ge.parentescosDetectados||[]).map(x=>`${esc(x.socio1)} e ${esc(x.socio2)} (sobrenome "${esc(x.sobrenomeComum)}")`).join("; ")}`,"MODERADA"):""}
+  ${comProblemas.length>0?alertBox(`${comProblemas.length} empresa(s) do grupo com indicadores de risco elevado`,"ALTA"):""}
+  ${grid(3,[
+    kpi("Empresas Vinculadas",String(ge.empresas.length)),
+    kpi("SCR Consolidado Grupo",fmtMoney(String(totalSCR)),totalSCR>1000000?"#dc2626":"#111827"),
+    kpi("Com Problemas",String(comProblemas.length),comProblemas.length>0?"#dc2626":"#111827"),
+  ])}
+  <table style="${TS_AVOID}">
+    <thead>${row(["Empresa","CNPJ","Relação / Sócio","SCR Total","Protestos","Processos","Situação"],true)}</thead>
+    <tbody>${ge.empresas.map(e=>{
+      const risco=numVal(e.scrTotal)>500000||numVal(e.protestos)>0||numVal(e.processos)>15;
+      return row([
+        `<strong style="${risco?"color:#dc2626":""}">${esc(e.razaoSocial)}</strong>`,
+        fmtCnpj(e.cnpj),
+        e.socioOrigem?`${esc(e.relacao)} · <span style="font-size:10px;color:#6b7280">${esc(e.socioOrigem)}</span>`:esc(e.relacao),
+        `<span style="${numVal(e.scrTotal)>500000?"color:#dc2626;font-weight:700":""}">${fmtMoney(e.scrTotal)}</span>`,
+        `<span style="${numVal(e.protestos)>0?"color:#dc2626;font-weight:700":""}">${fmt(e.protestos)}</span>`,
+        `<span style="${numVal(e.processos)>15?"color:#dc2626;font-weight:700":""}">${fmt(e.processos)}</span>`,
+        e.situacao?`<span class="badge ${(e.situacao||"").toUpperCase().includes("ATIVA")?"ok":"fail"}">${esc(e.situacao)}</span>`:"—",
+      ]);
+    }).join("")}</tbody>
+  </table>
+</div>`;
+}
+
+// ─── Decisão Final ────────────────────────────────────────────────────────────
+function secDecisaoFinal(p: PDFReportParams): string {
+  const {finalRating,decision,creditLimit,alerts,alertsHigh}=p;
+  const rc=finalRating>=7?"#22c55e":finalRating>=4?"#f59e0b":"#ef4444";
+  const hoje=new Date().toLocaleDateString("pt-BR",{day:"2-digit",month:"long",year:"numeric"});
+  const map:Record<string,{bg:string;border:string;color:string;label:string}> = {
+    APROVADO:              {bg:"rgba(34,197,94,.12)",border:"rgba(34,197,94,.4)",color:"#22c55e",label:"APROVADO"},
+    APROVACAO_CONDICIONAL: {bg:"rgba(245,158,11,.12)",border:"rgba(245,158,11,.4)",color:"#f59e0b",label:"CONDICIONAL"},
+    PENDENTE:              {bg:"rgba(245,158,11,.12)",border:"rgba(245,158,11,.4)",color:"#f59e0b",label:"PENDENTE"},
+    REPROVADO:             {bg:"rgba(239,68,68,.12)",border:"rgba(239,68,68,.4)",color:"#ef4444",label:"REPROVADO"},
+  };
+  const d=map[decision]??{bg:"rgba(255,255,255,.1)",border:"rgba(255,255,255,.3)",color:"#fff",label:esc(decision)};
+  const highRisks=alertsHigh.slice(0,4);
+  const modRisks=alerts.filter(a=>a.severity!=="ALTA").slice(0,3);
+  return `<div class="pb" style="min-height:240mm;background:#0f1e3c;display:flex;flex-direction:column;border-radius:0">
+  <div style="padding:36px 40px 0;display:flex;justify-content:space-between;align-items:flex-start">
+    <div>
+      <div style="font-size:9px;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px">Capital Finanças · Análise de Crédito</div>
+      <div style="font-size:22px;font-weight:900;color:#fff">Parecer Final</div>
+    </div>
+    <div style="font-size:9px;color:rgba(255,255,255,.35)">${hoje}</div>
+  </div>
+  <div style="margin:20px 40px;height:1px;background:rgba(255,255,255,.08)"></div>
+
+  <!-- Company + decision -->
+  <div style="padding:0 40px;flex:1">
+    <div style="font-size:13px;color:rgba(255,255,255,.5);margin-bottom:4px">${esc(p.data.cnpj?.razaoSocial||"—")}</div>
+    <div style="font-size:11px;color:rgba(255,255,255,.3);margin-bottom:24px">CNPJ ${fmtCnpj(p.data.cnpj?.cnpj)} · ${esc(p.companyAge||"—")}</div>
+
+    <!-- Decision block -->
+    <div style="display:inline-block;padding:18px 32px;border-radius:12px;background:${d.bg};border:2px solid ${d.border};margin-bottom:28px">
+      <div style="font-size:9px;color:${d.color};text-transform:uppercase;letter-spacing:.1em;opacity:.7;margin-bottom:6px">Decisão de Crédito</div>
+      <div style="font-size:36px;font-weight:900;color:${d.color};letter-spacing:.06em">${d.label}</div>
+      <div style="margin-top:10px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+        <div style="font-size:11px;color:rgba(255,255,255,.5)">Rating: <span style="font-weight:900;color:${rc};font-size:15px">${finalRating}/10</span></div>
+        ${creditLimit?.limiteAjustado?`<div style="font-size:11px;color:rgba(255,255,255,.5)">Limite: <span style="font-weight:900;color:#22c55e;font-size:15px">${fmtMoney(creditLimit.limiteAjustado)}</span></div>`:""}
+        ${creditLimit?.prazo?`<div style="font-size:11px;color:rgba(255,255,255,.5)">Prazo: <span style="font-weight:700;color:#fff">${creditLimit.prazo} dias</span></div>`:""}
+      </div>
+    </div>
+
+    <!-- Risk factors -->
+    ${highRisks.length>0||modRisks.length>0?`<div style="margin-bottom:24px">
+      <div style="font-size:9px;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">Fatores de Risco Identificados</div>
+      ${highRisks.map(a=>`<div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:6px">
+        <span style="font-size:11px;color:#ef4444;flex-shrink:0">●</span>
+        <span style="font-size:11px;color:rgba(255,255,255,.7)">${esc(a.message)}</span>
+      </div>`).join("")}
+      ${modRisks.map(a=>`<div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:6px">
+        <span style="font-size:11px;color:#f59e0b;flex-shrink:0">●</span>
+        <span style="font-size:11px;color:rgba(255,255,255,.5)">${esc(a.message)}</span>
+      </div>`).join("")}
+    </div>`:""}
+  </div>
+
+  <!-- Signature block -->
+  <div style="margin:0 40px;padding:20px 0;border-top:1px solid rgba(255,255,255,.08)">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:32px">
+      <div>
+        <div style="height:1px;background:rgba(255,255,255,.2);margin-bottom:6px"></div>
+        <div style="font-size:9px;color:rgba(255,255,255,.35)">Analista Responsável · Assinatura</div>
+      </div>
+      <div>
+        <div style="height:1px;background:rgba(255,255,255,.2);margin-bottom:6px"></div>
+        <div style="font-size:9px;color:rgba(255,255,255,.35)">Data da Análise · ${hoje}</div>
+      </div>
+    </div>
+  </div>
+  <div style="padding:12px 40px;background:rgba(0,0,0,.3);display:flex;justify-content:space-between">
+    <span style="font-size:9px;color:rgba(255,255,255,.25)">Capital Finanças · Documento confidencial</span>
+    <span style="font-size:9px;color:rgba(255,255,255,.2)">capital-financas.vercel.app</span>
+  </div>
+</div>`;
+}
+
 // ─── Export ───────────────────────────────────────────────────────────────────
 export function gerarHtmlRelatorio(p: PDFReportParams): {
   html: string;
@@ -850,6 +1163,7 @@ export function gerarHtmlRelatorio(p: PDFReportParams): {
   ${secCapa(p)}
   ${secSumario(p)}
   ${secSumarioExec(p)}
+  ${secHeatmap(p)}
   ${secScorecard(p)}
   ${secCnpj(p)}
   ${secCreditLimit(p)}
@@ -858,8 +1172,14 @@ export function gerarHtmlRelatorio(p: PDFReportParams): {
   ${secScrSocios(p)}
   ${secProtestos(p)}
   ${secProcessos(p)}
+  ${secBureau(p)}
+  ${secCcf(p)}
+  ${secCurvaAbc(p)}
+  ${secGrupoEconomico(p)}
+  ${secDre(p)}
   ${secVisita(p)}
   ${secAnotacoes(p)}
+  ${secDecisaoFinal(p)}
 </body></html>`;
 
   const headerTemplate=`<div style="width:100%;padding:5px 16mm 3px;display:flex;justify-content:space-between;align-items:center;font-family:'Helvetica Neue',Arial,sans-serif;font-size:9px;color:#6b7280;border-bottom:1px solid #e5e7eb">
