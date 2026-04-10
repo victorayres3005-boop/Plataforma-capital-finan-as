@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import { AppStep, ExtractedData, DocumentCollection, Notification, SCRData } from "@/types";
 import { DRAFT_KEY } from "@/components/ReviewStep";
 import Link from "next/link";
-import { LogOut, User, Menu, X, Clock, Shield, Plus, Building2, ArrowRight, ArrowLeft, Calendar, Home, Bell, Search, Loader2, Settings, HelpCircle, TrendingUp, TrendingDown, Minus, ChevronDown } from "lucide-react";
+import { LogOut, User, Menu, X, Clock, Shield, Plus, Building2, ArrowRight, ArrowLeft, Calendar, Home, Bell, Search, Loader2, Settings, HelpCircle, TrendingUp, TrendingDown, Minus, ChevronDown, FileText, Hash, DollarSign, RefreshCw, CheckCircle2, XCircle, AlertCircle, RotateCcw } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -269,6 +269,11 @@ export default function HomePage() {
   const { welcomeSeen, firstCollectionDone, loaded: onboardingLoaded, markWelcomeSeen, markTooltipSeen, markFirstCollectionDone, isTooltipSeen } = useOnboarding(user?.id);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showDashboard, setShowDashboard] = useState(true);
+
+  // Scroll to top ao trocar de step ou sair do dashboard
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [step, showDashboard]);
   const [collections, setCollections] = useState<DocumentCollection[]>([]);
   const [loadingCollections, setLoadingCollections] = useState(true);
   const [dateFilter, setDateFilter] = useState<"hoje" | "7dias" | "30dias" | "custom">("30dias");
@@ -1420,101 +1425,150 @@ export default function HomePage() {
                     return (
                       <div key={group.key} className={`animate-stagger-${Math.min(i + 1, 8)}`}>
                         {/* Main row */}
-                        <div className="px-5 py-4 flex items-center gap-4 hover:bg-[#f8fafc] transition-colors duration-150">
+                        <div className="px-5 py-4 flex items-center gap-3 hover:bg-[#f8fafc] transition-colors duration-150 group">
+                          {/* Ícone empresa */}
+                          <div className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "#f1f5f9" }}>
+                            <Building2 size={16} style={{ color: "#203b88" }} />
+                          </div>
+
+                          {/* Info principal */}
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm font-semibold text-[#0f172a] truncate">{col.company_name || col.label || "Sem identificacao"}</p>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-sm font-semibold text-[#0f172a] truncate">{col.company_name || col.label || "Sem identificação"}</p>
                               {isMulti && (
-                                <span style={{ fontSize: "10px", fontWeight: 700, padding: "1px 7px", borderRadius: "99px", background: "#f1f5f9", color: "#64748b", flexShrink: 0, whiteSpace: "nowrap" }}>
-                                  {group.items.length} tentativas
+                                <span className="inline-flex items-center gap-1 text-[10px] font-600 px-2 py-0.5 rounded-full bg-[#f1f5f9] text-[#64748b] flex-shrink-0">
+                                  <RotateCcw size={9} /> {group.items.length} tentativas
                                 </span>
                               )}
                               {col.fund_status && (() => {
                                 const fs = col.fund_status;
                                 const fsColor = fs.status === "ok" ? "#16a34a" : fs.status === "warning" ? "#d97706" : "#dc2626";
-                                const fsBg = fs.status === "ok" ? "#dcfce7" : fs.status === "warning" ? "#fef3c7" : "#fee2e2";
+                                const fsBg = fs.status === "ok" ? "#f0fdf4" : fs.status === "warning" ? "#fffbeb" : "#fff1f2";
                                 const fsBorder = fs.status === "ok" ? "#bbf7d0" : fs.status === "warning" ? "#fde68a" : "#fecaca";
-                                const fsIcon = fs.status === "ok" ? "✓" : fs.status === "warning" ? "!" : "✕";
+                                const FsIcon = fs.status === "ok" ? CheckCircle2 : fs.status === "warning" ? AlertCircle : XCircle;
                                 const fsLabel = fs.status === "ok" ? `${fs.pass_count}/${fs.total} ok` : fs.status === "warning" ? `${fs.warn_count} atenção` : `${fs.fail_count} reprov.`;
                                 return (
-                                  <span title={`Parâmetros do Fundo${fs.preset_name ? ` (${fs.preset_name})` : ""}: ${fs.pass_count} aprovados, ${fs.warn_count} atenção, ${fs.fail_count} reprovados`} style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "10px", fontWeight: 700, padding: "1px 7px", borderRadius: "99px", background: fsBg, color: fsColor, border: `1px solid ${fsBorder}`, flexShrink: 0, whiteSpace: "nowrap", cursor: "default" }}>
-                                    {fsIcon} {fsLabel}
+                                  <span title={`Política do Fundo${fs.preset_name ? ` (${fs.preset_name})` : ""}: ${fs.pass_count} aprovados, ${fs.warn_count} atenção, ${fs.fail_count} reprovados`}
+                                    style={{ display: "inline-flex", alignItems: "center", gap: "3px", fontSize: "10px", fontWeight: 700, padding: "2px 7px", borderRadius: "99px", background: fsBg, color: fsColor, border: `1px solid ${fsBorder}`, flexShrink: 0, whiteSpace: "nowrap", cursor: "default" }}>
+                                    <FsIcon size={9} /> {fsLabel}
                                   </span>
                                 );
                               })()}
                             </div>
-                            <p className="text-xs text-[#94a3b8] mt-0.5">
-                              {col.cnpj && <span className="font-mono">{col.cnpj} · </span>}
-                              {group.date} · {col.documents?.length || 0} doc(s)
-                              {col.fmm_12m ? ` · FMM R$ ${Number(col.fmm_12m).toLocaleString("pt-BR", { minimumFractionDigits: 0 })}/mes` : ""}
-                            </p>
+
+                            {/* Metadados com ícones */}
+                            <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                              {col.cnpj && (
+                                <span className="inline-flex items-center gap-1 text-[11px] text-[#94a3b8]">
+                                  <Hash size={10} /> <span className="font-mono">{col.cnpj}</span>
+                                </span>
+                              )}
+                              <span className="inline-flex items-center gap-1 text-[11px] text-[#94a3b8]">
+                                <Calendar size={10} /> {group.date}
+                              </span>
+                              <span className="inline-flex items-center gap-1 text-[11px] text-[#94a3b8]">
+                                <FileText size={10} /> {col.documents?.length || 0} docs
+                              </span>
+                              {col.fmm_12m && (
+                                <span className="inline-flex items-center gap-1 text-[11px] text-[#94a3b8]">
+                                  <DollarSign size={10} /> FMM R$ {Number(col.fmm_12m).toLocaleString("pt-BR", { minimumFractionDigits: 0 })}/mês
+                                </span>
+                              )}
+                            </div>
+
                             {col.observacoes && (
-                              <p className="text-[11px] text-[#64748b] mt-1 italic line-clamp-1">&ldquo;{col.observacoes}&rdquo;</p>
+                              <p className="text-[11px] text-[#94a3b8] mt-1 italic line-clamp-1">&ldquo;{col.observacoes}&rdquo;</p>
                             )}
                           </div>
-                          <span className={`text-[11px] font-semibold flex-shrink-0 ${col.status === "finished" ? "text-[#22c55e]" : "text-[#f59e0b]"}`}>
-                            {col.status === "finished" ? "Finalizada" : "Em andamento"}
-                          </span>
-                          {col.decisao && (
-                            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border flex-shrink-0 ${
-                              col.decisao === "APROVADO" ? "text-green-700 bg-green-50 border-green-200"
-                              : col.decisao === "REPROVADO" ? "text-red-600 bg-red-50 border-red-200"
-                              : "text-amber-600 bg-amber-50 border-amber-200"
-                            }`}>
-                              {col.decisao === "APROVACAO_CONDICIONAL" ? "CONDICIONAL" : col.decisao}
-                            </span>
-                          )}
-                          {col.status === "in_progress" && (
-                            <button
-                              onClick={() => handleResumeCollection(col.id)}
-                              className="text-xs font-semibold px-3 py-1.5 rounded-lg text-white flex-shrink-0 transition-colors"
-                              style={{ backgroundColor: "#203b88", minHeight: "auto" }}
-                            >
-                              Retomar
-                            </button>
-                          )}
-                          <a href={`/historico?highlight=${col.id}`} className="text-cf-navy hover:text-cf-green transition-colors flex-shrink-0" style={{ minHeight: "auto" }}>
-                            <ArrowRight size={16} />
-                          </a>
-                          {isMulti && (
-                            <button onClick={toggleGroup} className="flex-shrink-0 text-[#94a3b8] hover:text-[#203b88] transition-colors" style={{ minHeight: "auto" }}>
-                              {isExpanded ? <ChevronDown size={14} style={{ transform: "rotate(180deg)" }} /> : <ChevronDown size={14} />}
-                            </button>
-                          )}
+
+                          {/* Status + decisão */}
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            {col.decisao ? (
+                              <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full border ${
+                                col.decisao === "APROVADO" ? "text-green-700 bg-green-50 border-green-200"
+                                : col.decisao === "REPROVADO" ? "text-red-600 bg-red-50 border-red-200"
+                                : "text-amber-600 bg-amber-50 border-amber-200"
+                              }`}>
+                                {col.decisao === "APROVADO" ? <CheckCircle2 size={9} /> : col.decisao === "REPROVADO" ? <XCircle size={9} /> : <AlertCircle size={9} />}
+                                {col.decisao === "APROVACAO_CONDICIONAL" ? "CONDICIONAL" : col.decisao}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#f59e0b]">
+                                <Clock size={10} /> Em andamento
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Ações */}
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            {col.status === "in_progress" && (
+                              <button
+                                onClick={() => handleResumeCollection(col.id)}
+                                className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-lg text-white transition-colors"
+                                style={{ backgroundColor: "#203b88", minHeight: "auto" }}
+                              >
+                                <RefreshCw size={10} /> Retomar
+                              </button>
+                            )}
+                            <a href={`/historico?highlight=${col.id}`}
+                              className="w-7 h-7 rounded-lg flex items-center justify-center text-[#94a3b8] hover:text-[#203b88] hover:bg-[#eff6ff] transition-colors"
+                              style={{ minHeight: "auto" }}>
+                              <ArrowRight size={14} />
+                            </a>
+                            {isMulti && (
+                              <button onClick={toggleGroup}
+                                className="w-7 h-7 rounded-lg flex items-center justify-center text-[#94a3b8] hover:text-[#203b88] hover:bg-[#eff6ff] transition-colors"
+                                style={{ minHeight: "auto" }}>
+                                <ChevronDown size={14} className={`transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
+                              </button>
+                            )}
+                          </div>
                         </div>
+
                         {/* Expanded sub-attempts */}
                         {isMulti && isExpanded && (
                           <div className="border-t border-[#f1f5f9] bg-[#f8fafc]">
                             {group.items.map((attempt, j) => (
-                              <div key={attempt.id} className={`px-8 py-3 flex items-center gap-3 ${j > 0 ? "border-t border-[#f1f5f9]" : ""}`}>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-xs text-[#475569]">
-                                    Tentativa {group.items.length - j} · {new Date(attempt.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })} · {attempt.documents?.length || 0} doc(s)
-                                  </p>
+                              <div key={attempt.id} className={`px-5 py-3 flex items-center gap-3 ${j > 0 ? "border-t border-[#f1f5f9]" : ""}`}>
+                                <div className="w-7 h-7 flex-shrink-0 rounded-lg flex items-center justify-center bg-white border border-[#e2e8f0]">
+                                  <span className="text-[10px] font-bold text-[#94a3b8]">{group.items.length - j}</span>
                                 </div>
-                                <span className={`text-[10px] font-semibold flex-shrink-0 ${attempt.status === "finished" ? "text-[#22c55e]" : "text-[#f59e0b]"}`}>
-                                  {attempt.status === "finished" ? "Finalizada" : "Em andamento"}
-                                </span>
-                                {attempt.decisao && (
-                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex-shrink-0 ${
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="inline-flex items-center gap-1 text-[11px] text-[#64748b]">
+                                      <Clock size={10} /> {new Date(attempt.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                                    </span>
+                                    <span className="inline-flex items-center gap-1 text-[11px] text-[#64748b]">
+                                      <FileText size={10} /> {attempt.documents?.length || 0} docs
+                                    </span>
+                                  </div>
+                                </div>
+                                {attempt.decisao ? (
+                                  <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border flex-shrink-0 ${
                                     attempt.decisao === "APROVADO" ? "text-green-700 bg-green-50 border-green-200"
                                     : attempt.decisao === "REPROVADO" ? "text-red-600 bg-red-50 border-red-200"
                                     : "text-amber-600 bg-amber-50 border-amber-200"
                                   }`}>
                                     {attempt.decisao === "APROVACAO_CONDICIONAL" ? "CONDICIONAL" : attempt.decisao}
                                   </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#f59e0b] flex-shrink-0">
+                                    <Clock size={9} /> Em andamento
+                                  </span>
                                 )}
                                 {attempt.status === "in_progress" && (
                                   <button
                                     onClick={() => handleResumeCollection(attempt.id)}
-                                    className="text-[11px] font-semibold px-2.5 py-1 rounded-lg text-white flex-shrink-0"
+                                    className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-lg text-white flex-shrink-0"
                                     style={{ backgroundColor: "#203b88", minHeight: "auto" }}
                                   >
-                                    Retomar
+                                    <RefreshCw size={9} /> Retomar
                                   </button>
                                 )}
-                                <a href={`/historico?highlight=${attempt.id}`} className="text-cf-navy hover:text-cf-green transition-colors flex-shrink-0" style={{ minHeight: "auto" }}>
-                                  <ArrowRight size={14} />
+                                <a href={`/historico?highlight=${attempt.id}`}
+                                  className="w-6 h-6 rounded-md flex items-center justify-center text-[#94a3b8] hover:text-[#203b88] hover:bg-[#eff6ff] transition-colors flex-shrink-0"
+                                  style={{ minHeight: "auto" }}>
+                                  <ArrowRight size={12} />
                                 </a>
                               </div>
                             ))}
