@@ -25,20 +25,26 @@ export function mergeBureauResults(
   if (results.credithub?.success && !results.credithub.mock) {
     bureausConsultados.push("Credit Hub");
     if (results.credithub.score) score.credithub = results.credithub.score;
-    // Só sobrescreve protestos se Credit Hub retornou dados reais (não objeto vazio)
+    // Protestos: passa sempre que o CH consultou (mesmo empresa limpa = zero protestos)
+    // Só descarta se o objeto for undefined (API não retornou nada)
     const chp = results.credithub.protestos;
-    if (chp && (Number(chp.vigentesQtd) > 0 || Number(chp.regularizadosQtd) > 0 || (chp.detalhes?.length ?? 0) > 0)) {
+    if (chp) {
       protestos = chp;
     }
-    // Só sobrescreve processos se CreditHub retornou dados reais (evita apagar dados do documento)
+    // Processos: passa sempre que o CH consultou; evita apagar dados vindos de documento
+    // só descarta se passivosTotal também for 0 E já existir dado de documento
     const chProc = results.credithub.processos;
-    if (chProc && (Number(chProc.passivosTotal ?? 0) > 0 || (chProc.top10Valor?.length ?? 0) > 0)) {
-      processos = chProc;
+    if (chProc) {
+      const temDadoDocumento = Number(data.processos?.passivosTotal ?? 0) > 0;
+      const temDadoCH = Number(chProc.passivosTotal ?? 0) > 0 || (chProc.top10Valor?.length ?? 0) > 0;
+      if (temDadoCH || !temDadoDocumento) {
+        processos = chProc;
+      }
     }
 
-    // CCF — só sobrescreve se veio dado real
+    // CCF — passa sempre que o CH consultou (empresa com CCF limpo deve aparecer como consultado)
     const chCCF = results.credithub.ccf;
-    if (chCCF && (chCCF.qtdRegistros > 0 || chCCF.bancos.length > 0)) {
+    if (chCCF) {
       merged.ccf = chCCF;
     }
 
