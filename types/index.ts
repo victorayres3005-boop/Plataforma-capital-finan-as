@@ -588,6 +588,16 @@ export interface DocumentCollection {
   fmm_12m: number | null;
   ai_analysis?: Record<string, unknown> | null;
   observacoes?: string | null;
+  fund_status?: {
+    status: "ok" | "warning" | "error";
+    pass_count: number;
+    fail_count: number;
+    warn_count: number;
+    total: number;
+    preset_name?: string;
+    preset_color?: string;
+    validated_at: string;
+  } | null;
 }
 
 // ─── Análise de IA ───
@@ -704,6 +714,72 @@ export const DEFAULT_FUND_SETTINGS: FundSettings = {
   processos_passivos_max: 15,
   scr_vencidos_max_pct: 10,
 };
+
+// ── Credit Limit Result ────────────────────────────────────────────────────────
+export interface CreditLimitResult {
+  classificacao: "APROVADO" | "CONDICIONAL" | "REPROVADO";
+  limiteAjustado: number;
+  limiteBase: number;
+  fmmBase: number;
+  fatorBase: number;
+  fatorReducao: number;
+  prazo: number;
+  revisaoDias: number;
+  dataRevisao: string; // ISO string
+  concentracaoMaxPct: number;
+  limiteConcentracao: number;
+  presetName: string;
+}
+
+// ── Fund Presets ───────────────────────────────────────────────────────────────
+export interface FundPreset {
+  id: string;
+  user_id: string;
+  name: string;
+  description?: string;
+  color: string;
+  fmm_minimo: number;
+  idade_minima_anos: number;
+  alavancagem_saudavel: number;
+  alavancagem_maxima: number;
+  prazo_maximo_aprovado: number;
+  prazo_maximo_condicional: number;
+  concentracao_max_sacado: number;
+  fator_limite_base: number;
+  revisao_aprovado_dias: number;
+  revisao_condicional_dias: number;
+  protestos_max: number;
+  processos_passivos_max: number;
+  scr_vencidos_max_pct: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export const PRESET_COLORS = ["#203b88", "#73b815", "#d97706", "#dc2626", "#7c3aed", "#0891b2", "#0f766e", "#be185d"];
+
+export const PRESET_TEMPLATES: Array<Omit<FundPreset, "id" | "user_id">> = [
+  {
+    name: "Conservador", description: "Critérios rigorosos — menor risco", color: "#203b88",
+    fmm_minimo: 500000, idade_minima_anos: 5, alavancagem_saudavel: 2, alavancagem_maxima: 3.5,
+    prazo_maximo_aprovado: 60, prazo_maximo_condicional: 30, concentracao_max_sacado: 15,
+    fator_limite_base: 0.3, revisao_aprovado_dias: 60, revisao_condicional_dias: 30,
+    protestos_max: 0, processos_passivos_max: 5, scr_vencidos_max_pct: 3,
+  },
+  {
+    name: "Moderado", description: "Equilíbrio entre risco e rentabilidade", color: "#73b815",
+    fmm_minimo: 300000, idade_minima_anos: 3, alavancagem_saudavel: 3.5, alavancagem_maxima: 5,
+    prazo_maximo_aprovado: 90, prazo_maximo_condicional: 60, concentracao_max_sacado: 20,
+    fator_limite_base: 0.5, revisao_aprovado_dias: 90, revisao_condicional_dias: 60,
+    protestos_max: 2, processos_passivos_max: 15, scr_vencidos_max_pct: 10,
+  },
+  {
+    name: "Agressivo", description: "Maior tolerância — mais oportunidades", color: "#d97706",
+    fmm_minimo: 100000, idade_minima_anos: 1, alavancagem_saudavel: 5, alavancagem_maxima: 8,
+    prazo_maximo_aprovado: 180, prazo_maximo_condicional: 120, concentracao_max_sacado: 30,
+    fator_limite_base: 0.8, revisao_aprovado_dias: 180, revisao_condicional_dias: 90,
+    protestos_max: 5, processos_passivos_max: 30, scr_vencidos_max_pct: 20,
+  },
+];
 
 // ── Fund Validation Result ─────────────────────────────────────────────────────
 export type CriterionStatus = "ok" | "warning" | "error" | "unknown";

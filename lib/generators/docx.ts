@@ -1,4 +1,4 @@
-import type { ExtractedData, AIAnalysis } from "@/types";
+import type { ExtractedData, AIAnalysis, FundValidationResult, CreditLimitResult } from "@/types";
 
 type AlertSeverity = "ALTA" | "MODERADA" | "INFO";
 interface Alert { message: string; severity: AlertSeverity; impacto?: string; }
@@ -15,6 +15,8 @@ export interface DOCXReportParams {
   resumoExecutivo: string;
   companyAge: string;
   protestosVigentes: number;
+  fundValidation?: FundValidationResult;
+  creditLimit?: CreditLimitResult;
 }
 
 function parseMoneyToNumber(val: string): number {
@@ -25,7 +27,7 @@ function parseMoneyToNumber(val: string): number {
 export async function buildDOCXReport(p: DOCXReportParams): Promise<Blob> {
   const { data, decision, finalRating, alerts, protestosVigentes } = p;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const fundValidation = (p as any).fundValidation;
+  const fundValidation = p.fundValidation;
 
       const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, Header, Footer } = await import("docx");
 
@@ -335,6 +337,57 @@ export async function buildDOCXReport(p: DOCXReportParams): Promise<Blob> {
                 ];
               })() : []),
 
+
+
+              // ── SEÇÃO LC — LIMITE DE CRÉDITO SUGERIDO ──
+              ...(p.creditLimit ? (() => {
+                const lc = p.creditLimit!;
+                const fmtM = (v: number) => 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+                const lcColor = lc.classificacao === 'APROVADO' ? '166534' : lc.classificacao === 'CONDICIONAL' ? '92400E' : '991B1B';
+                const lcBg = lc.classificacao === 'APROVADO' ? 'DCFCE7' : lc.classificacao === 'CONDICIONAL' ? 'FEF3C7' : 'FEE2E2';
+                const lcGrad = lc.classificacao === 'APROVADO' ? '166534' : lc.classificacao === 'CONDICIONAL' ? '92400E' : '991B1B';
+                const bannerText = lc.classificacao === 'REPROVADO'
+                  ? '  NAO ELEGIVEL — Criterio eliminatorio nao atendido'
+                  : lc.classificacao === 'CONDICIONAL'
+                    ? `  APROVACAO CONDICIONAL — Limite de ${fmtM(lc.limiteAjustado)} (reduzido 30%)`
+                    : `  APROVADO — Limite de ${fmtM(lc.limiteAjustado)}`;
+                return [
+                  sectionTitle('LC', 'LIMITE DE CREDITO SUGERIDO',
+                    lc.classificacao === 'APROVADO' ? green : lc.classificacao === 'CONDICIONAL' ? warning : danger),
+                  spacer(100),
+                  new Paragraph({ shading: { type: 'clear' as const, fill: lcBg }, spacing: { before: 60, after: 80 }, children: [
+                    new TextRun({ text: bannerText, bold: true, color: lcGrad, size: 22, font: 'Arial' }),
+                  ] }),
+                  ...(lc.classificacao !== 'REPROVADO' ? [
+                    new Table({
+                      width: { size: 100, type: WidthType.PERCENTAGE },
+                      rows: [new TableRow({ children: [
+                        ...([
+                          { label: 'PRAZO MAXIMO', value: lc.prazo + ' dias' },
+                          { label: 'REVISAO EM', value: new Date(lc.dataRevisao).toLocaleDateString('pt-BR') },
+                          { label: 'CONC. MAX/SACADO', value: fmtM(lc.limiteConcentracao) },
+                          { label: 'BASE CALCULO', value: `${fmtM(lc.fmmBase)} x ${lc.fatorBase}x` },
+                        ].map(col => new TableCell({
+                          shading: { type: 'clear' as const, fill: 'F8FAFC' },
+                          width: { size: 25, type: WidthType.PERCENTAGE },
+                          children: [
+                            new Paragraph({ spacing: { before: 60, after: 30 }, indent: { left: 80 }, children: [new TextRun({ text: col.label, color: '9CA3AF', size: 13, font: 'Arial' })] }),
+                            new Paragraph({ spacing: { before: 0, after: 60 }, indent: { left: 80 }, children: [new TextRun({ text: col.value, bold: true, color: lcColor, size: 18, font: 'Arial' })] }),
+                          ],
+                        }))),
+                      ] })],
+                    }),
+                  ] : []),
+                  spacer(80),
+                  new Paragraph({ spacing: { before: 60, after: 60 }, children: [
+                    new TextRun({ text: lc.classificacao === 'REPROVADO'
+                      ? `Perfil: ${lc.presetName} — revise os criterios eliminatorios.`
+                      : `Perfil: ${lc.presetName} | Base: ${fmtM(lc.fmmBase)} x ${lc.fatorBase} = ${fmtM(lc.limiteBase)}${lc.fatorReducao < 1 ? ` | Fator reducao: ${Math.round((1 - lc.fatorReducao) * 100)}%` : ''}`,
+                      italics: true, color: '6B7280', size: 15, font: 'Arial' }),
+                  ] }),
+                  spacer(300),
+                ];
+              })() : []),
 
               // Section 01
               sectionTitle("01", "IDENTIFICACAO DA EMPRESA", navy),

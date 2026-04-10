@@ -1,52 +1,116 @@
 "use client";
 
-import { useState, useEffect, useRef, Suspense } from "react";
+import { useState, useEffect, useMemo, useRef, Suspense, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { DocumentCollection, CollectionDocument } from "@/types";
 import { toast } from "sonner";
 import {
-  ArrowLeft, ChevronDown, ChevronUp, FileText, Building2, BarChart3, ScrollText,
-  Loader2, Pencil, Check, RotateCcw, Inbox, LogOut, User, Trash2, Download
+  ChevronDown, ChevronUp, ChevronRight, FileText,
+  Loader2, Pencil, Check, RotateCcw, Inbox, Trash2, Download,
+  Search, Settings, HelpCircle, Bell, Clock, Filter, X,
+  LogOut, User, ChevronDown as ChDown,
 } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/lib/useAuth";
-import { listFiles, getDownloadUrl, deleteCollectionFiles } from "@/lib/storage";
+import { deleteCollectionFiles } from "@/lib/storage";
 
-function Logo({ light = false }: { light?: boolean }) {
-  const textColor = light ? "#ffffff" : "#203b88";
+// ── Logo ──
+function Logo() {
   return (
-    <svg width="196" height="27" viewBox="0 0 451 58" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Capital Finanças">
-      <circle cx="31" cy="27" r="22" stroke={textColor} strokeWidth="4.5" fill="none" />
-      <circle cx="31" cy="49" r="4.5" fill={textColor} />
+    <svg width="180" height="24" viewBox="0 0 451 58" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Capital Finanças">
+      <circle cx="31" cy="27" r="22" stroke="#203b88" strokeWidth="4.5" fill="none" />
+      <circle cx="31" cy="49" r="4.5" fill="#203b88" />
       <text x="66" y="46" fontFamily="'Open Sans', Arial, sans-serif" fontWeight="700" fontSize="38" letterSpacing="-0.5">
-        <tspan fill={textColor}>capital</tspan>
+        <tspan fill="#203b88">capital</tspan>
         <tspan fill="#a8d96b">finanças</tspan>
       </text>
     </svg>
   );
 }
 
-const docIcon: Record<string, React.ReactNode> = {
-  cnpj: <Building2 size={14} className="text-cf-navy" />,
-  contrato_social: <ScrollText size={14} className="text-cf-green" />,
-  scr_bacen: <BarChart3 size={14} className="text-cf-warning" />,
-  outro: <FileText size={14} className="text-cf-text-3" />,
+// ── Helpers ──
+function derivarSetor(cnaePrincipal?: string): string {
+  if (!cnaePrincipal) return "";
+  const match = cnaePrincipal.match(/^(\d{2})/);
+  if (match) {
+    const c = parseInt(match[1]);
+    if (c <= 3)  return "Agronegócio";
+    if (c <= 9)  return "Indústria";
+    if (c <= 12) return "Alimentício";
+    if (c <= 18) return "Têxtil";
+    if (c <= 25) return "Indústria";
+    if (c <= 27) return "Tecnologia";
+    if (c <= 33) return "Indústria";
+    if (c === 35) return "Energia";
+    if (c <= 39) return "Saneamento";
+    if (c <= 43) return "Construção";
+    if (c <= 47) return "Comércio";
+    if (c <= 53) return "Transporte";
+    if (c <= 56) return "Alimentício";
+    if (c <= 63) return "Tecnologia";
+    if (c <= 66) return "Financeiro";
+    if (c === 68) return "Imobiliário";
+    if (c <= 82) return "Serviços";
+    if (c === 84) return "Governo";
+    if (c === 85) return "Educação";
+    if (c <= 88) return "Saúde";
+    if (c <= 93) return "Cultura";
+    return "Serviços";
+  }
+  const t = cnaePrincipal.toLowerCase();
+  if (/saúde|médic|hospital|farmácia|clínica/.test(t)) return "Saúde";
+  if (/tecnologia|software|informátic|internet/.test(t)) return "Tecnologia";
+  if (/aliment|bebida|restaurante|padaria/.test(t)) return "Alimentício";
+  if (/construção|engenharia|obras/.test(t)) return "Construção";
+  if (/transporte|logística|frete/.test(t)) return "Transporte";
+  if (/educação|escola|ensino|curso/.test(t)) return "Educação";
+  if (/financeiro|banco|crédito|seguro/.test(t)) return "Financeiro";
+  if (/comércio|varejo|atacado/.test(t)) return "Comércio";
+  if (/agro|agrícol|pecuária|rural/.test(t)) return "Agronegócio";
+  if (/imóvel|imobiliária|locação/.test(t)) return "Imobiliário";
+  return "Serviços";
+}
+
+function getGrade(rating: number | null): { letter: string; bg: string; color: string; border: string } {
+  if (rating == null) return { letter: "—", bg: "#F1F5F9", color: "#94A3B8", border: "#E2E8F0" };
+  if (rating >= 8)   return { letter: "A", bg: "#DCFCE7", color: "#16A34A", border: "#86EFAC" };
+  if (rating >= 5)   return { letter: "B", bg: "#FEF3C7", color: "#D97706", border: "#FCD34D" };
+  if (rating >= 3)   return { letter: "C", bg: "#FFEDD5", color: "#EA580C", border: "#FDBA74" };
+  return               { letter: "D", bg: "#FEE2E2", color: "#DC2626", border: "#FCA5A5" };
+}
+
+// ── Doc icon colors per type ──
+const DOC_ICON_STYLE: Record<string, { color: string; bg: string }> = {
+  cnpj:            { color: "#3B82F6", bg: "#EFF6FF" },
+  qsa:             { color: "#8B5CF6", bg: "#F5F3FF" },
+  contrato_social: { color: "#10B981", bg: "#ECFDF5" },
+  faturamento:     { color: "#F59E0B", bg: "#FFFBEB" },
+  scr_bacen:       { color: "#EF4444", bg: "#FEF2F2" },
+  curva_abc:       { color: "#06B6D4", bg: "#ECFEFF" },
+  dre:             { color: "#EAB308", bg: "#FEFCE8" },
+  balanco:         { color: "#EAB308", bg: "#FEFCE8" },
+  ir_socio:        { color: "#EC4899", bg: "#FDF2F8" },
+  outro:           { color: "#9CA3AF", bg: "#F9FAFB" },
 };
 
-const docLabel: Record<string, string> = {
-  cnpj: "Cartão CNPJ",
-  contrato_social: "Contrato Social",
-  scr_bacen: "SCR / Bacen",
-  outro: "Outro documento",
-};
+function getStatusDisplay(col: DocumentCollection): { label: string; bg: string; color: string } {
+  if (col.status !== "finished") return { label: "Em andamento", bg: "#FEF3C7", color: "#D97706" };
+  switch (col.decisao) {
+    case "APROVADO":              return { label: "Aprovado",    bg: "#DCFCE7", color: "#16A34A" };
+    case "APROVACAO_CONDICIONAL": return { label: "Condicional", bg: "#EDE9FE", color: "#7C3AED" };
+    case "REPROVADO":             return { label: "Reprovado",   bg: "#FEE2E2", color: "#DC2626" };
+    default:                      return { label: "Pendente",    bg: "#F1F5F9", color: "#6B7280" };
+  }
+}
 
-// ── Gerador de relatório HTML direto do histórico ──
-function gerarRelatorioHTML(
-  col: DocumentCollection,
-  data: Record<string, Record<string, unknown>>,
-  analysis: Record<string, unknown> | null,
-): string {
+function fmtCurrency(val: number | null | undefined): string {
+  if (val == null) return "—";
+  return "R$ " + val.toLocaleString("pt-BR", { minimumFractionDigits: 2 });
+}
+
+// ── Gerador HTML (mantido intacto) ──
+function gerarRelatorioHTML(col: DocumentCollection, data: Record<string, Record<string, unknown>>, analysis: Record<string, unknown> | null): string {
   const cnpj = data.cnpj || data.contrato_social || {};
   const qsa = data.qsa || {};
   const contrato = data.contrato_social || data.contrato || {};
@@ -54,10 +118,8 @@ function gerarRelatorioHTML(
   const scr = data.scr_bacen || data.scr || {};
   const protestos = data.protestos || {};
   const processos = data.processos || {};
-
   const esc = (s: unknown) => String(s || "—").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const genDt = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
-
   const decision = (analysis?.decisao || col.decisao || "PENDENTE") as string;
   const rating = (analysis?.rating || col.rating || 0) as number;
   const parecer = analysis?.parecer as Record<string, unknown> | string | null;
@@ -66,76 +128,15 @@ function gerarRelatorioHTML(
   const resumo = (typeof parecer === "object" && parecer?.resumoExecutivo ? parecer.resumoExecutivo : analysis?.resumoExecutivo || "") as string;
   const perguntas = (typeof parecer === "object" && parecer?.perguntasVisita ? parecer.perguntasVisita : analysis?.perguntasVisita || []) as { pergunta: string; contexto: string }[];
   const alertas = (analysis?.alertas || []) as Record<string, unknown>[];
-
   const decisionClass = decision === "APROVADO" ? "decision-approved" : decision === "REPROVADO" ? "decision-rejected" : "decision-pending";
-
-  const css = `*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui,-apple-system,sans-serif;background:#fff;color:#1a1a1a;line-height:1.6;-webkit-print-color-adjust:exact;print-color-adjust:exact}.page{max-width:820px;margin:0 auto;padding:48px 40px}.doc-header{padding-bottom:20px;border-bottom:1px solid #e5e5e5;margin-bottom:32px}.brand{font-size:14px;font-weight:300;color:#1a1a1a}.brand-sub{font-size:10px;letter-spacing:0.15em;color:#666;text-transform:uppercase;margin-top:2px}.doc-title{text-align:center;margin:28px 0 8px}.doc-title h1{font-size:28px;font-weight:300}.doc-title .company{font-size:16px;font-weight:600;margin-top:8px}.doc-title .meta{font-size:12px;color:#999;margin-top:4px}.section{margin-bottom:36px;page-break-inside:avoid}.sec-num{display:block;font-size:11px;color:#999;margin-bottom:4px}.sec-heading{font-size:13px;font-weight:500;text-transform:uppercase;letter-spacing:0.1em;color:#1a1a1a}.sec-rule{border:none;border-top:1px solid #e5e5e5;margin:8px 0 24px}table.kv{width:100%;border-collapse:collapse}table.kv td{padding:8px 0;font-size:13px;border-bottom:1px solid #f0f0f0;vertical-align:top}table.kv tr:last-child td{border-bottom:none}td.lbl{width:220px;color:#666}td.val{color:#1a1a1a;font-weight:500}td.muted{color:#999}.dtable{width:100%;border-collapse:collapse;margin-bottom:20px}.dtable th{background:#f8f9fa;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#666;padding:10px 12px;font-weight:500;text-align:left;border-bottom:1px solid #e5e5e5}.dtable td{font-size:13px;padding:10px 12px;border-bottom:1px solid #f0f0f0}.dtable tr:last-child td{border-bottom:none}.decision-badge{display:inline-block;font-size:13px;font-weight:500;padding:8px 20px;border-radius:4px;border:1px solid}.decision-approved{background:#f0fdf4;color:#16a34a;border-color:#bbf7d0}.decision-pending{background:#fffbeb;color:#d97706;border-color:#fde68a}.decision-rejected{background:#fef2f2;color:#dc2626;border-color:#fecaca}.alert-line{margin-bottom:8px}.alert-badge{display:inline-block;font-size:10px;padding:2px 8px;border-radius:3px;font-weight:500;margin-right:10px}.alert-critico{background:#fef2f2;color:#dc2626}.alert-moderado{background:#fffbeb;color:#d97706}.alert-info{background:#eff6ff;color:#2563eb}.alert-positivo{background:#f0fdf4;color:#16a34a}.alert-text{font-size:13px;color:#444}.sub-heading{font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.06em;color:#999;margin:24px 0 12px;padding-bottom:6px;border-bottom:1px solid #f0f0f0}.doc-footer{border-top:1px solid #e5e5e5;padding-top:12px;margin-top:40px;display:flex;justify-content:space-between}.doc-footer span{font-size:10px;color:#999}@media print{.page{padding:0;max-width:100%}.section{page-break-inside:avoid}}@page{margin:20mm 15mm}`;
-
-  const row = (label: string, value: unknown) => {
-    const v = String(value || "");
-    const empty = !v || v === "—" || v === "undefined";
-    return `<tr><td class="lbl">${esc(label)}</td><td class="val${empty ? " muted" : ""}">${empty ? "—" : esc(v)}</td></tr>`;
-  };
-
+  const css = `*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui,-apple-system,sans-serif;background:#fff;color:#1a1a1a;line-height:1.6;-webkit-print-color-adjust:exact;print-color-adjust:exact}.page{max-width:820px;margin:0 auto;padding:48px 40px}.doc-header{padding-bottom:20px;border-bottom:1px solid #e5e5e5;margin-bottom:32px}.brand{font-size:14px;font-weight:300;color:#1a1a1a}.brand-sub{font-size:10px;letter-spacing:0.15em;color:#666;text-transform:uppercase;margin-top:2px}.doc-title{text-align:center;margin:28px 0 8px}.doc-title h1{font-size:28px;font-weight:300}.doc-title .company{font-size:16px;font-weight:600;margin-top:8px}.doc-title .meta{font-size:12px;color:#999;margin-top:4px}.section{margin-bottom:36px;page-break-inside:avoid}.sec-num{display:block;font-size:11px;color:#999;margin-bottom:4px}.sec-heading{font-size:13px;font-weight:500;text-transform:uppercase;letter-spacing:0.1em;color:#1a1a1a}.sec-rule{border:none;border-top:1px solid #e5e5e5;margin:8px 0 24px}table.kv{width:100%;border-collapse:collapse}table.kv td{padding:8px 0;font-size:13px;border-bottom:1px solid #f0f0f0;vertical-align:top}table.kv tr:last-child td{border-bottom:none}td.lbl{width:220px;color:#666}td.val{color:#1a1a1a;font-weight:500}td.muted{color:#999}.dtable{width:100%;border-collapse:collapse;margin-bottom:20px}.dtable th{background:#f8f9fa;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#666;padding:10px 12px;font-weight:500;text-align:left;border-bottom:1px solid #e5e5e5}.dtable td{font-size:13px;padding:10px 12px;border-bottom:1px solid #f0f0f0}.dtable tr:last-child td{border-bottom:none}.decision-badge{display:inline-block;font-size:13px;font-weight:500;padding:8px 20px;border-radius:4px;border:1px solid}.decision-approved{background:#f0fdf4;color:#16a34a;border-color:#bbf7d0}.decision-pending{background:#fffbeb;color:#d97706;border-color:#fde68a}.decision-rejected{background:#fef2f2;color:#dc2626;border-color:#fecaca}.alert-line{margin-bottom:8px}.alert-badge{display:inline-block;font-size:10px;padding:2px 8px;border-radius:3px;font-weight:500;margin-right:10px}.alert-critico{background:#fef2f2;color:#dc2626}.alert-moderado{background:#fffbeb;color:#d97706}.alert-info{background:#eff6ff;color:#2563eb}.alert-positivo{background:#f0fdf4;color:#16a34a}.alert-text{font-size:13px;color:#444}.sub-heading{font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:0.06em;color:#999;margin:24px 0 12px;padding-bottom:6px;border-bottom:1px solid #f0f0f0}.doc-footer{border-top:1px solid #e5e5e5;padding-top:12px;margin-top:40px;display:flex;justify-content:space-between}.doc-footer span{font-size:10px;color:#999}@media print{.page{padding:0;max-width:100%}}@page{margin:20mm 15mm}`;
+  const row = (label: string, value: unknown) => { const v = String(value || ""); const empty = !v || v === "—" || v === "undefined"; return `<tr><td class="lbl">${esc(label)}</td><td class="val${empty ? " muted" : ""}">${empty ? "—" : esc(v)}</td></tr>`; };
   const socios = (qsa.quadroSocietario as Record<string, unknown>[] || []).filter(s => s.nome);
   const meses = (faturamento.meses as { mes: string; valor: string }[] || []).filter(m => m.mes);
-
-  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Relatorio — ${esc(col.company_name || col.label)}</title><style>${css}</style></head><body><div class="page">
-<div class="doc-header"><div class="brand">capital financas</div><div class="brand-sub">CONSOLIDADOR DE DOCUMENTOS</div></div>
-<div class="doc-title"><h1>Relatorio de Due Diligence</h1><div class="company">${esc(col.company_name || col.label)}</div><div class="meta">CNPJ ${esc(col.cnpj || cnpj.cnpj)} — Gerado em ${genDt}</div></div>
-
-<div class="section"><span class="sec-num">00</span><span class="sec-heading">Sumario Executivo</span><hr class="sec-rule">
-<div style="text-align:center;margin-bottom:20px"><span class="decision-badge ${decisionClass}">${esc(decision)}</span></div>
-<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px">
-<div><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#999;margin-bottom:4px">Empresa</div><div style="font-size:13px;font-weight:500">${esc(col.company_name || col.label)}</div></div>
-<div><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#999;margin-bottom:4px">CNPJ</div><div style="font-size:13px;font-weight:500">${esc(col.cnpj || cnpj.cnpj)}</div></div>
-<div><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#999;margin-bottom:4px">Decisao</div><div style="font-size:13px;font-weight:500">${esc(decision)} — ${rating}/10</div></div>
-</div>
-${alertas.length > 0 ? `<div>${alertas.map(a => `<div class="alert-line"><span class="alert-badge ${a.severidade === "ALTA" ? "alert-critico" : a.severidade === "MODERADA" ? "alert-moderado" : "alert-info"}">${esc(a.severidade || a.severity)}</span><span class="alert-text">${esc(a.descricao || a.message)}</span></div>`).join("")}</div>` : ""}
-${resumo ? `<p style="font-size:13px;color:#444;line-height:1.8;margin-top:16px">${esc(resumo)}</p>` : ""}
-</div>
-
-<div class="section"><span class="sec-num">01</span><span class="sec-heading">Identificacao da Empresa</span><hr class="sec-rule">
-<table class="kv">${row("Razao Social", cnpj.razaoSocial)}${row("CNPJ", cnpj.cnpj || col.cnpj)}${row("Situacao Cadastral", cnpj.situacaoCadastral)}${row("Data de Abertura", cnpj.dataAbertura)}${row("CNAE Principal", cnpj.cnaePrincipal)}${row("Porte", cnpj.porte)}${row("Capital Social", cnpj.capitalSocialCNPJ)}${row("Endereco", cnpj.endereco)}${row("Telefone", cnpj.telefone)}</table>
-</div>
-
-<div class="section"><span class="sec-num">02</span><span class="sec-heading">Quadro Societario</span><hr class="sec-rule">
-${socios.length > 0 ? `<table class="dtable"><thead><tr><th>Nome</th><th>CPF/CNPJ</th><th>Qualificacao</th><th>Participacao</th></tr></thead><tbody>${socios.map(s => `<tr><td>${esc(s.nome)}</td><td>${esc(s.cpfCnpj)}</td><td>${esc(s.qualificacao)}</td><td><strong>${esc(s.participacao)}</strong></td></tr>`).join("")}</tbody></table>` : '<p style="color:#999;font-size:13px">Nenhum socio encontrado.</p>'}
-</div>
-
-<div class="section"><span class="sec-num">03</span><span class="sec-heading">Contrato Social</span><hr class="sec-rule">
-<table class="kv">${row("Capital Social", contrato.capitalSocial)}${row("Data de Constituicao", contrato.dataConstituicao)}${row("Objeto Social", contrato.objetoSocial)}${row("Administracao", contrato.administracao)}${row("Foro", contrato.foro)}</table>
-</div>
-
-<div class="section"><span class="sec-num">04</span><span class="sec-heading">Faturamento</span><hr class="sec-rule">
-<table class="kv">${row("Media Mensal (R$)", faturamento.mediaAno || faturamento.mediaMensal)}${row("Somatoria (R$)", faturamento.somatoriaAno || faturamento.totalAno)}${row("Ultimo Mes com Dados", faturamento.ultimoMesComDados)}</table>
-${meses.length > 0 ? `<div class="sub-heading">Serie Mensal</div><table class="dtable"><thead><tr><th>Mes</th><th style="text-align:right">Valor (R$)</th></tr></thead><tbody>${meses.map(m => `<tr><td>${esc(m.mes)}</td><td style="text-align:right;font-variant-numeric:tabular-nums"><strong>${esc(m.valor)}</strong></td></tr>`).join("")}</tbody></table>` : ""}
-</div>
-
-<div class="section"><span class="sec-num">05</span><span class="sec-heading">Perfil de Credito — SCR</span><hr class="sec-rule">
-<table class="kv">${row("Total Dividas Ativas", scr.totalDividasAtivas)}${row("Carteira a Vencer", scr.carteiraAVencer)}${row("Vencidos", scr.vencidos)}${row("Prejuizos", scr.prejuizos)}${row("Limite de Credito", scr.limiteCredito)}${row("Qtde Instituicoes", scr.qtdeInstituicoes)}${row("Periodo de Referencia", scr.periodoReferencia)}</table>
-</div>
-
-<div class="section"><span class="sec-num">06</span><span class="sec-heading">Protestos</span><hr class="sec-rule">
-<table class="kv">${row("Vigentes (Qtd)", protestos.vigentesQtd || "0")}${row("Vigentes (R$)", protestos.vigentesValor || "0,00")}${row("Regularizados (Qtd)", protestos.regularizadosQtd || "0")}${row("Regularizados (R$)", protestos.regularizadosValor || "0,00")}</table>
-</div>
-
-<div class="section"><span class="sec-num">07</span><span class="sec-heading">Processos Judiciais</span><hr class="sec-rule">
-<table class="kv">${row("Passivos (Total)", processos.passivosTotal || "0")}${row("Ativos (Total)", processos.ativosTotal || "0")}${row("Valor Estimado (R$)", processos.valorTotalEstimado || "0,00")}</table>
-</div>
-
-<div class="section"><span class="sec-num">08</span><span class="sec-heading">Parecer Final</span><hr class="sec-rule">
-<div style="display:flex;gap:12px;align-items:center;margin-bottom:24px"><span class="decision-badge ${decisionClass}">${esc(decision)}</span><span style="font-size:13px;color:#666">Rating: <strong>${rating}/10</strong></span></div>
-${pontosFortes.length > 0 ? `<div class="sub-heading">Pontos Fortes</div><div style="margin-bottom:16px">${pontosFortes.map(p => `<div class="alert-line"><span class="alert-badge alert-positivo">POSITIVO</span><span class="alert-text">${esc(p)}</span></div>`).join("")}</div>` : ""}
-${pontosFracos.length > 0 ? `<div class="sub-heading">Pontos Fracos</div><div style="margin-bottom:16px">${pontosFracos.map(p => `<div class="alert-line"><span class="alert-badge alert-critico">RISCO</span><span class="alert-text">${esc(p)}</span></div>`).join("")}</div>` : ""}
-${perguntas.length > 0 ? `<div class="sub-heading">Perguntas para Visita</div><table class="dtable"><thead><tr><th style="width:40%">Pergunta</th><th>Contexto</th></tr></thead><tbody>${perguntas.map(q => `<tr><td style="font-weight:500">${esc(q.pergunta)}</td><td style="color:#666;font-size:12px">${esc(q.contexto)}</td></tr>`).join("")}</tbody></table>` : ""}
-</div>
-
-<div class="doc-footer"><span>capital financas — Consolidador de Documentos</span><span>Documento confidencial — uso restrito</span><span>Gerado em ${genDt}</span></div>
-</div></body></html>`;
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Relatorio — ${esc(col.company_name || col.label)}</title><style>${css}</style></head><body><div class="page"><div class="doc-header"><div class="brand">capital financas</div><div class="brand-sub">CONSOLIDADOR DE DOCUMENTOS</div></div><div class="doc-title"><h1>Relatorio de Due Diligence</h1><div class="company">${esc(col.company_name || col.label)}</div><div class="meta">CNPJ ${esc(col.cnpj || cnpj.cnpj)} — Gerado em ${genDt}</div></div><div class="section"><span class="sec-num">00</span><span class="sec-heading">Sumario Executivo</span><hr class="sec-rule"><div style="text-align:center;margin-bottom:20px"><span class="decision-badge ${decisionClass}">${esc(decision)}</span></div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px"><div><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#999;margin-bottom:4px">Empresa</div><div style="font-size:13px;font-weight:500">${esc(col.company_name || col.label)}</div></div><div><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#999;margin-bottom:4px">CNPJ</div><div style="font-size:13px;font-weight:500">${esc(col.cnpj || cnpj.cnpj)}</div></div><div><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#999;margin-bottom:4px">Decisao</div><div style="font-size:13px;font-weight:500">${esc(decision)} — ${rating}/10</div></div></div>${alertas.length > 0 ? `<div>${alertas.map(a => `<div class="alert-line"><span class="alert-badge ${a.severidade === "ALTA" ? "alert-critico" : a.severidade === "MODERADA" ? "alert-moderado" : "alert-info"}">${esc(a.severidade || a.severity)}</span><span class="alert-text">${esc(a.descricao || a.message)}</span></div>`).join("")}</div>` : ""}${resumo ? `<p style="font-size:13px;color:#444;line-height:1.8;margin-top:16px">${esc(resumo)}</p>` : ""}</div><div class="section"><span class="sec-num">01</span><span class="sec-heading">Identificacao da Empresa</span><hr class="sec-rule"><table class="kv">${row("Razao Social", cnpj.razaoSocial)}${row("CNPJ", cnpj.cnpj || col.cnpj)}${row("Situacao Cadastral", cnpj.situacaoCadastral)}${row("Data de Abertura", cnpj.dataAbertura)}${row("CNAE Principal", cnpj.cnaePrincipal)}${row("Porte", cnpj.porte)}${row("Capital Social", cnpj.capitalSocialCNPJ)}${row("Endereco", cnpj.endereco)}${row("Telefone", cnpj.telefone)}</table></div><div class="section"><span class="sec-num">02</span><span class="sec-heading">Quadro Societario</span><hr class="sec-rule">${socios.length > 0 ? `<table class="dtable"><thead><tr><th>Nome</th><th>CPF/CNPJ</th><th>Qualificacao</th><th>Participacao</th></tr></thead><tbody>${socios.map(s => `<tr><td>${esc(s.nome)}</td><td>${esc(s.cpfCnpj)}</td><td>${esc(s.qualificacao)}</td><td><strong>${esc(s.participacao)}</strong></td></tr>`).join("")}</tbody></table>` : '<p style="color:#999;font-size:13px">Nenhum socio encontrado.</p>'}</div><div class="section"><span class="sec-num">03</span><span class="sec-heading">Contrato Social</span><hr class="sec-rule"><table class="kv">${row("Capital Social", contrato.capitalSocial)}${row("Data de Constituicao", contrato.dataConstituicao)}${row("Objeto Social", contrato.objetoSocial)}${row("Administracao", contrato.administracao)}${row("Foro", contrato.foro)}</table></div><div class="section"><span class="sec-num">04</span><span class="sec-heading">Faturamento</span><hr class="sec-rule"><table class="kv">${row("Media Mensal (R$)", faturamento.mediaAno || faturamento.mediaMensal)}${row("Somatoria (R$)", faturamento.somatoriaAno || faturamento.totalAno)}${row("Ultimo Mes com Dados", faturamento.ultimoMesComDados)}</table>${meses.length > 0 ? `<div class="sub-heading">Serie Mensal</div><table class="dtable"><thead><tr><th>Mes</th><th style="text-align:right">Valor (R$)</th></tr></thead><tbody>${meses.map(m => `<tr><td>${esc(m.mes)}</td><td style="text-align:right;font-variant-numeric:tabular-nums"><strong>${esc(m.valor)}</strong></td></tr>`).join("")}</tbody></table>` : ""}</div><div class="section"><span class="sec-num">05</span><span class="sec-heading">Perfil de Credito — SCR</span><hr class="sec-rule"><table class="kv">${row("Total Dividas Ativas", scr.totalDividasAtivas)}${row("Carteira a Vencer", scr.carteiraAVencer)}${row("Vencidos", scr.vencidos)}${row("Prejuizos", scr.prejuizos)}${row("Limite de Credito", scr.limiteCredito)}${row("Qtde Instituicoes", scr.qtdeInstituicoes)}${row("Periodo de Referencia", scr.periodoReferencia)}</table></div><div class="section"><span class="sec-num">06</span><span class="sec-heading">Protestos</span><hr class="sec-rule"><table class="kv">${row("Vigentes (Qtd)", protestos.vigentesQtd || "0")}${row("Vigentes (R$)", protestos.vigentesValor || "0,00")}${row("Regularizados (Qtd)", protestos.regularizadosQtd || "0")}${row("Regularizados (R$)", protestos.regularizadosValor || "0,00")}</table></div><div class="section"><span class="sec-num">07</span><span class="sec-heading">Processos Judiciais</span><hr class="sec-rule"><table class="kv">${row("Passivos (Total)", processos.passivosTotal || "0")}${row("Ativos (Total)", processos.ativosTotal || "0")}${row("Valor Estimado (R$)", processos.valorTotalEstimado || "0,00")}</table></div><div class="section"><span class="sec-num">08</span><span class="sec-heading">Parecer Final</span><hr class="sec-rule"><div style="display:flex;gap:12px;align-items:center;margin-bottom:24px"><span class="decision-badge ${decisionClass}">${esc(decision)}</span><span style="font-size:13px;color:#666">Rating: <strong>${rating}/10</strong></span></div>${pontosFortes.length > 0 ? `<div class="sub-heading">Pontos Fortes</div><div style="margin-bottom:16px">${pontosFortes.map(p => `<div class="alert-line"><span class="alert-badge alert-positivo">POSITIVO</span><span class="alert-text">${esc(p)}</span></div>`).join("")}</div>` : ""}${pontosFracos.length > 0 ? `<div class="sub-heading">Pontos Fracos</div><div style="margin-bottom:16px">${pontosFracos.map(p => `<div class="alert-line"><span class="alert-badge alert-critico">RISCO</span><span class="alert-text">${esc(p)}</span></div>`).join("")}</div>` : ""}${perguntas.length > 0 ? `<div class="sub-heading">Perguntas para Visita</div><table class="dtable"><thead><tr><th style="width:40%">Pergunta</th><th>Contexto</th></tr></thead><tbody>${perguntas.map(q => `<tr><td style="font-weight:500">${esc(q.pergunta)}</td><td style="color:#666;font-size:12px">${esc(q.contexto)}</td></tr>`).join("")}</tbody></table>` : ""}</div><div class="doc-footer"><span>capital financas — Consolidador de Documentos</span><span>Documento confidencial — uso restrito</span><span>Gerado em ${genDt}</span></div></div></body></html>`;
 }
 
-// ── Field configs per document type ──
+// ── DOC_FIELDS for inline editing ──
 const DOC_FIELDS: Record<string, { key: string; label: string; type: "text" | "select" | "textarea" | "readonly"; options?: string[] }[]> = {
   cnpj: [
     { key: "razaoSocial", label: "Razao Social", type: "text" },
@@ -162,97 +163,57 @@ const DOC_FIELDS: Record<string, { key: string; label: string; type: "text" | "s
   ],
 };
 
-function derivarSetor(cnaePrincipal?: string): string {
-  if (!cnaePrincipal) return "";
-  const match = cnaePrincipal.match(/^(\d{2})/);
-  if (match) {
-    const c = parseInt(match[1]);
-    if (c <= 3)             return "Agronegócio";
-    if (c <= 9)             return "Indústria";
-    if (c <= 12)            return "Alimentício";
-    if (c <= 18)            return "Têxtil";
-    if (c <= 25)            return "Indústria";
-    if (c <= 27)            return "Tecnologia";
-    if (c <= 33)            return "Indústria";
-    if (c === 35)           return "Energia";
-    if (c <= 39)            return "Saneamento";
-    if (c <= 43)            return "Construção";
-    if (c <= 47)            return "Comércio";
-    if (c <= 53)            return "Transporte";
-    if (c <= 56)            return "Alimentício";
-    if (c <= 63)            return "Tecnologia";
-    if (c <= 66)            return "Financeiro";
-    if (c === 68)           return "Imobiliário";
-    if (c <= 75)            return "Serviços";
-    if (c <= 82)            return "Serviços";
-    if (c === 84)           return "Governo";
-    if (c === 85)           return "Educação";
-    if (c <= 88)            return "Saúde";
-    if (c <= 93)            return "Cultura";
-    if (c <= 99)            return "Serviços";
-  }
-  const t = cnaePrincipal.toLowerCase();
-  if (/saúde|médic|hospital|farmácia|clínica|odontol/.test(t)) return "Saúde";
-  if (/tecnologia|software|informátic|internet|dados|ti /.test(t))  return "Tecnologia";
-  if (/aliment|bebida|restaurante|padaria|food/.test(t))             return "Alimentício";
-  if (/construção|engenharia|obras|incorpora/.test(t))               return "Construção";
-  if (/transporte|logística|frete|cargas/.test(t))                   return "Transporte";
-  if (/educação|escola|ensino|curso|treinamento/.test(t))            return "Educação";
-  if (/financeiro|banco|crédito|seguro|factoring/.test(t))           return "Financeiro";
-  if (/comércio|varejo|atacado/.test(t))                             return "Comércio";
-  if (/agro|agrícol|pecuária|rural|lavoura/.test(t))                 return "Agronegócio";
-  if (/imóvel|imobiliária|locação|aluguel/.test(t))                  return "Imobiliário";
-  return "Serviços";
-}
-
-const DECISAO_STYLE: Record<string, { label: string; bg: string; text: string; border: string }> = {
-  APROVADO:              { label: "Aprovado",     bg: "#f0fdf4", text: "#16a34a", border: "#bbf7d0" },
-  APROVACAO_CONDICIONAL: { label: "Condicional",  bg: "#fffbeb", text: "#d97706", border: "#fde68a" },
-  PENDENTE:              { label: "Pendente",     bg: "#f8fafc", text: "#64748b", border: "#e2e8f0" },
-  REPROVADO:             { label: "Reprovado",    bg: "#fef2f2", text: "#dc2626", border: "#fecaca" },
-};
-
-function ratingColor(r: number): string {
-  if (r >= 8) return "#16a34a";
-  if (r >= 6) return "#2563eb";
-  if (r >= 4) return "#d97706";
-  return "#dc2626";
-}
-
-function CollectionCard({ col, highlight, onDelete, onUpdate, userId }: {
+// ── CollectionRow — single entry row ──
+function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate }: {
   col: DocumentCollection;
+  isGrouped: boolean;
+  userName: string;
+  userId?: string;
   highlight: boolean;
   onDelete: (id: string) => void;
-  onUpdate: (docs: CollectionDocument[]) => void;
-  userId?: string;
+  onUpdate: (id: string, docs: CollectionDocument[]) => void;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [showDocs, setShowDocs] = useState(false);
+  const [observacoes, setObservacoes] = useState(col.observacoes || "");
+  const [editingNotes, setEditingNotes] = useState(false);
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [generatingReport, setGeneratingReport] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [generatingReport, setGeneratingReport] = useState(false);
-  const [reportError, setReportError] = useState<string | null>(null);
+  const [reopening, setReopening] = useState(false);
+  const [editingDoc, setEditingDoc] = useState<string | null>(null);
+  const [editValues, setEditValues] = useState<Record<string, unknown>>({});
+  const [savingDoc, setSavingDoc] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const docs = (col.documents || []) as CollectionDocument[];
+  const cnpjDoc = docs.find(d => d.type === "cnpj");
+  const setor = derivarSetor(cnpjDoc?.extracted_data?.cnaePrincipal as string | undefined);
+  const visitaDoc = docs.find(d => d.type === "relatorio_visita");
+  const pleito = visitaDoc?.extracted_data?.pleito as string | undefined;
+
+  const grade = getGrade(col.rating);
+  const status = getStatusDisplay(col);
+  const isFinished = col.status === "finished";
+  const date = new Date(col.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" });
+  const name = col.company_name || col.label || "Sem título";
+
+  useEffect(() => {
+    if (highlight && ref.current) ref.current.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [highlight]);
 
   const handleGenerateReport = async () => {
     setGeneratingReport(true);
-    setReportError(null);
     try {
       const extractedData: Record<string, Record<string, unknown>> = {};
-      for (const doc of (col.documents || [])) {
-        if (doc.extracted_data) extractedData[doc.type] = doc.extracted_data;
-      }
-
+      for (const doc of docs) { if (doc.extracted_data) extractedData[doc.type] = doc.extracted_data; }
       let analysis: Record<string, unknown> | null = null;
       try {
-        const res = await fetch("/api/analyze", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ data: extractedData }),
-        });
-        if (res.ok) {
-          const json = await res.json();
-          if (json.success) analysis = json.analysis;
-        }
-      } catch { /* gera sem análise IA */ }
-
+        const res = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ data: extractedData }) });
+        if (res.ok) { const json = await res.json(); if (json.success) analysis = json.analysis; }
+      } catch { /* sem análise IA */ }
       const html = gerarRelatorioHTML(col, extractedData, analysis);
       const blob = new Blob([html], { type: "text/html;charset=utf-8" });
       const url = URL.createObjectURL(blob);
@@ -261,41 +222,15 @@ function CollectionCard({ col, highlight, onDelete, onUpdate, userId }: {
       a.download = `relatorio-${(col.company_name || col.label || col.id).replace(/[^a-zA-Z0-9]/g, "-").toLowerCase()}-${new Date().toISOString().split("T")[0]}.html`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch (err) {
-      setReportError("Erro ao gerar relatorio. Tente novamente.");
-      console.error("[historico] generateReport error:", err);
-    } finally {
-      setGeneratingReport(false);
-    }
+    } catch { toast.error("Erro ao gerar relatório"); }
+    finally { setGeneratingReport(false); }
   };
 
-  const [storedFiles, setStoredFiles] = useState<{ originals: { name: string; path: string }[]; reports: { name: string; path: string }[] }>({ originals: [], reports: [] });
-  const [filesLoaded, setFilesLoaded] = useState(false);
-
-  const loadFiles = async () => {
-    if (filesLoaded || !userId) return;
-    const [originals, reports] = await Promise.all([
-      listFiles(userId, col.id, "originals"),
-      listFiles(userId, col.id, "reports"),
-    ]);
-    setStoredFiles({ originals, reports });
-    setFilesLoaded(true);
-  };
-
-  const handleDownload = async (path: string, name: string) => {
-    const url = await getDownloadUrl(path);
-    if (url) { const a = document.createElement("a"); a.href = url; a.download = name; a.click(); }
-    else toast.error("Erro ao gerar link de download");
-  };
-
-  const [reopening, setReopening] = useState(false);
   const handleReopen = async () => {
     setReopening(true);
     try {
       const supabase = createClient();
-      const { error } = await supabase.from("document_collections")
-        .update({ status: "in_progress", finished_at: null })
-        .eq("id", col.id).eq("user_id", userId);
+      const { error } = await supabase.from("document_collections").update({ status: "in_progress", finished_at: null }).eq("id", col.id).eq("user_id", userId);
       if (error) throw error;
       toast.success("Coleta reaberta — redirecionando...");
       setTimeout(() => { window.location.href = `/?resume=${col.id}`; }, 800);
@@ -316,37 +251,15 @@ function CollectionCard({ col, highlight, onDelete, onUpdate, userId }: {
     finally { setDeleting(false); setConfirmDelete(false); }
   };
 
-  const [expanded, setExpanded] = useState(false);
-  const [editingLabel, setEditingLabel] = useState(false);
-  const [label, setLabel] = useState(col.label || "");
-  const [saving, setSaving] = useState(false);
-  const [observacoes, setObservacoes] = useState(col.observacoes || "");
-  const [editingNotes, setEditingNotes] = useState(false);
-  const [savingNotes, setSavingNotes] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  const [editingDoc, setEditingDoc] = useState<string | null>(null);
-  const [editValues, setEditValues] = useState<Record<string, unknown>>({});
-  const [savingDoc, setSavingDoc] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-
-  const startEditing = (doc: CollectionDocument) => {
-    if (editingDoc && editingDoc !== doc.type) {
-      if (!confirm("Há edições não salvas. Descartar?")) return;
-    }
-    setEditingDoc(doc.type);
-    setEditValues({ ...(doc.extracted_data || {}) });
-    setSaveError(null);
-  };
-
-  const cancelEditing = () => {
-    setEditingDoc(null);
-    setEditValues({});
-    setSaveError(null);
-  };
-
-  const updateField = (key: string, value: unknown) => {
-    setEditValues(prev => ({ ...prev, [key]: value }));
+  const saveNotes = async () => {
+    setSavingNotes(true);
+    try {
+      const supabase = createClient();
+      await supabase.from("document_collections").update({ observacoes: observacoes.trim() || null }).eq("id", col.id);
+      setEditingNotes(false);
+      toast.success("Observações salvas");
+    } catch { toast.error("Erro ao salvar observações"); }
+    finally { setSavingNotes(false); }
   };
 
   const handleSaveDoc = async (docType: string) => {
@@ -358,441 +271,248 @@ function CollectionCard({ col, highlight, onDelete, onUpdate, userId }: {
         if (d.type !== docType) return d;
         const newData: Record<string, unknown> = { ...d.extracted_data, ...editValues, _editedManually: true };
         if (docType === "faturamento" && Array.isArray(editValues.meses)) {
-          const meses = editValues.meses as { mes: string; valor: string }[];
-          const vals = meses.map(m => parseFloat((m.valor || "0").replace(/\./g, "").replace(",", ".")) || 0);
+          const ms = editValues.meses as { mes: string; valor: string }[];
+          const vals = ms.map(m => parseFloat((m.valor || "0").replace(/\./g, "").replace(",", ".")) || 0);
           const sum = vals.reduce((a, b) => a + b, 0);
-          const avg = vals.length > 0 ? sum / vals.length : 0;
-          newData.mediaAno = avg.toLocaleString("pt-BR", { minimumFractionDigits: 2 });
+          newData.mediaAno = (vals.length > 0 ? sum / vals.length : 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 });
           newData.somatoriaAno = sum.toLocaleString("pt-BR", { minimumFractionDigits: 2 });
         }
         return { ...d, extracted_data: newData };
       });
-
-      const { error } = await supabase
-        .from("document_collections")
-        .update({ documents: updatedDocs })
-        .eq("id", col.id);
-
+      const { error } = await supabase.from("document_collections").update({ documents: updatedDocs }).eq("id", col.id);
       if (error) throw error;
-
-      onUpdate(updatedDocs);
+      onUpdate(col.id, updatedDocs);
       setEditingDoc(null);
       setEditValues({});
       toast.success("Documento atualizado");
-    } catch {
-      setSaveError("Erro ao salvar. Tente novamente.");
-    } finally {
-      setSavingDoc(false);
-    }
+    } catch { setSaveError("Erro ao salvar. Tente novamente."); }
+    finally { setSavingDoc(false); }
   };
 
-  useEffect(() => {
-    if (highlight && ref.current) {
-      ref.current.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
-  }, [highlight]);
-
-  const saveLabel = async () => {
-    setSaving(true);
-    try {
-      const supabase = createClient();
-      await supabase.from("document_collections").update({ label: label || null }).eq("id", col.id).eq("user_id", userId);
-      setEditingLabel(false);
-      toast.success("Título atualizado");
-    } catch { toast.error("Erro ao salvar título"); }
-    finally { setSaving(false); }
-  };
-
-  const saveNotes = async () => {
-    setSavingNotes(true);
-    try {
-      const supabase = createClient();
-      await supabase.from("document_collections").update({ observacoes: observacoes.trim() || null }).eq("id", col.id).eq("user_id", userId);
-      setEditingNotes(false);
-      toast.success("Observações salvas");
-    } catch { toast.error("Erro ao salvar observações"); }
-    finally { setSavingNotes(false); }
-  };
-
-  const isFinished = col.status === "finished";
-  const date = new Date(col.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
-  const docs = (col.documents || []) as CollectionDocument[];
-
-  // ── Setor: extraído do CNPJ já salvo nos documentos da coleta ──
-  const cnpjDoc = docs.find(d => d.type === "cnpj");
-  const cnaePrincipal = cnpjDoc?.extracted_data?.cnaePrincipal as string | undefined;
-  const setor = derivarSetor(cnaePrincipal);
-
-  // ── Rating e Decisão ──
-  const rating = col.rating;
-  const decisao = col.decisao;
-  const decisaoStyle = decisao ? DECISAO_STYLE[decisao] : null;
+  const iconBtn = "w-8 h-8 flex items-center justify-center rounded-lg text-[#9CA3AF] hover:text-[#374151] hover:bg-[#F1F5F9] transition-colors border border-transparent hover:border-[#E5E7EB]";
 
   return (
-    <div
-      ref={ref}
-      className={`bg-white rounded-xl border overflow-hidden transition-all duration-300 ${
-        highlight ? "border-cf-green ring-2 ring-cf-green/20" : "border-cf-border"
-      }`}
-    >
-      {/* ── Main row ── */}
-      <div className="px-5 py-4">
-        <div className="flex items-start gap-3">
-          {/* Left: name + meta */}
-          <div className="flex-1 min-w-0">
-            {editingLabel ? (
-              <div className="flex items-center gap-2 mb-0.5">
-                <input
-                  value={label}
-                  onChange={e => setLabel(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter") saveLabel(); if (e.key === "Escape") setEditingLabel(false); }}
-                  autoFocus
-                  placeholder="Título da coleta"
-                  className="text-sm font-bold text-cf-text-1 bg-cf-bg border border-cf-border rounded-lg px-2.5 py-1 flex-1 focus:outline-none focus:ring-1 focus:ring-cf-navy/20"
-                />
-                <button onClick={saveLabel} disabled={saving} className="w-7 h-7 rounded-lg flex items-center justify-center text-cf-green hover:bg-cf-green/10 transition-colors">
-                  {saving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-                </button>
-                <button onClick={() => { setLabel(col.label || ""); setEditingLabel(false); }} className="w-7 h-7 rounded-lg flex items-center justify-center text-cf-text-3 hover:text-cf-text-1 transition-colors text-sm">✕</button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setEditingLabel(true)}
-                className="group flex items-center gap-1.5 text-left w-full mb-0.5"
-              >
-                <span className="text-sm font-bold text-cf-text-1 group-hover:text-cf-navy transition-colors leading-snug">
-                  {label || col.company_name || "Coleta sem título"}
-                </span>
-                <Pencil size={11} className="text-cf-text-4 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+    <div ref={ref} className={highlight ? "ring-1 ring-cf-green/40" : ""}>
+      {/* ── Collapsed row (56px) ── */}
+      <div className="flex items-center gap-2.5 px-4 h-14 hover:bg-[#FAFAFA] transition-colors group">
+        {/* Grade circle */}
+        <div style={{ width: 36, height: 36, borderRadius: "50%", background: grade.bg, border: `1.5px solid ${grade.border}`, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: grade.color }}>{grade.letter}</span>
+        </div>
+
+        {/* Company name — only when not in a group */}
+        {!isGrouped && (
+          <span
+            className="text-sm font-semibold text-[#111827] truncate"
+            style={{ maxWidth: 280, flexShrink: 1 }}
+            title={name}
+          >
+            {name}
+          </span>
+        )}
+
+        {/* Sector */}
+        {setor && (
+          <span style={{ fontSize: 11, background: "#F0FDF4", color: "#15803D", border: "1px solid #BBF7D0", borderRadius: 999, padding: "2px 8px", whiteSpace: "nowrap", flexShrink: 0 }}>
+            {setor}
+          </span>
+        )}
+
+        {/* Date · docs */}
+        <span style={{ fontSize: 12, color: "#9CA3AF", whiteSpace: "nowrap", flexShrink: 0, display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ color: "#CBD5E1" }}>{date}</span>
+          <span style={{ color: "#E2E8F0" }}>·</span>
+          <FileText size={11} style={{ color: "#CBD5E1" }} />
+          <span>{docs.length} doc{docs.length !== 1 ? "s" : ""}</span>
+        </span>
+
+        {/* Status */}
+        <span style={{ fontSize: 11, fontWeight: 600, background: status.bg, color: status.color, borderRadius: 999, padding: "2px 10px", whiteSpace: "nowrap", flexShrink: 0 }}>
+          {status.label}
+        </span>
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* Actions */}
+        <div className="flex items-center gap-0.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+          {docs.length > 0 && (
+            <button title="Baixar relatório" onClick={handleGenerateReport} disabled={generatingReport} className={iconBtn}>
+              {generatingReport ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
+            </button>
+          )}
+          <button
+            title={isFinished ? "Reabrir edição" : "Retomar coleta"}
+            onClick={isFinished ? handleReopen : undefined}
+            disabled={reopening}
+            className={iconBtn}
+          >
+            {!isFinished
+              ? <Link href={`/?resume=${col.id}`} className="flex items-center justify-center w-full h-full"><RotateCcw size={15} /></Link>
+              : reopening ? <Loader2 size={15} className="animate-spin" /> : <RotateCcw size={15} />
+            }
+          </button>
+          <button title={expanded ? "Fechar" : "Ver detalhes"} onClick={() => setExpanded(p => !p)} className={iconBtn}>
+            {expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+          </button>
+          {!confirmDelete ? (
+            <button title="Excluir" onClick={() => setConfirmDelete(true)} className={`${iconBtn} hover:!text-red-500 hover:!bg-red-50`}>
+              <Trash2 size={15} />
+            </button>
+          ) : (
+            <div className="flex items-center gap-1">
+              <button onClick={handleDelete} disabled={deleting} className="h-7 text-[11px] font-bold text-white bg-red-500 hover:bg-red-600 rounded-lg px-2.5 transition-colors">
+                {deleting ? <Loader2 size={11} className="animate-spin" /> : "Excluir"}
               </button>
-            )}
-            <p className="text-[11px] text-cf-text-4">
-              {date} · {docs.length} documento{docs.length !== 1 ? "s" : ""}
-            </p>
+              <button onClick={() => setConfirmDelete(false)} className="h-7 text-[11px] text-[#9CA3AF] hover:text-[#374151] px-2 transition-colors">Não</button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Expanded panel ── */}
+      {expanded && (
+        <div style={{ background: "#FAFAFA", borderTop: "1px solid #F1F5F9", padding: "14px 16px 14px 60px" }} className="animate-fade-in">
+          {/* Info grid */}
+          <div className="grid grid-cols-3 gap-x-8 gap-y-3 mb-4">
+            <div>
+              <p style={{ fontSize: 10, color: col.fmm_12m != null && col.fmm_12m >= 300000 ? "#15803D" : col.fmm_12m != null ? "#DC2626" : "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>FMM / mês</p>
+              <p style={{ fontSize: 16, fontWeight: 700, color: "#1E3A5F" }}>{fmtCurrency(col.fmm_12m)}</p>
+            </div>
+            <div>
+              <p style={{ fontSize: 10, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>Pleito</p>
+              <p style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{pleito || "—"}</p>
+            </div>
+            <div>
+              <p style={{ fontSize: 10, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Decisão</p>
+              <span style={{ display: "inline-block", fontSize: 11, fontWeight: 700, background: status.bg, color: status.color, borderRadius: 999, padding: "3px 10px" }}>
+                {status.label}
+              </span>
+            </div>
           </div>
 
-          {/* Right: status + actions */}
-          <div className="flex items-center gap-1.5 flex-shrink-0 mt-0.5">
-            {/* Status pill */}
-            <span className={`flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-full border ${
-              isFinished
-                ? "text-cf-green bg-cf-green/5 border-cf-green/20"
-                : "text-cf-warning bg-cf-warning-bg border-cf-warning/20"
-            }`}>
-              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isFinished ? "bg-cf-green" : "bg-cf-warning animate-pulse"}`} />
-              {isFinished ? "Finalizada" : "Em andamento"}
-            </span>
-
-            {/* Generate report */}
-            {docs.length > 0 && (
-              <button
-                onClick={handleGenerateReport}
-                disabled={generatingReport}
-                title="Gerar relatório"
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-cf-text-3 hover:text-cf-navy hover:bg-cf-surface border border-cf-border transition-colors disabled:opacity-40"
-              >
-                {generatingReport ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+          {/* Observações */}
+          <div className="mb-4">
+            <p style={{ fontSize: 10, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Observação</p>
+            {editingNotes ? (
+              <div>
+                <textarea
+                  value={observacoes}
+                  onChange={e => setObservacoes(e.target.value)}
+                  autoFocus rows={2}
+                  placeholder="Observações do analista..."
+                  className="w-full text-xs text-[#374151] bg-white border border-[#E5E7EB] rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-[#203b88]/20 placeholder:text-[#9CA3AF]"
+                />
+                <div className="flex gap-2 mt-1.5">
+                  <button onClick={saveNotes} disabled={savingNotes} className="text-[11px] font-semibold text-cf-green border border-cf-green/20 rounded-lg px-3 py-1 hover:bg-cf-green/5 transition-colors inline-flex items-center gap-1">
+                    {savingNotes ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />} Salvar
+                  </button>
+                  <button onClick={() => { setObservacoes(col.observacoes || ""); setEditingNotes(false); }} className="text-[11px] text-[#9CA3AF] hover:text-[#374151] px-2 py-1 transition-colors">Cancelar</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setEditingNotes(true)} className="group/note flex items-start gap-1.5 w-full text-left">
+                <p className="text-xs text-[#6B7280] flex-1 leading-relaxed group-hover/note:text-[#374151] transition-colors italic min-h-[20px]">
+                  {observacoes || "+ Adicionar observação"}
+                </p>
+                <Pencil size={11} className="text-[#CBD5E1] opacity-0 group-hover/note:opacity-100 transition-opacity flex-shrink-0 mt-0.5" />
               </button>
             )}
+          </div>
 
-            {/* Retomar / Reabrir */}
-            {!isFinished ? (
-              <Link
-                href={`/?resume=${col.id}`}
-                title="Retomar coleta"
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-cf-text-3 hover:text-cf-green hover:bg-cf-green/5 border border-cf-border transition-colors"
-              >
-                <RotateCcw size={14} />
-              </Link>
-            ) : (
+          {/* Footer */}
+          <div className="flex items-center justify-between pt-2 border-t border-[#F1F5F9]">
+            <button
+              onClick={() => setShowDocs(p => !p)}
+              className="text-xs text-[#6B7280] hover:text-[#374151] transition-colors flex items-center gap-1"
+            >
+              {showDocs ? <ChevronUp size={13} /> : <ChevronRight size={13} />}
+              Ver documentos ({docs.length})
+            </button>
+            {isFinished ? (
               <button
                 onClick={handleReopen}
                 disabled={reopening}
-                title="Reabrir edição"
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-cf-text-3 hover:text-cf-navy hover:bg-cf-surface border border-cf-border transition-colors disabled:opacity-40"
+                className="text-xs font-semibold text-[#203b88] hover:underline transition-colors disabled:opacity-50 flex items-center gap-1"
               >
-                {reopening ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
-              </button>
-            )}
-
-            {/* Expand */}
-            <button
-              onClick={() => { setExpanded(p => !p); if (!expanded) loadFiles(); }}
-              title={expanded ? "Fechar detalhes" : "Ver detalhes"}
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-cf-text-3 hover:text-cf-navy hover:bg-cf-surface border border-cf-border transition-colors"
-            >
-              {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-            </button>
-
-            {/* Delete */}
-            {!confirmDelete ? (
-              <button
-                onClick={() => setConfirmDelete(true)}
-                title="Excluir coleta"
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-cf-text-4 hover:text-cf-danger hover:bg-red-50 border border-cf-border transition-colors"
-              >
-                <Trash2 size={14} />
+                {reopening ? <Loader2 size={12} className="animate-spin" /> : null}
+                Reabrir edição →
               </button>
             ) : (
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={handleDelete}
-                  disabled={deleting}
-                  className="h-8 text-[11px] font-semibold text-white bg-cf-danger hover:bg-red-700 rounded-lg px-3 transition-colors"
-                >
-                  {deleting ? <Loader2 size={11} className="animate-spin" /> : "Excluir"}
-                </button>
-                <button
-                  onClick={() => setConfirmDelete(false)}
-                  className="h-8 text-[11px] font-semibold text-cf-text-3 hover:text-cf-text-1 px-2 transition-colors"
-                >
-                  Não
-                </button>
-              </div>
+              <Link href={`/?resume=${col.id}`} className="text-xs font-semibold text-[#203b88] hover:underline">
+                Retomar →
+              </Link>
             )}
           </div>
-        </div>
 
-        {/* Observações */}
-        <div className="mt-2">
-          {editingNotes ? (
-            <div>
-              <textarea
-                value={observacoes}
-                onChange={e => setObservacoes(e.target.value)}
-                autoFocus
-                rows={2}
-                placeholder="Observações do analista..."
-                className="w-full text-xs text-cf-text-1 bg-cf-bg border border-cf-border rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-cf-navy/20 placeholder:text-cf-text-4"
-              />
-              <div className="flex items-center gap-2 mt-1.5">
-                <button onClick={saveNotes} disabled={savingNotes} className="text-[11px] font-semibold text-cf-green border border-cf-green/20 rounded-lg px-2.5 py-1 hover:bg-cf-green/5 transition-colors inline-flex items-center gap-1">
-                  {savingNotes ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />} Salvar
-                </button>
-                <button onClick={() => { setObservacoes(col.observacoes || ""); setEditingNotes(false); }} className="text-[11px] text-cf-text-4 hover:text-cf-text-2 px-2 py-1 transition-colors">
-                  Cancelar
-                </button>
-              </div>
-            </div>
-          ) : observacoes ? (
-            <button onClick={() => setEditingNotes(true)} className="group flex items-start gap-1.5 w-full text-left">
-              <p className="text-[11px] text-cf-text-3 flex-1 leading-relaxed line-clamp-1 group-hover:text-cf-text-2 transition-colors italic">{observacoes}</p>
-              <Pencil size={10} className="text-cf-text-4 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 mt-0.5" />
-            </button>
-          ) : (
-            <button onClick={() => setEditingNotes(true)} className="text-[11px] text-cf-text-4 hover:text-cf-text-3 transition-colors">
-              + Adicionar observação
-            </button>
-          )}
-        </div>
-
-        {reportError && <p className="text-[10px] text-cf-danger mt-2">{reportError}</p>}
-      </div>
-
-      {/* ── Accordion: documentos ── */}
-      {expanded && (
-        <div className="border-t border-cf-border px-5 pb-5 pt-4 space-y-3 animate-fade-in">
-          {docs.length === 0 ? (
-            <p className="text-xs text-cf-text-3 italic">Nenhum documento nesta coleta.</p>
-          ) : docs.map((doc, i) => {
-            const isEditing = editingDoc === doc.type;
-            const fields = DOC_FIELDS[doc.type];
-            const data = isEditing ? editValues : (doc.extracted_data || {});
-            const wasEdited = !!(doc.extracted_data as Record<string, unknown>)?._editedManually;
-
-            return (
-              <div key={i} className="bg-cf-bg rounded-xl border border-cf-border overflow-hidden">
-                <div className="flex items-center gap-3 px-4 py-3">
-                  <div className="w-7 h-7 rounded-lg bg-white border border-cf-border flex items-center justify-center flex-shrink-0">
-                    {docIcon[doc.type] || docIcon.outro}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold text-cf-text-1">{docLabel[doc.type] || doc.type}</p>
-                      {wasEdited && (
-                        <span className="text-[9px] font-semibold text-cf-navy bg-cf-navy/10 px-1.5 py-0.5 rounded">Editado</span>
+          {/* Documents accordion */}
+          {showDocs && (
+            <div className="mt-3 space-y-2 animate-fade-in">
+              {docs.map((doc, i) => {
+                const isEditing = editingDoc === doc.type;
+                const fields = DOC_FIELDS[doc.type];
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                const data = isEditing ? editValues : (doc.extracted_data || {});
+                const wasEdited = !!(doc.extracted_data as Record<string, unknown>)?._editedManually;
+                return (
+                  <div key={i} className="bg-white rounded-lg border border-[#E5E7EB] overflow-hidden">
+                    <div className="flex items-center gap-2.5 px-3 py-2.5">
+                      {(() => {
+                        const s = DOC_ICON_STYLE[doc.type] || DOC_ICON_STYLE.outro;
+                        return (
+                          <div style={{ width: 24, height: 24, borderRadius: 6, background: s.bg, border: `1px solid ${s.color}22`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                            <FileText size={13} style={{ color: s.color }} />
+                          </div>
+                        );
+                      })()}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-[#374151]">{doc.type} {wasEdited && <span className="text-[9px] bg-cf-navy/10 text-cf-navy px-1 py-0.5 rounded ml-1">Editado</span>}</p>
+                        <p className="text-[10px] text-[#9CA3AF] truncate">{doc.filename}</p>
+                      </div>
+                      <span className="text-[10px] text-[#9CA3AF] font-mono">{Object.keys(doc.extracted_data || {}).length} campos</span>
+                      {!isEditing && (
+                        <button onClick={() => { setEditingDoc(doc.type); setEditValues({ ...(doc.extracted_data || {}) }); setSaveError(null); }} className="text-[11px] font-semibold text-[#9CA3AF] hover:text-cf-navy transition-colors flex items-center gap-1">
+                          <Pencil size={10} /> Editar
+                        </button>
                       )}
                     </div>
-                    <p className="text-xs text-cf-text-3 truncate">{doc.filename} — {new Date(doc.uploaded_at).toLocaleDateString("pt-BR")}</p>
-                  </div>
-                  <span className="text-[10px] font-bold text-cf-text-3 bg-cf-surface px-2 py-0.5 rounded-full">
-                    {Object.keys(doc.extracted_data || {}).length} campos
-                  </span>
-                  {!isEditing && (
-                    <button onClick={() => startEditing(doc)} className="inline-flex items-center gap-1 text-[11px] font-semibold text-cf-text-4 hover:text-cf-navy transition-colors" style={{ minHeight: "auto" }}>
-                      <Pencil size={11} /> Editar
-                    </button>
-                  )}
-                </div>
-
-                {!isEditing && fields && (
-                  <div className="px-4 pb-3 grid grid-cols-2 gap-x-4 gap-y-1.5">
-                    {fields.slice(0, 4).map(f => {
-                      const val = String((data as Record<string, unknown>)[f.key] || "");
-                      return (
-                        <div key={f.key}>
-                          <p className="text-[10px] text-cf-text-4 uppercase tracking-wide">{f.label}</p>
-                          <p className="text-xs text-cf-text-1 font-medium truncate">{val || "—"}</p>
+                    {isEditing && (
+                      <div className="px-3 pb-3 pt-2 space-y-2 border-t border-[#F1F5F9] animate-fade-in">
+                        {fields ? (
+                          <div className="grid grid-cols-2 gap-2">
+                            {fields.map(f => (
+                              <div key={f.key} className={f.type === "textarea" ? "col-span-2" : ""}>
+                                <label className="text-[10px] text-[#9CA3AF] uppercase tracking-wide mb-0.5 block">{f.label}</label>
+                                {f.type === "readonly" ? (
+                                  <input value={String((editValues as Record<string, unknown>)[f.key] || "")} readOnly className="border border-[#E5E7EB] rounded-lg px-2.5 py-1.5 text-xs w-full bg-[#F8FAFC] text-[#9CA3AF]" />
+                                ) : f.type === "select" ? (
+                                  <select value={String((editValues as Record<string, unknown>)[f.key] || "")} onChange={e => setEditValues(p => ({ ...p, [f.key]: e.target.value }))} className="border border-[#E5E7EB] rounded-lg px-2.5 py-1.5 text-xs w-full bg-white">
+                                    <option value="">—</option>
+                                    {f.options?.map(o => <option key={o} value={o}>{o}</option>)}
+                                  </select>
+                                ) : f.type === "textarea" ? (
+                                  <textarea value={String((editValues as Record<string, unknown>)[f.key] || "")} onChange={e => setEditValues(p => ({ ...p, [f.key]: e.target.value }))} rows={3} className="border border-[#E5E7EB] rounded-lg px-2.5 py-1.5 text-xs w-full resize-none" />
+                                ) : (
+                                  <input value={String((editValues as Record<string, unknown>)[f.key] || "")} onChange={e => setEditValues(p => ({ ...p, [f.key]: e.target.value }))} className="border border-[#E5E7EB] rounded-lg px-2.5 py-1.5 text-xs w-full" />
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <textarea value={JSON.stringify(editValues, null, 2)} onChange={e => { try { setEditValues(JSON.parse(e.target.value)); setSaveError(null); } catch { setSaveError("JSON inválido"); } }} rows={6} className="border border-[#E5E7EB] rounded-lg px-2.5 py-1.5 text-xs w-full font-mono resize-none" />
+                        )}
+                        {saveError && <p className="text-[11px] text-red-500">{saveError}</p>}
+                        <div className="flex gap-2">
+                          <button onClick={() => handleSaveDoc(doc.type)} disabled={savingDoc} className="inline-flex items-center gap-1 bg-cf-green text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-green-600 transition-colors">
+                            {savingDoc ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />} Salvar
+                          </button>
+                          <button onClick={() => { setEditingDoc(null); setEditValues({}); setSaveError(null); }} className="text-xs text-[#9CA3AF] hover:text-[#374151] px-2 py-1.5 transition-colors">Cancelar</button>
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {!isEditing && doc.type === "qsa" && (
-                  <div className="px-4 pb-3">
-                    {Array.isArray((data as Record<string, unknown>).quadroSocietario) &&
-                      ((data as Record<string, unknown>).quadroSocietario as { nome: string; cpfCnpj: string }[]).filter(s => s.nome).slice(0, 3).map((s, si) => (
-                        <p key={si} className="text-xs text-cf-text-1"><span className="text-cf-text-4">{si + 1}.</span> {s.nome} <span className="text-cf-text-4 font-mono text-[10px]">{s.cpfCnpj}</span></p>
-                      ))
-                    }
-                  </div>
-                )}
-
-                {!isEditing && doc.type === "faturamento" && (
-                  <div className="px-4 pb-3 grid grid-cols-2 gap-x-4 gap-y-1">
-                    <div>
-                      <p className="text-[10px] text-cf-text-4 uppercase tracking-wide">Media Mensal</p>
-                      <p className="text-xs text-cf-text-1 font-medium">{String((data as Record<string, unknown>).mediaAno || "—")}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-cf-text-4 uppercase tracking-wide">Somatoria Anual</p>
-                      <p className="text-xs text-cf-text-1 font-medium">{String((data as Record<string, unknown>).somatoriaAno || "—")}</p>
-                    </div>
-                  </div>
-                )}
-
-                {isEditing && (
-                  <div className="px-4 pb-4 space-y-3 animate-fade-in border-t border-cf-border pt-3">
-                    {fields ? (
-                      <div className="grid grid-cols-2 gap-3">
-                        {fields.map(f => (
-                          <div key={f.key} className={f.type === "textarea" ? "col-span-2" : ""}>
-                            <label className="text-[10px] text-cf-text-4 uppercase tracking-wide mb-1 block">{f.label}</label>
-                            {f.type === "readonly" ? (
-                              <input value={String((editValues as Record<string, unknown>)[f.key] || "")} readOnly className="border border-cf-border rounded-lg px-2.5 py-1.5 text-xs w-full bg-cf-surface text-cf-text-3" />
-                            ) : f.type === "select" ? (
-                              <select value={String((editValues as Record<string, unknown>)[f.key] || "")} onChange={e => updateField(f.key, e.target.value)} className="border border-cf-border rounded-lg px-2.5 py-1.5 text-xs w-full bg-white">
-                                <option value="">—</option>
-                                {f.options?.map(o => <option key={o} value={o}>{o}</option>)}
-                              </select>
-                            ) : f.type === "textarea" ? (
-                              <textarea value={String((editValues as Record<string, unknown>)[f.key] || "")} onChange={e => updateField(f.key, e.target.value)} rows={3} className="border border-cf-border rounded-lg px-2.5 py-1.5 text-xs w-full resize-none" />
-                            ) : (
-                              <input value={String((editValues as Record<string, unknown>)[f.key] || "")} onChange={e => updateField(f.key, e.target.value)} className="border border-cf-border rounded-lg px-2.5 py-1.5 text-xs w-full" />
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ) : doc.type === "qsa" ? (
-                      <div className="space-y-3">
-                        <p className="text-[10px] text-cf-text-4 uppercase tracking-wide font-bold">Socios</p>
-                        {Array.isArray(editValues.quadroSocietario) && (editValues.quadroSocietario as { nome: string; cpfCnpj: string; qualificacao: string }[]).map((s, si) => (
-                          <div key={si} className="grid grid-cols-3 gap-2 bg-white rounded-lg p-2 border border-cf-border">
-                            <div>
-                              <label className="text-[10px] text-cf-text-4 mb-0.5 block">Nome</label>
-                              <input value={s.nome || ""} onChange={e => {
-                                const arr = [...(editValues.quadroSocietario as Record<string, string>[])];
-                                arr[si] = { ...arr[si], nome: e.target.value };
-                                updateField("quadroSocietario", arr);
-                              }} className="border border-cf-border rounded-lg px-2 py-1 text-xs w-full" />
-                            </div>
-                            <div>
-                              <label className="text-[10px] text-cf-text-4 mb-0.5 block">CPF/CNPJ</label>
-                              <input value={s.cpfCnpj || ""} onChange={e => {
-                                const arr = [...(editValues.quadroSocietario as Record<string, string>[])];
-                                arr[si] = { ...arr[si], cpfCnpj: e.target.value };
-                                updateField("quadroSocietario", arr);
-                              }} className="border border-cf-border rounded-lg px-2 py-1 text-xs w-full" />
-                            </div>
-                            <div>
-                              <label className="text-[10px] text-cf-text-4 mb-0.5 block">Qualificacao</label>
-                              <input value={s.qualificacao || ""} onChange={e => {
-                                const arr = [...(editValues.quadroSocietario as Record<string, string>[])];
-                                arr[si] = { ...arr[si], qualificacao: e.target.value };
-                                updateField("quadroSocietario", arr);
-                              }} className="border border-cf-border rounded-lg px-2 py-1 text-xs w-full" />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : doc.type === "faturamento" ? (
-                      <div className="space-y-2">
-                        <p className="text-[10px] text-cf-text-4 uppercase tracking-wide font-bold">Meses</p>
-                        {Array.isArray(editValues.meses) && (editValues.meses as { mes: string; valor: string }[]).map((m, mi) => (
-                          <div key={mi} className="flex items-center gap-2">
-                            <span className="text-xs text-cf-text-3 w-20 flex-shrink-0">{m.mes}</span>
-                            <input value={m.valor || ""} onChange={e => {
-                              const arr = [...(editValues.meses as { mes: string; valor: string }[])];
-                              arr[mi] = { ...arr[mi], valor: e.target.value };
-                              updateField("meses", arr);
-                            }} className="border border-cf-border rounded-lg px-2 py-1 text-xs flex-1" placeholder="0,00" />
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div>
-                        <label className="text-[10px] text-cf-text-4 uppercase tracking-wide mb-1 block">Dados (JSON)</label>
-                        <textarea
-                          value={JSON.stringify(editValues, null, 2)}
-                          onChange={e => {
-                            try { setEditValues(JSON.parse(e.target.value)); setSaveError(null); }
-                            catch { setSaveError("JSON invalido"); }
-                          }}
-                          rows={8}
-                          className="border border-cf-border rounded-lg px-2.5 py-1.5 text-xs w-full font-mono resize-none"
-                        />
                       </div>
                     )}
-
-                    {saveError && <p className="text-[11px] text-cf-danger font-medium">{saveError}</p>}
-                    <div className="flex items-center gap-2 pt-1">
-                      <button onClick={() => handleSaveDoc(doc.type)} disabled={savingDoc} className="inline-flex items-center gap-1.5 bg-cf-green text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-green-600 transition-colors">
-                        {savingDoc ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Salvar
-                      </button>
-                      <button onClick={cancelEditing} disabled={savingDoc} className="border border-cf-border text-xs font-semibold text-cf-text-3 px-3 py-1.5 rounded-lg hover:bg-cf-bg transition-colors">
-                        Cancelar
-                      </button>
-                    </div>
                   </div>
-                )}
-              </div>
-            );
-          })}
-
-          {/* Arquivos salvos */}
-          {filesLoaded && (storedFiles.originals.length > 0 || storedFiles.reports.length > 0) && (
-            <div className="mt-4 pt-4 border-t border-cf-border space-y-3">
-              {storedFiles.originals.length > 0 && (
-                <div>
-                  <p className="text-[11px] font-bold text-cf-text-3 uppercase tracking-widest mb-2">Documentos Originais</p>
-                  <div className="space-y-1.5">
-                    {storedFiles.originals.map((f, i) => (
-                      <button key={i} onClick={() => handleDownload(f.path, f.name)}
-                        className="w-full flex items-center gap-3 bg-cf-bg rounded-lg px-3 py-2 border border-cf-border hover:border-cf-navy/30 hover:bg-cf-surface transition-all text-left" style={{ minHeight: "auto" }}>
-                        <FileText size={14} className="text-cf-navy flex-shrink-0" />
-                        <span className="text-xs font-medium text-cf-text-1 flex-1 truncate">{f.name}</span>
-                        <Download size={12} className="text-cf-text-3" />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {storedFiles.reports.length > 0 && (
-                <div>
-                  <p className="text-[11px] font-bold text-cf-text-3 uppercase tracking-widest mb-2">Relatórios Gerados</p>
-                  <div className="space-y-1.5">
-                    {storedFiles.reports.map((f, i) => (
-                      <button key={i} onClick={() => handleDownload(f.path, f.name)}
-                        className="w-full flex items-center gap-3 bg-cf-green/5 rounded-lg px-3 py-2 border border-cf-green/20 hover:bg-cf-green/10 transition-all text-left" style={{ minHeight: "auto" }}>
-                        <Download size={14} className="text-cf-green flex-shrink-0" />
-                        <span className="text-xs font-medium text-cf-text-1 flex-1 truncate">{f.name}</span>
-                        <span className="text-[10px] text-cf-green font-semibold">Baixar</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+                );
+              })}
             </div>
           )}
         </div>
@@ -801,13 +521,75 @@ function CollectionCard({ col, highlight, onDelete, onUpdate, userId }: {
   );
 }
 
+// ── GroupCard — wrapper for same-company entries ──
+function GroupCard({ group, userName, userId, highlightId, onDelete, onUpdate }: {
+  group: { key: string; name: string; cnpj: string | null; cols: DocumentCollection[] };
+  userName: string;
+  userId?: string;
+  highlightId: string | null;
+  onDelete: (id: string) => void;
+  onUpdate: (id: string, docs: CollectionDocument[]) => void;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const isGroup = group.cols.length > 1;
+  const visible = showAll ? group.cols : group.cols.slice(0, 3);
+  const hidden = group.cols.length - 3;
+
+  if (!isGroup) {
+    return (
+      <div className="bg-white rounded-xl border border-[#E2E8F0] overflow-hidden">
+        <CollectionRow col={group.cols[0]} isGrouped={false} userName={userName} userId={userId} highlight={group.cols[0].id === highlightId} onDelete={onDelete} onUpdate={onUpdate} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-[#E2E8F0] overflow-hidden">
+      {/* Group header */}
+      <div
+        style={{ background: "#F8FAFF", borderLeft: "3px solid #1E3A5F" }}
+        className="flex items-center gap-2.5 px-4 py-2.5 cursor-pointer hover:brightness-[0.98] transition-all border-b border-[#E8EFF9]"
+        onClick={() => setCollapsed(p => !p)}
+      >
+        <div style={{ color: "#1E3A5F", flexShrink: 0 }}>
+          {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+        </div>
+        <span style={{ fontSize: 13, fontWeight: 700, color: "#1E3A5F" }} className="truncate flex-1" title={group.name}>
+          {group.name}
+        </span>
+        {group.cnpj && (
+          <span className="text-[11px] text-[#9CA3AF] font-mono hidden sm:block">{group.cnpj}</span>
+        )}
+        <span style={{ fontSize: 11, fontWeight: 700, background: "#E0E7FF", color: "#3730A3", borderRadius: 999, padding: "2px 8px", flexShrink: 0 }}>
+          {group.cols.length} entradas
+        </span>
+      </div>
+
+      {/* Rows */}
+      {!collapsed && (
+        <div className="divide-y divide-[#F8FAFC]">
+          {visible.map(col => (
+            <CollectionRow key={col.id} col={col} isGrouped userName={userName} userId={userId} highlight={col.id === highlightId} onDelete={onDelete} onUpdate={onUpdate} />
+          ))}
+          {!showAll && hidden > 0 && (
+            <button
+              onClick={() => setShowAll(true)}
+              className="w-full py-2.5 text-xs text-[#9CA3AF] hover:text-[#374151] hover:bg-[#FAFAFA] transition-colors"
+            >
+              + {hidden} anterior{hidden !== 1 ? "es" : ""}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Page entry ──
 export default function HistoricoPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-cf-bg flex items-center justify-center">
-        <Loader2 size={24} className="text-cf-navy animate-spin" />
-      </div>
-    }>
+    <Suspense fallback={<div className="min-h-screen bg-[#F5F7FB] flex items-center justify-center"><Loader2 size={22} className="text-[#203b88] animate-spin" /></div>}>
       <HistoricoContent />
     </Suspense>
   );
@@ -816,131 +598,472 @@ export default function HistoricoPage() {
 function HistoricoContent() {
   const [collections, setCollections] = useState<DocumentCollection[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [filterDecisao, setFilterDecisao] = useState("");
+  const [filterRamo, setFilterRamo] = useState("");
+  const [filterPeriodo, setFilterPeriodo] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
+  const [pageSize, setPageSize] = useState(20);
+  const [notifications, setNotifications] = useState<{ id: string; message: string; read: boolean; created_at: string }[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
   const { user, loading: authLoading, signOut } = useAuth();
   const searchParams = useSearchParams();
   const highlightId = searchParams.get("highlight");
+  const filterRef = useRef<HTMLDivElement>(null);
 
+  // Load collections
   useEffect(() => {
     const load = async () => {
       try {
         const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
-
-        if (!user) {
-          setCollections([]);
-          return;
-        }
-        const { data, error } = await supabase
-          .from("document_collections")
-          .select("*")
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false });
-
+        const { data: { user: u } } = await supabase.auth.getUser();
+        if (!u) { setCollections([]); return; }
+        const { data, error } = await supabase.from("document_collections").select("*").eq("user_id", u.id).order("created_at", { ascending: false });
         if (error) throw error;
         setCollections((data || []) as DocumentCollection[]);
-      } catch (err) {
-        toast.error("Erro ao carregar histórico: " + (err instanceof Error ? err.message : "Verifique o Supabase"));
-      } finally {
-        setLoading(false);
-      }
+      } catch (err) { toast.error("Erro ao carregar histórico: " + (err instanceof Error ? err.message : "Verifique o Supabase")); }
+      finally { setLoading(false); }
     };
     load();
   }, []);
 
+  // Load notifications
+  useEffect(() => {
+    if (!user) return;
+    const supabase = createClient();
+    supabase.from("notifications").select("*").eq("user_id", user.id).order("created_at", { ascending: false }).limit(20)
+      .then(({ data }) => { if (data) setNotifications(data); });
+  }, [user]);
+
+  const unreadCount = notifications.filter(n => !n.read).length;
+
+  // Close filter dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (filterRef.current && !filterRef.current.contains(e.target as Node)) setShowFilters(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const activeFilters = [filterStatus, filterDecisao, filterRamo, filterPeriodo].filter(Boolean).length;
+
+  const userName = user?.user_metadata?.full_name || user?.email?.split("@")[0] || "";
+  const userInitial = userName.charAt(0).toUpperCase() || "U";
+
+  // Derive all available ramos for filter
+  const allRamos = useMemo(() => {
+    const set = new Set<string>();
+    for (const col of collections) {
+      const cnpjDoc = (col.documents || []).find((d: CollectionDocument) => d.type === "cnpj");
+      const s = derivarSetor(cnpjDoc?.extracted_data?.cnaePrincipal as string | undefined);
+      if (s) set.add(s);
+    }
+    return Array.from(set).sort();
+  }, [collections]);
+
+  // Filter + group
+  const grouped = useMemo(() => {
+    const now = new Date();
+    const filtered = collections.filter(col => {
+      const name = (col.company_name || col.label || "").toLowerCase();
+      const cnpj = (col.cnpj || "").toLowerCase();
+      const q = search.toLowerCase().trim();
+      if (q && !name.includes(q) && !cnpj.includes(q)) return false;
+      if (filterStatus && col.status !== filterStatus) return false;
+      if (filterDecisao && col.decisao !== filterDecisao) return false;
+      if (filterRamo) {
+        const cnpjDoc = (col.documents || []).find((d: CollectionDocument) => d.type === "cnpj");
+        const s = derivarSetor(cnpjDoc?.extracted_data?.cnaePrincipal as string | undefined);
+        if (s !== filterRamo) return false;
+      }
+      if (filterPeriodo) {
+        const days = parseInt(filterPeriodo);
+        if ((now.getTime() - new Date(col.created_at).getTime()) > days * 86400000) return false;
+      }
+      return true;
+    });
+
+    const map = new Map<string, DocumentCollection[]>();
+    for (const col of filtered) {
+      const key = col.cnpj || col.company_name || col.id;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(col);
+    }
+    return Array.from(map.entries()).map(([key, cols]) => ({
+      key,
+      name: cols[0].company_name || cols[0].label || "Sem título",
+      cnpj: cols[0].cnpj,
+      cols: cols.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+    }));
+  }, [collections, search, filterStatus, filterDecisao, filterRamo, filterPeriodo]);
+
+  const totalEntries = grouped.reduce((s, g) => s + g.cols.length, 0);
+  const visibleGroups = grouped.slice(0, pageSize);
+  const hasMore = grouped.length > pageSize;
+
+  const handleDelete = useCallback((id: string) => {
+    setCollections(prev => prev.filter(c => c.id !== id));
+  }, []);
+
+  const handleUpdate = useCallback((id: string, docs: CollectionDocument[]) => {
+    setCollections(prev => prev.map(c => c.id === id ? { ...c, documents: docs } : c));
+  }, []);
+
   return (
-    <div className="min-h-screen bg-cf-bg flex flex-col">
-      {/* Navbar */}
-      <header className="bg-white border-b border-cf-border sticky top-0 z-50" style={{ boxShadow: "0 1px 0 #d1dcf0" }}>
-        <div className="max-w-6xl mx-auto px-5 sm:px-8 h-16 grid grid-cols-3 items-center">
-          <Link href="/"><Logo light={false} /></Link>
-          <div className="hidden sm:flex justify-center">
-            <span className="text-sm font-semibold text-cf-navy">Relatórios</span>
-          </div>
-          <div className="flex justify-end gap-3 items-center">
-            {!authLoading && user ? (
-              <div className="flex items-center gap-2">
-                <span className="hidden sm:block text-xs text-cf-text-2 font-medium truncate max-w-[120px]">{user.user_metadata?.full_name || user.email?.split("@")[0]}</span>
-                <button onClick={signOut} className="flex items-center gap-1 text-xs font-semibold text-cf-text-3 hover:text-cf-danger border border-cf-border rounded-full px-2.5 py-1.5 transition-colors">
-                  <LogOut size={12} /> Sair
+    <div className="min-h-screen bg-[#F5F7FB] flex flex-col">
+
+      {/* ══ NAVBAR (same as Consolidador) ══ */}
+      <header className="sticky top-0 z-50" style={{ backgroundColor: "#ffffff", borderBottom: "1px solid #F1F5F9", boxShadow: "0 1px 3px rgba(0,0,0,0.06)", height: "56px" }}>
+        <div className="max-w-6xl mx-auto px-6" style={{ height: "56px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <Link href="/"><Logo /></Link>
+          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            <a href="/historico" className="hidden sm:flex items-center gap-1.5" style={{ fontSize: "13px", fontWeight: 600, color: "#203b88", padding: "5px 10px", borderRadius: "6px", textDecoration: "none", background: "#EFF6FF" }}>
+              <Clock size={14} /> Histórico
+            </a>
+            <a href="/ajuda" className="hidden sm:flex items-center justify-center" style={{ color: "#94A3B8", padding: "6px", borderRadius: "6px", transition: "all 0.15s" }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "#475569"; (e.currentTarget as HTMLElement).style.background = "#F1F5F9"; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "#94A3B8"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}>
+              <HelpCircle size={18} />
+            </a>
+            <a href="/configuracoes" className="hidden sm:flex items-center justify-center" style={{ color: "#94A3B8", padding: "6px", borderRadius: "6px", transition: "all 0.15s" }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "#475569"; (e.currentTarget as HTMLElement).style.background = "#F1F5F9"; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "#94A3B8"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}>
+              <Settings size={18} />
+            </a>
+            {!authLoading && user && (
+              <>
+                <div className="relative" style={{ marginLeft: "4px" }}>
+                  <button onClick={() => setShowNotifications(p => !p)} style={{ position: "relative", width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", color: "#94A3B8", borderRadius: "6px", border: "none", background: "transparent", cursor: "pointer", padding: 0, transition: "all 0.15s" }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "#F1F5F9"; (e.currentTarget as HTMLElement).style.color = "#475569"; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.color = "#94A3B8"; }}>
+                    <Bell size={18} />
+                    {unreadCount > 0 && <span style={{ position: "absolute", top: "-2px", right: "-2px", minWidth: "16px", height: "16px", borderRadius: "99px", background: "#22c55e", color: "white", fontSize: "10px", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>{unreadCount}</span>}
+                  </button>
+                  {showNotifications && (
+                    <div className="absolute right-0 bg-white rounded-xl border border-[#E2E8F0] shadow-lg z-50 overflow-hidden" style={{ top: "40px", width: "300px" }}>
+                      <div className="px-4 py-3 bg-[#F8FAFC] border-b border-[#E2E8F0] flex items-center justify-between">
+                        <p className="text-xs font-bold text-[#374151]">Notificações {unreadCount > 0 && `(${unreadCount})`}</p>
+                      </div>
+                      <div className="max-h-60 overflow-y-auto">
+                        {notifications.length === 0 ? (
+                          <p className="text-xs text-[#9CA3AF] text-center py-8">Nenhuma notificação</p>
+                        ) : notifications.map(n => (
+                          <div key={n.id} className={`px-4 py-3 border-b border-[#F1F5F9] last:border-0 ${n.read ? "" : "bg-[#203b88]/[0.03]"}`}>
+                            <p className="text-xs text-[#374151]">{n.message}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <a href="/perfil" className="hidden sm:flex items-center gap-2" style={{ padding: "4px 8px", borderRadius: "8px", textDecoration: "none", marginLeft: "4px", transition: "background 0.15s" }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "#F8FAFC"; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}>
+                  <div style={{ width: "26px", height: "26px", borderRadius: "99px", background: "linear-gradient(135deg, #1a3560 0%, #203b88 100%)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <span style={{ fontSize: "11px", fontWeight: 700, color: "white" }}>{userInitial}</span>
+                  </div>
+                  <span style={{ fontSize: "13px", fontWeight: 500, color: "#374151", maxWidth: "90px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{userName}</span>
+                  <ChDown size={12} style={{ color: "#9CA3AF" }} />
+                </a>
+                <button onClick={signOut} className="hidden sm:flex items-center gap-1.5" style={{ fontSize: "13px", fontWeight: 400, color: "#94A3B8", background: "transparent", border: "none", cursor: "pointer", padding: "5px 8px", borderRadius: "6px", transition: "color 0.15s" }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "#EF4444"; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "#94A3B8"; }}>
+                  <LogOut size={14} /> Sair
                 </button>
-              </div>
-            ) : !authLoading ? (
-              <Link href="/login" className="flex items-center gap-1.5 bg-cf-navy text-white text-xs font-semibold rounded-full px-3 py-1.5 hover:bg-cf-navy-dark transition-colors">
-                <User size={12} /> Entrar
-              </Link>
-            ) : null}
+              </>
+            )}
+            {!authLoading && !user && (
+              <a href="/login" className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider px-5 py-2 rounded-full text-white hover:opacity-80 transition-opacity" style={{ backgroundColor: "#73b815" }}>
+                <User size={13} /> Entrar
+              </a>
+            )}
           </div>
         </div>
       </header>
 
-      {/* Content */}
-      <main className="flex-1 max-w-3xl mx-auto w-full px-5 sm:px-8 py-8">
-        {/* Page header */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-lg font-bold text-cf-text-1">Relatórios</h1>
-            {!loading && (
-              <p className="text-xs text-cf-text-4 mt-0.5">
-                {collections.length} coleta{collections.length !== 1 ? "s" : ""} salva{collections.length !== 1 ? "s" : ""}
-              </p>
-            )}
-          </div>
-          <Link href="/" className="btn-secondary text-xs">
-            <ArrowLeft size={13} /> Voltar
-          </Link>
-        </div>
+      {/* ══ CONTENT ══ */}
+      <main className="flex-1 max-w-4xl mx-auto w-full px-5 sm:px-6 py-8">
 
-        {/* States */}
-        {loading ? (
-          <div className="space-y-2">
-            {[0, 1, 2].map(i => (
-              <div key={i} className="bg-white rounded-xl border border-cf-border px-5 py-4">
-                <div className="flex items-start gap-3">
-                  <div className="flex-1 space-y-2">
-                    <div className="skeleton h-4 w-48 rounded" />
-                    <div className="skeleton h-3 w-32 rounded" />
-                    <div className="skeleton h-3 w-24 rounded" />
-                  </div>
-                  <div className="flex gap-1.5">
-                    <div className="skeleton h-8 w-20 rounded-full" />
-                    <div className="skeleton h-8 w-8 rounded-lg" />
-                    <div className="skeleton h-8 w-8 rounded-lg" />
-                    <div className="skeleton h-8 w-8 rounded-lg" />
+        {/* Page header */}
+        <div className="mb-6">
+          <div className="flex items-start justify-between gap-4 mb-3">
+            <div>
+              <h1 className="text-lg font-bold text-[#111827]">Histórico de Relatórios</h1>
+              {!loading && (
+                <p className="text-xs text-[#9CA3AF] mt-0.5">
+                  {totalEntries} coleta{totalEntries !== 1 ? "s" : ""} encontrada{totalEntries !== 1 ? "s" : ""}
+                  {grouped.length !== totalEntries && ` · ${grouped.length} empresa${grouped.length !== 1 ? "s" : ""}`}
+                </p>
+              )}
+            </div>
+            <Link href="/" className="btn-secondary text-xs flex-shrink-0">
+              ← Voltar
+            </Link>
+          </div>
+
+          {/* ── Funil de Crédito ── */}
+          {!loading && collections.length > 0 && (() => {
+            const total = collections.length;
+            const finalizadas = collections.filter(c => c.status === "finished").length;
+            const aprovadas = collections.filter(c => c.decisao === "APROVADO" || c.decisao === "APROVACAO_CONDICIONAL").length;
+            const aprovPuras = collections.filter(c => c.decisao === "APROVADO").length;
+
+            const stages = [
+              { label: "Recebidas",       sub: "total de análises",        count: total,       color: "#1E3A5F", fill: "#DBEAFE", stroke: "#93C5FD" },
+              { label: "Finalizadas",      sub: "análise concluída",         count: finalizadas, color: "#2563EB", fill: "#C7D2FE", stroke: "#818CF8" },
+              { label: "Aprovadas",        sub: "aprovadas ou condicionais", count: aprovadas,   color: "#16A34A", fill: "#BBF7D0", stroke: "#4ADE80" },
+              { label: "Aprovação total",  sub: "sem condicionais",          count: aprovPuras,  color: "#15803D", fill: "#86EFAC", stroke: "#22C55E" },
+            ];
+
+            const VW = 400;
+            const SH = 38;
+            const GAP = 5;
+            const TOTAL_H = stages.length * SH + (stages.length - 1) * GAP;
+            const MIN_W = 0.18; // minimum width ratio for visual clarity
+
+            return (
+              <div style={{ background: "white", borderRadius: 12, border: "1px solid #E2E8F0", padding: "14px 20px 12px", marginBottom: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+                <p style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 14 }}>Funil de Crédito</p>
+                <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
+
+                  {/* SVG Funnel */}
+                  <svg viewBox={`0 0 ${VW} ${TOTAL_H}`} style={{ flex: "0 0 auto", width: "min(340px, 55%)", height: "auto" }} xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                      {stages.map((s, i) => (
+                        <linearGradient key={i} id={`funnel-grad-${i}`} x1="0%" y1="0%" x2="100%" y2="0%">
+                          <stop offset="0%" stopColor={s.color} stopOpacity="0.08" />
+                          <stop offset="50%" stopColor={s.fill} stopOpacity="0.9" />
+                          <stop offset="100%" stopColor={s.color} stopOpacity="0.08" />
+                        </linearGradient>
+                      ))}
+                    </defs>
+
+                    {stages.map((s, i) => {
+                      const topRatio = Math.max(stages[i].count / total, MIN_W);
+                      const nextRatio = i < stages.length - 1
+                        ? Math.max(stages[i + 1].count / total, MIN_W)
+                        : Math.max(stages[i].count / total * 0.72, MIN_W);
+                      const topW = topRatio * VW;
+                      const botW = nextRatio * VW;
+                      const topL = (VW - topW) / 2;
+                      const topR = VW - topL;
+                      const botL = (VW - botW) / 2;
+                      const botR = VW - botL;
+                      const y = i * (SH + GAP);
+                      const pts = `${topL},${y} ${topR},${y} ${botR},${y + SH} ${botL},${y + SH}`;
+                      const pct = Math.round((s.count / total) * 100);
+                      return (
+                        <g key={i}>
+                          <polygon points={pts} fill={`url(#funnel-grad-${i})`} stroke={s.stroke} strokeWidth="1.2" strokeLinejoin="round" />
+                          {/* Count + percent in center */}
+                          <text x={VW / 2} y={y + SH / 2 - 1} textAnchor="middle" dominantBaseline="middle"
+                            style={{ fontSize: 12, fontWeight: "800", fill: s.color }}>
+                            {s.count}
+                          </text>
+                          <text x={VW / 2} y={y + SH / 2 + 12} textAnchor="middle" dominantBaseline="middle"
+                            style={{ fontSize: 9, fontWeight: "600", fill: s.color, opacity: 0.7 }}>
+                            {pct}%
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </svg>
+
+                  {/* Legend */}
+                  <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10 }}>
+                    {stages.map((s, i) => {
+                      const pct = Math.round((s.count / total) * 100);
+                      const prevCount = i > 0 ? stages[i - 1].count : null;
+                      const convRate = prevCount && prevCount > 0 ? Math.round((s.count / prevCount) * 100) : null;
+                      return (
+                        <div key={i}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                            <div style={{ width: 8, height: 8, borderRadius: 2, background: s.color, flexShrink: 0 }} />
+                            <span style={{ fontSize: 12, fontWeight: 700, color: "#111827" }}>{s.label}</span>
+                            <span style={{ fontSize: 12, fontWeight: 800, color: s.color, marginLeft: "auto" }}>{s.count}</span>
+                            <span style={{ fontSize: 10, color: "#9CA3AF", width: 30, textAlign: "right" }}>{pct}%</span>
+                          </div>
+                          {convRate !== null && i > 0 && (
+                            <div style={{ paddingLeft: 15, marginTop: 1 }}>
+                              <span style={{ fontSize: 9, color: convRate >= 70 ? "#16A34A" : convRate >= 40 ? "#D97706" : "#DC2626", fontWeight: 600 }}>
+                                ↳ {convRate}% de conversão
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
+            );
+          })()}
+
+          {/* Search + Filters */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 max-w-xs">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+              <input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Buscar empresa ou CNPJ..."
+                className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#203b88]/15 focus:border-[#203b88]/40 placeholder:text-[#9CA3AF]"
+              />
+              {search && (
+                <button onClick={() => setSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#9CA3AF] hover:text-[#374151] transition-colors">
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+            <div className="relative" ref={filterRef}>
+              <button
+                onClick={() => setShowFilters(p => !p)}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium bg-white border border-[#E2E8F0] rounded-lg hover:border-[#203b88]/40 transition-colors"
+                style={{ color: activeFilters > 0 ? "#203b88" : "#6B7280" }}
+              >
+                <Filter size={14} />
+                Filtros
+                {activeFilters > 0 && (
+                  <span className="w-4 h-4 rounded-full bg-[#203b88] text-white text-[10px] font-bold flex items-center justify-center">{activeFilters}</span>
+                )}
+              </button>
+              {showFilters && (
+                <div className="absolute left-0 top-11 bg-white rounded-xl border border-[#E2E8F0] shadow-lg z-20 w-72 p-4 space-y-4">
+                  {/* Status */}
+                  <div>
+                    <p className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-widest mb-2">Status</p>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {[{ v: "in_progress", l: "Em andamento" }, { v: "finished", l: "Finalizada" }].map(s => (
+                        <button key={s.v} onClick={() => setFilterStatus(filterStatus === s.v ? "" : s.v)}
+                          className="text-[11px] px-2.5 py-1 rounded-full border transition-colors"
+                          style={filterStatus === s.v ? { background: "#203b88", color: "white", borderColor: "#203b88" } : { borderColor: "#E2E8F0", color: "#6B7280" }}>
+                          {s.l}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Decisão */}
+                  <div>
+                    <p className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-widest mb-2">Decisão</p>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {[{ v: "APROVADO", l: "Aprovado" }, { v: "APROVACAO_CONDICIONAL", l: "Condicional" }, { v: "REPROVADO", l: "Reprovado" }, { v: "PENDENTE", l: "Pendente" }].map(d => (
+                        <button key={d.v} onClick={() => setFilterDecisao(filterDecisao === d.v ? "" : d.v)}
+                          className="text-[11px] px-2.5 py-1 rounded-full border transition-colors"
+                          style={filterDecisao === d.v ? { background: "#203b88", color: "white", borderColor: "#203b88" } : { borderColor: "#E2E8F0", color: "#6B7280" }}>
+                          {d.l}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Ramo */}
+                  {allRamos.length > 0 && (
+                    <div>
+                      <p className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-widest mb-2">Ramo</p>
+                      <div className="flex gap-1.5 flex-wrap">
+                        {allRamos.map(r => (
+                          <button key={r} onClick={() => setFilterRamo(filterRamo === r ? "" : r)}
+                            className="text-[11px] px-2.5 py-1 rounded-full border transition-colors"
+                            style={filterRamo === r ? { background: "#203b88", color: "white", borderColor: "#203b88" } : { borderColor: "#E2E8F0", color: "#6B7280" }}>
+                            {r}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {/* Período */}
+                  <div>
+                    <p className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-widest mb-2">Período</p>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {[{ v: "7", l: "7 dias" }, { v: "30", l: "30 dias" }, { v: "90", l: "90 dias" }].map(p => (
+                        <button key={p.v} onClick={() => setFilterPeriodo(filterPeriodo === p.v ? "" : p.v)}
+                          className="text-[11px] px-2.5 py-1 rounded-full border transition-colors"
+                          style={filterPeriodo === p.v ? { background: "#203b88", color: "white", borderColor: "#203b88" } : { borderColor: "#E2E8F0", color: "#6B7280" }}>
+                          {p.l}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {activeFilters > 0 && (
+                    <button onClick={() => { setFilterStatus(""); setFilterDecisao(""); setFilterRamo(""); setFilterPeriodo(""); }} className="w-full text-xs text-red-500 hover:text-red-600 transition-colors pt-1 border-t border-[#F1F5F9]">
+                      Limpar filtros
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* List */}
+        {loading ? (
+          <div className="space-y-2">
+            {[0, 1, 2, 3].map(i => (
+              <div key={i} className="bg-white rounded-xl border border-[#E2E8F0] px-4 h-14 flex items-center gap-3">
+                <div className="skeleton w-9 h-9 rounded-full flex-shrink-0" />
+                <div className="flex-1 space-y-1.5">
+                  <div className="skeleton h-3.5 w-56 rounded" />
+                  <div className="skeleton h-2.5 w-32 rounded" />
+                </div>
+                <div className="skeleton h-6 w-20 rounded-full" />
+              </div>
             ))}
           </div>
-        ) : collections.length === 0 ? (
+        ) : grouped.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
-            <div className="w-14 h-14 rounded-2xl bg-cf-surface flex items-center justify-center">
-              <Inbox size={24} className="text-cf-text-4" />
+            <div className="w-14 h-14 rounded-2xl bg-[#F1F5F9] flex items-center justify-center">
+              {search || activeFilters > 0 ? <Search size={24} className="text-[#CBD5E1]" /> : <Inbox size={24} className="text-[#CBD5E1]" />}
             </div>
             <div>
-              <h3 className="text-base font-bold text-cf-text-1 mb-1">Nenhuma coleta salva ainda</h3>
-              <p className="text-sm text-cf-text-3">Finalize uma coleta para vê-la aqui.</p>
+              <h3 className="text-base font-bold text-[#374151] mb-1">
+                {search || activeFilters > 0 ? "Nenhum relatório encontrado" : "Nenhuma coleta salva ainda"}
+              </h3>
+              <p className="text-sm text-[#9CA3AF]">
+                {search || activeFilters > 0 ? "Tente outros filtros ou inicie uma nova análise" : "Finalize uma coleta para vê-la aqui."}
+              </p>
             </div>
-            <Link href="/" className="btn-green mt-2">Ir para o consolidador</Link>
+            {search || activeFilters > 0 ? (
+              <button onClick={() => { setSearch(""); setFilterStatus(""); setFilterDecisao(""); setFilterRamo(""); setFilterPeriodo(""); }} className="btn-secondary text-xs mt-2">
+                Limpar busca
+              </button>
+            ) : (
+              <Link href="/" className="btn-green mt-2">+ Nova Coleta</Link>
+            )}
           </div>
         ) : (
           <div className="space-y-2">
-            {collections.map(col => (
-              <CollectionCard
-                key={col.id}
-                col={col}
-                highlight={col.id === highlightId}
+            {visibleGroups.map(group => (
+              <GroupCard
+                key={group.key}
+                group={group}
+                userName={userName}
                 userId={user?.id}
-                onDelete={(id) => setCollections(prev => prev.filter(c => c.id !== id))}
-                onUpdate={(docs) => setCollections(prev => prev.map(c => c.id === col.id ? { ...c, documents: docs } : c))}
+                highlightId={highlightId}
+                onDelete={handleDelete}
+                onUpdate={handleUpdate}
               />
             ))}
+            {hasMore && (
+              <div className="flex justify-center pt-4">
+                <button
+                  onClick={() => setPageSize(p => p + 20)}
+                  className="btn-secondary text-xs"
+                >
+                  Carregar mais {Math.min(grouped.length - pageSize, 20)} grupos
+                </button>
+              </div>
+            )}
+            <p className="text-center text-[11px] text-[#9CA3AF] pt-2">
+              Mostrando {visibleGroups.length} de {grouped.length} grupo{grouped.length !== 1 ? "s" : ""} · {totalEntries} entrada{totalEntries !== 1 ? "s" : ""}
+            </p>
           </div>
         )}
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-cf-border mt-16 py-6">
-        <p className="text-center text-[11px] text-cf-text-4">
+      <footer className="border-t border-[#E2E8F0] mt-16 py-6">
+        <p className="text-center text-[11px] text-[#9CA3AF]">
           &copy; {new Date().getFullYear()} Capital Finanças — Documentos processados com segurança
         </p>
       </footer>

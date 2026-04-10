@@ -1,5 +1,5 @@
 // Excel report generator
-import type { ExtractedData, AIAnalysis, FundValidationResult } from "@/types";
+import type { ExtractedData, AIAnalysis, FundValidationResult, CreditLimitResult } from "@/types";
 
 type AlertSeverity = "ALTA" | "MODERADA" | "INFO";
 interface Alert { message: string; severity: AlertSeverity; impacto?: string; }
@@ -15,6 +15,7 @@ export interface ExcelReportParams {
   companyAge: string;
   protestosVigentes: number;
   fundValidation?: FundValidationResult;
+  creditLimit?: CreditLimitResult;
 }
 
 function parseMoneyToNumber(val: string): number {
@@ -198,6 +199,55 @@ export async function buildExcelReport(p: ExcelReportParams): Promise<Blob> {
           fn.font = { size: 9, italic: true, color: { argb: FS_ERR }, name: "Arial" };
           r++;
         }
+
+        xlSpacer(); xlSpacer();
+      }
+
+      // ======= SECAO LC: LIMITE DE CREDITO =======
+      if (p.creditLimit) {
+        const lc = p.creditLimit;
+        const fmtM = (v: number) => 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+        const LC_OK = 'FF166534'; const LC_WARN = 'FF92400E'; const LC_ERR = 'FF991B1B';
+        const LC_OK_BG = 'FFDCFCE7'; const LC_WARN_BG = 'FFFEF3C7'; const LC_ERR_BG = 'FFFEE2E2';
+        const lcColor = lc.classificacao === 'APROVADO' ? LC_OK : lc.classificacao === 'CONDICIONAL' ? LC_WARN : LC_ERR;
+        const lcBg = lc.classificacao === 'APROVADO' ? LC_OK_BG : lc.classificacao === 'CONDICIONAL' ? LC_WARN_BG : LC_ERR_BG;
+        const lcTitleColor = lc.classificacao === 'APROVADO' ? 'FF166534' : lc.classificacao === 'CONDICIONAL' ? 'FFD97706' : 'FFDC2626';
+
+        secTitle('LC', 'LIMITE DE CREDITO SUGERIDO', lcTitleColor);
+
+        // Classificação banner
+        ws.mergeCells(r, 2, r, 5);
+        ws.getRow(r).height = 32;
+        const lcBanner = ws.getRow(r).getCell(2);
+        const bannerText = lc.classificacao === 'REPROVADO'
+          ? '  NAO ELEGIVEL — Criterio eliminatorio nao atendido'
+          : lc.classificacao === 'CONDICIONAL'
+            ? `  APROVACAO CONDICIONAL — Limite: ${fmtM(lc.limiteAjustado)} (reduzido 30%)`
+            : `  APROVADO — Limite: ${fmtM(lc.limiteAjustado)}`;
+        lcBanner.value = bannerText;
+        lcBanner.font = { bold: true, size: 13, color: { argb: lcColor }, name: 'Arial' };
+        lcBanner.fill = F(lcBg); lcBanner.border = BD; lcBanner.alignment = { vertical: 'middle' };
+        r++;
+
+        if (lc.classificacao !== 'REPROVADO') {
+          xlSpacer();
+          const detailItems = [
+            { label: 'Prazo Maximo', value: lc.prazo + ' dias' },
+            { label: 'Revisao em', value: new Date(lc.dataRevisao).toLocaleDateString('pt-BR') },
+            { label: 'Conc. Max/Sacado', value: fmtM(lc.limiteConcentracao) },
+            { label: 'Base (FMM x Fator)', value: `${fmtM(lc.fmmBase)} x ${lc.fatorBase}x = ${fmtM(lc.limiteBase)}` },
+          ];
+          detailItems.forEach((item, i) => field2(item.label, item.value, i));
+        }
+
+        xlSpacer();
+        ws.mergeCells(r, 2, r, 5);
+        const lcNote = ws.getRow(r).getCell(2);
+        lcNote.value = lc.classificacao === 'REPROVADO'
+          ? `Perfil: ${lc.presetName} — revise os criterios eliminatorios.`
+          : `Perfil: ${lc.presetName} | Base: ${fmtM(lc.fmmBase)} x ${lc.fatorBase} = ${fmtM(lc.limiteBase)}${lc.fatorReducao < 1 ? ` | Fator reducao: ${Math.round((1 - lc.fatorReducao) * 100)}%` : ''}`;
+        lcNote.font = { size: 9, italic: true, color: { argb: 'FF6B7280' }, name: 'Arial' };
+        r++;
 
         xlSpacer(); xlSpacer();
       }

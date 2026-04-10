@@ -12,7 +12,7 @@ import { createClient } from "@/lib/supabase/client";
 import { uploadFile } from "@/lib/storage";
 import GoalfyButton from "@/components/GoalfyButton";
 import AlertList from "@/components/AlertList";
-import { ExtractedData, CollectionDocument, DocumentCollection, FundSettings, DEFAULT_FUND_SETTINGS, AIAnalysis, FundCriterion, FundValidationResult, CriterionStatus } from "@/types";
+import { ExtractedData, CollectionDocument, DocumentCollection, FundSettings, DEFAULT_FUND_SETTINGS, AIAnalysis, FundCriterion, FundValidationResult, CriterionStatus, FundPreset, CreditLimitResult } from "@/types";
 import type { OriginalFiles } from "@/components/UploadStep";
 
 type Format = "pdf" | "docx" | "xlsx" | "html";
@@ -375,20 +375,39 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     try { localStorage.setItem(NOTES_KEY, analystNotes); } catch { /* ignore */ }
   }, [analystNotes]);
 
-  // ── Fund Settings ──
+  // ── Fund Settings + Presets ──
   const [fundSettings, setFundSettings] = useState<FundSettings>(DEFAULT_FUND_SETTINGS);
+  const [fundPresets, setFundPresets] = useState<FundPreset[]>([]);
+  const [selectedPresetId, setSelectedPresetId] = useState<string | "active" | null>("active");
   useEffect(() => {
     const loadSettings = async () => {
       try {
         const supabase = createClient();
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
-        const { data: s } = await supabase.from("fund_settings").select("*").eq("user_id", user.id).maybeSingle();
+        const [{ data: s }, { data: presets }] = await Promise.all([
+          supabase.from("fund_settings").select("*").eq("user_id", user.id).maybeSingle(),
+          supabase.from("fund_presets").select("*").eq("user_id", user.id).order("created_at"),
+        ]);
         if (s) setFundSettings({ ...DEFAULT_FUND_SETTINGS, ...s });
+        if (presets) setFundPresets(presets);
       } catch { /* use defaults */ }
     };
     loadSettings();
   }, []);
+
+  // Derives the settings to validate against (active or selected preset)
+  const activeValidationSettings: FundSettings = (() => {
+    if (selectedPresetId === "active" || selectedPresetId === null) return fundSettings;
+    const preset = fundPresets.find(p => p.id === selectedPresetId);
+    return preset ? { ...DEFAULT_FUND_SETTINGS, ...preset } : fundSettings;
+  })();
+  const selectedPresetName = selectedPresetId === "active" || selectedPresetId === null
+    ? "Configurações Ativas"
+    : fundPresets.find(p => p.id === selectedPresetId)?.name ?? "Configurações Ativas";
+  const selectedPresetColor = selectedPresetId === "active" || selectedPresetId === null
+    ? "#203b88"
+    : fundPresets.find(p => p.id === selectedPresetId)?.color ?? "#203b88";
 
   // ── AI Analysis with cache ──
   const [aiAnalysis, setAiAnalysis] = useState<AIAnalysis | null>(null);
@@ -908,7 +927,58 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   })();
 
   // ── Fund parameter validation ──
-  const fundValidation = validarContraParametros(data, fundSettings);
+  const fundValidation = validarContraParametros(data, activeValidationSettings);
+
+  // ── Credit Limit Result ──
+  const creditLimit: CreditLimitResult = (() => {
+    const fmmRaw = parseMoney(data.faturamento.fmm12m || data.faturamento.mediaAno || data.faturamento.somatoriaAno || '0');
+    const fator = activeValidationSettings.fator_limite_base;
+    const limiteBase = fmmRaw * fator;
+    const classificacao: 'APROVADO' | 'CONDICIONAL' | 'REPROVADO' =
+      (fundValidation.hasEliminatoria || fundValidation.failCount > 0) ? 'REPROVADO'
+      : fundValidation.warnCount > 0 ? 'CONDICIONAL' : 'APROVADO';
+    const fatorReducao = classificacao === 'REPROVADO' ? 0 : classificacao === 'CONDICIONAL' ? 0.7 : 1;
+    const limiteAjustado = limiteBase * fatorReducao;
+    const prazo = classificacao === 'APROVADO' ? activeValidationSettings.prazo_maximo_aprovado
+      : classificacao === 'CONDICIONAL' ? activeValidationSettings.prazo_maximo_condicional : 0;
+    const revisaoDias = classificacao !== 'REPROVADO'
+      ? (classificacao === 'APROVADO' ? activeValidationSettings.revisao_aprovado_dias : activeValidationSettings.revisao_condicional_dias)
+      : 0;
+    const dataRevisao = new Date();
+    dataRevisao.setDate(dataRevisao.getDate() + revisaoDias);
+    return {
+      classificacao, limiteAjustado, limiteBase, fmmBase: fmmRaw, fatorBase: fator, fatorReducao,
+      prazo, revisaoDias, dataRevisao: dataRevisao.toISOString(),
+      concentracaoMaxPct: activeValidationSettings.concentracao_max_sacado,
+      limiteConcentracao: limiteAjustado * (activeValidationSettings.concentracao_max_sacado / 100),
+      presetName: selectedPresetName,
+    };
+  })();
+
+  // ── Persist fund_status to collection ──
+  useEffect(() => {
+    if (!collectionId || fundValidation.criteria.length === 0) return;
+    const status = fundValidation.hasEliminatoria || fundValidation.failCount > 0 ? "error"
+      : fundValidation.warnCount > 0 ? "warning" : "ok";
+    const payload = {
+      status,
+      pass_count: fundValidation.passCount,
+      fail_count: fundValidation.failCount,
+      warn_count: fundValidation.warnCount,
+      total: fundValidation.criteria.length,
+      preset_name: selectedPresetName,
+      preset_color: selectedPresetColor,
+      validated_at: new Date().toISOString(),
+    };
+    const save = async () => {
+      try {
+        const supabase = createClient();
+        await supabase.from("document_collections").update({ fund_status: payload }).eq("id", collectionId);
+      } catch { /* ignore */ }
+    };
+    save();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collectionId, selectedPresetId, fundValidation.passCount, fundValidation.failCount, fundValidation.warnCount]);
 
   // ═══════════════════════════════════════════════════
   // PDF Generation
@@ -966,6 +1036,8 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         dividaAtiva, atraso, riskScore, decisionColor, decisionBg, decisionBorder,
         observacoes: analystNotes.trim() || undefined,
         streetViewBase64,
+        fundValidation,
+        creditLimit,
       });
       triggerDownload(blob, `capital-financas-${safeName}-${dateStr}.pdf`);
       setGeneratedFormats(p => new Set(p).add("pdf"));
@@ -986,6 +1058,8 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         data, aiAnalysis, decision, finalRating, alerts,
         pontosFortes, pontosFracos, perguntasVisita, resumoExecutivo,
         companyAge, protestosVigentes,
+        fundValidation,
+        creditLimit,
       });
       triggerDownload(blob, `capital-financas-${safeName}-${dateStr}.docx`);
       setGeneratedFormats(p => new Set(p).add("docx"));
@@ -1005,6 +1079,8 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       const blob = await buildExcelReport({
         data, aiAnalysis, decision, finalRating, alerts,
         pontosFortes, pontosFracos, companyAge, protestosVigentes,
+        fundValidation,
+        creditLimit,
       });
       triggerDownload(blob, `capital-financas-${safeName}-${dateStr}.xlsx`);
       setGeneratedFormats(p => new Set(p).add("xlsx"));
@@ -1041,13 +1117,43 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   // ═══════════════════════════════════════════════════
   // UI Render
   // ═══════════════════════════════════════════════════
+  // Sidebar nav items
+  const navItems = [
+    { id: "sec-00", icon: "00", label: "Sumário Executivo" },
+    { id: "sec-fs", icon: "FS", label: "Parâmetros do Fundo" },
+    { id: "sec-05", icon: "05", label: "SCR / Bacen" },
+    { id: "sec-07", icon: "07", label: "Processos Judiciais" },
+    { id: "sec-op", icon: "OP", label: "Relatório de Visita" },
+    { id: "sec-nt", icon: "✎", label: "Anotações" },
+    { id: "sec-ex", icon: "⬇", label: "Exportar" },
+  ];
+
   return (
-    <div className="animate-slide-up space-y-5">
+    <div className="animate-slide-up flex gap-6 items-start">
+
+      {/* ── Sidebar de navegação (desktop) ── */}
+      <nav className="hidden lg:flex flex-col gap-0.5 w-[196px] flex-shrink-0 sticky top-4 self-start">
+        <p className="text-[9px] font-bold text-[#9CA3AF] uppercase tracking-[0.14em] px-3 mb-1">Seções</p>
+        {navItems.map(item => (
+          <a
+            key={item.id}
+            href={`#${item.id}`}
+            className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12px] font-medium text-[#374151] hover:bg-[#EFF6FF] hover:text-[#203b88] transition-colors group"
+            onClick={e => { e.preventDefault(); document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
+          >
+            <span className="w-6 h-6 rounded-md bg-[#F3F4F6] group-hover:bg-[#DBEAFE] flex items-center justify-center text-[9px] font-bold text-[#6B7280] group-hover:text-[#203b88] transition-colors flex-shrink-0">{item.icon}</span>
+            <span className="leading-snug">{item.label}</span>
+          </a>
+        ))}
+      </nav>
+
+      {/* ── Conteúdo principal ── */}
+      <div className="flex-1 min-w-0 space-y-5 pb-28">
 
       {/* ══════════════════════════════════════════════════════
           CARD 00 — SUMARIO EXECUTIVO
           ══════════════════════════════════════════════════════ */}
-      <div className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #2d4f8a", boxShadow: "0 4px 20px rgba(32,59,136,0.12)" }}>
+      <div id="sec-00" className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #2d4f8a", boxShadow: "0 4px 20px rgba(32,59,136,0.12)" }}>
         <div className="px-5 py-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg, #192f5d 0%, #1e3a7a 100%)" }}>
           <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0 border border-white/20">
             <span className="text-sm font-bold text-white">00</span>
@@ -1193,7 +1299,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           </div>
 
           {/* Grid row 2 */}
-          <div className="grid grid-cols-3 gap-5">
+          <div className="border-t border-[#F3F4F6] pt-4 grid grid-cols-3 gap-5">
             <div>
               <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Socios (QSA)</p>
               <p className="text-[14px] font-semibold text-[#111827]">{qsaCount}</p>
@@ -1209,7 +1315,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           </div>
 
           {/* Grid row 3 */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-5">
+          <div className="border-t border-[#F3F4F6] pt-4 grid grid-cols-2 sm:grid-cols-4 gap-5">
             <div>
               <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Em Atraso</p>
               <p className="text-[14px]"><MutedValue v={data.scr.operacoesEmAtraso ? `R$ ${data.scr.operacoesEmAtraso}` : ""} /></p>
@@ -1277,7 +1383,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       {/* ══════════════════════════════════════════════════════
           CARD FS — PARÂMETROS DO FUNDO
           ══════════════════════════════════════════════════════ */}
-      <div className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #2d4f8a", boxShadow: "0 4px 20px rgba(32,59,136,0.12)" }}>
+      <div id="sec-fs" className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #2d4f8a", boxShadow: "0 4px 20px rgba(32,59,136,0.12)" }}>
         {/* Header */}
         <div className="px-5 py-4 flex items-center justify-between" style={{ background: "linear-gradient(135deg, #192f5d 0%, #1e3a7a 100%)" }}>
           <div className="flex items-center gap-3">
@@ -1286,7 +1392,26 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             </div>
             <div>
               <p className="text-[10px] font-bold text-white/50 uppercase tracking-[0.12em]">Critérios de Elegibilidade</p>
-              <p className="text-sm font-bold text-white">Parâmetros do Fundo</p>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <p className="text-sm font-bold text-white">Parâmetros do Fundo</p>
+                {/* Preset selector */}
+                {fundPresets.length > 0 && (
+                  <select
+                    value={selectedPresetId ?? "active"}
+                    onChange={e => setSelectedPresetId(e.target.value)}
+                    style={{
+                      fontSize: "10px", fontWeight: 700, color: "white", background: "rgba(255,255,255,0.12)",
+                      border: "1px solid rgba(255,255,255,0.25)", borderRadius: "6px", padding: "2px 6px",
+                      cursor: "pointer", outline: "none", maxWidth: "160px",
+                    }}
+                  >
+                    <option value="active" style={{ color: "#111827", background: "white" }}>Configurações Ativas</option>
+                    {fundPresets.map(p => (
+                      <option key={p.id} value={p.id} style={{ color: "#111827", background: "white" }}>{p.name}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
             </div>
           </div>
           {/* Summary badge */}
@@ -1367,16 +1492,124 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
                 ? "Critérios de atenção identificados — análise condicional recomendada."
                 : "Todos os critérios atendidos."}
           </p>
-          <a href="/configuracoes" target="_blank" rel="noopener noreferrer" style={{ fontSize: "11px", fontWeight: 600, color: "#203b88", textDecoration: "none" }}>
-            Editar parâmetros →
-          </a>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <span style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "11px", color: "#6b7280" }}>
+              <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: selectedPresetColor, display: "inline-block" }} />
+              {selectedPresetName}
+            </span>
+            <a href="/configuracoes" target="_blank" rel="noopener noreferrer" style={{ fontSize: "11px", fontWeight: 600, color: "#203b88", textDecoration: "none" }}>
+              Gerenciar perfis →
+            </a>
+          </div>
         </div>
       </div>
+
+
+      {/* ══════════════════════════════════════════════════════
+          CARD LC — LIMITE DE CRÉDITO SUGERIDO
+          ══════════════════════════════════════════════════════ */}
+      {(() => {
+        const fmmRaw = parseMoney(data.faturamento.fmm12m || data.faturamento.mediaAno || data.faturamento.somatoriaAno || "0");
+        const fator = activeValidationSettings.fator_limite_base;
+        const limiteBase = fmmRaw * fator;
+        const lcClass: "APROVADO" | "CONDICIONAL" | "REPROVADO" =
+          (fundValidation.hasEliminatoria || fundValidation.failCount > 0) ? "REPROVADO"
+          : fundValidation.warnCount > 0 ? "CONDICIONAL" : "APROVADO";
+        const fatorReducao = lcClass === "REPROVADO" ? 0 : lcClass === "CONDICIONAL" ? 0.7 : 1;
+        const limiteAjustado = limiteBase * fatorReducao;
+        const prazo = lcClass === "APROVADO" ? activeValidationSettings.prazo_maximo_aprovado
+          : lcClass === "CONDICIONAL" ? activeValidationSettings.prazo_maximo_condicional : 0;
+        const revisaoDias = lcClass !== "REPROVADO"
+          ? (lcClass === "APROVADO" ? activeValidationSettings.revisao_aprovado_dias : activeValidationSettings.revisao_condicional_dias)
+          : 0;
+        const dataRevisao = new Date();
+        dataRevisao.setDate(dataRevisao.getDate() + revisaoDias);
+        const concentracaoMax = activeValidationSettings.concentracao_max_sacado;
+        const limiteConcentracao = limiteAjustado * (concentracaoMax / 100);
+        const fmtM = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+        const lcColor = lcClass === "APROVADO" ? "#16a34a" : lcClass === "CONDICIONAL" ? "#d97706" : "#dc2626";
+        const lcBg = lcClass === "APROVADO" ? "#dcfce7" : lcClass === "CONDICIONAL" ? "#fef3c7" : "#fee2e2";
+        const lcBorder = lcClass === "APROVADO" ? "#bbf7d0" : lcClass === "CONDICIONAL" ? "#fde68a" : "#fecaca";
+        const lcGrad = lcClass === "APROVADO" ? "linear-gradient(135deg, #14532d 0%, #166534 100%)"
+          : lcClass === "CONDICIONAL" ? "linear-gradient(135deg, #78350f 0%, #92400e 100%)"
+          : "linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%)";
+        return (
+          <div className="bg-white rounded-xl overflow-hidden" style={{ border: `1px solid ${lcBorder}`, boxShadow: `0 4px 20px ${lcColor}22` }}>
+            {/* Header */}
+            <div className="px-5 py-4 flex items-center justify-between" style={{ background: lcGrad }}>
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0 border border-white/20">
+                  <span className="text-sm font-bold text-white">LC</span>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-white/50 uppercase tracking-[0.12em]">Resultado da Análise</p>
+                  <p className="text-sm font-bold text-white">Limite de Crédito Sugerido</p>
+                </div>
+              </div>
+              <span style={{ fontSize: "12px", fontWeight: 800, padding: "4px 14px", borderRadius: "99px", background: "rgba(255,255,255,0.15)", color: "white", border: "1px solid rgba(255,255,255,0.3)", letterSpacing: "0.05em" }}>
+                {lcClass === "CONDICIONAL" ? "APROVAÇÃO CONDICIONAL" : lcClass}
+              </span>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: "24px 20px" }}>
+              {/* Main limit number */}
+              <div style={{ marginBottom: "24px" }}>
+                {lcClass === "REPROVADO" ? (
+                  <div>
+                    <p style={{ fontSize: "36px", fontWeight: 800, color: "#dc2626", letterSpacing: "-0.02em" }}>Não elegível</p>
+                    <p style={{ fontSize: "12px", color: "#6b7280", marginTop: "4px" }}>Critério eliminatório não atendido — empresa fora dos parâmetros do fundo</p>
+                  </div>
+                ) : (
+                  <div>
+                    <p style={{ fontSize: "11px", fontWeight: 700, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "4px" }}>Limite aprovado</p>
+                    <p style={{ fontSize: "40px", fontWeight: 800, color: lcColor, letterSpacing: "-0.02em", lineHeight: 1 }}>{fmtM(limiteAjustado)}</p>
+                    {lcClass === "CONDICIONAL" && (
+                      <p style={{ fontSize: "11px", color: "#d97706", marginTop: "6px" }}>Reduzido em 30% por critérios de atenção (base: {fmtM(limiteBase)})</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Details grid */}
+              {lcClass !== "REPROVADO" && (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginBottom: "20px" }}>
+                  {[
+                    { label: "Prazo máximo", value: `${prazo} dias`, sub: lcClass === "APROVADO" ? "Aprovado" : "Condicional" },
+                    { label: "Revisão em", value: dataRevisao.toLocaleDateString("pt-BR"), sub: `em ${revisaoDias} dias` },
+                    { label: "Conc. máx./sacado", value: fmtM(limiteConcentracao), sub: `${concentracaoMax}% do limite` },
+                    { label: "Base de cálculo", value: fmtM(fmmRaw), sub: `FMM × ${fator}x` },
+                  ].map(item => (
+                    <div key={item.label} style={{ padding: "12px", background: "#F8FAFC", borderRadius: "10px", border: "1px solid #F1F5F9" }}>
+                      <p style={{ fontSize: "9px", fontWeight: 700, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "4px" }}>{item.label}</p>
+                      <p style={{ fontSize: "14px", fontWeight: 700, color: "#111827" }}>{item.value}</p>
+                      <p style={{ fontSize: "10px", color: "#9ca3af", marginTop: "2px" }}>{item.sub}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Methodology note */}
+              <div style={{ padding: "10px 14px", background: lcBg, borderRadius: "8px", border: `1px solid ${lcBorder}` }}>
+                <p style={{ fontSize: "11px", color: lcColor, lineHeight: 1.5 }}>
+                  {lcClass === "REPROVADO"
+                    ? `${fundValidation.failCount} critério(s) eliminatório(s) impedem a aprovação. Corrija as pendências ou ajuste os parâmetros do perfil "${selectedPresetName}".`
+                    : lcClass === "CONDICIONAL"
+                      ? `Aprovação condicional com limite reduzido. ${fundValidation.warnCount} critério(s) de atenção identificados no perfil "${selectedPresetName}". Prazo de revisão: ${revisaoDias} dias.`
+                      : `Todos os ${fundValidation.passCount} critérios do perfil "${selectedPresetName}" atendidos. Limite: FMM ${fmtM(fmmRaw)} × ${fator} = ${fmtM(limiteBase)}.`
+                  }
+                </p>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
 
       {/* ══════════════════════════════════════════════════════
           CARD 05 — PERFIL DE CREDITO SCR/BACEN
           ══════════════════════════════════════════════════════ */}
-      <div className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #2d4f8a", boxShadow: "0 4px 20px rgba(32,59,136,0.12)" }}>
+      <div id="sec-05" className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #2d4f8a", boxShadow: "0 4px 20px rgba(32,59,136,0.12)" }}>
         <div className="px-5 py-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg, #192f5d 0%, #1e3a7a 100%)" }}>
           <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0 border border-white/20">
             <span className="text-sm font-bold text-white">05</span>
@@ -1537,8 +1770,8 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         const semDados  = passivosN === 0 && ativosN === 0 && !proc.temRJ;
         if (semDados) return null;
         return (
-          <div className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #f87171", boxShadow: "0 4px 20px rgba(220,38,38,0.12)" }}>
-            <div className="px-5 py-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%)" }}>
+          <div id="sec-07" className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #2d4f8a", boxShadow: "0 4px 20px rgba(32,59,136,0.12)" }}>
+            <div className="px-5 py-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg, #192f5d 0%, #1e3a7a 100%)" }}>
               <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0 border border-white/20">
                 <span className="text-sm font-bold text-white">07</span>
               </div>
@@ -1628,7 +1861,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
                     <div className="border border-[#E5E7EB] rounded-lg overflow-hidden">
                       <table className="w-full text-xs">
                         <thead>
-                          <tr className="bg-[#D97706] text-white">
+                          <tr style={{ background: "#1E3A5F" }} className="text-white">
                             <th className="text-left px-3 py-2 font-semibold">Número</th>
                             <th className="text-left px-3 py-2 font-semibold">Tipo</th>
                             <th className="text-left px-3 py-2 font-semibold">Data</th>
@@ -1643,7 +1876,9 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
                               <td className="px-3 py-2 text-[#374151]">{p.tipo || "—"}</td>
                               <td className="px-3 py-2 text-[#6B7280]">{p.data || "—"}</td>
                               <td className="px-3 py-2 font-semibold text-[#D97706]">R$ {p.valor}</td>
-                              <td className="px-3 py-2 text-[#6B7280] max-w-[100px] truncate">{p.status || "—"}</td>
+                              <td className="px-3 py-2">
+                                {p.status ? <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#F3F4F6] text-[#374151] max-w-[100px] truncate">{p.status}</span> : <span className="text-[#9CA3AF]">—</span>}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -1662,7 +1897,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           CARD — PARAMETROS OPERACIONAIS (Relatório de Visita)
           ══════════════════════════════════════════════════════ */}
       {data.relatorioVisita && (
-        <div className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #2d4f8a", boxShadow: "0 4px 20px rgba(32,59,136,0.12)" }}>
+        <div id="sec-op" className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #2d4f8a", boxShadow: "0 4px 20px rgba(32,59,136,0.12)" }}>
           <div className="px-5 py-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg, #192f5d 0%, #1e3a7a 100%)" }}>
             <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0 border border-white/20">
               <span className="text-sm font-bold text-white">OP</span>
@@ -1847,7 +2082,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
 
       {/* ── Observações do Analista ── */}
-      <div className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #2d4f8a", boxShadow: "0 4px 20px rgba(32,59,136,0.12)" }}>
+      <div id="sec-nt" className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #2d4f8a", boxShadow: "0 4px 20px rgba(32,59,136,0.12)" }}>
         <div className="px-5 py-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg, #192f5d 0%, #1e3a7a 100%)" }}>
           <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0 border border-white/20">
             <span className="text-sm font-bold text-white">✎</span>
@@ -1863,15 +2098,19 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             value={analystNotes}
             onChange={e => setAnalystNotes(e.target.value)}
             onBlur={() => saveNotes(analystNotes)}
-            placeholder="Ex: Empresa apresenta boa liquidez mas concentração elevada no cliente principal. Recomendo solicitar balanço atualizado antes da aprovação..."
-            rows={4}
-            className="w-full text-sm text-cf-text-1 bg-cf-bg/50 border border-cf-border rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-cf-navy/20 focus:border-cf-navy/40 placeholder:text-cf-text-4"
+            placeholder="Registre aqui observações sobre a empresa, pontos de atenção identificados na visita, pendências de documentação, ou qualquer informação relevante para a tomada de decisão de crédito..."
+            className="w-full text-sm text-cf-text-1 bg-cf-bg/50 border border-cf-border rounded-xl px-3 py-2.5 resize-y focus:outline-none focus:ring-2 focus:ring-cf-navy/20 focus:border-cf-navy/40 placeholder:text-cf-text-4"
+            style={{ minHeight: "200px" }}
           />
+          <div className="flex items-center justify-between mt-1.5 px-0.5">
+            <span className="text-[10px] text-[#9CA3AF]">As anotações são salvas automaticamente ao sair do campo</span>
+            <span className="text-[10px] font-mono text-[#9CA3AF]">{analystNotes.length} caracteres</span>
+          </div>
         </div>
       </div>
 
       {/* ── Download & Acoes ── */}
-      <div className="space-y-4 pt-1">
+      <div id="sec-ex" className="space-y-4 pt-1">
         {generatedFormats.size > 0 && (
           <div className="flex items-center justify-center gap-2.5 py-3 rounded-xl border"
             style={{ background: "linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)", borderColor: "#86efac" }}>
@@ -1890,15 +2129,15 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           <div className="p-4">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {([
-                { fmt: "pdf" as Format, label: "PDF", sub: "Baixar PDF", fn: generatePDF, ext: ".pdf", color: "#FF0000",
+                { fmt: "pdf" as Format, label: "PDF", sub: "Completo e formatado", fn: generatePDF, ext: ".pdf", color: "#FF0000", recommended: true,
                   logo: <svg viewBox="0 0 24 24" width="28" height="28" fill="#FF0000"><path d="M7.998 17.5c-.21 0-.42-.072-.588-.218-.397-.345-.44-.95-.095-1.348.862-.993 2.13-2.543 2.13-2.543s-1.07-3.475-.544-4.95c.218-.609.613-1.066 1.16-1.14.263-.035.672.007.89.3.367.498.377 1.267.027 2.42-.223.738-.532 1.576-.891 2.422.452.97 1.09 1.877 1.618 2.46.88-.12 1.64-.143 2.18-.015.509.12.889.439.989.836.108.427-.045.893-.413 1.26-.382.38-.897.488-1.35.288-.56-.247-1.164-.76-1.735-1.376-.898.236-1.884.568-2.756.923-.506.9-.996 1.584-1.47 1.87a.797.797 0 0 1-.452.141l.1-.03zm.558-1.04s-.005.008-.01.013l.01-.014zm6.553-2.865-.029-.006.036.01-.007-.004zm-3.3-6.47-.005.02.009-.028-.004.009z"/></svg> },
-                { fmt: "docx" as Format, label: "Word", sub: "Gerar Word", fn: generateDOCX, ext: ".docx", color: "#2B5EB7",
+                { fmt: "docx" as Format, label: "Word", sub: "Editável (.docx)", fn: generateDOCX, ext: ".docx", color: "#2B5EB7", recommended: false,
                   logo: <Image src="/logos/word.jpg" alt="Word" width={36} height={36} className="rounded object-contain" /> },
-                { fmt: "xlsx" as Format, label: "Excel", sub: "Baixar Excel", fn: generateExcel, ext: ".xlsx", color: "#1D6F42",
+                { fmt: "xlsx" as Format, label: "Excel", sub: "Dados tabulados", fn: generateExcel, ext: ".xlsx", color: "#1D6F42", recommended: false,
                   logo: <Image src="/logos/excel.jpg" alt="Excel" width={36} height={36} className="rounded object-contain" /> },
-                { fmt: "html" as Format, label: "HTML", sub: "Gerar HTML", fn: generateHTML, ext: ".html", color: "#E34F26",
+                { fmt: "html" as Format, label: "HTML", sub: "Web / impressão", fn: generateHTML, ext: ".html", color: "#E34F26", recommended: false,
                   logo: <svg viewBox="0 0 24 24" width="28" height="28" fill="#E34F26"><path d="M4.136 3.012h15.729l-1.431 16.15L11.991 21l-6.436-1.838L4.136 3.012zM7.266 9.76l-.186-2.166h9.835l-.191 2.166H12.17l.204 2.256h4.345l-.543 5.508L12 18.903v.012l-.008.002-4.161-1.162-.287-3.166h2.147l.149 1.62 2.16.573 2.148-.57.237-2.529H7.46L7.266 9.76z"/></svg> },
-              ]).map(({ fmt, label, sub, fn, ext, color, logo }) => {
+              ]).map(({ fmt, label, sub, fn, ext, color, logo, recommended }) => {
                 const done = generatedFormats.has(fmt);
                 const loading = generatingFormat === fmt;
                 return (
@@ -1906,15 +2145,20 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
                     key={fmt}
                     onClick={fn}
                     disabled={!!generatingFormat}
-                    className={`relative flex flex-col items-center gap-2.5 py-5 px-3 rounded-xl border-2 transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed group
+                    className={`relative flex flex-col items-center gap-2 py-4 px-2 rounded-xl border-2 transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed group
                       ${done
                         ? "border-[#73b815]/40 bg-[#f0fdf4]"
+                        : recommended
+                        ? "border-[#203b88]/40 bg-[#EFF6FF]"
                         : "border-[#E5E7EB] bg-white hover:border-[#203b88]/20 hover:bg-[#F8FAFC]"
                       }`}
                   >
-                    {/* Ícone com fundo colorido */}
+                    {recommended && !done && (
+                      <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 text-[9px] font-bold text-white bg-[#203b88] px-2 py-0.5 rounded-full whitespace-nowrap">Recomendado</span>
+                    )}
+                    {/* Ícone */}
                     <div
-                      className="w-12 h-12 rounded-xl flex items-center justify-center transition-all"
+                      className="w-11 h-11 rounded-xl flex items-center justify-center transition-all"
                       style={{ backgroundColor: done ? "#f0fdf4" : `${color}10`, border: `1.5px solid ${done ? "#73b815" : color}22` }}
                     >
                       {loading
@@ -1926,9 +2170,9 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
                     {/* Texto */}
                     <div className="text-center">
                       <p className="text-sm font-bold text-[#111827]">{label}</p>
-                      <p className="text-[10px] text-[#9CA3AF] mt-0.5 font-mono">{ext}</p>
+                      <p className="text-[10px] text-[#9CA3AF] font-mono">{ext}</p>
                     </div>
-                    <p className="text-[11px] font-semibold" style={{ color: done ? "#73b815" : loading ? color : "#6B7280" }}>
+                    <p className="text-[10px] font-medium text-center leading-snug" style={{ color: done ? "#73b815" : loading ? color : "#6B7280" }}>
                       {loading ? "Gerando..." : done ? "Pronto!" : sub}
                     </p>
                   </button>
@@ -1938,9 +2182,9 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           </div>
         </div>
 
-        {/* Acoes finais */}
-        <div className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-          <div className="px-5 py-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+        {/* ── Sticky bottom action bar ── */}
+        <div className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-[#E5E7EB]" style={{ boxShadow: "0 -4px 20px rgba(0,0,0,0.08)" }}>
+          <div className="max-w-screen-xl mx-auto px-5 py-3 flex items-center justify-between gap-3">
             {/* Esquerda: navegação */}
             <div className="flex items-center gap-2">
               <button onClick={onBack} className="btn-secondary" style={{ minHeight: "auto", padding: "8px 16px", fontSize: "13px" }}>
@@ -1955,9 +2199,18 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
                   <RotateCcw size={12} /> Recomeçar
                 </button>
               )}
+            </div>
+
+            {/* Centro: status pill */}
+            <div className="flex items-center gap-2">
               {savedFeedback && (
-                <span className="flex items-center gap-1 text-[11px] font-semibold text-[#73b815]">
-                  <Check size={12} /> Salvo
+                <span className="flex items-center gap-1 text-[11px] font-semibold text-[#73b815] bg-[#f0fdf4] border border-[#86efac] px-2.5 py-1 rounded-full">
+                  <Check size={11} /> Salvo
+                </span>
+              )}
+              {generatedFormats.size > 0 && (
+                <span className="flex items-center gap-1 text-[11px] font-semibold text-[#16a34a] bg-[#f0fdf4] border border-[#86efac] px-2.5 py-1 rounded-full">
+                  <CheckCircle2 size={11} /> {generatedFormats.size} formato{generatedFormats.size > 1 ? "s" : ""} gerado{generatedFormats.size > 1 ? "s" : ""}
                 </span>
               )}
             </div>
@@ -1991,6 +2244,8 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             </div>
           </div>
         </div>
+      </div>
+
       </div>
     </div>
   );
