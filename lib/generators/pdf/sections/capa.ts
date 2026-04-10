@@ -2,78 +2,80 @@ import type { PdfCtx } from "../context";
 import { newPage } from "../helpers";
 
 export function renderCapa(ctx: PdfCtx): void {
-  const { doc, DS, params, data, W } = ctx;
+  const { doc, DS, params, data, W, margin, contentW } = ctx;
   const { decision, finalRating } = params;
   const colors = DS.colors;
 
   newPage(ctx);
 
-  // Navy full-page background
+  // ══════════════════════════════════════════════════════════════════════════
+  // CAPA COMPACTA — ocupa ~1/3 da página (100mm) para dar espaço ao índice
+  // ══════════════════════════════════════════════════════════════════════════
+
+  const capaH = 95;
+
+  // Navy background
   doc.setFillColor(...colors.navy);
-  doc.rect(0, 0, 210, 297, "F");
+  doc.rect(0, 0, W, capaH, "F");
+
+  // Green accent top line
   doc.setFillColor(...colors.accentRGB);
-  doc.rect(0, 0, 210, 3, "F");
+  doc.rect(0, 0, W, 2, "F");
 
-  // Decorative circles
+  // Decorative circles (subtle)
   doc.setDrawColor(255, 255, 255);
-  doc.setLineWidth(0.3);
-  doc.circle(160, 50, 40);
-  doc.circle(50, 250, 30);
+  doc.setLineWidth(0.15);
+  doc.circle(175, 20, 30);
+  doc.circle(35, 75, 18);
+  doc.setLineWidth(0.1);
 
-  // Logo circle
-  doc.setLineWidth(2);
-  doc.circle(W / 2, 65, 18);
-  doc.setFillColor(255, 255, 255);
-  doc.circle(W / 2, 84, 3, "F");
-
-  // Brand name
-  doc.setFontSize(28);
+  // Brand: capital finanças
+  doc.setFontSize(11);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(255, 255, 255);
-  const capW2 = doc.getTextWidth("capital");
-  doc.text("capital", W / 2 - (capW2 + doc.getTextWidth("financas") + 2) / 2, 105);
+  doc.text("CAPITAL", margin, 16);
   doc.setTextColor(...colors.accentRGB);
-  doc.text("financas", W / 2 - (capW2 + doc.getTextWidth("financas") + 2) / 2 + capW2 + 2, 105);
-
-  doc.setFontSize(10);
+  doc.text("FINANÇAS", margin + doc.getTextWidth("CAPITAL "), 16);
+  doc.setFontSize(7);
   doc.setFont("helvetica", "normal");
-  doc.setTextColor(180, 200, 240);
-  doc.text("CONSOLIDADOR DE DOCUMENTOS", W / 2, 116, { align: "center" });
+  doc.setTextColor(148, 163, 184);
+  doc.text("ANÁLISE DE CEDENTE — FIDC", margin, 22);
 
-  // Accent divider
-  doc.setFillColor(...colors.accentRGB);
-  doc.rect(W / 2 - 30, 123, 60, 1.5, "F");
+  // Date top-right
+  const coverDate = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
+  doc.setFontSize(8);
+  doc.setTextColor(148, 163, 184);
+  doc.text(coverDate, W - margin, 16, { align: "right" });
+
+  // Divider line
+  doc.setDrawColor(255, 255, 255);
+  doc.setLineWidth(0.08);
+  doc.line(margin, 28, W - margin, 28);
 
   // Title
-  doc.setFontSize(22);
+  doc.setFontSize(20);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(255, 255, 255);
-  doc.text("Relatorio de", W / 2, 145, { align: "center" });
-  doc.text("Due Diligence", W / 2, 156, { align: "center" });
+  doc.text("Relatório de Due Diligence", margin, 42);
 
   // Company name
   if (data.cnpj?.razaoSocial) {
-    doc.setFontSize(13);
+    doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...colors.accentRGB);
-    doc.text(data.cnpj.razaoSocial.substring(0, 50), W / 2, 175, { align: "center" });
+    const nameLines = doc.splitTextToSize(data.cnpj.razaoSocial, contentW * 0.7);
+    doc.text(nameLines[0] || "", margin, 54);
   }
 
   // CNPJ
   if (data.cnpj?.cnpj) {
-    doc.setFontSize(10);
+    doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(180, 200, 240);
-    doc.text("CNPJ: " + data.cnpj.cnpj, W / 2, 184, { align: "center" });
+    doc.setTextColor(148, 163, 184);
+    doc.text("CNPJ: " + data.cnpj.cnpj, margin, 62);
   }
 
-  // Date
-  const coverDate = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
-  doc.setFontSize(9);
-  doc.setTextColor(140, 170, 220);
-  doc.text("Gerado em " + coverDate, W / 2, 198, { align: "center" });
-
-  // Decision badge
+  // Decision badge + Rating (right side)
   {
     const decC: [number, number, number] = decision === "APROVADO" ? [22, 163, 74]
       : decision === "REPROVADO" ? [220, 38, 38]
@@ -82,30 +84,46 @@ export function renderCapa(ctx: PdfCtx): void {
       : decision === "REPROVADO" ? [254, 226, 226]
       : [254, 243, 199];
 
-    const badgeW = 80; const badgeH = 14;
-    const badgeX = W / 2 - badgeW / 2;
-    const badgeY = 210;
-
+    // Decision pill
+    const decLabel = decision.replace(/_/g, " ");
+    doc.setFontSize(9);
+    const pillW = doc.getTextWidth(decLabel) + 14;
+    const pillX = W - margin - pillW;
     doc.setFillColor(...decBg);
-    doc.roundedRect(badgeX, badgeY, badgeW, badgeH, 3, 3, "F");
-    doc.setFontSize(11);
+    doc.roundedRect(pillX, 36, pillW, 8, 2, 2, "F");
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...decC);
-    doc.text(decision.replace(/_/g, " "), W / 2, badgeY + 9, { align: "center" });
+    doc.text(decLabel, pillX + pillW / 2, 41.5, { align: "center" });
 
-    // Rating sub-text
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(140, 170, 220);
-    const ratingLabel = finalRating >= 8 ? "Excelente" : finalRating >= 6.5 ? "Satisfatório" : finalRating >= 5 ? "Moderado" : "Alto Risco";
-    doc.text(`Score: ${finalRating}/10 — ${ratingLabel}`, W / 2, 232, { align: "center" });
+    // Rating
+    const rc: [number, number, number] = finalRating >= 7 ? [22, 163, 74] : finalRating >= 4 ? [245, 158, 11] : [239, 68, 68];
+    doc.setFontSize(28);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...rc);
+    doc.text(String(finalRating), W - margin - 22, 62);
+    doc.setFontSize(10);
+    doc.setTextColor(148, 163, 184);
+    doc.text("/ 10", W - margin - 6, 62);
+
+    const riskLabel = finalRating >= 7 ? "BAIXO RISCO" : finalRating >= 4 ? "RISCO MODERADO" : "ALTO RISCO";
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...rc);
+    doc.text(riskLabel, W - margin - 14, 68, { align: "center" });
   }
 
-  // Confidential footer
+  // Bottom bar
+  doc.setFillColor(0, 0, 0);
+  doc.rect(0, capaH - 12, W, 12, "F");
   doc.setFontSize(7);
-  doc.setTextColor(100, 140, 200);
-  doc.text("Documento confidencial — uso restrito", W / 2, 280, { align: "center" });
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(100, 130, 180);
+  doc.text("Documento confidencial — uso exclusivamente interno", margin, capaH - 4.5);
+  doc.text("Capital Finanças · " + coverDate, W - margin, capaH - 4.5, { align: "right" });
 
+  // Green accent bottom
   doc.setFillColor(...colors.accentRGB);
-  doc.rect(0, 294, 210, 3, "F");
+  doc.rect(0, capaH, W, 1.5, "F");
+
+  ctx.pos.y = capaH + 6;
 }

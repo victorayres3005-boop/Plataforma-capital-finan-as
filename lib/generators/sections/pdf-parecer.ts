@@ -53,7 +53,7 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
   const pontosFracosFinal = pontosFracos.length > 0 ? pontosFracos : (parecerNorm.pontosNegativosOuFracos || []);
 
   // Section header bar
-  dsSectionHeader("08", "PARECER PRELIMINAR");
+  dsSectionHeader("05", "PARECER DO ANALISTA");
 
   // ── BLOCO 1 — Decisão + Rating + Resumo (Hero block) ──
   checkPageBreak(36);
@@ -382,7 +382,12 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
       doc.text(line, margin + 2, pos.y);
       pos.y += 5.5;
     });
-    pos.y += 4;
+    // Nota de disclaimer — IA pode divergir dos dados extraídos
+    doc.setFontSize(6);
+    doc.setFont("helvetica", "italic");
+    doc.setTextColor(156, 163, 175);
+    doc.text("Nota: resumo gerado por IA — os dados quantitativos das seções do relatório são a fonte de verdade.", margin + 2, pos.y);
+    pos.y += 6;
   }
 
   // ── BLOCO 2 — Pontos Fortes e Pontos Fracos ──

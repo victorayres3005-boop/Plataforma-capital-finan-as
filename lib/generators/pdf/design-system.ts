@@ -1,28 +1,29 @@
 export const DS = {
   colors: {
-    primary:        [32, 59, 136]   as [number,number,number],
-    accent:         [115, 184, 21]  as [number,number,number],
-    danger:         [192, 57, 43]   as [number,number,number],
-    warning:        [185, 107, 0]   as [number,number,number],
-    success:        [26, 122, 74]   as [number,number,number],
-    pageBg:         [245, 248, 252] as [number,number,number],
+    // Primárias (navy refinado)
+    primary:        [12, 27, 58]    as [number,number,number],  // navy900 — headers
+    accent:         [115, 184, 21]  as [number,number,number],  // verde marca
+    danger:         [197, 48, 48]   as [number,number,number],  // red600
+    warning:        [212, 149, 10]  as [number,number,number],  // amber500
+    success:        [22, 101, 58]   as [number,number,number],  // green600
+    pageBg:         [249, 250, 251] as [number,number,number],  // gray50
     cardBg:         [255, 255, 255] as [number,number,number],
-    textPrimary:    [30, 30, 30]    as [number,number,number],
-    textSecondary:  [100, 100, 110] as [number,number,number],
-    textMuted:      [160, 160, 170] as [number,number,number],
-    border:         [220, 225, 235] as [number,number,number],
-    borderStrong:   [190, 195, 210] as [number,number,number],
-    tableHeaderBg:  [32, 59, 136]   as [number,number,number],
+    textPrimary:    [17, 24, 39]    as [number,number,number],  // gray900
+    textSecondary:  [55, 65, 81]    as [number,number,number],  // gray700
+    textMuted:      [156, 163, 175] as [number,number,number],  // gray400
+    border:         [229, 231, 235] as [number,number,number],  // gray200
+    borderStrong:   [209, 213, 219] as [number,number,number],  // gray300
+    tableHeaderBg:  [12, 27, 58]    as [number,number,number],  // navy900
     tableHeaderText:[255, 255, 255] as [number,number,number],
-    tableRowAlt:    [248, 250, 253] as [number,number,number],
-    alertHighBg:    [254, 242, 242] as [number,number,number],
-    alertHighBorder:[248, 180, 180] as [number,number,number],
-    alertMedBg:     [255, 251, 235] as [number,number,number],
-    alertMedBorder: [253, 211, 77]  as [number,number,number],
+    tableRowAlt:    [249, 250, 251] as [number,number,number],  // gray50
+    alertHighBg:    [254, 242, 242] as [number,number,number],  // red50
+    alertHighBorder:[254, 226, 226] as [number,number,number],  // red100
+    alertMedBg:     [254, 249, 236] as [number,number,number],  // amber50
+    alertMedBorder: [253, 243, 215] as [number,number,number],  // amber100
     white:          [255, 255, 255] as [number,number,number],
     // Legacy aliases used by helpers (mapped to above or extra)
-    navy:            [32, 59, 136]  as [number,number,number],
-    navyLight:       [26, 48, 112]  as [number,number,number],
+    navy:            [12, 27, 58]   as [number,number,number],  // navy900
+    navyLight:       [19, 41, 82]   as [number,number,number],  // navy800
     green:           [22, 163, 74]  as [number,number,number],
     greenBg:         [220, 252, 231] as [number,number,number],
     red:             [220, 38, 38]  as [number,number,number],
@@ -37,7 +38,7 @@ export const DS = {
     text:            [17, 24, 39]   as [number,number,number],
     textLight:       [107, 114, 128] as [number,number,number],
     // RGB aliases for legacy spread usage
-    headerBg:        [30, 58, 95]   as [number,number,number],
+    headerBg:        [12, 27, 58]   as [number,number,number],  // navy900
     accentRGB:       [115, 184, 21] as [number,number,number],
     zebraRow:        [249, 250, 251] as [number,number,number],
     borderRGB:       [220, 225, 235] as [number,number,number],
@@ -76,8 +77,8 @@ export const DS = {
     xxl:  18,
   },
   space: {
-    pageMarginX:   14,
-    pageMarginY:   16,
+    pageMarginX:   18,
+    pageMarginY:   22,
     sectionGap:    10,
     itemGap:        5,
     headerHeight:  12,

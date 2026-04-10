@@ -1507,7 +1507,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       </nav>
 
       {/* ── Conteúdo principal ── */}
-      <div className="flex-1 min-w-0 pb-28 flex flex-col gap-4">
+      <div className="flex-1 min-w-0 pb-28 flex flex-col gap-6">
 
         {/* ════════════════════════════════════════
             SEÇÃO 00 — SUMÁRIO EXECUTIVO
@@ -1526,7 +1526,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             />
           }
         >
-          <div className="p-5 flex flex-col gap-5">
+          <div className="p-8 flex flex-col gap-6">
 
             {/* Alert banner: SCR vencidos ou prejuízos */}
             {(vencidosSCR > 0 || prejuizosVal > 0) && (
@@ -1629,9 +1629,9 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
                   { label: "Idade",       value: companyAge || "—", mono: false },
                   { label: "Sócios (QSA)", value: String(qsaCount), mono: false },
                 ] as { label: string; value: string; mono: boolean }[]).map(({ label, value, mono }) => (
-                  <div key={label} className="bg-white p-3.5">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1">{label}</p>
-                    <p className={`text-sm font-medium text-gray-900 ${mono ? "font-mono" : ""}`}>{value}</p>
+                  <div key={label} className="bg-white px-5 py-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">{label}</p>
+                    <p className={`text-[15px] font-medium text-gray-900 ${mono ? "font-mono" : ""}`}>{value}</p>
                   </div>
                 ))}
               </div>
@@ -1640,21 +1640,21 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             {/* Info row 2: Capital, Fat. Anual, Em Atraso, Prejuízos */}
             <div className="border-t border-gray-200 pt-4">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-gray-100 rounded-lg overflow-hidden">
-                <div className="bg-white p-3.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1">Capital Social</p>
-                  <p className="text-sm font-medium text-gray-900 font-mono">{data.qsa.capitalSocial || data.contrato.capitalSocial || "—"}</p>
+                <div className="bg-white px-5 py-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">Capital Social</p>
+                  <p className="text-[15px] font-medium text-gray-900 font-mono">{data.qsa.capitalSocial || data.contrato.capitalSocial || "—"}</p>
                 </div>
-                <div className="bg-white p-3.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1">Fat. Anual</p>
-                  <p className="text-sm font-medium text-gray-900 font-mono">{data.faturamento.somatoriaAno ? `R$ ${data.faturamento.somatoriaAno}` : "—"}</p>
+                <div className="bg-white px-5 py-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">Fat. Anual</p>
+                  <p className="text-[15px] font-medium text-gray-900 font-mono">{data.faturamento.somatoriaAno ? `R$ ${data.faturamento.somatoriaAno}` : "—"}</p>
                 </div>
-                <div className="bg-white p-3.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1">Em Atraso</p>
-                  <p className={`text-sm font-medium font-mono ${atraso > 0 ? "text-red-600" : "text-gray-900"}`}>{atraso > 0 ? `R$ ${data.scr.operacoesEmAtraso}` : "—"}</p>
+                <div className="bg-white px-5 py-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">Em Atraso</p>
+                  <p className={`text-[15px] font-medium font-mono ${atraso > 0 ? "text-red-600" : "text-gray-900"}`}>{atraso > 0 ? `R$ ${data.scr.operacoesEmAtraso}` : "—"}</p>
                 </div>
-                <div className="bg-white p-3.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1">Prejuízos</p>
-                  <p className={`text-sm font-medium font-mono ${prejuizosVal > 0 ? "text-red-600" : "text-gray-900"}`}>{prejuizosVal > 0 ? `R$ ${data.scr.prejuizos}` : "—"}</p>
+                <div className="bg-white px-5 py-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">Prejuízos</p>
+                  <p className={`text-[15px] font-medium font-mono ${prejuizosVal > 0 ? "text-red-600" : "text-gray-900"}`}>{prejuizosVal > 0 ? `R$ ${data.scr.prejuizos}` : "—"}</p>
                 </div>
               </div>
             </div>
@@ -1711,23 +1711,23 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
             {/* Resumo executivo */}
             {resumoExecutivo && (
-              <div className="px-4 py-3.5 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-[11px] font-bold uppercase tracking-[0.04em] text-blue-700 mb-1.5">Resumo Executivo</p>
-                <p className="text-xs text-blue-800 leading-relaxed">{resumoExecutivo}</p>
+              <div className="px-6 py-5 bg-blue-50 border border-blue-200 rounded-xl">
+                <p className="text-xs font-bold uppercase tracking-[0.04em] text-blue-700 mb-2">Resumo Executivo</p>
+                <p className="text-sm text-blue-800 leading-relaxed">{resumoExecutivo}</p>
               </div>
             )}
 
             {/* Pontos fortes */}
             {pontosFortes.length > 0 && (
-              <div className="px-4 py-3.5 bg-green-50 border border-green-200 rounded-lg">
-                <p className="text-[11px] font-bold uppercase tracking-[0.04em] text-green-700 mb-2">
+              <div className="px-6 py-5 bg-green-50 border border-green-200 rounded-xl">
+                <p className="text-xs font-bold uppercase tracking-[0.04em] text-green-700 mb-2.5">
                   Pontos Fortes ({pontosFortes.length})
                 </p>
                 <div className="flex flex-col gap-1.5">
                   {pontosFortes.map((p, i) => (
                     <div key={i} className="flex items-start gap-2">
                       <CheckCircle2 size={12} className="text-green-600 shrink-0 mt-0.5" />
-                      <span className="text-xs text-green-700">{p}</span>
+                      <span className="text-sm text-green-700">{p}</span>
                     </div>
                   ))}
                 </div>
@@ -1736,15 +1736,15 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
             {/* Pontos fracos */}
             {pontosFracos.length > 0 && (
-              <div className="px-4 py-3.5 bg-red-50 border border-red-200 rounded-lg">
-                <p className="text-[11px] font-bold uppercase tracking-[0.04em] text-red-700 mb-2">
+              <div className="px-6 py-5 bg-red-50 border border-red-200 rounded-xl">
+                <p className="text-xs font-bold uppercase tracking-[0.04em] text-red-700 mb-2.5">
                   Pontos Fracos ({pontosFracos.length})
                 </p>
                 <div className="flex flex-col gap-1.5">
                   {pontosFracos.map((p, i) => (
                     <div key={i} className="flex items-start gap-2">
                       <AlertTriangle size={12} className="text-red-600 shrink-0 mt-0.5" />
-                      <span className="text-xs text-red-600">{p}</span>
+                      <span className="text-sm text-red-600">{p}</span>
                     </div>
                   ))}
                 </div>
@@ -1753,8 +1753,8 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
             {/* Perguntas para visita */}
             {perguntasVisita.length > 0 && (
-              <div className="px-4 py-3.5 bg-amber-50 border border-amber-200 rounded-lg">
-                <p className="text-[11px] font-bold uppercase tracking-[0.04em] text-amber-700 mb-2">
+              <div className="px-6 py-5 bg-amber-50 border border-amber-200 rounded-xl">
+                <p className="text-xs font-bold uppercase tracking-[0.04em] text-amber-700 mb-2.5">
                   Perguntas para Visita ({perguntasVisita.length})
                 </p>
                 <div className="flex flex-col gap-2.5">
@@ -1927,7 +1927,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           </div>
 
           {/* Resultado + detalhes LC */}
-          <div className="px-5 py-4 flex flex-col gap-3">
+          <div className="px-8 py-6 flex flex-col gap-4">
             <ResultadoBox
               title={
                 creditLimit.classificacao === "REPROVADO"
@@ -1992,7 +1992,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           sectionLabel="Perfil de Crédito"
           title="SCR / Bacen"
         >
-          <div className="px-5 py-4 flex flex-col gap-4">
+          <div className="px-8 py-6 flex flex-col gap-5">
 
             {data.scr.semHistorico && (
               <AlertBanner variant="warn" label="Sem histórico bancário" message="Empresa sem operações registradas no SCR / Banco Central" />
@@ -2107,7 +2107,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
               title="Credit Hub"
               headerRight={proc.temRJ ? <StatusPill label="RECUPERAÇÃO JUDICIAL" variant="red" /> : undefined}
             >
-              <div className="px-5 py-4 flex flex-col gap-4">
+              <div className="px-8 py-6 flex flex-col gap-5">
 
                 <div className="kpi-grid">
                   <KpiCard label="Total Processos" value={passivosN > 0 ? String(passivosN) : "—"} sub="todos os polos" variant={passivosN > 0 ? "warning" : "default"} />
@@ -2186,7 +2186,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             sectionLabel="Parâmetros Operacionais"
             title="Relatório de Visita"
           >
-            <div className="px-5 py-4 flex flex-col gap-5">
+            <div className="px-8 py-6 flex flex-col gap-6">
 
               {/* Taxas e Limites */}
               <div>
@@ -2264,7 +2264,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           title="Anotações"
           headerRight={savingNotes ? <span className="text-[11px] text-cf-text-4">Salvando...</span> : undefined}
         >
-          <div className="px-5 py-4">
+          <div className="px-8 py-6">
             <textarea
               value={analystNotes}
               onChange={e => setAnalystNotes(e.target.value)}
@@ -2289,7 +2289,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           sectionLabel="Download"
           title="Exportar Relatório"
         >
-          <div className="px-5 py-4">
+          <div className="px-8 py-6">
             {generatedFormats.size > 0 && (
               <div className="flex items-center gap-2 px-3.5 py-2.5 bg-green-50 border border-green-200 rounded-lg mb-3.5">
                 <CheckCircle2 size={14} className="text-green-600" />

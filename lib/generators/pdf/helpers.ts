@@ -13,9 +13,17 @@ export function fmtBR(n: number, decimals = 0): string {
 
 export function fmtMoney(val: string | undefined | null): string {
   if (!val || val === "N/D" || val === "—") return val || "—";
-  const n = parseMoneyToNumber(val);
-  if (n === 0 && !val.match(/^[0,\.]+$/)) return val;
+  // Fix Bug 1: remove duplo "R$" antes de processar
+  const cleaned = val.replace(/^R\$\s*R\$/, "R$").trim();
+  const n = parseMoneyToNumber(cleaned);
+  if (n === 0 && !cleaned.match(/^[0,\.]+$/)) return cleaned;
   return n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** Sanitiza valor percentual — remove duplo "%%" e garante formato limpo */
+export function fmtPct(val: string | undefined | null): string {
+  if (!val) return "—";
+  return val.replace(/%%/g, "%").trim();
 }
 
 export function fmtVar(pct: number): string {
@@ -151,7 +159,8 @@ export function drawFooterAllPages(ctx: PdfCtx): void {
 }
 
 export function checkPageBreak(ctx: PdfCtx, needed: number): void {
-  if (ctx.pos.y + needed > 275) {
+  const maxY = 297 - 20; // pageH - marginBottom (20mm para footer)
+  if (ctx.pos.y + needed > maxY) {
     newPage(ctx);
     drawHeader(ctx);
   }
@@ -218,12 +227,17 @@ export function drawKpiGrid(ctx: PdfCtx, kpis: KpiItem[], columns = 4): void {
     doc.setTextColor(...DS.colors.textMuted);
     doc.text(item.label.toUpperCase(), ix + 5, iy + 5);
 
-    doc.setFontSize(DS.font.h2);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...(item.color ?? DS.colors.textPrimary));
-    const maxW = Math.floor((itemW - 6) / 2.2);
-    const disp = item.value.length > maxW ? item.value.substring(0, maxW) + "…" : item.value;
-    doc.text(disp, ix + 5, iy + 14);
+    // Ajusta font-size para caber sem truncar
+    const kpiMaxW = itemW - 8;
+    let kpiFontSize = DS.font.h2;
+    doc.setFontSize(kpiFontSize);
+    while (doc.getTextWidth(item.value) > kpiMaxW && kpiFontSize > 7) {
+      kpiFontSize -= 0.5;
+      doc.setFontSize(kpiFontSize);
+    }
+    doc.text(item.value, ix + 5, iy + 14);
 
     if (item.sub) {
       doc.setFontSize(DS.font.micro);
@@ -325,10 +339,10 @@ export function drawAlertDeduped(ctx: PdfCtx, text: string, severity: AlertSever
 // ─── AutoTable wrapper ────────────────────────────────────────────────────────
 
 export const TABLE_DEFAULTS = {
-  headStyles: { fillColor: [32, 59, 136] as RGB, textColor: [255, 255, 255] as RGB, fontSize: 8, fontStyle: "bold" as const, cellPadding: 3 },
-  bodyStyles: { fontSize: 8, cellPadding: 3, textColor: [30, 30, 30] as RGB },
-  alternateRowStyles: { fillColor: [248, 250, 253] as RGB },
-  tableLineColor: [220, 225, 235] as RGB,
+  headStyles: { fillColor: [12, 27, 58] as RGB, textColor: [255, 255, 255] as RGB, fontSize: 8, fontStyle: "bold" as const, cellPadding: 3 },
+  bodyStyles: { fontSize: 8, cellPadding: 3, textColor: [17, 24, 39] as RGB },
+  alternateRowStyles: { fillColor: [249, 250, 251] as RGB },
+  tableLineColor: [229, 231, 235] as RGB,
   tableLineWidth: 0.2,
 };
 
@@ -443,12 +457,24 @@ export function dsMetricCard(
   doc.setFont("helvetica", "normal");
   doc.setTextColor(...DS.colors.textMuted);
   doc.text(label.toUpperCase(), cx + 5, cy + 5.5);
-  doc.setFontSize(10);
+  // Ajusta font-size para caber sem truncar
+  const maxValW = cw - 8;
+  let valFontSize = 10;
   doc.setFont("helvetica", "bold");
+  doc.setFontSize(valFontSize);
+  while (doc.getTextWidth(value) > maxValW && valFontSize > 7) {
+    valFontSize -= 0.5;
+    doc.setFontSize(valFontSize);
+  }
   doc.setTextColor(...vc);
-  const maxC = Math.floor((cw - 8) / 2.3);
-  const disp = value.length > maxC ? value.substring(0, maxC) + "…" : value;
-  doc.text(disp, cx + 5, cy + 12);
+  if (doc.getTextWidth(value) > maxValW) {
+    // Ainda não cabe — quebra em 2 linhas
+    const lines: string[] = doc.splitTextToSize(value, maxValW);
+    doc.text(lines[0], cx + 5, cy + 11);
+    if (lines[1]) { doc.setFontSize(valFontSize - 1); doc.text(lines[1], cx + 5, cy + 15); }
+  } else {
+    doc.text(value, cx + 5, cy + 12);
+  }
   if (sub) {
     doc.setFontSize(7);
     doc.setFont("helvetica", "normal");

@@ -32,19 +32,19 @@ export function SectionCard({
       id={id}
       className={`bg-white rounded-[14px] border border-gray-200 shadow-sm overflow-hidden ${className}`}
     >
-      <div className="flex items-center justify-between px-6 py-[18px] bg-gray-50 border-b border-gray-200">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between px-8 py-5 bg-gray-50 border-b border-gray-200">
+        <div className="flex items-center gap-4">
           <div
-            className="w-[30px] h-[30px] rounded-lg flex items-center justify-center flex-shrink-0"
+            className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
             style={{ background: BADGE_BG[badgeVariant] }}
           >
-            <span className="text-[13px] font-bold text-white tracking-wide">{badge}</span>
+            <span className="text-sm font-bold text-white tracking-wide">{badge}</span>
           </div>
           <div>
-            <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-[0.08em] mb-0.5">
+            <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-[0.08em] mb-0.5">
               {sectionLabel}
             </p>
-            <p className="text-[16px] font-bold text-navy-900 leading-tight">{title}</p>
+            <p className="text-lg font-bold text-navy-900 leading-tight">{title}</p>
           </div>
         </div>
         {headerRight && (
@@ -77,14 +77,14 @@ export function KpiCard({ label, value, sub, variant = "default" }: KpiCardProps
   const s = KPI_STYLES[variant];
   const isMoney = /^R\$|^\d/.test(value);
   return (
-    <div className={`${s.bg} ${s.border} border rounded-[10px] p-4`}>
-      <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-[0.08em] mb-2">
+    <div className={`${s.bg} ${s.border} border rounded-xl p-5`}>
+      <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-[0.08em] mb-2.5">
         {label}
       </p>
-      <p className={`text-[17px] font-bold leading-tight ${s.valueColor} ${isMoney ? "font-mono" : ""}`}>
+      <p className={`text-xl font-bold leading-tight ${s.valueColor} ${isMoney ? "font-mono" : ""}`}>
         {value}
       </p>
-      {sub && <p className="text-[11px] text-gray-500 mt-1.5">{sub}</p>}
+      {sub && <p className="text-xs text-gray-500 mt-2">{sub}</p>}
     </div>
   );
 }
@@ -273,13 +273,13 @@ export interface AlertBannerProps {
 export function AlertBanner({ variant, label, message }: AlertBannerProps) {
   const isDanger = variant === "danger";
   return (
-    <div className={`flex items-start gap-2.5 px-4 py-3 rounded-lg border ${
+    <div className={`flex items-start gap-3 px-5 py-4 rounded-xl border ${
       isDanger ? "bg-red-50 border-red-100" : "bg-amber-50 border-amber-100"
     }`}>
-      <AlertTriangle size={14} className={`flex-shrink-0 mt-0.5 ${isDanger ? "text-red-600" : "text-amber-500"}`} />
-      <div className="flex gap-1.5 flex-wrap items-baseline">
-        <span className={`text-xs font-bold ${isDanger ? "text-red-600" : "text-amber-500"}`}>{label}</span>
-        <span className={`text-xs ${isDanger ? "text-red-900" : "text-amber-900"}`}>{message}</span>
+      <AlertTriangle size={16} className={`flex-shrink-0 mt-0.5 ${isDanger ? "text-red-600" : "text-amber-500"}`} />
+      <div className="flex gap-2 flex-wrap items-baseline">
+        <span className={`text-sm font-bold ${isDanger ? "text-red-600" : "text-amber-500"}`}>{label}</span>
+        <span className={`text-sm ${isDanger ? "text-red-900" : "text-amber-900"}`}>{message}</span>
       </div>
     </div>
   );

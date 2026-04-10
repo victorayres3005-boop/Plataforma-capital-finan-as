@@ -9,10 +9,9 @@ import {
   dsMetricCard, fmtMoney, fmtBR, parseMoneyToNumber,
   gerarAlertasQSA,
 } from "../helpers";
-import type { AutoCell } from "../context";
 
 export function renderSintese(ctx: PdfCtx): void {
-  const { doc, DS, pos, params, data, W, margin, contentW } = ctx;
+  const { doc, DS, pos, params, data, margin, contentW } = ctx;
   const {
     decision, finalRating, alerts, alertsHigh: _alertsHigh, riskScore,
     resumoExecutivo, alavancagem: alavParam,
@@ -23,7 +22,7 @@ export function renderSintese(ctx: PdfCtx): void {
 
   newPage(ctx);
   drawHeader(ctx);
-  drawSectionTitle(ctx, "00", "SINTESE PRELIMINAR");
+  drawSectionTitle(ctx, "01", "SINTESE EXECUTIVA");
 
   const colors = DS.colors;
 
@@ -416,7 +415,8 @@ export function renderSintese(ctx: PdfCtx): void {
   renderQSAGestao(ctx);
 }
 
-function renderParametrosFundo(ctx: PdfCtx, _fmmNum: number): void {
+function renderParametrosFundo(ctx: PdfCtx, fmmNum: number): void {
+  void fmmNum;
   const { doc, DS, pos, params, margin, contentW } = ctx;
   const fv = params.fundValidation!;
 
@@ -430,7 +430,7 @@ function renderParametrosFundo(ctx: PdfCtx, _fmmNum: number): void {
   const fsAlturaTotal = 13 + fsSummaryH + 4 + 8 + fv.criteria.length * (fsRowH + 1) + 18 + (fsHasAnyElim ? 8 : 0);
   if (pos.y + fsAlturaTotal > 265) { newPage(ctx); drawHeader(ctx); }
 
-  drawSectionTitle(ctx, "FS", "CONFORMIDADE COM PARAMETROS DO FUNDO");
+  drawSectionTitle(ctx, "02", "POLITICA DO FUNDO");
 
   // 3 pills summary
   {
@@ -586,7 +586,7 @@ function renderLimiteCredito(ctx: PdfCtx): void {
 
   drawSpacer(ctx, 10);
   checkPageBreak(ctx, 55);
-  drawSectionTitle(ctx, "LC", "LIMITE DE CREDITO SUGERIDO");
+  drawSectionTitle(ctx, "03", "LIMITE DE CREDITO SUGERIDO");
   pos.y += 4;
   checkPageBreak(ctx, 40);
 
@@ -638,7 +638,7 @@ function renderCNPJ(ctx: PdfCtx): void {
 
   drawSpacer(ctx, 10);
   checkPageBreak(ctx, 120);
-  drawSectionTitle(ctx, "01", "CARTAO CNPJ");
+  drawSectionTitle(ctx, "04", "ESTRUTURA SOCIETARIA");
 
   // Hero: Razão Social + CNPJ + Badge Situação
   {
@@ -689,7 +689,7 @@ function renderCNPJ(ctx: PdfCtx): void {
       { label: "Data de Abertura",  value: data.cnpj?.dataAbertura || "—",    border: DS.colors.info },
       { label: "Natureza Jurídica", value: data.cnpj?.naturezaJuridica || "—", border: DS.colors.borderStrong },
       { label: "Porte",             value: data.cnpj?.porte || "—",            border: DS.colors.borderStrong },
-      { label: "Capital Social",    value: capitalSocial ? `R$ ${fmtMoney(capitalSocial)}` : "—", border: DS.colors.success },
+      { label: "Capital Social",    value: capitalSocial ? (capitalSocial.includes("R$") ? fmtMoney(capitalSocial) : `R$ ${fmtMoney(capitalSocial)}`) : "—", border: DS.colors.success },
     ];
     mg1.forEach((item, i) => {
       dsMetricCard(ctx, margin + i * (mgW + mgGap), pos.y, mgW, mgH, item.label, item.value, undefined, item.border);
@@ -800,7 +800,7 @@ function renderQSAGestao(ctx: PdfCtx): void {
 
   drawSpacer(ctx, 10);
   checkPageBreak(ctx, 60);
-  drawSectionTitle(ctx, "02", "QUADRO SOCIETARIO (QSA)");
+  dsMiniHeader(ctx, "QUADRO SOCIETARIO (QSA)");
 
   if (data.qsa?.capitalSocial) {
     checkPageBreak(ctx, 16);
