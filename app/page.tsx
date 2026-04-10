@@ -1007,16 +1007,25 @@ export default function HomePage() {
             {metricas.totalFinalizadas > 0 && (
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
                 {[
-                  { label: "Aprovadas",    value: metricas.porDecisao.aprovado,    sub: "sem restrições",        accent: "#16a34a", bg: "#f0fdf4", border: "#86efac" },
-                  { label: "Condicionais", value: metricas.porDecisao.condicional, sub: "aprovação condicional",  accent: "#7c3aed", bg: "#faf5ff", border: "#c4b5fd" },
-                  { label: "Em Análise",   value: metricas.porDecisao.pendente + metricas.emAnalise, sub: "aguardando parecer", accent: "#d97706", bg: "#fffbeb", border: "#fcd34d" },
-                  { label: "Recusadas",    value: metricas.porDecisao.reprovado,   sub: "não aprovadas",         accent: "#dc2626", bg: "#fff1f2", border: "#fca5a5" },
+                  { label: "Aprovadas",    value: metricas.porDecisao.aprovado,                       sub: "sem restrições",       accent: "#16a34a" },
+                  { label: "Condicionais", value: metricas.porDecisao.condicional,                    sub: "aprovação condicional", accent: "#7c3aed" },
+                  { label: "Em Análise",   value: metricas.porDecisao.pendente + metricas.emAnalise,  sub: "aguardando parecer",    accent: "#d97706" },
+                  { label: "Recusadas",    value: metricas.porDecisao.reprovado,                      sub: "não aprovadas",         accent: "#dc2626" },
                 ].map((item, i) => (
-                  <div key={i} className="rounded-2xl border px-5 py-4 relative overflow-hidden" style={{ background: item.bg, borderColor: item.border }}>
+                  <div key={i} className={`bg-white border border-cf-border rounded-2xl px-5 py-4 animate-stagger-${i + 1} relative overflow-hidden`}>
                     <div className="absolute top-0 left-0 w-1 h-full rounded-l-2xl" style={{ backgroundColor: item.accent }} />
-                    <p className="text-[10px] font-bold uppercase tracking-widest mb-2 pl-2" style={{ color: item.accent }}>{item.label}</p>
-                    <p className="text-2xl sm:text-3xl font-bold pl-2" style={{ color: item.accent }}>{item.value}</p>
-                    <p className="text-[11px] mt-1 pl-2" style={{ color: item.accent, opacity: 0.7 }}>{item.sub}</p>
+                    <p className="text-[10px] font-bold text-cf-text-4 uppercase tracking-widest mb-2 pl-2">{item.label}</p>
+                    {loadingCollections ? (
+                      <div className="pl-2 space-y-1.5 mt-1">
+                        <div className="skeleton h-7 w-20 rounded" />
+                        <div className="skeleton h-3 w-28 rounded" />
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-2xl sm:text-3xl font-bold pl-2">{item.value}</p>
+                        <p className="text-[11px] mt-1 pl-2 text-cf-text-4">{item.sub}</p>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1180,73 +1189,100 @@ export default function HomePage() {
                 )}
 
                 {/* Funil de Aprovação */}
-                {metricas.totalRecebidas > 0 && (
-                  <div className="bg-white rounded-2xl border border-[#e5e7eb] p-5 mt-4">
-                    <div className="flex items-center justify-between mb-5">
-                      <p className="text-[11px] text-cf-text-4 uppercase tracking-wider font-bold">Funil de Aprovação</p>
-                      <span className="text-[11px] font-semibold px-2.5 py-1 rounded-lg"
-                        style={{ color: metricas.taxaAprovacao >= 60 ? "#166534" : metricas.taxaAprovacao >= 30 ? "#92400e" : "#991b1b", background: metricas.taxaAprovacao >= 60 ? "#dcfce7" : metricas.taxaAprovacao >= 30 ? "#fef3c7" : "#fee2e2" }}>
-                        Taxa final: {metricas.taxaAprovacao}%
-                      </span>
-                    </div>
+                {metricas.totalRecebidas > 0 && (() => {
+                  const stageConfig = [
+                    { gradient: "linear-gradient(135deg, #1e3a5f 0%, #2d5298 100%)", dot: "#60a5fa", labelColor: "#bfdbfe" },
+                    { gradient: "linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%)", dot: "#93c5fd", labelColor: "#dbeafe" },
+                    { gradient: "linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)", dot: "#5eead4", labelColor: "#ccfbf1" },
+                    { gradient: "linear-gradient(135deg, #15803d 0%, #22c55e 100%)", dot: "#86efac", labelColor: "#dcfce7" },
+                  ];
+                  const taxaColor = metricas.taxaAprovacao >= 60 ? { fg: "#166534", bg: "#dcfce7" } : metricas.taxaAprovacao >= 30 ? { fg: "#92400e", bg: "#fef3c7" } : { fg: "#991b1b", bg: "#fee2e2" };
+                  return (
+                    <div style={{ background: "linear-gradient(160deg, #0f172a 0%, #1e3a5f 100%)", borderRadius: 16, padding: "20px 20px 16px", marginTop: 16 }}>
+                      {/* Header */}
+                      <div className="flex items-center justify-between mb-5">
+                        <div className="flex items-center gap-2">
+                          <div style={{ width: 3, height: 16, background: "#22c55e", borderRadius: 2 }} />
+                          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: "#94a3b8", textTransform: "uppercase" }}>Funil de Aprovação</span>
+                        </div>
+                        <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 8, color: taxaColor.fg, background: taxaColor.bg }}>
+                          Taxa final: {metricas.taxaAprovacao}%
+                        </span>
+                      </div>
 
-                    <div className="flex flex-col items-center gap-0">
-                      {metricas.funil.map((etapa, i) => {
-                        const pctDoTotal = metricas.funil[0].value > 0 ? Math.round((etapa.value / metricas.funil[0].value) * 100) : 0;
-                        const convPct = i > 0 && metricas.funil[i - 1].value > 0
-                          ? Math.round((etapa.value / metricas.funil[i - 1].value) * 100)
-                          : null;
-                        // largura do trapézio: 100% no topo, diminui proporcionalmente
-                        const widthPct = Math.max(pctDoTotal, etapa.value > 0 ? 20 : 8);
-                        // recuo lateral para criar o efeito trapezoidal
-                        const prevPct = i === 0 ? 100 : Math.max(metricas.funil[0].value > 0 ? Math.round((metricas.funil[i - 1].value / metricas.funil[0].value) * 100) : 100, 20);
-                        return (
-                          <div key={etapa.label} className="w-full flex flex-col items-center">
-                            {/* seta de conversão entre etapas */}
-                            {i > 0 && (
-                              <div className="flex items-center gap-1.5 py-1.5">
-                                <svg width="8" height="10" viewBox="0 0 8 10" fill="none"><path d="M4 0v6M1 5l3 4 3-4" stroke="#CBD5E1" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                                <span className="text-[10px] text-cf-text-4">{convPct !== null ? `${convPct}% avançaram` : "sem dados"}</span>
-                              </div>
-                            )}
-                            {/* bloco trapezoidal usando clip-path */}
-                            <div
-                              className="relative flex items-center justify-between px-4 transition-all duration-700"
-                              style={{
-                                width: `${prevPct}%`,
-                                height: 44,
-                                backgroundColor: etapa.color,
-                                clipPath: `polygon(${((prevPct - widthPct) / prevPct / 2) * 100}% 0%, ${100 - ((prevPct - widthPct) / prevPct / 2) * 100}% 0%, 100% 100%, 0% 100%)`,
-                                borderRadius: i === metricas.funil.length - 1 ? "0 0 6px 6px" : 0,
-                              }}
-                            >
-                              <span className="text-white text-[11px] font-semibold drop-shadow-sm truncate max-w-[55%]">{etapa.label}</span>
-                              <div className="flex items-center gap-1.5 flex-shrink-0">
-                                <span className="text-white text-[14px] font-bold drop-shadow-sm">{etapa.value}</span>
-                                <span className="text-white/75 text-[10px] font-medium">{pctDoTotal}%</span>
+                      {/* Barras */}
+                      <div className="flex flex-col gap-0">
+                        {metricas.funil.map((etapa, i) => {
+                          const pctDoTotal = metricas.funil[0].value > 0 ? Math.round((etapa.value / metricas.funil[0].value) * 100) : 0;
+                          const barWidthPct = Math.max(pctDoTotal, etapa.value > 0 ? 22 : 10);
+                          const convPct = i > 0 && metricas.funil[i - 1].value > 0
+                            ? Math.round((etapa.value / metricas.funil[i - 1].value) * 100) : null;
+                          const cfg = stageConfig[i] ?? stageConfig[stageConfig.length - 1];
+                          const isLast = i === metricas.funil.length - 1;
+                          return (
+                            <div key={etapa.label}>
+                              {/* Conector entre etapas */}
+                              {i > 0 && (
+                                <div className="flex items-center gap-2 py-2 pl-3">
+                                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
+                                    <div style={{ width: 1, height: 6, background: "#334155" }} />
+                                    <svg width="7" height="5" viewBox="0 0 7 5" fill="none">
+                                      <path d="M3.5 5L0 0h7L3.5 5z" fill="#334155" />
+                                    </svg>
+                                  </div>
+                                  <span style={{ fontSize: 10, color: convPct !== null && convPct >= 70 ? "#4ade80" : convPct !== null && convPct >= 40 ? "#fbbf24" : "#f87171", fontWeight: 600 }}>
+                                    {convPct !== null ? `${convPct}% converteram` : "—"}
+                                  </span>
+                                  <div style={{ flex: 1, height: 1, background: "#1e293b" }} />
+                                </div>
+                              )}
+                              {/* Barra */}
+                              <div style={{ width: `${barWidthPct}%`, minWidth: 120, transition: "width 0.6s ease" }}>
+                                <div style={{
+                                  background: cfg.gradient,
+                                  borderRadius: isLast ? "0 8px 8px 0" : "0 6px 6px 0",
+                                  padding: "10px 14px",
+                                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+                                  boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
+                                  position: "relative", overflow: "hidden",
+                                }}>
+                                  {/* Brilho sutil no topo */}
+                                  <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 1, background: "rgba(255,255,255,0.15)" }} />
+                                  {/* Label + dot */}
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: cfg.dot, flexShrink: 0, boxShadow: `0 0 6px ${cfg.dot}` }} />
+                                    <span style={{ fontSize: 11, fontWeight: 600, color: cfg.labelColor, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                      {etapa.label}
+                                    </span>
+                                  </div>
+                                  {/* Valor + pct */}
+                                  <div className="flex items-baseline gap-1.5 flex-shrink-0">
+                                    <span style={{ fontSize: 18, fontWeight: 800, color: "#ffffff", lineHeight: 1 }}>{etapa.value}</span>
+                                    <span style={{ fontSize: 10, fontWeight: 600, color: "rgba(255,255,255,0.55)" }}>{pctDoTotal}%</span>
+                                  </div>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                          );
+                        })}
+                      </div>
 
-                    <div className="mt-5 pt-4 border-t border-gray-100 grid grid-cols-3 gap-3 text-center">
-                      <div>
-                        <div className="text-[10px] text-cf-text-4 mb-1">Em Análise</div>
-                        <div className="text-[17px] font-bold text-cf-navy">{metricas.emAnalise}</div>
-                      </div>
-                      <div className="border-x border-gray-100">
-                        <div className="text-[10px] text-cf-text-4 mb-1">Taxa Aprovação</div>
-                        <div className="text-[17px] font-bold" style={{ color: metricas.taxaAprovacao >= 60 ? "#16a34a" : metricas.taxaAprovacao >= 30 ? "#d97706" : "#dc2626" }}>{metricas.taxaAprovacao}%</div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] text-cf-text-4 mb-1">Reprovadas</div>
-                        <div className="text-[17px] font-bold text-red-500">{metricas.porDecisao.reprovado}</div>
+                      {/* Footer stats */}
+                      <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid #1e293b", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, textAlign: "center" }}>
+                        {[
+                          { label: "Em Análise", value: String(metricas.emAnalise), color: "#93c5fd" },
+                          { label: "Taxa Aprovação", value: `${metricas.taxaAprovacao}%`, color: metricas.taxaAprovacao >= 60 ? "#4ade80" : metricas.taxaAprovacao >= 30 ? "#fbbf24" : "#f87171" },
+                          { label: "Reprovadas", value: String(metricas.porDecisao.reprovado), color: "#f87171" },
+                        ].map((s, si) => (
+                          <div key={s.label} style={{ borderRight: si < 2 ? "1px solid #1e293b" : "none", padding: "0 4px" }}>
+                            <div style={{ fontSize: 9, color: "#475569", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>{s.label}</div>
+                            <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
             )}
 
