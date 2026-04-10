@@ -2301,71 +2301,62 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
   // ===== SEÇÃO 01 — CARTAO CNPJ (flui se couber na página) =====
   drawSpacer(10);
-  checkPageBreak(130);
+  checkPageBreak(120);
 
   dsSectionHeader("01", "CARTAO CNPJ");
 
-  // ── Helper: formata CNPJ com máscara ─────────────────────────────────────
-  const fmtCnpj = (raw: string) =>
-    raw.replace(/\D/g, "").replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
-
   // ── Hero: Razão Social + CNPJ + Badge Situação ───────────────────────────
   {
-    const situ    = (data.cnpj.situacaoCadastral || "").toUpperCase();
-    const situOk  = situ.includes("ATIVA");
-    const situColor: [number,number,number] = situOk ? [22,163,74]   : [220,38,38];
+    const heroH = 24;
+    const situ = (data.cnpj.situacaoCadastral || "").toUpperCase();
+    const situOk = situ.includes("ATIVA");
+    const situColor: [number,number,number] = situOk ? [22,163,74] : [220,38,38];
     const situBg:    [number,number,number] = situOk ? [220,252,231] : [254,226,226];
-    const nf         = data.cnpj.nomeFantasia || "";
-    const hasNF      = nf && nf.toLowerCase() !== (data.cnpj.razaoSocial || "").toLowerCase();
-    const heroH      = hasNF ? 30 : 24;
 
     // Fundo navy com borda esquerda colorida
     doc.setFillColor(26, 46, 74);
     doc.rect(margin, pos.y, contentW, heroH, "F");
     doc.setFillColor(...situColor);
-    doc.rect(margin, pos.y, 4, heroH, "F");
+    doc.rect(margin, pos.y, 3.5, heroH, "F");
 
     // Razão Social
-    const rzStr   = data.cnpj.razaoSocial || "—";
-    const rzLines = doc.splitTextToSize(rzStr, contentW - 72) as string[];
     doc.setFontSize(12);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
-    doc.text(rzLines[0], margin + 9, pos.y + 10);
+    const rzStr = data.cnpj.razaoSocial || "—";
+    const rzLines = doc.splitTextToSize(rzStr, contentW - 68) as string[];
+    doc.text(rzLines[0], margin + 8, pos.y + 10);
     if (rzLines[1]) {
       doc.setFontSize(9);
-      doc.text(rzLines[1], margin + 9, pos.y + 16);
+      doc.text(rzLines[1], margin + 8, pos.y + 17);
     }
 
-    // Nome Fantasia (se diferente)
-    if (hasNF) {
+    // Nome Fantasia abaixo (se diferente)
+    const nf = data.cnpj.nomeFantasia;
+    if (nf && nf.toLowerCase() !== (data.cnpj.razaoSocial || "").toLowerCase()) {
       doc.setFontSize(7);
       doc.setFont("helvetica", "italic");
       doc.setTextColor(160, 185, 220);
-      doc.text(`"${nf}"`, margin + 9, pos.y + (rzLines[1] ? 22 : 17));
+      doc.text(`"${nf}"`, margin + 8, pos.y + 21);
     }
 
-    // CNPJ formatado (bottom-left)
-    const cnpjRow = pos.y + heroH - 5.5;
+    // CNPJ label (bottom-left)
     doc.setFontSize(7);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(130, 165, 210);
-    doc.text("CNPJ " + fmtCnpj(data.cnpj.cnpj || ""), margin + 9, cnpjRow);
+    doc.text("CNPJ: " + (data.cnpj.cnpj || "—"), margin + 8, pos.y + (nf ? 21 : 20));
 
     // Badge de situação (right)
-    const bw = 46; const bh = 11;
+    const bw = 44; const bh = 11;
     const bx = margin + contentW - bw - 5;
     const by = pos.y + (heroH - bh) / 2;
     doc.setFillColor(...situBg);
-    doc.roundedRect(bx, by, bw, bh, 2.5, 2.5, "F");
+    doc.roundedRect(bx, by, bw, bh, 2, 2, "F");
     doc.setFontSize(7.5);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...situColor);
     const situLabel = situ || "N/D";
-    doc.text(
-      situLabel.length > 14 ? situLabel.substring(0, 14) + "…" : situLabel,
-      bx + bw / 2, by + 7.5, { align: "center" }
-    );
+    doc.text(situLabel.length > 12 ? situLabel.substring(0,12) + "…" : situLabel, bx + bw / 2, by + 7.5, { align: "center" });
 
     pos.y += heroH + 5;
   }
@@ -2373,52 +2364,41 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
   // ── Linha 1: 4 métricas principais ───────────────────────────────────────
   {
     const mgGap = 3;
-    const mgW   = (contentW - mgGap * 3) / 4;
-    const mgH   = 19;
+    const mgW = (contentW - mgGap * 3) / 4;
+    const mgH = 19;
     checkPageBreak(mgH + 4);
     const capitalSocial = data.qsa?.capitalSocial || "";
-
-    // Calcula idade da empresa
-    let idadeStr = "—";
-    if (data.cnpj.dataAbertura) {
-      const ano = new Date(data.cnpj.dataAbertura).getFullYear();
-      if (!isNaN(ano)) {
-        const anos = new Date().getFullYear() - ano;
-        idadeStr = anos > 0 ? `${anos} anos` : "< 1 ano";
-      }
-    }
-
     const mg1 = [
-      { label: "Data de Abertura",  value: data.cnpj.dataAbertura || "—",    border: DS.colors.info         as [number,number,number] },
-      { label: "Idade da Empresa",  value: idadeStr,                          border: DS.colors.borderStrong as [number,number,number] },
+      { label: "Data de Abertura",  value: data.cnpj.dataAbertura || "—",    border: DS.colors.info     as [number,number,number] },
+      { label: "Natureza Jurídica", value: data.cnpj.naturezaJuridica || "—", border: DS.colors.borderStrong as [number,number,number] },
       { label: "Porte",             value: data.cnpj.porte || "—",            border: DS.colors.borderStrong as [number,number,number] },
       { label: "Capital Social",    value: capitalSocial ? `R$ ${fmtMoney(capitalSocial)}` : "—", border: DS.colors.success as [number,number,number] },
     ];
     mg1.forEach((item, i) => {
       dsMetricCard(margin + i * (mgW + mgGap), pos.y, mgW, mgH, item.label, item.value, undefined, item.border);
     });
-    pos.y += mgH + 3;
+    pos.y += mgH + 4;
   }
 
-  // ── Linha 2: dados complementares ─────────────────────────────────────────
+  // ── Linha 2: dados complementares (se existirem) ─────────────────────────
   {
-    const tipoEmp  = data.cnpj.tipoEmpresa || "";
-    const func     = data.cnpj.funcionarios || "";
-    const regime   = data.cnpj.regimeTributario || "";
-    const natJur   = data.cnpj.naturezaJuridica || "";
+    const tipoEmp = data.cnpj.tipoEmpresa || "";
+    const func    = data.cnpj.funcionarios || "";
+    const regime  = data.cnpj.regimeTributario || "";
+    const tel     = data.cnpj.telefone || "";
+    const email   = data.cnpj.email || "";
     const dataSitu = data.cnpj.dataSituacaoCadastral || "";
-    const tel      = data.cnpj.telefone || "";
     const items2 = [
-      natJur    ? { label: "Natureza Jurídica",  value: natJur }   : null,
-      tipoEmp   ? { label: "Tipo de Empresa",    value: tipoEmp }  : null,
-      regime    ? { label: "Regime Tributário",  value: regime }   : null,
-      func      ? { label: "Funcionários",       value: func }     : null,
-      tel       ? { label: "Telefone",           value: tel }      : null,
-      dataSitu  ? { label: "Situação desde",     value: dataSitu } : null,
+      tipoEmp   ? { label: "Tipo Empresa",       value: tipoEmp }   : null,
+      func      ? { label: "Funcionários",        value: func }      : null,
+      regime    ? { label: "Regime Tributário",   value: regime }    : null,
+      tel       ? { label: "Telefone",            value: tel }       : null,
+      email     ? { label: "E-mail",              value: email }     : null,
+      dataSitu  ? { label: "Data da Situação",    value: dataSitu }  : null,
     ].filter(Boolean) as { label: string; value: string }[];
 
     if (items2.length > 0) {
-      const n      = Math.min(items2.length, 4);
+      const n = Math.min(items2.length, 4);
       const mgGap2 = 3;
       const mgW2   = (contentW - mgGap2 * (n - 1)) / n;
       const mgH2   = 17;
@@ -2426,36 +2406,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
       items2.slice(0, n).forEach((item, i) => {
         dsMetricCard(margin + i * (mgW2 + mgGap2), pos.y, mgW2, mgH2, item.label, item.value, undefined, DS.colors.borderStrong);
       });
-      pos.y += mgH2 + 3;
-    }
-  }
-
-  // ── CNAE Principal ────────────────────────────────────────────────────────
-  {
-    const cnaePrinc = data.cnpj.cnaePrincipal || "";
-    if (cnaePrinc.trim()) {
-      checkPageBreak(16);
-      const cpLines = doc.splitTextToSize(cnaePrinc, contentW - 50) as string[];
-      const cpH     = Math.max(14, cpLines.length * 4.5 + 10);
-      doc.setFillColor(255, 255, 255);
-      doc.roundedRect(margin, pos.y, contentW, cpH, 1.5, 1.5, "F");
-      doc.setDrawColor(...DS.colors.borderRGB);
-      doc.setLineWidth(0.3);
-      doc.roundedRect(margin, pos.y, contentW, cpH, 1.5, 1.5, "D");
-      doc.setLineWidth(0.1);
-      // Pill azul "CNAE PRINCIPAL"
-      doc.setFillColor(219, 234, 254);
-      doc.roundedRect(margin + 5, pos.y + (cpH - 6) / 2, 36, 6, 1.5, 1.5, "F");
-      doc.setFontSize(5.5);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(29, 78, 216);
-      doc.text("CNAE PRINCIPAL", margin + 23, pos.y + (cpH - 6) / 2 + 4.2, { align: "center" });
-      // Texto da atividade
-      doc.setFontSize(8.5);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(...DS.colors.textPrimary);
-      cpLines.forEach((ln, i) => doc.text(ln, margin + 45, pos.y + (cpH - cpLines.length * 4.5) / 2 + 4 + i * 4.5));
-      pos.y += cpH + 3;
+      pos.y += mgH2 + 4;
     }
   }
 
@@ -2470,7 +2421,8 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
 
     checkPageBreak(endMinH + 6);
 
-    const endLines = doc.splitTextToSize(endVal, endW - 12) as string[];
+    // Card de endereço
+    const endLines = doc.splitTextToSize(endVal, endW - 10) as string[];
     const endBoxH  = Math.max(endMinH, endLines.length * 4.5 + 14);
 
     doc.setFillColor(255, 255, 255);
@@ -2479,6 +2431,7 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     doc.setLineWidth(0.3);
     doc.roundedRect(margin, pos.y, endW, endBoxH, 2, 2, "D");
     doc.setLineWidth(0.1);
+    // Borda esquerda verde
     doc.setFillColor(...DS.colors.accentRGB);
     doc.rect(margin, pos.y, 3, endBoxH, "F");
 
@@ -2491,8 +2444,10 @@ export async function buildPDFReport(p: PDFReportParams): Promise<Blob> {
     doc.setTextColor(...DS.colors.textPrimary);
     endLines.forEach((line, i) => doc.text(line, margin + 7, pos.y + 11 + i * 5));
 
+    // Street View ao lado
     if (hasStreetView) {
       const svX = margin + endW + svGap;
+      // Header stripe
       doc.setFillColor(26, 46, 74);
       doc.rect(svX, pos.y, svW, 8, "F");
       doc.setFontSize(5.5);
