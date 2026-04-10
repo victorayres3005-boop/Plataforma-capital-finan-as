@@ -948,7 +948,9 @@ export default function HomePage() {
               const finalizadasFilt = filtered.filter(c => c.status === "finished").length;
               const emAndamento = filtered.filter(c => c.status === "in_progress").length;
               const empresas = new Set(filtered.map(c => c.company_name || c.label).filter(Boolean)).size;
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
               const fmmTotalFilt = filtered.filter(c => c.fmm_12m && c.fmm_12m > 0 && (c.decisao === "APROVADO" || c.decisao === "APROVACAO_CONDICIONAL")).reduce((s, c) => s + (c.fmm_12m || 0), 0);
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
               const fmtFmm = (v: number) => v >= 1_000_000 ? `R$ ${(v / 1_000_000).toFixed(1).replace(".", ",")} mi` : v >= 1000 ? `R$ ${(v / 1000).toFixed(0)}K` : `R$ ${v.toLocaleString("pt-BR")}`;
               const deltaLabel = (delta: number | null) => {
                 if (delta === null) return null;
@@ -961,11 +963,10 @@ export default function HomePage() {
                 { label: "Total de Coletas",  value: totalColetas,           sub: `${empresas} empresa(s) únicas`,                                                                             delta: metricas.deltaColetas, accent: "#203b88", fmt: (v: number) => String(v),                                                                                             emptyLabel: null,                                                 bar: undefined },
                 { label: "Finalizadas",       value: finalizadasFilt,        sub: finalizadasFilt === 0 ? "Nenhuma análise concluída" : `${emAndamento} em andamento`,                         delta: null,                  accent: "#73b815", fmt: (v: number) => String(v),                                                                                             emptyLabel: finalizadasFilt === 0 ? "Nenhuma análise concluída" : null, bar: undefined },
                 { label: "Taxa de Aprovação", value: metricas.taxaAprovacao, sub: metricas.totalFinalizadas === 0 ? "Sem dados suficientes" : `de ${metricas.totalFinalizadas} finalizadas`,  delta: metricas.deltaTaxa,    accent: "#0ea5e9", fmt: (v: number) => metricas.totalFinalizadas === 0 ? "—" : `${v}%`,                                                           emptyLabel: metricas.totalFinalizadas === 0 ? "Sem dados suficientes" : null, bar: undefined },
-                { label: "FMM Total Aprovado",value: fmmTotalFilt,           sub: fmmTotalFilt === 0 ? "Sem aprovações com FMM" : "soma das aprovadas/cond.",                                  delta: null,                  accent: "#8b5cf6", fmt: (v: number) => v === 0 ? "—" : fmtFmm(v),                                                                                   emptyLabel: fmmTotalFilt === 0 ? "Sem aprovações com FMM" : null, bar: undefined },
                 { label: "Rating Médio",      value: metricas.ratingMedio,   sub: metricas.totalComRating === 0 ? "Sem análises com rating" : `de ${metricas.totalComRating} análise(s)`,     delta: metricas.deltaRating,  accent: ratingClr, fmt: (v: number) => metricas.totalComRating === 0 ? "—" : v.toFixed(1).replace(".", ",") + "/10",                             emptyLabel: metricas.totalComRating === 0 ? "Sem análises com rating" : null, bar: metricas.totalComRating > 0 ? (metricas.ratingMedio / 10) * 100 : undefined },
               ];
               return (
-                <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-8">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
                   {kpis.map((k, i) => {
                     const dl = deltaLabel(k.delta ?? null);
                     return (
@@ -1170,44 +1171,40 @@ export default function HomePage() {
                       </span>
                     </div>
 
-                    <div className="space-y-2">
+                    <div className="flex flex-col items-center gap-0">
                       {metricas.funil.map((etapa, i) => {
                         const pctDoTotal = metricas.funil[0].value > 0 ? Math.round((etapa.value / metricas.funil[0].value) * 100) : 0;
                         const convPct = i > 0 && metricas.funil[i - 1].value > 0
                           ? Math.round((etapa.value / metricas.funil[i - 1].value) * 100)
                           : null;
+                        // largura do trapézio: 100% no topo, diminui proporcionalmente
+                        const widthPct = Math.max(pctDoTotal, etapa.value > 0 ? 20 : 8);
+                        // recuo lateral para criar o efeito trapezoidal
+                        const prevPct = i === 0 ? 100 : Math.max(metricas.funil[0].value > 0 ? Math.round((metricas.funil[i - 1].value / metricas.funil[0].value) * 100) : 100, 20);
                         return (
-                          <div key={etapa.label}>
+                          <div key={etapa.label} className="w-full flex flex-col items-center">
+                            {/* seta de conversão entre etapas */}
                             {i > 0 && (
-                              <div className="flex items-center gap-2 py-1 pl-3">
-                                <svg width="10" height="14" viewBox="0 0 10 14" fill="none"><path d="M5 0v10M1 7l4 6 4-6" stroke="#CBD5E1" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                                <span className="text-[10px] text-cf-text-4">
-                                  {convPct !== null ? `${convPct}% converteram para esta etapa` : "sem dados"}
-                                </span>
+                              <div className="flex items-center gap-1.5 py-1.5">
+                                <svg width="8" height="10" viewBox="0 0 8 10" fill="none"><path d="M4 0v6M1 5l3 4 3-4" stroke="#CBD5E1" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                                <span className="text-[10px] text-cf-text-4">{convPct !== null ? `${convPct}% avançaram` : "sem dados"}</span>
                               </div>
                             )}
-                            <div className="flex items-center gap-3">
-                              <div className="w-2 h-2 rounded-full flex-shrink-0 mt-0.5" style={{ backgroundColor: etapa.color }} />
-                              <div className="flex-1">
-                                <div className="flex items-center justify-between mb-1.5">
-                                  <div>
-                                    <span className="text-[12px] font-semibold text-cf-text-1">{etapa.label}</span>
-                                    <span className="text-[10px] text-cf-text-4 ml-2">{etapa.sub}</span>
-                                  </div>
-                                  <div className="flex items-center gap-2 flex-shrink-0">
-                                    <span className="text-[15px] font-bold text-cf-text-1">{etapa.value}</span>
-                                    <span className="text-[10px] font-medium text-cf-text-4 w-8 text-right">{pctDoTotal}%</span>
-                                  </div>
-                                </div>
-                                <div className="h-6 bg-gray-100 rounded-lg overflow-hidden">
-                                  <div
-                                    className="h-full rounded-lg transition-all duration-700 flex items-center justify-end pr-2"
-                                    style={{ width: `${Math.max(pctDoTotal, etapa.value > 0 ? 4 : 0)}%`, backgroundColor: etapa.color }}>
-                                    {etapa.value > 0 && pctDoTotal >= 12 && (
-                                      <span className="text-white text-[10px] font-bold">{etapa.value}</span>
-                                    )}
-                                  </div>
-                                </div>
+                            {/* bloco trapezoidal usando clip-path */}
+                            <div
+                              className="relative flex items-center justify-between px-4 transition-all duration-700"
+                              style={{
+                                width: `${prevPct}%`,
+                                height: 44,
+                                backgroundColor: etapa.color,
+                                clipPath: `polygon(${((prevPct - widthPct) / prevPct / 2) * 100}% 0%, ${100 - ((prevPct - widthPct) / prevPct / 2) * 100}% 0%, 100% 100%, 0% 100%)`,
+                                borderRadius: i === metricas.funil.length - 1 ? "0 0 6px 6px" : 0,
+                              }}
+                            >
+                              <span className="text-white text-[11px] font-semibold drop-shadow-sm truncate max-w-[55%]">{etapa.label}</span>
+                              <div className="flex items-center gap-1.5 flex-shrink-0">
+                                <span className="text-white text-[14px] font-bold drop-shadow-sm">{etapa.value}</span>
+                                <span className="text-white/75 text-[10px] font-medium">{pctDoTotal}%</span>
                               </div>
                             </div>
                           </div>

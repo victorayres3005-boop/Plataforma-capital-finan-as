@@ -1,7 +1,8 @@
-"use client";
+﻿"use client";
 
 import { useState, useEffect, useRef } from "react";
 import { ArrowLeft, Loader2, CheckCircle2, AlertTriangle, Pencil, Check, RotateCcw } from "lucide-react";
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import Image from "next/image";
 import { buildHTMLReport } from "@/lib/generators/html";
 import { buildDOCXReport } from "@/lib/generators/docx";
@@ -14,6 +15,8 @@ import GoalfyButton from "@/components/GoalfyButton";
 import AlertList from "@/components/AlertList";
 import { ExtractedData, CollectionDocument, DocumentCollection, FundSettings, DEFAULT_FUND_SETTINGS, AIAnalysis, FundCriterion, FundValidationResult, CriterionStatus, FundPreset, CreditLimitResult } from "@/types";
 import type { OriginalFiles } from "@/components/UploadStep";
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+import { SectionCard, KpiCard, StatusPill, CriteriaItem, MetricBarChart, ScrTable, AlertBanner, ResultadoBox } from "@/components/report/ReportComponents";
 
 type Format = "pdf" | "docx" | "xlsx" | "html";
 
@@ -903,10 +906,12 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     medio: { label: "RISCO MODERADO", labelColor: "text-[#D97706]", bg: "bg-[#FFFBEB]",  border: "border-[#FDE68A]", dot: "bg-[#F59E0B]", heroColor: "text-[#D97706]" },
     baixo: { label: "RISCO BAIXO",    labelColor: "text-[#16A34A]", bg: "bg-[#F0FDF4]",  border: "border-[#BBF7D0]", dot: "bg-[#16A34A]", heroColor: "text-[#16A34A]" },
   };
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const risk = riskCfg[riskScore];
 
   const qsaCount = data.qsa.quadroSocietario.filter(s => s.nome).length;
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const MutedValue = ({ v }: { v: string }) => {
     const isZero = !v || v === "0" || v === "0,00" || v === "R$ 0,00";
     return <span className={isZero ? "text-[#9CA3AF]" : "text-[#111827] font-semibold"}>{isZero ? "—" : v}</span>;
@@ -1132,1080 +1137,825 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     <div className="animate-slide-up flex gap-6 items-start">
 
       {/* ── Sidebar de navegação (desktop) ── */}
-      <nav className="hidden lg:flex flex-col gap-0.5 w-[196px] flex-shrink-0 sticky top-4 self-start">
-        <p className="text-[9px] font-bold text-[#9CA3AF] uppercase tracking-[0.14em] px-3 mb-1">Seções</p>
+      <nav className="hidden lg:flex flex-col gap-0.5 w-[188px] flex-shrink-0 sticky top-4 self-start">
+        <p style={{ fontSize: 9, fontWeight: 700, color: "var(--text-4)", textTransform: "uppercase", letterSpacing: "0.14em", padding: "0 10px", marginBottom: 6 }}>Seções</p>
         {navItems.map(item => (
           <a
             key={item.id}
             href={`#${item.id}`}
-            className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12px] font-medium text-[#374151] hover:bg-[#EFF6FF] hover:text-[#203b88] transition-colors group"
+            className="hover:text-cf-navy group"
+            style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 8, fontSize: 12, fontWeight: 500, color: "var(--text-2)", textDecoration: "none", transition: "background 0.15s" }}
+            onMouseEnter={e => (e.currentTarget.style.background = "#eff6ff")}
+            onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
             onClick={e => { e.preventDefault(); document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
           >
-            <span className="w-6 h-6 rounded-md bg-[#F3F4F6] group-hover:bg-[#DBEAFE] flex items-center justify-center text-[9px] font-bold text-[#6B7280] group-hover:text-[#203b88] transition-colors flex-shrink-0">{item.icon}</span>
+            <span style={{ width: 24, height: 24, borderRadius: 6, background: "var(--ds-surface-2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "var(--text-3)", flexShrink: 0 }}>
+              {item.icon}
+            </span>
             <span className="leading-snug">{item.label}</span>
           </a>
         ))}
       </nav>
 
       {/* ── Conteúdo principal ── */}
-      <div className="flex-1 min-w-0 space-y-5 pb-28">
+      <div className="flex-1 min-w-0 pb-28" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
-      {/* ══════════════════════════════════════════════════════
-          CARD 00 — SUMARIO EXECUTIVO
-          ══════════════════════════════════════════════════════ */}
-      <div id="sec-00" className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #2d4f8a", boxShadow: "0 4px 20px rgba(32,59,136,0.12)" }}>
-        <div className="px-5 py-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg, #192f5d 0%, #1e3a7a 100%)" }}>
-          <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0 border border-white/20">
-            <span className="text-sm font-bold text-white">00</span>
-          </div>
-          <div>
-            <p className="text-[10px] font-bold text-white/50 uppercase tracking-[0.12em]">Sumário Executivo</p>
-            <p className="text-sm font-bold text-white">Análise de Crédito</p>
-          </div>
-        </div>
+        {/* ════════════════════════════════════════
+            SEÇÃO 00 — SUMÁRIO EXECUTIVO
+            ════════════════════════════════════════ */}
+        <SectionCard
+          id="sec-00"
+          badge="00"
+          badgeVariant="navy"
+          sectionLabel="Análise de Crédito"
+          title="Sumário Executivo"
+          headerRight={
+            <StatusPill
+              label={decision}
+              variant={decision === "APROVADO" ? "green" : decision === "REPROVADO" ? "red" : "yellow"}
+              dot
+            />
+          }
+        >
+          <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: 20 }}>
 
-        <div className="p-5 space-y-5">
-          {/* Rating + Decision badges */}
-          <div className="grid grid-cols-3 gap-4">
-            <div className={`px-4 py-3 rounded-lg border animate-stagger-1`} style={{ background: decisionBg, borderColor: decisionBorder }}>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280]">Rating</p>
-              <p className="text-[22px] font-bold animate-number-in" style={{ color: decisionColor }}>{finalRating}/10</p>
-              <p className="text-[11px] text-[#6B7280]">{finalRating >= 7 ? 'Perfil saudavel' : finalRating >= 4 ? 'Atencao recomendada' : 'Perfil critico'}</p>
-            </div>
-            <div className={`px-4 py-3 rounded-lg border animate-stagger-2`} style={{ background: decisionBg, borderColor: decisionBorder }}>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280]">Decisao</p>
-              <p className="text-[18px] font-bold animate-scale-in" style={{ color: decisionColor }}>{decision}</p>
-            </div>
-            <div className={`flex items-center justify-between gap-4 px-4 py-3 rounded-lg animate-stagger-3 ${risk.bg} border ${risk.border}`}>
-              <div>
-                <div className="flex items-center gap-2">
-                  <div className={`w-3 h-3 rounded-full ${risk.dot}`} />
-                  <span className={`text-sm font-bold tracking-wide ${risk.labelColor}`}>{risk.label}</span>
-                </div>
-                <p className="text-[11px] text-[#6B7280] mt-1">Alertas: {alerts.length}</p>
-              </div>
-            </div>
-          </div>
+            {/* Alert banner: SCR vencidos ou prejuízos */}
+            {(vencidosSCR > 0 || prejuizosVal > 0) && (
+              <AlertBanner
+                variant="danger"
+                label="SCR"
+                message={
+                  vencidosSCR > 0 && prejuizosVal > 0
+                    ? `Operações vencidas (R$ ${data.scr.vencidos}) e prejuízos (R$ ${data.scr.prejuizos}) detectados`
+                    : vencidosSCR > 0
+                    ? `Operações vencidas: R$ ${data.scr.vencidos}`
+                    : `Prejuízos registrados: R$ ${data.scr.prejuizos}`
+                }
+              />
+            )}
 
-          {/* Alerts panel */}
-          {alerts.length > 0 && (
-            <AlertList alerts={alerts} />
-          )}
+            {/* 4 KPI cards */}
+            <div className="kpi-grid">
+              <KpiCard
+                label="Rating"
+                value={`${finalRating}/10`}
+                sub={finalRating >= 7 ? "Perfil saudável" : finalRating >= 4 ? "Atenção recomendada" : "Perfil crítico"}
+                variant={decision === "APROVADO" ? "success" : decision === "REPROVADO" ? "danger" : "warning"}
+              />
+              <KpiCard
+                label="Dívida Total"
+                value={dividaAtiva > 0 ? `R$ ${data.scr.totalDividasAtivas}` : "—"}
+                sub="SCR / Bacen"
+                variant={dividaAtiva > 1000000 ? "warning" : "default"}
+              />
+              <KpiCard
+                label="Protestos"
+                value={String(protestosVigentes)}
+                sub="vigentes"
+                variant={protestosVigentes > 0 ? "danger" : "success"}
+              />
+              <KpiCard
+                label="Proc. Passivos"
+                value={data.processos ? (parseInt(data.processos.poloPassivoQtd || "0") > 0 ? String(parseInt(data.processos.poloPassivoQtd || "0")) : "—") : "—"}
+                sub="polo passivo"
+                variant={data.processos && parseInt(data.processos.poloPassivoQtd || "0") > 0 ? "warning" : "default"}
+              />
+            </div>
 
-          {/* AI Analysis: Resumo + Pontos Fortes/Fracos */}
-          {analyzingAI && (
-            <div className="bg-cf-surface border border-cf-border rounded-lg px-4 py-3 flex items-center gap-3">
-              <Loader2 size={14} className="animate-spin text-cf-navy flex-shrink-0" />
-              <div className="flex flex-col gap-0.5">
-                <span className="text-xs text-cf-text-2 font-medium">Analisando com IA...</span>
-                {analysisStatus && (
-                  <span className="text-[10px] text-cf-text-4">{analysisStatus}</span>
-                )}
-              </div>
-            </div>
-          )}
-          {!analyzingAI && analysisError && (
-            <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <span className="text-red-500 text-xs">⚠</span>
-                <span className="text-xs text-red-700">{analysisError}</span>
-              </div>
-              <button
-                onClick={handleReanalyze}
-                className="text-[11px] font-semibold text-white bg-cf-navy hover:bg-cf-navy/90 px-3 py-1.5 rounded transition-colors flex-shrink-0"
-              >
-                Tentar novamente
-              </button>
-            </div>
-          )}
-          {aiAnalysis && !analyzingAI && (
-            <>
-              {/* Badge de análise parcial */}
-              {aiAnalysis.coberturaAnalise && aiAnalysis.coberturaAnalise.nivel !== "completa" && (() => {
-                const ausentes = aiAnalysis.coberturaAnalise!.documentos
-                  .filter((d) => !d.presente)
-                  .map((d) => d.label);
-                return ausentes.length > 0 ? (
-                  <div className="bg-amber-50 border border-amber-300 rounded-lg px-3 py-2.5 flex items-start gap-2">
-                    <AlertTriangle size={13} className="text-amber-600 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-[10px] font-bold text-amber-800 uppercase tracking-wide">Análise Parcial</p>
-                      <p className="text-[11px] text-amber-700 mt-0.5">
-                        Documentos ausentes: <span className="font-semibold">{ausentes.join(", ")}</span>.
-                        Score calculado com dados disponíveis. Solicite a documentação completa para decisão definitiva.
-                      </p>
-                    </div>
+            {/* Info row 1: Empresa, CNPJ, Situação, Idade, Sócios */}
+            <div style={{ borderTop: "0.5px solid var(--ds-border-t)", paddingTop: 16 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "12px 20px" }}>
+                {([
+                  { label: "Empresa",     value: data.cnpj.razaoSocial || "—" },
+                  { label: "CNPJ",        value: data.cnpj.cnpj || "—" },
+                  { label: "Situação",    value: data.cnpj.situacaoCadastral || "—" },
+                  { label: "Idade",       value: companyAge || "—" },
+                  { label: "Sócios (QSA)", value: String(qsaCount) },
+                ] as { label: string; value: string }[]).map(({ label, value }) => (
+                  <div key={label}>
+                    <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-4)", marginBottom: 3 }}>{label}</p>
+                    <p style={{ fontSize: 14, fontWeight: 500, color: "var(--text-1)" }}>{value}</p>
                   </div>
-                ) : null;
-              })()}
-              <div className="flex items-center justify-between">
-                {analysisFromCache && (
-                  <span className="text-[10px] text-cf-text-4">Analise carregada do cache</span>
-                )}
-                <button onClick={handleReanalyze} disabled={analyzingAI} className="text-[11px] text-cf-text-4 hover:text-cf-navy underline transition-colors ml-auto" style={{ minHeight: "auto" }}>
-                  Reanalisar
+                ))}
+              </div>
+            </div>
+
+            {/* Info row 2: Capital, Fat. Anual, Em Atraso, Prejuízos */}
+            <div style={{ borderTop: "0.5px solid var(--ds-border-t)", paddingTop: 16 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "12px 20px" }}>
+                <div>
+                  <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-4)", marginBottom: 3 }}>Capital Social</p>
+                  <p style={{ fontSize: 14, fontWeight: 500, color: "var(--text-1)" }}>{data.qsa.capitalSocial || data.contrato.capitalSocial || "—"}</p>
+                </div>
+                <div>
+                  <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-4)", marginBottom: 3 }}>Fat. Anual</p>
+                  <p style={{ fontSize: 14, fontWeight: 500, color: "var(--text-1)" }}>{data.faturamento.somatoriaAno ? `R$ ${data.faturamento.somatoriaAno}` : "—"}</p>
+                </div>
+                <div>
+                  <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-4)", marginBottom: 3 }}>Em Atraso</p>
+                  <p style={{ fontSize: 14, fontWeight: 500, color: atraso > 0 ? "var(--ds-danger-text)" : "var(--text-1)" }}>{atraso > 0 ? `R$ ${data.scr.operacoesEmAtraso}` : "—"}</p>
+                </div>
+                <div>
+                  <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-4)", marginBottom: 3 }}>Prejuízos</p>
+                  <p style={{ fontSize: 14, fontWeight: 500, color: prejuizosVal > 0 ? "var(--ds-danger-text)" : "var(--text-1)" }}>{prejuizosVal > 0 ? `R$ ${data.scr.prejuizos}` : "—"}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* IA: loading */}
+            {analyzingAI && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", background: "var(--ds-surface-2)", borderRadius: "var(--ds-radius-md)" }}>
+                <Loader2 size={14} className="animate-spin" style={{ color: "var(--navy)", flexShrink: 0 }} />
+                <div>
+                  <p style={{ fontSize: 12, fontWeight: 500, color: "var(--text-2)" }}>Analisando com IA...</p>
+                  {analysisStatus && <p style={{ fontSize: 11, color: "var(--text-4)", marginTop: 2 }}>{analysisStatus}</p>}
+                </div>
+              </div>
+            )}
+
+            {/* IA: erro */}
+            {!analyzingAI && analysisError && (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px 16px", background: "var(--ds-danger-bg)", border: "0.5px solid var(--ds-danger-border)", borderRadius: "var(--ds-radius-md)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <AlertTriangle size={14} style={{ color: "var(--ds-danger-text)", flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, color: "var(--ds-danger-text)" }}>{analysisError}</span>
+                </div>
+                <button
+                  onClick={handleReanalyze}
+                  style={{ fontSize: 12, fontWeight: 600, color: "white", background: "var(--ds-danger-text)", border: "none", borderRadius: 6, padding: "6px 12px", cursor: "pointer", flexShrink: 0 }}
+                >
+                  Tentar novamente
                 </button>
               </div>
-            </>
-          )}
-          {resumoExecutivo && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
-              <p className="text-[10px] uppercase tracking-[0.08em] text-blue-700 font-bold mb-1">Resumo Executivo</p>
-              <p className="text-xs text-blue-900 leading-relaxed">{resumoExecutivo}</p>
-            </div>
-          )}
-          {pontosFortes.length > 0 && (
-            <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3">
-              <p className="text-[10px] uppercase tracking-[0.08em] text-green-700 font-bold mb-1">Pontos Fortes ({pontosFortes.length})</p>
-              {pontosFortes.map((p, i) => (
-                <div key={i} className="flex items-start gap-2 text-[12px] text-green-800 mt-1">
-                  <CheckCircle2 size={12} className="text-green-600 flex-shrink-0 mt-0.5" />
-                  <span>{p}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          {pontosFracos.length > 0 && (
-            <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3">
-              <p className="text-[10px] uppercase tracking-[0.08em] text-red-700 font-bold mb-1">Pontos Fracos ({pontosFracos.length})</p>
-              {pontosFracos.map((p, i) => (
-                <div key={i} className="flex items-start gap-2 text-[12px] text-red-800 mt-1">
-                  <AlertTriangle size={12} className="text-red-600 flex-shrink-0 mt-0.5" />
-                  <span>{p}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          {perguntasVisita.length > 0 && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
-              <p className="text-[10px] uppercase tracking-[0.08em] text-amber-700 font-bold mb-1">Perguntas para Visita ({perguntasVisita.length})</p>
-              {perguntasVisita.map((q, i) => (
-                <div key={i} className="mt-2">
-                  <p className="text-[12px] text-amber-900 font-semibold">{i + 1}. {q.pergunta}</p>
-                  <p className="text-[11px] text-amber-700 mt-0.5">{q.contexto}</p>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Hero number: Divida Total */}
-          {dividaAtiva > 0 && (
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Divida Total</p>
-              <p className={`text-[22px] font-bold leading-tight ${dividaAtiva > 1000000 ? "text-[#D97706]" : "text-[#111827]"}`}>
-                R$ {data.scr.totalDividasAtivas}
-              </p>
-            </div>
-          )}
-
-          {/* Grid row 1 */}
-          <div className="grid grid-cols-4 gap-5">
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Empresa</p>
-              <p className="text-[14px] font-semibold text-[#111827] leading-snug break-words">{data.cnpj.razaoSocial || "—"}</p>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">CNPJ</p>
-              <p className="text-[14px] font-semibold text-[#111827] font-mono">{data.cnpj.cnpj || "—"}</p>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Situacao</p>
-              <p className="text-[14px] font-semibold text-[#111827]">{data.cnpj.situacaoCadastral || "—"}</p>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Idade</p>
-              <p className="text-[14px] font-semibold text-[#111827]">{companyAge || "—"}</p>
-            </div>
-          </div>
-
-          {/* Grid row 2 */}
-          <div className="border-t border-[#F3F4F6] pt-4 grid grid-cols-3 gap-5">
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Socios (QSA)</p>
-              <p className="text-[14px] font-semibold text-[#111827]">{qsaCount}</p>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Capital Social</p>
-              <p className="text-[14px] font-semibold text-[#111827] break-words">{data.qsa.capitalSocial || data.contrato.capitalSocial || "—"}</p>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Faturamento Anual</p>
-              <p className="text-[14px] font-semibold text-[#111827] break-words">{data.faturamento.somatoriaAno ? `R$ ${data.faturamento.somatoriaAno}` : "—"}</p>
-            </div>
-          </div>
-
-          {/* Grid row 3 */}
-          <div className="border-t border-[#F3F4F6] pt-4 grid grid-cols-2 sm:grid-cols-4 gap-5">
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Em Atraso</p>
-              <p className="text-[14px]"><MutedValue v={data.scr.operacoesEmAtraso ? `R$ ${data.scr.operacoesEmAtraso}` : ""} /></p>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Prejuizos</p>
-              <p className="text-[14px]"><MutedValue v={data.scr.prejuizos ? `R$ ${data.scr.prejuizos}` : ""} /></p>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Protestos Vigentes</p>
-              <p className="text-[14px]"><MutedValue v={protestosVigentes > 0 ? String(protestosVigentes) : ""} /></p>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Classificacao de Risco</p>
-              <p className="text-[14px] font-semibold text-[#111827]">{data.scr.classificacaoRisco || "—"}</p>
-            </div>
-          </div>
-
-          {/* Grid row 4 — Processos (Credit Hub) */}
-          {data.processos && (parseInt(data.processos.passivosTotal || "0") > 0 || parseInt(data.processos.ativosTotal || "0") > 0 || data.processos.temRJ) && (() => {
-            const passivosN = parseInt(data.processos!.passivosTotal || "0");
-            return (
-              <div className="border-t border-[#F3F4F6] pt-4">
-                <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] font-bold mb-3">Processos Judiciais — Credit Hub</p>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-5">
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Total Processos</p>
-                    <p className={`text-[20px] font-bold ${passivosN > 0 ? "text-[#D97706]" : "text-[#111827]"}`}>{passivosN}</p>
-                    <p className="text-[10px] text-[#9CA3AF] mt-0.5">todos os polos</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Polo Ativo</p>
-                    <p className="text-[20px] font-bold text-[#1D4ED8]">{parseInt(data.processos!.poloAtivoQtd || "0") || "—"}</p>
-                    <p className="text-[10px] text-[#9CA3AF] mt-0.5">empresa autora</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Polo Passivo</p>
-                    <p className={`text-[20px] font-bold ${parseInt(data.processos!.poloPassivoQtd || "0") > 0 ? "text-[#D97706]" : "text-[#111827]"}`}>{parseInt(data.processos!.poloPassivoQtd || "0") || "—"}</p>
-                    <p className="text-[10px] text-[#9CA3AF] mt-0.5">empresa ré</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Alertas</p>
-                    <p className="text-[14px] font-semibold flex flex-wrap gap-1">
-                      {data.processos!.temFalencia && <span className="text-[11px] font-bold text-white bg-[#DC2626] px-1.5 py-0.5 rounded">FALÊNCIA</span>}
-                      {data.processos!.temRJ && <span className="text-[11px] font-bold text-white bg-[#D97706] px-1.5 py-0.5 rounded">RJ</span>}
-                      {!data.processos!.temFalencia && !data.processos!.temRJ && <span className="text-[#9CA3AF]">—</span>}
-                    </p>
-                  </div>
-                </div>
-                {data.processos!.distribuicao?.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {data.processos!.distribuicao.slice(0, 6).map((d, i) => (
-                      <span key={i} className="inline-flex items-center gap-1 text-[11px] bg-[#FFF7ED] border border-[#FED7AA] text-[#9A3412] rounded-full px-2.5 py-0.5 font-medium">
-                        {d.tipo} <span className="font-bold">({d.qtd})</span>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-        </div>
-      </div>
-
-      {/* ══════════════════════════════════════════════════════
-          CARD FS — PARÂMETROS DO FUNDO
-          ══════════════════════════════════════════════════════ */}
-      <div id="sec-fs" className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #2d4f8a", boxShadow: "0 4px 20px rgba(32,59,136,0.12)" }}>
-        {/* Header */}
-        <div className="px-5 py-4 flex items-center justify-between" style={{ background: "linear-gradient(135deg, #192f5d 0%, #1e3a7a 100%)" }}>
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0 border border-white/20">
-              <span className="text-sm font-bold text-white">FS</span>
-            </div>
-            <div>
-              <p className="text-[10px] font-bold text-white/50 uppercase tracking-[0.12em]">Critérios de Elegibilidade</p>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <p className="text-sm font-bold text-white">Parâmetros do Fundo</p>
-                {/* Preset selector */}
-                {fundPresets.length > 0 && (
-                  <select
-                    value={selectedPresetId ?? "active"}
-                    onChange={e => setSelectedPresetId(e.target.value)}
-                    style={{
-                      fontSize: "10px", fontWeight: 700, color: "white", background: "rgba(255,255,255,0.12)",
-                      border: "1px solid rgba(255,255,255,0.25)", borderRadius: "6px", padding: "2px 6px",
-                      cursor: "pointer", outline: "none", maxWidth: "160px",
-                    }}
-                  >
-                    <option value="active" style={{ color: "#111827", background: "white" }}>Configurações Ativas</option>
-                    {fundPresets.map(p => (
-                      <option key={p.id} value={p.id} style={{ color: "#111827", background: "white" }}>{p.name}</option>
-                    ))}
-                  </select>
-                )}
-              </div>
-            </div>
-          </div>
-          {/* Summary badge */}
-          <div className="flex items-center gap-2">
-            {fundValidation.failCount > 0 && (
-              <span style={{ fontSize: "11px", fontWeight: 700, padding: "3px 10px", borderRadius: "99px", background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca" }}>
-                {fundValidation.failCount} reprovado{fundValidation.failCount !== 1 ? "s" : ""}
-              </span>
             )}
-            {fundValidation.warnCount > 0 && (
-              <span style={{ fontSize: "11px", fontWeight: 700, padding: "3px 10px", borderRadius: "99px", background: "#fffbeb", color: "#d97706", border: "1px solid #fde68a" }}>
-                {fundValidation.warnCount} atenção
-              </span>
+
+            {/* IA: badges de contexto */}
+            {aiAnalysis && !analyzingAI && (
+              <>
+                {aiAnalysis.coberturaAnalise && aiAnalysis.coberturaAnalise.nivel !== "completa" && (() => {
+                  const ausentes = aiAnalysis.coberturaAnalise!.documentos.filter(d => !d.presente).map(d => d.label);
+                  return ausentes.length > 0 ? (
+                    <AlertBanner variant="warn" label="Análise Parcial" message={`Documentos ausentes: ${ausentes.join(", ")}. Score calculado com dados disponíveis.`} />
+                  ) : null;
+                })()}
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  {analysisFromCache && (
+                    <span style={{ fontSize: 11, color: "var(--text-4)", marginRight: 12 }}>Análise carregada do cache</span>
+                  )}
+                  <button onClick={handleReanalyze} disabled={analyzingAI} style={{ fontSize: 11, color: "var(--text-4)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+                    Reanalisar
+                  </button>
+                </div>
+              </>
             )}
-            <span style={{
-              fontSize: "11px", fontWeight: 700, padding: "3px 10px", borderRadius: "99px",
-              background: fundValidation.failCount > 0 ? "rgba(220,38,38,0.15)" : fundValidation.warnCount > 0 ? "rgba(217,119,6,0.15)" : "rgba(22,163,74,0.2)",
-              color: fundValidation.failCount > 0 ? "#fca5a5" : fundValidation.warnCount > 0 ? "#fcd34d" : "#86efac",
-              border: "1px solid rgba(255,255,255,0.2)",
-            }}>
-              {fundValidation.passCount}/{fundValidation.criteria.length} critérios
-            </span>
-          </div>
-        </div>
 
-        {/* Body */}
-        <div className="divide-y divide-[#F3F4F6]">
-          {fundValidation.criteria.map(c => {
-            const icon = c.status === "ok" ? "✓" : c.status === "warning" ? "!" : c.status === "error" ? "✕" : "?";
-            const iconBg = c.status === "ok" ? "#f0fdf4" : c.status === "warning" ? "#fffbeb" : c.status === "error" ? "#fef2f2" : "#f9fafb";
-            const iconColor = c.status === "ok" ? "#16a34a" : c.status === "warning" ? "#d97706" : c.status === "error" ? "#dc2626" : "#9ca3af";
-            const iconBorder = c.status === "ok" ? "#bbf7d0" : c.status === "warning" ? "#fde68a" : c.status === "error" ? "#fecaca" : "#e5e7eb";
-            const rowBg = c.status === "error" ? "#fffafa" : c.status === "warning" ? "#fffdf5" : "white";
+            {/* Alertas */}
+            {alerts.length > 0 && <AlertList alerts={alerts} />}
 
-            return (
-              <div key={c.id} style={{ display: "grid", gridTemplateColumns: "40px 1fr 1fr 1fr", alignItems: "center", gap: "12px", padding: "12px 20px", background: rowBg }}>
-                {/* Icon */}
-                <div style={{ width: "28px", height: "28px", borderRadius: "99px", display: "flex", alignItems: "center", justifyContent: "center", background: iconBg, border: `1px solid ${iconBorder}`, flexShrink: 0, fontSize: "12px", fontWeight: 700, color: iconColor }}>
-                  {icon}
-                </div>
-
-                {/* Label */}
-                <div>
-                  <p style={{ fontSize: "12px", fontWeight: 600, color: "#111827", marginBottom: "1px" }}>{c.label}</p>
-                  {c.eliminatoria && c.status === "error" && (
-                    <span style={{ fontSize: "9px", fontWeight: 700, letterSpacing: "0.06em", color: "#dc2626", background: "#fee2e2", padding: "1px 5px", borderRadius: "4px" }}>ELIMINATÓRIO</span>
-                  )}
-                  {c.detail && c.status !== "error" && (
-                    <p style={{ fontSize: "10px", color: "#6b7280", marginTop: "1px" }}>{c.detail}</p>
-                  )}
-                </div>
-
-                {/* Threshold */}
-                <div>
-                  <p style={{ fontSize: "10px", color: "#9ca3af", marginBottom: "2px", textTransform: "uppercase", letterSpacing: "0.04em" }}>Limite do Fundo</p>
-                  <p style={{ fontSize: "12px", fontWeight: 500, color: "#374151" }}>{c.threshold}</p>
-                </div>
-
-                {/* Actual */}
-                <div>
-                  <p style={{ fontSize: "10px", color: "#9ca3af", marginBottom: "2px", textTransform: "uppercase", letterSpacing: "0.04em" }}>Apurado</p>
-                  <p style={{ fontSize: "13px", fontWeight: 700, color: iconColor }}>{c.actual}</p>
-                  {c.detail && c.status === "error" && (
-                    <p style={{ fontSize: "10px", color: iconColor, opacity: 0.8, marginTop: "1px" }}>{c.detail}</p>
-                  )}
-                </div>
+            {/* Resumo executivo */}
+            {resumoExecutivo && (
+              <div style={{ padding: "14px 16px", background: "#eff6ff", border: "0.5px solid #bfdbfe", borderRadius: "var(--ds-radius-md)" }}>
+                <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "#1d4ed8", marginBottom: 6 }}>Resumo Executivo</p>
+                <p style={{ fontSize: 12, color: "#1e40af", lineHeight: 1.65 }}>{resumoExecutivo}</p>
               </div>
-            );
-          })}
-        </div>
+            )}
 
-        {/* Footer */}
-        <div style={{ padding: "10px 20px", borderTop: "1px solid #F3F4F6", background: "#F8FAFC", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <p style={{ fontSize: "11px", color: "#6b7280" }}>
-            {fundValidation.hasEliminatoria
-              ? "⚠ Critério eliminatório não atendido — aprovação impedida pelos parâmetros do fundo."
-              : fundValidation.warnCount > 0
-                ? "Critérios de atenção identificados — análise condicional recomendada."
-                : "Todos os critérios atendidos."}
-          </p>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <span style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "11px", color: "#6b7280" }}>
-              <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: selectedPresetColor, display: "inline-block" }} />
-              {selectedPresetName}
-            </span>
-            <a href="/configuracoes" target="_blank" rel="noopener noreferrer" style={{ fontSize: "11px", fontWeight: 600, color: "#203b88", textDecoration: "none" }}>
-              Gerenciar perfis →
-            </a>
-          </div>
-        </div>
-      </div>
-
-
-      {/* ══════════════════════════════════════════════════════
-          CARD LC — LIMITE DE CRÉDITO SUGERIDO
-          ══════════════════════════════════════════════════════ */}
-      {(() => {
-        const fmmRaw = parseMoney(data.faturamento.fmm12m || data.faturamento.mediaAno || data.faturamento.somatoriaAno || "0");
-        const fator = activeValidationSettings.fator_limite_base;
-        const limiteBase = fmmRaw * fator;
-        const lcClass: "APROVADO" | "CONDICIONAL" | "REPROVADO" =
-          (fundValidation.hasEliminatoria || fundValidation.failCount > 0) ? "REPROVADO"
-          : fundValidation.warnCount > 0 ? "CONDICIONAL" : "APROVADO";
-        const fatorReducao = lcClass === "REPROVADO" ? 0 : lcClass === "CONDICIONAL" ? 0.7 : 1;
-        const limiteAjustado = limiteBase * fatorReducao;
-        const prazo = lcClass === "APROVADO" ? activeValidationSettings.prazo_maximo_aprovado
-          : lcClass === "CONDICIONAL" ? activeValidationSettings.prazo_maximo_condicional : 0;
-        const revisaoDias = lcClass !== "REPROVADO"
-          ? (lcClass === "APROVADO" ? activeValidationSettings.revisao_aprovado_dias : activeValidationSettings.revisao_condicional_dias)
-          : 0;
-        const dataRevisao = new Date();
-        dataRevisao.setDate(dataRevisao.getDate() + revisaoDias);
-        const concentracaoMax = activeValidationSettings.concentracao_max_sacado;
-        const limiteConcentracao = limiteAjustado * (concentracaoMax / 100);
-        const fmtM = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-        const lcColor = lcClass === "APROVADO" ? "#16a34a" : lcClass === "CONDICIONAL" ? "#d97706" : "#dc2626";
-        const lcBg = lcClass === "APROVADO" ? "#dcfce7" : lcClass === "CONDICIONAL" ? "#fef3c7" : "#fee2e2";
-        const lcBorder = lcClass === "APROVADO" ? "#bbf7d0" : lcClass === "CONDICIONAL" ? "#fde68a" : "#fecaca";
-        const lcGrad = lcClass === "APROVADO" ? "linear-gradient(135deg, #14532d 0%, #166534 100%)"
-          : lcClass === "CONDICIONAL" ? "linear-gradient(135deg, #78350f 0%, #92400e 100%)"
-          : "linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%)";
-        return (
-          <div className="bg-white rounded-xl overflow-hidden" style={{ border: `1px solid ${lcBorder}`, boxShadow: `0 4px 20px ${lcColor}22` }}>
-            {/* Header */}
-            <div className="px-5 py-4 flex items-center justify-between" style={{ background: lcGrad }}>
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0 border border-white/20">
-                  <span className="text-sm font-bold text-white">LC</span>
-                </div>
-                <div>
-                  <p className="text-[10px] font-bold text-white/50 uppercase tracking-[0.12em]">Resultado da Análise</p>
-                  <p className="text-sm font-bold text-white">Limite de Crédito Sugerido</p>
-                </div>
+            {/* Pontos fortes */}
+            {pontosFortes.length > 0 && (
+              <div style={{ padding: "14px 16px", background: "var(--ds-success-bg)", border: "0.5px solid var(--ds-success-border)", borderRadius: "var(--ds-radius-md)" }}>
+                <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--ds-success-text)", marginBottom: 8 }}>
+                  Pontos Fortes ({pontosFortes.length})
+                </p>
+                {pontosFortes.map((p, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: i > 0 ? 6 : 0 }}>
+                    <CheckCircle2 size={12} style={{ color: "var(--ds-success-text)", flexShrink: 0, marginTop: 2 }} />
+                    <span style={{ fontSize: 12, color: "var(--ds-success-text)" }}>{p}</span>
+                  </div>
+                ))}
               </div>
-              <span style={{ fontSize: "12px", fontWeight: 800, padding: "4px 14px", borderRadius: "99px", background: "rgba(255,255,255,0.15)", color: "white", border: "1px solid rgba(255,255,255,0.3)", letterSpacing: "0.05em" }}>
-                {lcClass === "CONDICIONAL" ? "APROVAÇÃO CONDICIONAL" : lcClass}
-              </span>
+            )}
+
+            {/* Pontos fracos */}
+            {pontosFracos.length > 0 && (
+              <div style={{ padding: "14px 16px", background: "var(--ds-danger-bg)", border: "0.5px solid var(--ds-danger-border)", borderRadius: "var(--ds-radius-md)" }}>
+                <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--ds-danger-text)", marginBottom: 8 }}>
+                  Pontos Fracos ({pontosFracos.length})
+                </p>
+                {pontosFracos.map((p, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: i > 0 ? 6 : 0 }}>
+                    <AlertTriangle size={12} style={{ color: "var(--ds-danger-text)", flexShrink: 0, marginTop: 2 }} />
+                    <span style={{ fontSize: 12, color: "var(--ds-danger-text)" }}>{p}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Perguntas para visita */}
+            {perguntasVisita.length > 0 && (
+              <div style={{ padding: "14px 16px", background: "var(--ds-warning-bg)", border: "0.5px solid var(--ds-warning-border)", borderRadius: "var(--ds-radius-md)" }}>
+                <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--ds-warning-text)", marginBottom: 8 }}>
+                  Perguntas para Visita ({perguntasVisita.length})
+                </p>
+                {perguntasVisita.map((q, i) => (
+                  <div key={i} style={{ marginTop: i > 0 ? 10 : 0 }}>
+                    <p style={{ fontSize: 12, fontWeight: 600, color: "var(--ds-warning-text)" }}>{i + 1}. {q.pergunta}</p>
+                    <p style={{ fontSize: 11, color: "#78350f", marginTop: 3 }}>{q.contexto}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+          </div>
+        </SectionCard>
+
+        {/* ── Editar dados do relatório (collapsible) ── */}
+        <div className="bg-white overflow-hidden" style={{ border: "0.5px solid var(--ds-border-t)", borderRadius: "var(--ds-radius-lg)" }}>
+          <button
+            onClick={() => setEditing(p => !p)}
+            className="w-full flex items-center justify-between px-5 py-4 hover:bg-[#fafafa] transition-colors text-left"
+          >
+            <div className="flex items-center gap-3">
+              <div style={{ width: 32, height: 32, borderRadius: "var(--ds-radius-md)", background: editing ? "var(--navy)" : "var(--ds-surface-2)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "background 0.2s" }}>
+                <Pencil size={14} style={{ color: editing ? "white" : "var(--text-3)" }} />
+              </div>
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 500, color: "var(--text-1)" }}>Editar dados do relatório</p>
+                <p style={{ fontSize: 11, color: "var(--text-4)", marginTop: 1 }}>Ajuste os campos antes de gerar</p>
+              </div>
             </div>
+            <span style={{ fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 99, background: editing ? "var(--navy)" : "var(--ds-surface-2)", color: editing ? "white" : "var(--text-3)", transition: "all 0.2s" }}>
+              {editing ? "Fechar" : "Abrir"}
+            </span>
+          </button>
 
-            {/* Body */}
-            <div style={{ padding: "24px 20px" }}>
-              {/* Main limit number */}
-              <div style={{ marginBottom: "24px" }}>
-                {lcClass === "REPROVADO" ? (
-                  <div>
-                    <p style={{ fontSize: "36px", fontWeight: 800, color: "#dc2626", letterSpacing: "-0.02em" }}>Não elegível</p>
-                    <p style={{ fontSize: "12px", color: "#6b7280", marginTop: "4px" }}>Critério eliminatório não atendido — empresa fora dos parâmetros do fundo</p>
-                  </div>
-                ) : (
-                  <div>
-                    <p style={{ fontSize: "11px", fontWeight: 700, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "4px" }}>Limite aprovado</p>
-                    <p style={{ fontSize: "40px", fontWeight: 800, color: lcColor, letterSpacing: "-0.02em", lineHeight: 1 }}>{fmtM(limiteAjustado)}</p>
-                    {lcClass === "CONDICIONAL" && (
-                      <p style={{ fontSize: "11px", color: "#d97706", marginTop: "6px" }}>Reduzido em 30% por critérios de atenção (base: {fmtM(limiteBase)})</p>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Details grid */}
-              {lcClass !== "REPROVADO" && (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginBottom: "20px" }}>
-                  {[
-                    { label: "Prazo máximo", value: `${prazo} dias`, sub: lcClass === "APROVADO" ? "Aprovado" : "Condicional" },
-                    { label: "Revisão em", value: dataRevisao.toLocaleDateString("pt-BR"), sub: `em ${revisaoDias} dias` },
-                    { label: "Conc. máx./sacado", value: fmtM(limiteConcentracao), sub: `${concentracaoMax}% do limite` },
-                    { label: "Base de cálculo", value: fmtM(fmmRaw), sub: `FMM × ${fator}x` },
-                  ].map(item => (
-                    <div key={item.label} style={{ padding: "12px", background: "#F8FAFC", borderRadius: "10px", border: "1px solid #F1F5F9" }}>
-                      <p style={{ fontSize: "9px", fontWeight: 700, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "4px" }}>{item.label}</p>
-                      <p style={{ fontSize: "14px", fontWeight: 700, color: "#111827" }}>{item.value}</p>
-                      <p style={{ fontSize: "10px", color: "#9ca3af", marginTop: "2px" }}>{item.sub}</p>
+          {editing && (
+            <div style={{ borderTop: "0.5px solid var(--ds-border-t)", padding: "16px 20px 20px" }} className="animate-fade-in space-y-5">
+              {/* Identificação */}
+              <div>
+                <p className="section-label mb-2 flex items-center gap-2">
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--navy)", display: "inline-block" }} />
+                  Identificação da Empresa
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {([
+                    ["Razão Social", "razaoSocial"], ["Nome Fantasia", "nomeFantasia"], ["CNPJ", "cnpj"],
+                    ["Data Abertura", "dataAbertura"], ["Situação", "situacaoCadastral"], ["Data Situação", "dataSituacaoCadastral"],
+                    ["Motivo Situação", "motivoSituacao"], ["Natureza Jurídica", "naturezaJuridica"],
+                    ["CNAE Principal", "cnaePrincipal"], ["Porte", "porte"], ["Capital Social", "capitalSocialCNPJ"],
+                    ["Endereço", "endereco"], ["Telefone", "telefone"], ["E-mail", "email"],
+                  ] as [string, keyof typeof data.cnpj][]).map(([label, key]) => (
+                    <div key={key} className={key === "razaoSocial" || key === "endereco" || key === "naturezaJuridica" || key === "cnaePrincipal" ? "col-span-2" : ""}>
+                      <label className="text-[10px] font-semibold text-cf-text-3 uppercase tracking-wide">{label}</label>
+                      <input value={data.cnpj[key]} onChange={e => setCNPJ(key, e.target.value)} className="input-field py-1.5 text-xs mt-0.5" />
                     </div>
                   ))}
                 </div>
-              )}
+              </div>
 
-              {/* Methodology note */}
-              <div style={{ padding: "10px 14px", background: lcBg, borderRadius: "8px", border: `1px solid ${lcBorder}` }}>
-                <p style={{ fontSize: "11px", color: lcColor, lineHeight: 1.5 }}>
-                  {lcClass === "REPROVADO"
-                    ? `${fundValidation.failCount} critério(s) eliminatório(s) impedem a aprovação. Corrija as pendências ou ajuste os parâmetros do perfil "${selectedPresetName}".`
-                    : lcClass === "CONDICIONAL"
-                      ? `Aprovação condicional com limite reduzido. ${fundValidation.warnCount} critério(s) de atenção identificados no perfil "${selectedPresetName}". Prazo de revisão: ${revisaoDias} dias.`
-                      : `Todos os ${fundValidation.passCount} critérios do perfil "${selectedPresetName}" atendidos. Limite: FMM ${fmtM(fmmRaw)} × ${fator} = ${fmtM(limiteBase)}.`
-                  }
+              {/* Estrutura Societária */}
+              <div>
+                <p className="section-label mb-2 flex items-center gap-2">
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--green)", display: "inline-block" }} />
+                  Estrutura Societária
                 </p>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-
-      {/* ══════════════════════════════════════════════════════
-          CARD 05 — PERFIL DE CREDITO SCR/BACEN
-          ══════════════════════════════════════════════════════ */}
-      <div id="sec-05" className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #2d4f8a", boxShadow: "0 4px 20px rgba(32,59,136,0.12)" }}>
-        <div className="px-5 py-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg, #192f5d 0%, #1e3a7a 100%)" }}>
-          <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0 border border-white/20">
-            <span className="text-sm font-bold text-white">05</span>
-          </div>
-          <div>
-            <p className="text-[10px] font-bold text-white/50 uppercase tracking-[0.12em]">Perfil de Crédito</p>
-            <p className="text-sm font-bold text-white">SCR / BACEN</p>
-          </div>
-        </div>
-
-        <div className="p-5 space-y-5">
-          {/* Sem histórico bancário */}
-          {data.scr.semHistorico && (
-            <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3.5">
-              <span className="text-blue-400 text-base mt-0.5">ℹ</span>
-              <div>
-                <p className="text-[13px] font-semibold text-blue-700">Sem operações registradas no SCR</p>
-                <p className="text-[12px] text-blue-500 mt-0.5">Empresa sem dívida bancária ativa — ausência de histórico de crédito no Banco Central</p>
-              </div>
-            </div>
-          )}
-
-          {/* Hero: Total Dividas Ativas */}
-          <div className={data.scr.semHistorico ? "opacity-40" : ""}>
-            <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Total Dividas Ativas</p>
-            <p className={`text-[24px] font-bold leading-tight ${dividaAtiva > 1000000 ? "text-[#D97706]" : "text-[#111827]"}`}>
-              {data.scr.totalDividasAtivas ? `R$ ${data.scr.totalDividasAtivas}` : "—"}
-            </p>
-          </div>
-
-          {/* Summary row */}
-          <div className={`grid grid-cols-3 gap-5${data.scr.semHistorico ? " opacity-40" : ""}`}>
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Carteira a Vencer</p>
-              <p className="text-[15px] font-semibold text-[#111827]">{data.scr.carteiraAVencer ? `R$ ${data.scr.carteiraAVencer}` : "—"}</p>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Vencidos</p>
-              <p className="text-[15px]"><MutedValue v={data.scr.vencidos ? `R$ ${data.scr.vencidos}` : ""} /></p>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Prejuizos</p>
-              <p className="text-[15px]"><MutedValue v={data.scr.prejuizos ? `R$ ${data.scr.prejuizos}` : ""} /></p>
-            </div>
-          </div>
-
-          {/* Grid: Operacoes */}
-          <div className="grid grid-cols-3 gap-5">
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Operacoes a Vencer</p>
-              <p className="text-[15px] font-semibold text-[#111827]">{data.scr.operacoesAVencer ? `R$ ${data.scr.operacoesAVencer}` : "—"}</p>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Em Atraso</p>
-              <p className="text-[15px]"><MutedValue v={data.scr.operacoesEmAtraso ? `R$ ${data.scr.operacoesEmAtraso}` : ""} /></p>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Vencidas</p>
-              <p className="text-[15px]"><MutedValue v={data.scr.operacoesVencidas ? `R$ ${data.scr.operacoesVencidas}` : ""} /></p>
-            </div>
-          </div>
-
-          {/* Grid: CP / LP */}
-          <div className="grid grid-cols-2 gap-5">
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Carteira Curto Prazo</p>
-              <p className="text-[15px]"><MutedValue v={data.scr.carteiraCurtoPrazo ? `R$ ${data.scr.carteiraCurtoPrazo}` : ""} /></p>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Carteira Longo Prazo</p>
-              <p className="text-[15px]"><MutedValue v={data.scr.carteiraLongoPrazo ? `R$ ${data.scr.carteiraLongoPrazo}` : ""} /></p>
-            </div>
-          </div>
-
-          {/* Grid: Coobrigacoes + Limite */}
-          <div className="grid grid-cols-2 gap-5">
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Coobrigacoes / Garantias</p>
-              <p className="text-[15px]"><MutedValue v={data.scr.coobrigacoes ? `R$ ${data.scr.coobrigacoes}` : ""} /></p>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Limite de Credito</p>
-              <p className="text-[15px]"><MutedValue v={data.scr.limiteCredito ? `R$ ${data.scr.limiteCredito}` : ""} /></p>
-            </div>
-          </div>
-
-          {/* Modalidades Table */}
-          {data.scr.modalidades.length > 0 && (
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-2">Modalidades de Credito</p>
-              <div className="border border-[#E5E7EB] rounded-lg overflow-hidden">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="bg-[#D97706] text-white">
-                      <th className="text-left px-3 py-2 font-semibold">Modalidade</th>
-                      <th className="text-left px-3 py-2 font-semibold">Total</th>
-                      <th className="text-left px-3 py-2 font-semibold">A Vencer</th>
-                      <th className="text-left px-3 py-2 font-semibold">Vencido</th>
-                      <th className="text-left px-3 py-2 font-semibold">Part.</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.scr.modalidades.map((m, i) => (
-                      <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-[#F8FAFC]"}>
-                        <td className="px-3 py-2 text-[#111827] font-medium">{m.nome}</td>
-                        <td className="px-3 py-2 text-[#111827]">{m.total}</td>
-                        <td className="px-3 py-2 text-[#111827]">{m.aVencer}</td>
-                        <td className="px-3 py-2 text-[#111827]">{m.vencido}</td>
-                        <td className="px-3 py-2 text-[#111827] font-semibold">{m.participacao}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* Instituicoes */}
-          {data.scr.instituicoes.length > 0 && (
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-2">Instituicoes Credoras</p>
-              <div className="flex flex-wrap gap-1.5">
-                {data.scr.instituicoes.map((inst, i) => (
-                  <span key={i} className="inline-block bg-[#F3F4F6] text-[#374151] text-[12px] font-medium px-2.5 py-1 rounded">
-                    {inst.nome}: R$ {inst.valor}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Historico de Inadimplencia */}
-          <div>
-            <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-2">Historico de Inadimplencia</p>
-            {data.scr.historicoInadimplencia ? (
-              <div className="flex items-start gap-2.5 bg-[#F8FAFC] border border-[#E5E7EB] rounded-lg px-4 py-3">
-                <AlertTriangle size={14} className="text-[#D97706] flex-shrink-0 mt-0.5" />
-                <p className="text-[13px] text-[#374151] leading-relaxed break-words">{data.scr.historicoInadimplencia}</p>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2.5 bg-[#F0FDF4] border border-[#BBF7D0] rounded-lg px-4 py-3">
-                <CheckCircle2 size={14} className="text-[#16A34A] flex-shrink-0" />
-                <p className="text-[13px] text-[#16A34A] font-medium">Nao ha registro de operacoes vencidas ou prejuizos</p>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* ══════════════════════════════════════════════════════
-          CARD 07 — PROCESSOS JUDICIAIS (Credit Hub)
-          ══════════════════════════════════════════════════════ */}
-      {data.processos && (parseInt(data.processos.passivosTotal || "0") > 0 || data.processos.temRJ || data.processos.distribuicao?.length > 0) && (() => {
-        const proc = data.processos!;
-        const passivosN = parseInt(proc.passivosTotal || "0");
-        const ativosN   = parseInt(proc.ativosTotal   || "0");
-        const dividasN  = parseInt(proc.dividasQtd    || "0");
-        const semDados  = passivosN === 0 && ativosN === 0 && !proc.temRJ;
-        if (semDados) return null;
-        return (
-          <div id="sec-07" className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #2d4f8a", boxShadow: "0 4px 20px rgba(32,59,136,0.12)" }}>
-            <div className="px-5 py-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg, #192f5d 0%, #1e3a7a 100%)" }}>
-              <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0 border border-white/20">
-                <span className="text-sm font-bold text-white">07</span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[10px] font-bold text-white/50 uppercase tracking-[0.12em]">Processos Judiciais</p>
-                <p className="text-sm font-bold text-white">Credit Hub</p>
-              </div>
-              {proc.temRJ && (
-                <span className="text-[10px] font-bold text-white bg-white/20 border border-white/30 px-2.5 py-1 rounded-full">RECUPERAÇÃO JUDICIAL</span>
-              )}
-            </div>
-            <div className="p-5 space-y-5">
-
-              {/* KPIs */}
-              {(() => {
-                const poloAtivoN  = parseInt(proc.poloAtivoQtd  || "0");
-                const poloPassN   = parseInt(proc.poloPassivoQtd || "0");
-                const kpis = [
-                  { label: "Total Processos",   value: passivosN, danger: passivosN > 0,  sub: "todos os polos" },
-                  { label: "Polo Ativo",         value: poloAtivoN, danger: false,          sub: "empresa autora/exequente", color: "text-[#1D4ED8]", bg: "bg-blue-50 border-blue-200" },
-                  { label: "Polo Passivo",       value: poloPassN,  danger: poloPassN > 0,  sub: "empresa ré/executada" },
-                  { label: "Dívidas",            value: dividasN,   danger: dividasN > 0,   sub: "vencidas" },
-                ];
-                return (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                    {kpis.map(k => (
-                      <div key={k.label} className={`rounded-xl border px-4 py-3 ${k.bg ?? (k.danger ? "bg-[#FFFBEB] border-[#FDE68A]" : "bg-[#F8FAFC] border-[#E5E7EB]")}`}>
-                        <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">{k.label}</p>
-                        <p className={`text-[22px] font-bold ${k.color ?? (k.danger ? "text-[#D97706]" : "text-[#6B7280]")}`}>{k.value > 0 ? k.value : "—"}</p>
-                        <p className="text-[10px] text-[#9CA3AF] mt-0.5">{k.sub}</p>
-                      </div>
-                    ))}
-                  </div>
-                );
-              })()}
-
-              {/* Valor total estimado */}
-              {proc.valorTotalEstimado && proc.valorTotalEstimado !== "0,00" && (
-                <div className="flex items-center justify-between bg-[#FFF7ED] border border-[#FED7AA] rounded-xl px-5 py-3">
-                  <p className="text-[11px] uppercase tracking-[0.08em] text-[#9A3412] font-bold">Valor Total Estimado</p>
-                  <p className="text-[20px] font-bold text-[#D97706]">R$ {proc.valorTotalEstimado}</p>
-                </div>
-              )}
-
-              {/* Distribuição por tipo */}
-              {proc.distribuicao?.length > 0 && (
-                <div>
-                  <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-2 font-bold">Distribuição por Tipo</p>
-                  <div className="space-y-2">
-                    {proc.distribuicao.slice(0, 8).map((d, i) => (
-                      <div key={i} className="flex items-center gap-3">
-                        <span className="text-[11px] text-[#374151] w-44 flex-shrink-0 truncate font-medium">{d.tipo}</span>
-                        <div className="flex-1 bg-[#F3F4F6] rounded-full h-2">
-                          <div className="h-2 rounded-full bg-[#D97706] transition-all duration-500" style={{ width: `${d.pct}%` }} />
-                        </div>
-                        <span className="text-[11px] font-bold text-[#374151] w-5 text-right">{d.qtd}</span>
-                        <span className="text-[10px] text-[#9CA3AF] w-8 text-right">{d.pct}%</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Distribuição temporal */}
-              {proc.distribuicaoTemporal && proc.distribuicaoTemporal.length > 0 && (
-                <div>
-                  <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-2 font-bold">Antiguidade dos Processos</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    {proc.distribuicaoTemporal.map((dt, i) => (
-                      <div key={i} className="bg-[#F8FAFC] border border-[#E5E7EB] rounded-lg px-3 py-2 text-center">
-                        <p className="text-[10px] text-[#6B7280] mb-0.5">{dt.periodo}</p>
-                        <p className="text-[16px] font-bold text-[#374151]">{dt.qtd}</p>
-                        <p className="text-[10px] text-[#9CA3AF]">R$ {dt.valor}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Top processos por valor */}
-              {proc.top10Valor && proc.top10Valor.filter(p => p.numero || p.tipo).length > 0 && (() => {
-                const reais = proc.top10Valor!.filter(p => (p.numero || p.tipo) && p.tipo !== "DÍVIDA");
-                if (reais.length === 0) return null;
-                return (
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-2 font-bold">Maiores Processos por Valor</p>
-                    <div className="border border-[#E5E7EB] rounded-lg overflow-hidden">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr style={{ background: "#1E3A5F" }} className="text-white">
-                            <th className="text-left px-3 py-2 font-semibold">Número</th>
-                            <th className="text-left px-3 py-2 font-semibold">Tipo</th>
-                            <th className="text-left px-3 py-2 font-semibold">Data</th>
-                            <th className="text-left px-3 py-2 font-semibold">Valor</th>
-                            <th className="text-left px-3 py-2 font-semibold">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {reais.slice(0, 5).map((p, i) => (
-                            <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-[#F8FAFC]"}>
-                              <td className="px-3 py-2 text-[#111827] font-mono text-[10px] max-w-[120px] truncate">{p.numero || "—"}</td>
-                              <td className="px-3 py-2 text-[#374151]">{p.tipo || "—"}</td>
-                              <td className="px-3 py-2 text-[#6B7280]">{p.data || "—"}</td>
-                              <td className="px-3 py-2 font-semibold text-[#D97706]">R$ {p.valor}</td>
-                              <td className="px-3 py-2">
-                                {p.status ? <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#F3F4F6] text-[#374151] max-w-[100px] truncate">{p.status}</span> : <span className="text-[#9CA3AF]">—</span>}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {([["Capital Social", "capitalSocial"], ["Data Constituição", "dataConstituicao"]] as [string, keyof typeof data.contrato][]).map(([label, key]) => (
+                    <div key={key}>
+                      <label className="text-[10px] font-semibold text-cf-text-3 uppercase tracking-wide">{label}</label>
+                      <input value={data.contrato[key] as string} onChange={e => setContrato(key, e.target.value)} className="input-field py-1.5 text-xs mt-0.5" />
                     </div>
+                  ))}
+                  <div className="col-span-2">
+                    <label className="text-[10px] font-semibold text-cf-text-3 uppercase tracking-wide">Objeto Social</label>
+                    <textarea value={data.contrato.objetoSocial} onChange={e => setContrato("objetoSocial", e.target.value)} rows={3} className="input-field py-1.5 text-xs mt-0.5 resize-none" />
                   </div>
-                );
-              })()}
-
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* ══════════════════════════════════════════════════════
-          CARD — PARAMETROS OPERACIONAIS (Relatório de Visita)
-          ══════════════════════════════════════════════════════ */}
-      {data.relatorioVisita && (
-        <div id="sec-op" className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #2d4f8a", boxShadow: "0 4px 20px rgba(32,59,136,0.12)" }}>
-          <div className="px-5 py-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg, #192f5d 0%, #1e3a7a 100%)" }}>
-            <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0 border border-white/20">
-              <span className="text-sm font-bold text-white">OP</span>
-            </div>
-            <div>
-              <p className="text-[10px] font-bold text-white/50 uppercase tracking-[0.12em]">Parâmetros Operacionais</p>
-              <p className="text-sm font-bold text-white">Relatório de Visita</p>
-            </div>
-          </div>
-          <div className="p-5 space-y-5">
-
-            {/* Taxas e Limites */}
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] font-bold mb-3 border-b border-[#F3F4F6] pb-1">Taxas e Limites</p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                {[
-                  ["Taxa Convencional", data.relatorioVisita.taxaConvencional],
-                  ["Taxa Comissaria", data.relatorioVisita.taxaComissaria],
-                  ["Limite Total", data.relatorioVisita.limiteTotal ? `R$ ${data.relatorioVisita.limiteTotal}` : ""],
-                  ["Limite Convencional", data.relatorioVisita.limiteConvencional ? `R$ ${data.relatorioVisita.limiteConvencional}` : ""],
-                  ["Limite Comissaria", data.relatorioVisita.limiteComissaria ? `R$ ${data.relatorioVisita.limiteComissaria}` : ""],
-                  ["Limite por Sacado", data.relatorioVisita.limitePorSacado ? `R$ ${data.relatorioVisita.limitePorSacado}` : ""],
-                  ["Ticket Medio", data.relatorioVisita.ticketMedio ? `R$ ${data.relatorioVisita.ticketMedio}` : ""],
-                  ["Valor Cobranca Boleto", data.relatorioVisita.valorCobrancaBoleto ? `R$ ${data.relatorioVisita.valorCobrancaBoleto}` : ""],
-                ].map(([label, value]) => (
-                  <div key={label as string}>
-                    <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">{label}</p>
-                    <p className="text-[14px] font-semibold text-[#111827]">{value || "—"}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Condicoes de Cobranca e Prazos */}
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] font-bold mb-3 border-b border-[#F3F4F6] pb-1">Condicoes de Cobranca e Prazos</p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                {[
-                  ["Prazo Recompra Cedente", data.relatorioVisita.prazoRecompraCedente ? `${data.relatorioVisita.prazoRecompraCedente} dias` : ""],
-                  ["Envio para Cartorio", data.relatorioVisita.prazoEnvioCartorio ? `${data.relatorioVisita.prazoEnvioCartorio} dias` : ""],
-                  ["Prazo Maximo", data.relatorioVisita.prazoMaximoOp ? `${data.relatorioVisita.prazoMaximoOp} dias` : ""],
-                  ["Cobranca de TAC", data.relatorioVisita.cobrancaTAC],
-                  ["Tranche", data.relatorioVisita.tranche ? `R$ ${data.relatorioVisita.tranche}` : ""],
-                  ["Prazo Tranche", data.relatorioVisita.prazoTranche ? `${data.relatorioVisita.prazoTranche} dias` : ""],
-                ].map(([label, value]) => (
-                  <div key={label as string}>
-                    <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">{label}</p>
-                    <p className="text-[14px] font-semibold text-[#111827]">{value || "—"}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Dados da Empresa */}
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] font-bold mb-3 border-b border-[#F3F4F6] pb-1">Dados da Empresa</p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                {[
-                  ["Num. Funcionarios", String(data.relatorioVisita.funcionariosObservados || "—")],
-                  ["Folha de Pagamento", data.relatorioVisita.folhaPagamento ? `R$ ${data.relatorioVisita.folhaPagamento}` : ""],
-                  ["Endividamento Banco", data.relatorioVisita.endividamentoBanco],
-                  ["Endividamento Factoring/FIDC", data.relatorioVisita.endividamentoFactoring],
-                  ["Vendas Cheque", data.relatorioVisita.vendasCheque],
-                  ["Vendas Duplicata", data.relatorioVisita.vendasDuplicata],
-                  ["Vendas Outras", data.relatorioVisita.vendasOutras],
-                  ["Prazo Medio Faturamento", data.relatorioVisita.prazoMedioFaturamento ? `${data.relatorioVisita.prazoMedioFaturamento} dias` : ""],
-                  ["Prazo Medio Entrega", data.relatorioVisita.prazoMedioEntrega ? `${data.relatorioVisita.prazoMedioEntrega} dias` : ""],
-                ].map(([label, value]) => (
-                  <div key={label as string}>
-                    <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">{label}</p>
-                    <p className="text-[14px] font-semibold text-[#111827]">{value || "—"}</p>
-                  </div>
-                ))}
-              </div>
-              {data.relatorioVisita.referenciasFornecedores && (
-                <div className="mt-3">
-                  <p className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280] mb-1">Referencias Comerciais / Fornecedores</p>
-                  <p className="text-[13px] text-[#374151] leading-relaxed">{data.relatorioVisita.referenciasFornecedores}</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Editar dados do relatorio ── */}
-      <div className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-        <button onClick={() => setEditing(p => !p)}
-          className="w-full flex items-center justify-between px-5 py-4 hover:bg-[#F8FAFC] transition-colors text-left group">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors" style={{ background: editing ? "#1a3560" : "#EFF6FF", border: "1.5px solid #DBEAFE" }}>
-              <Pencil size={14} style={{ color: editing ? "white" : "#203b88" }} />
-            </div>
-            <div>
-              <span className="text-sm font-semibold text-[#111827] block">Editar dados do relatório</span>
-              <span className="text-[11px] text-[#9CA3AF]">Ajuste os campos antes de gerar</span>
-            </div>
-          </div>
-          <span
-            className="text-xs font-bold px-3 py-1.5 rounded-full transition-all"
-            style={{
-              background: editing ? "#1a3560" : "#EFF6FF",
-              color: editing ? "white" : "#203b88",
-              border: "1.5px solid #DBEAFE",
-            }}
-          >
-            {editing ? "Fechar" : "Abrir"}
-          </span>
-        </button>
-        {editing && (
-          <div className="border-t border-cf-border px-5 pb-5 pt-4 space-y-5 animate-fade-in">
-            {/* Secao CNPJ */}
-            <div>
-              <p className="section-label mb-2 flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-cf-navy inline-block" /> Identificacao da Empresa</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {([
-                  ["Razao Social", "razaoSocial"], ["Nome Fantasia", "nomeFantasia"], ["CNPJ", "cnpj"],
-                  ["Data Abertura", "dataAbertura"], ["Situacao", "situacaoCadastral"], ["Data Situacao", "dataSituacaoCadastral"],
-                  ["Motivo Situacao", "motivoSituacao"], ["Natureza Juridica", "naturezaJuridica"],
-                  ["CNAE Principal", "cnaePrincipal"], ["Porte", "porte"], ["Capital Social", "capitalSocialCNPJ"],
-                  ["Endereco", "endereco"], ["Telefone", "telefone"], ["E-mail", "email"],
-                ] as [string, keyof typeof data.cnpj][]).map(([label, key]) => (
-                  <div key={key} className={key === "razaoSocial" || key === "endereco" || key === "naturezaJuridica" || key === "cnaePrincipal" ? "col-span-2" : ""}>
-                    <label className="text-[10px] font-semibold text-cf-text-3 uppercase tracking-wide">{label}</label>
-                    <input value={data.cnpj[key]} onChange={e => setCNPJ(key, e.target.value)} className="input-field py-1.5 text-xs mt-0.5" />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Secao Contrato */}
-            <div>
-              <p className="section-label mb-2 flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-cf-green inline-block" /> Estrutura Societaria</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {([["Capital Social", "capitalSocial"], ["Data Constituicao", "dataConstituicao"]] as [string, keyof typeof data.contrato][]).map(([label, key]) => (
-                  <div key={key}>
-                    <label className="text-[10px] font-semibold text-cf-text-3 uppercase tracking-wide">{label}</label>
-                    <input value={data.contrato[key] as string} onChange={e => setContrato(key, e.target.value)} className="input-field py-1.5 text-xs mt-0.5" />
-                  </div>
-                ))}
-                <div className="col-span-2">
-                  <label className="text-[10px] font-semibold text-cf-text-3 uppercase tracking-wide">Objeto Social</label>
-                  <textarea value={data.contrato.objetoSocial} onChange={e => setContrato("objetoSocial", e.target.value)} rows={3} className="input-field py-1.5 text-xs mt-0.5 resize-none" />
                 </div>
               </div>
-            </div>
 
-            {/* Secao SCR */}
-            <div>
-              <p className="section-label mb-2 flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-cf-warning inline-block" /> Perfil de Credito</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {([
-                  ["Total Dividas (R$)", "totalDividasAtivas"], ["Classificacao Risco", "classificacaoRisco"],
-                  ["A Vencer (R$)", "operacoesAVencer"], ["Em Atraso", "operacoesEmAtraso"],
-                  ["Vencidas (R$)", "operacoesVencidas"], ["Tempo Atraso", "tempoAtraso"],
-                  ["Prejuizos", "prejuizos"], ["Coobrigacoes", "coobrigacoes"],
-                  ["Carteira a Vencer", "carteiraAVencer"], ["Vencidos", "vencidos"],
-                  ["Limite Credito", "limiteCredito"], ["Historico", "historicoInadimplencia"],
-                ] as [string, keyof typeof data.scr][]).map(([label, key]) => (
-                  <div key={key as string} className={key === "historicoInadimplencia" ? "col-span-2" : ""}>
-                    <label className="text-[10px] font-semibold text-cf-text-3 uppercase tracking-wide">{label}</label>
-                    {key === "historicoInadimplencia"
-                      ? <textarea value={data.scr[key] as string} onChange={e => setSCR(key, e.target.value)} rows={2} className="input-field py-1.5 text-xs mt-0.5 resize-none" />
-                      : <input value={data.scr[key] as string} onChange={e => setSCR(key, e.target.value)} className="input-field py-1.5 text-xs mt-0.5" />
-                    }
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Secao Parecer */}
-            <div>
-              <p className="section-label mb-2 flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-cf-navy inline-block" /> Parecer Final</p>
+              {/* Perfil de Crédito */}
               <div>
+                <p className="section-label mb-2 flex items-center gap-2">
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--warning)", display: "inline-block" }} />
+                  Perfil de Crédito
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {([
+                    ["Total Dívidas (R$)", "totalDividasAtivas"], ["Classificação Risco", "classificacaoRisco"],
+                    ["A Vencer (R$)", "operacoesAVencer"], ["Em Atraso", "operacoesEmAtraso"],
+                    ["Vencidas (R$)", "operacoesVencidas"], ["Tempo Atraso", "tempoAtraso"],
+                    ["Prejuízos", "prejuizos"], ["Coobrigações", "coobrigacoes"],
+                    ["Carteira a Vencer", "carteiraAVencer"], ["Vencidos", "vencidos"],
+                    ["Limite Crédito", "limiteCredito"], ["Histórico", "historicoInadimplencia"],
+                  ] as [string, keyof typeof data.scr][]).map(([label, key]) => (
+                    <div key={key as string} className={key === "historicoInadimplencia" ? "col-span-2" : ""}>
+                      <label className="text-[10px] font-semibold text-cf-text-3 uppercase tracking-wide">{label}</label>
+                      {key === "historicoInadimplencia"
+                        ? <textarea value={data.scr[key] as string} onChange={e => setSCR(key, e.target.value)} rows={2} className="input-field py-1.5 text-xs mt-0.5 resize-none" />
+                        : <input value={data.scr[key] as string} onChange={e => setSCR(key, e.target.value)} className="input-field py-1.5 text-xs mt-0.5" />
+                      }
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Parecer */}
+              <div>
+                <p className="section-label mb-2 flex items-center gap-2">
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--navy)", display: "inline-block" }} />
+                  Parecer Final
+                </p>
                 <label className="text-[10px] font-semibold text-cf-text-3 uppercase tracking-wide">Resumo do Risco / Parecer</label>
                 <textarea value={data.resumoRisco} onChange={e => setResumoRisco(e.target.value)} rows={4} className="input-field py-1.5 text-xs mt-0.5 resize-none" placeholder="Descreva o parecer final sobre a empresa analisada..." />
               </div>
             </div>
-          </div>
-        )}
-      </div>
-
-
-      {/* ── Observações do Analista ── */}
-      <div id="sec-nt" className="bg-white rounded-xl overflow-hidden" style={{ border: "1px solid #2d4f8a", boxShadow: "0 4px 20px rgba(32,59,136,0.12)" }}>
-        <div className="px-5 py-4 flex items-center gap-3" style={{ background: "linear-gradient(135deg, #192f5d 0%, #1e3a7a 100%)" }}>
-          <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0 border border-white/20">
-            <span className="text-sm font-bold text-white">✎</span>
-          </div>
-          <div className="flex-1">
-            <p className="text-[10px] font-bold text-white/50 uppercase tracking-[0.12em]">Observações do Analista</p>
-            <p className="text-sm font-bold text-white">Anotações livres no PDF</p>
-          </div>
-          {savingNotes && <span className="text-[10px] font-medium text-white/50 animate-pulse">Salvando...</span>}
+          )}
         </div>
-        <div className="p-4">
-          <textarea
-            value={analystNotes}
-            onChange={e => setAnalystNotes(e.target.value)}
-            onBlur={() => saveNotes(analystNotes)}
-            placeholder="Registre aqui observações sobre a empresa, pontos de atenção identificados na visita, pendências de documentação, ou qualquer informação relevante para a tomada de decisão de crédito..."
-            className="w-full text-sm text-cf-text-1 bg-cf-bg/50 border border-cf-border rounded-xl px-3 py-2.5 resize-y focus:outline-none focus:ring-2 focus:ring-cf-navy/20 focus:border-cf-navy/40 placeholder:text-cf-text-4"
-            style={{ minHeight: "200px" }}
-          />
-          <div className="flex items-center justify-between mt-1.5 px-0.5">
-            <span className="text-[10px] text-[#9CA3AF]">As anotações são salvas automaticamente ao sair do campo</span>
-            <span className="text-[10px] font-mono text-[#9CA3AF]">{analystNotes.length} caracteres</span>
-          </div>
-        </div>
-      </div>
 
-      {/* ── Download & Acoes ── */}
-      <div id="sec-ex" className="space-y-4 pt-1">
-        {generatedFormats.size > 0 && (
-          <div className="flex items-center justify-center gap-2.5 py-3 rounded-xl border"
-            style={{ background: "linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)", borderColor: "#86efac" }}>
-            <CheckCircle2 size={16} style={{ color: "#16a34a" }} />
-            <span className="text-sm font-semibold" style={{ color: "#15803d" }}>
-              Relatório gerado com sucesso!
-            </span>
+        {/* ════════════════════════════════════════
+            SEÇÃO FS — PARÂMETROS DO FUNDO
+            ════════════════════════════════════════ */}
+        <SectionCard
+          id="sec-fs"
+          badge="FS"
+          badgeVariant="navy"
+          sectionLabel="Critérios de Elegibilidade"
+          title="Parâmetros do Fundo"
+          headerRight={
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {fundPresets.length > 0 && (
+                <select
+                  value={selectedPresetId ?? "active"}
+                  onChange={e => setSelectedPresetId(e.target.value)}
+                  style={{ fontSize: 11, fontWeight: 500, color: "var(--text-2)", background: "var(--ds-surface-2)", border: "0.5px solid var(--ds-border-s)", borderRadius: 6, padding: "4px 8px", cursor: "pointer", outline: "none", maxWidth: 160 }}
+                >
+                  <option value="active">Configurações Ativas</option>
+                  {fundPresets.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              )}
+              {fundValidation.failCount > 0 && (
+                <StatusPill label={`${fundValidation.failCount} reprovado${fundValidation.failCount !== 1 ? "s" : ""}`} variant="red" />
+              )}
+              {fundValidation.warnCount > 0 && (
+                <StatusPill label={`${fundValidation.warnCount} atenção`} variant="yellow" />
+              )}
+              <StatusPill
+                label={`${fundValidation.passCount}/${fundValidation.criteria.length} ok`}
+                variant={fundValidation.failCount > 0 ? "red" : fundValidation.warnCount > 0 ? "yellow" : "green"}
+              />
+            </div>
+          }
+        >
+          {/* Critérios */}
+          <div style={{ borderBottom: "0.5px solid var(--ds-border-t)" }}>
+            {fundValidation.criteria.map((c, idx) => (
+              <div key={c.id} style={{ borderTop: idx > 0 ? "0.5px solid var(--ds-border-t)" : "none" }}>
+                <CriteriaItem
+                  status={c.status}
+                  name={c.label}
+                  eliminatorio={c.eliminatoria}
+                  limit={c.threshold}
+                  value={c.actual}
+                  detail={c.detail}
+                />
+              </div>
+            ))}
           </div>
+
+          {/* Resultado + detalhes LC */}
+          <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
+            <ResultadoBox
+              title={
+                creditLimit.classificacao === "REPROVADO"
+                  ? "Empresa não elegível para este perfil"
+                  : `Limite sugerido: R$ ${Math.round(creditLimit.limiteAjustado).toLocaleString("pt-BR")}`
+              }
+              sub={
+                creditLimit.classificacao === "REPROVADO"
+                  ? `${fundValidation.failCount} critério(s) eliminatório(s) não atendido(s)`
+                  : creditLimit.classificacao === "CONDICIONAL"
+                  ? `Reduzido 30% por ${fundValidation.warnCount} critério(s) de atenção — perfil "${selectedPresetName}"`
+                  : `Todos os ${fundValidation.passCount} critérios atendidos — perfil "${selectedPresetName}"`
+              }
+              badge={creditLimit.classificacao === "CONDICIONAL" ? "APROVAÇÃO CONDICIONAL" : creditLimit.classificacao}
+              variant={creditLimit.classificacao === "APROVADO" ? "aprovado" : creditLimit.classificacao === "REPROVADO" ? "reprovado" : "pendente"}
+            />
+
+            {creditLimit.classificacao !== "REPROVADO" && (
+              <div className="kpi-grid">
+                <KpiCard
+                  label="Prazo máximo"
+                  value={`${creditLimit.prazo} dias`}
+                  sub={creditLimit.classificacao === "APROVADO" ? "Aprovado" : "Condicional"}
+                />
+                <KpiCard
+                  label="Revisão em"
+                  value={new Date(creditLimit.dataRevisao).toLocaleDateString("pt-BR")}
+                  sub={`em ${creditLimit.revisaoDias} dias`}
+                />
+                <KpiCard
+                  label="Conc. máx./sacado"
+                  value={`R$ ${Math.round(creditLimit.limiteConcentracao).toLocaleString("pt-BR")}`}
+                  sub={`${creditLimit.concentracaoMaxPct}% do limite`}
+                />
+                <KpiCard
+                  label="Base de cálculo"
+                  value={`R$ ${Math.round(creditLimit.fmmBase).toLocaleString("pt-BR")}`}
+                  sub={`FMM × ${creditLimit.fatorBase}x`}
+                />
+              </div>
+            )}
+
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: selectedPresetColor, display: "inline-block" }} />
+                <span style={{ fontSize: 11, color: "var(--text-4)" }}>{selectedPresetName}</span>
+              </div>
+              <a href="/configuracoes" target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, fontWeight: 600, color: "var(--navy)", textDecoration: "none" }}>
+                Gerenciar perfis →
+              </a>
+            </div>
+          </div>
+        </SectionCard>
+
+        {/* ════════════════════════════════════════
+            SEÇÃO 05 — SCR / BACEN
+            ════════════════════════════════════════ */}
+        <SectionCard
+          id="sec-05"
+          badge="05"
+          badgeVariant="navy"
+          sectionLabel="Perfil de Crédito"
+          title="SCR / Bacen"
+        >
+          <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
+
+            {data.scr.semHistorico && (
+              <AlertBanner variant="warn" label="Sem histórico bancário" message="Empresa sem operações registradas no SCR / Banco Central" />
+            )}
+
+            {/* KPIs linha 1 */}
+            <div className="kpi-grid">
+              <KpiCard
+                label="Total Dívidas"
+                value={dividaAtiva > 0 ? `R$ ${data.scr.totalDividasAtivas}` : "—"}
+                variant={dividaAtiva > 1000000 ? "warning" : "default"}
+              />
+              <KpiCard
+                label="A Vencer"
+                value={data.scr.carteiraAVencer ? `R$ ${data.scr.carteiraAVencer}` : "—"}
+              />
+              <KpiCard
+                label="Vencidos"
+                value={vencidosSCR > 0 ? `R$ ${data.scr.vencidos}` : "—"}
+                variant={vencidosSCR > 0 ? "danger" : "default"}
+              />
+              <KpiCard
+                label="Prejuízos"
+                value={prejuizosVal > 0 ? `R$ ${data.scr.prejuizos}` : "—"}
+                variant={prejuizosVal > 0 ? "danger" : "default"}
+              />
+            </div>
+
+            {/* KPIs linha 2 */}
+            <div className="kpi-grid">
+              <KpiCard label="Op. a Vencer" value={data.scr.operacoesAVencer ? `R$ ${data.scr.operacoesAVencer}` : "—"} />
+              <KpiCard
+                label="Em Atraso"
+                value={atraso > 0 ? `R$ ${data.scr.operacoesEmAtraso}` : "—"}
+                variant={atraso > 0 ? "warning" : "default"}
+              />
+              <KpiCard
+                label="Vencidas"
+                value={vencidas > 0 ? `R$ ${data.scr.operacoesVencidas}` : "—"}
+                variant={vencidas > 0 ? "danger" : "default"}
+              />
+              <KpiCard label="Coobrigações" value={data.scr.coobrigacoes ? `R$ ${data.scr.coobrigacoes}` : "—"} />
+            </div>
+
+            {/* KPIs linha 3 */}
+            <div className="kpi-grid">
+              <KpiCard label="Curto Prazo" value={data.scr.carteiraCurtoPrazo ? `R$ ${data.scr.carteiraCurtoPrazo}` : "—"} />
+              <KpiCard label="Longo Prazo" value={data.scr.carteiraLongoPrazo ? `R$ ${data.scr.carteiraLongoPrazo}` : "—"} />
+              <KpiCard label="Limite de Crédito" value={data.scr.limiteCredito ? `R$ ${data.scr.limiteCredito}` : "—"} />
+            </div>
+
+            {/* Modalidades */}
+            {data.scr.modalidades.length > 0 && (
+              <div>
+                <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-4)", marginBottom: 8 }}>Modalidades de Crédito</p>
+                <div style={{ border: "0.5px solid var(--ds-border-s)", borderRadius: "var(--ds-radius-md)", overflow: "hidden" }}>
+                  <ScrTable
+                    columns={["Modalidade", "Total", "A Vencer", "Vencido", "Part."]}
+                    rows={data.scr.modalidades.map(m => [m.nome, m.total, m.aVencer, m.vencido, m.participacao])}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Instituições */}
+            {data.scr.instituicoes.length > 0 && (
+              <div>
+                <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-4)", marginBottom: 8 }}>Instituições Credoras</p>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {data.scr.instituicoes.map((inst, i) => (
+                    <span key={i} style={{ background: "var(--ds-surface-2)", color: "var(--text-2)", fontSize: 12, fontWeight: 500, padding: "4px 10px", borderRadius: 6 }}>
+                      {inst.nome}: R$ {inst.valor}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Inadimplência */}
+            <div>
+              <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-4)", marginBottom: 8 }}>Histórico de Inadimplência</p>
+              {data.scr.historicoInadimplencia ? (
+                <AlertBanner variant="warn" label="Histórico" message={data.scr.historicoInadimplencia} />
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 14px", background: "var(--ds-success-bg)", border: "0.5px solid var(--ds-success-border)", borderRadius: "var(--ds-radius-md)" }}>
+                  <CheckCircle2 size={14} style={{ color: "var(--ds-success-text)", flexShrink: 0 }} />
+                  <p style={{ fontSize: 12, fontWeight: 500, color: "var(--ds-success-text)" }}>Sem registro de operações vencidas ou prejuízos</p>
+                </div>
+              )}
+            </div>
+
+          </div>
+        </SectionCard>
+
+        {/* ════════════════════════════════════════
+            SEÇÃO 07 — PROCESSOS JUDICIAIS
+            ════════════════════════════════════════ */}
+        {data.processos && (parseInt(data.processos.passivosTotal || "0") > 0 || data.processos.temRJ || (data.processos.distribuicao?.length ?? 0) > 0) && (() => {
+          const proc = data.processos!;
+          const passivosN  = parseInt(proc.passivosTotal  || "0");
+          const ativosN    = parseInt(proc.ativosTotal    || "0");
+          if (passivosN === 0 && ativosN === 0 && !proc.temRJ) return null;
+          const poloAtivoN = parseInt(proc.poloAtivoQtd  || "0");
+          const poloPassN  = parseInt(proc.poloPassivoQtd || "0");
+          const dividasN   = parseInt(proc.dividasQtd    || "0");
+          return (
+            <SectionCard
+              id="sec-07"
+              badge="07"
+              badgeVariant="navy"
+              sectionLabel="Processos Judiciais"
+              title="Credit Hub"
+              headerRight={proc.temRJ ? <StatusPill label="RECUPERAÇÃO JUDICIAL" variant="red" /> : undefined}
+            >
+              <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
+
+                <div className="kpi-grid">
+                  <KpiCard label="Total Processos" value={passivosN > 0 ? String(passivosN) : "—"} sub="todos os polos" variant={passivosN > 0 ? "warning" : "default"} />
+                  <KpiCard label="Polo Ativo"      value={poloAtivoN > 0 ? String(poloAtivoN) : "—"} sub="empresa autora" />
+                  <KpiCard label="Polo Passivo"    value={poloPassN > 0 ? String(poloPassN) : "—"} sub="empresa ré" variant={poloPassN > 0 ? "warning" : "default"} />
+                  <KpiCard label="Dívidas"         value={dividasN > 0 ? String(dividasN) : "—"} sub="vencidas" variant={dividasN > 0 ? "danger" : "default"} />
+                </div>
+
+                {proc.valorTotalEstimado && proc.valorTotalEstimado !== "0,00" && (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: "var(--ds-warning-bg)", border: "0.5px solid var(--ds-warning-border)", borderRadius: "var(--ds-radius-md)" }}>
+                    <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--ds-warning-text)" }}>Valor Total Estimado</p>
+                    <p style={{ fontSize: 20, fontWeight: 500, color: "var(--ds-warning-text)" }}>R$ {proc.valorTotalEstimado}</p>
+                  </div>
+                )}
+
+                {(proc.distribuicao?.length ?? 0) > 0 && (
+                  <div>
+                    <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-4)", marginBottom: 10 }}>Distribuição por Tipo</p>
+                    <MetricBarChart
+                      items={proc.distribuicao!.slice(0, 8).map(d => ({
+                        label: d.tipo,
+                        count: Number(d.qtd),
+                        pct: Number(d.pct),
+                        highlight: /execu|falên/i.test(d.tipo),
+                      }))}
+                    />
+                  </div>
+                )}
+
+                {(proc.distribuicaoTemporal?.length ?? 0) > 0 && (
+                  <div>
+                    <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-4)", marginBottom: 10 }}>Antiguidade dos Processos</p>
+                    <div className="kpi-grid">
+                      {proc.distribuicaoTemporal!.map((dt, i) => (
+                        <KpiCard key={i} label={dt.periodo} value={String(dt.qtd)} sub={`R$ ${dt.valor}`} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {proc.top10Valor && proc.top10Valor.filter(p => p.numero || p.tipo).length > 0 && (() => {
+                  const reais = proc.top10Valor!.filter(p => (p.numero || p.tipo) && p.tipo !== "DÍVIDA");
+                  if (reais.length === 0) return null;
+                  return (
+                    <div>
+                      <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-4)", marginBottom: 10 }}>Maiores Processos por Valor</p>
+                      <div style={{ border: "0.5px solid var(--ds-border-s)", borderRadius: "var(--ds-radius-md)", overflow: "hidden" }}>
+                        <ScrTable
+                          columns={["Número", "Tipo", "Data", "Valor", "Status"]}
+                          rows={reais.slice(0, 5).map(p => [
+                            <span key="n" style={{ fontFamily: "monospace", fontSize: 10 }}>{p.numero || "—"}</span>,
+                            p.tipo || "—",
+                            p.data || "—",
+                            <span key="v" style={{ fontWeight: 500, color: "var(--ds-warning-text)" }}>R$ {p.valor}</span>,
+                            p.status ? <StatusPill key="s" label={p.status.slice(0, 20)} variant="gray" /> : <span key="s" style={{ color: "var(--text-4)" }}>—</span>,
+                          ])}
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
+
+              </div>
+            </SectionCard>
+          );
+        })()}
+
+        {/* ════════════════════════════════════════
+            SEÇÃO OP — RELATÓRIO DE VISITA
+            ════════════════════════════════════════ */}
+        {data.relatorioVisita && (
+          <SectionCard
+            id="sec-op"
+            badge="OP"
+            badgeVariant="teal"
+            sectionLabel="Parâmetros Operacionais"
+            title="Relatório de Visita"
+          >
+            <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 20 }}>
+
+              {/* Taxas e Limites */}
+              <div>
+                <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-3)", paddingBottom: 8, marginBottom: 10, borderBottom: "0.5px solid var(--ds-border-t)" }}>Taxas e Limites</p>
+                <div className="kpi-grid">
+                  {([
+                    ["Taxa Convencional",    data.relatorioVisita.taxaConvencional],
+                    ["Taxa Comissária",      data.relatorioVisita.taxaComissaria],
+                    ["Limite Total",         data.relatorioVisita.limiteTotal        ? `R$ ${data.relatorioVisita.limiteTotal}` : ""],
+                    ["Limite Convencional",  data.relatorioVisita.limiteConvencional ? `R$ ${data.relatorioVisita.limiteConvencional}` : ""],
+                    ["Limite Comissária",    data.relatorioVisita.limiteComissaria   ? `R$ ${data.relatorioVisita.limiteComissaria}` : ""],
+                    ["Limite por Sacado",    data.relatorioVisita.limitePorSacado    ? `R$ ${data.relatorioVisita.limitePorSacado}` : ""],
+                    ["Ticket Médio",         data.relatorioVisita.ticketMedio        ? `R$ ${data.relatorioVisita.ticketMedio}` : ""],
+                    ["Cobr. Boleto",         data.relatorioVisita.valorCobrancaBoleto ? `R$ ${data.relatorioVisita.valorCobrancaBoleto}` : ""],
+                  ] as [string, string | undefined][]).map(([label, value]) => (
+                    <KpiCard key={label} label={label} value={value || "—"} />
+                  ))}
+                </div>
+              </div>
+
+              {/* Condições e Prazos */}
+              <div>
+                <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-3)", paddingBottom: 8, marginBottom: 10, borderBottom: "0.5px solid var(--ds-border-t)" }}>Condições e Prazos</p>
+                <div className="kpi-grid">
+                  {([
+                    ["Prazo Recompra",   data.relatorioVisita.prazoRecompraCedente ? `${data.relatorioVisita.prazoRecompraCedente} dias` : ""],
+                    ["Envio Cartório",   data.relatorioVisita.prazoEnvioCartorio   ? `${data.relatorioVisita.prazoEnvioCartorio} dias` : ""],
+                    ["Prazo Máximo Op.", data.relatorioVisita.prazoMaximoOp        ? `${data.relatorioVisita.prazoMaximoOp} dias` : ""],
+                    ["Cobrança TAC",     data.relatorioVisita.cobrancaTAC],
+                    ["Tranche",          data.relatorioVisita.tranche              ? `R$ ${data.relatorioVisita.tranche}` : ""],
+                    ["Prazo Tranche",    data.relatorioVisita.prazoTranche         ? `${data.relatorioVisita.prazoTranche} dias` : ""],
+                  ] as [string, string | undefined][]).map(([label, value]) => (
+                    <KpiCard key={label} label={label} value={value || "—"} />
+                  ))}
+                </div>
+              </div>
+
+              {/* Mix de Vendas */}
+              <div>
+                <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-3)", paddingBottom: 8, marginBottom: 10, borderBottom: "0.5px solid var(--ds-border-t)" }}>Dados da Empresa</p>
+                <div className="kpi-grid">
+                  {([
+                    ["Funcionários",        String(data.relatorioVisita.funcionariosObservados || "—")],
+                    ["Folha Pagamento",     data.relatorioVisita.folhaPagamento         ? `R$ ${data.relatorioVisita.folhaPagamento}` : ""],
+                    ["Endiv. Banco",        data.relatorioVisita.endividamentoBanco],
+                    ["Endiv. Factoring",    data.relatorioVisita.endividamentoFactoring],
+                    ["Vendas Cheque",       data.relatorioVisita.vendasCheque],
+                    ["Vendas Duplicata",    data.relatorioVisita.vendasDuplicata],
+                    ["Vendas Outras",       data.relatorioVisita.vendasOutras],
+                    ["Prazo Faturamento",   data.relatorioVisita.prazoMedioFaturamento  ? `${data.relatorioVisita.prazoMedioFaturamento} dias` : ""],
+                    ["Prazo Entrega",       data.relatorioVisita.prazoMedioEntrega      ? `${data.relatorioVisita.prazoMedioEntrega} dias` : ""],
+                  ] as [string, string | undefined][]).map(([label, value]) => (
+                    <KpiCard key={label} label={label} value={value || "—"} />
+                  ))}
+                </div>
+                {data.relatorioVisita.referenciasFornecedores && (
+                  <div style={{ marginTop: 12 }}>
+                    <p style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-4)", marginBottom: 4 }}>Referências Comerciais / Fornecedores</p>
+                    <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.6 }}>{data.relatorioVisita.referenciasFornecedores}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </SectionCard>
         )}
 
-        <div className="bg-white rounded-xl border border-[#E5E7EB] overflow-hidden" style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-          <div className="px-5 py-4 border-b border-[#E5E7EB]" style={{ background: "linear-gradient(135deg, #1a3560 0%, #203b88 100%)" }}>
-            <p className="text-[10px] font-bold text-white/60 uppercase tracking-[0.12em]">Exportar Relatório</p>
-            <p className="text-sm font-bold text-white mt-0.5">Selecione o formato de download</p>
+        {/* ════════════════════════════════════════
+            SEÇÃO ✎ — ANOTAÇÕES
+            ════════════════════════════════════════ */}
+        <SectionCard
+          id="sec-nt"
+          badge="✎"
+          badgeVariant="navy"
+          sectionLabel="Observações do Analista"
+          title="Anotações"
+          headerRight={savingNotes ? <span style={{ fontSize: 11, color: "var(--text-4)" }}>Salvando...</span> : undefined}
+        >
+          <div style={{ padding: "16px 20px" }}>
+            <textarea
+              value={analystNotes}
+              onChange={e => setAnalystNotes(e.target.value)}
+              onBlur={() => saveNotes(analystNotes)}
+              placeholder="Registre aqui observações sobre a empresa, pontos de atenção identificados na visita, pendências de documentação, ou qualquer informação relevante para a tomada de decisão de crédito..."
+              style={{
+                width: "100%", minHeight: 180, resize: "vertical",
+                background: "var(--ds-surface-2)",
+                border: "0.5px solid var(--ds-border-t)",
+                borderRadius: "var(--ds-radius-md)",
+                padding: "12px 14px",
+                fontSize: 13, color: "var(--text-1)", lineHeight: 1.65,
+                fontFamily: "inherit", outline: "none",
+              }}
+              className="focus:ring-2 focus:ring-cf-navy/20 placeholder:text-cf-text-4"
+            />
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, padding: "0 2px" }}>
+              <span style={{ fontSize: 11, color: "var(--text-4)" }}>Salvo automaticamente ao sair do campo</span>
+              <span style={{ fontSize: 11, color: "var(--text-4)", fontFamily: "monospace" }}>{analystNotes.length} caracteres</span>
+            </div>
           </div>
-          <div className="p-4">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        </SectionCard>
+
+        {/* ════════════════════════════════════════
+            SEÇÃO ↓ — EXPORTAR
+            ════════════════════════════════════════ */}
+        <SectionCard
+          id="sec-ex"
+          badge="↓"
+          badgeVariant="navy"
+          sectionLabel="Download"
+          title="Exportar Relatório"
+        >
+          <div style={{ padding: "16px 20px" }}>
+            {generatedFormats.size > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: "var(--ds-success-bg)", border: "0.5px solid var(--ds-success-border)", borderRadius: "var(--ds-radius-md)", marginBottom: 14 }}>
+                <CheckCircle2 size={14} style={{ color: "var(--ds-success-text)" }} />
+                <span style={{ fontSize: 12, fontWeight: 500, color: "var(--ds-success-text)" }}>Relatório gerado com sucesso!</span>
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               {([
-                { fmt: "pdf" as Format, label: "PDF", sub: "Completo e formatado", fn: generatePDF, ext: ".pdf", color: "#FF0000", recommended: true,
-                  logo: <svg viewBox="0 0 24 24" width="28" height="28" fill="#FF0000"><path d="M7.998 17.5c-.21 0-.42-.072-.588-.218-.397-.345-.44-.95-.095-1.348.862-.993 2.13-2.543 2.13-2.543s-1.07-3.475-.544-4.95c.218-.609.613-1.066 1.16-1.14.263-.035.672.007.89.3.367.498.377 1.267.027 2.42-.223.738-.532 1.576-.891 2.422.452.97 1.09 1.877 1.618 2.46.88-.12 1.64-.143 2.18-.015.509.12.889.439.989.836.108.427-.045.893-.413 1.26-.382.38-.897.488-1.35.288-.56-.247-1.164-.76-1.735-1.376-.898.236-1.884.568-2.756.923-.506.9-.996 1.584-1.47 1.87a.797.797 0 0 1-.452.141l.1-.03zm.558-1.04s-.005.008-.01.013l.01-.014zm6.553-2.865-.029-.006.036.01-.007-.004zm-3.3-6.47-.005.02.009-.028-.004.009z"/></svg> },
-                { fmt: "docx" as Format, label: "Word", sub: "Editável (.docx)", fn: generateDOCX, ext: ".docx", color: "#2B5EB7", recommended: false,
-                  logo: <Image src="/logos/word.jpg" alt="Word" width={36} height={36} className="rounded object-contain" /> },
-                { fmt: "xlsx" as Format, label: "Excel", sub: "Dados tabulados", fn: generateExcel, ext: ".xlsx", color: "#1D6F42", recommended: false,
-                  logo: <Image src="/logos/excel.jpg" alt="Excel" width={36} height={36} className="rounded object-contain" /> },
-                { fmt: "html" as Format, label: "HTML", sub: "Web / impressão", fn: generateHTML, ext: ".html", color: "#E34F26", recommended: false,
-                  logo: <svg viewBox="0 0 24 24" width="28" height="28" fill="#E34F26"><path d="M4.136 3.012h15.729l-1.431 16.15L11.991 21l-6.436-1.838L4.136 3.012zM7.266 9.76l-.186-2.166h9.835l-.191 2.166H12.17l.204 2.256h4.345l-.543 5.508L12 18.903v.012l-.008.002-4.161-1.162-.287-3.166h2.147l.149 1.62 2.16.573 2.148-.57.237-2.529H7.46L7.266 9.76z"/></svg> },
-              ]).map(({ fmt, label, sub, fn, ext, color, logo, recommended }) => {
-                const done = generatedFormats.has(fmt);
+                { fmt: "pdf"  as Format, label: "PDF",   sub: "Completo e formatado", fn: generatePDF,   ext: ".pdf",  dot: "#dc2626", recommended: true },
+                { fmt: "docx" as Format, label: "Word",  sub: "Editável (.docx)",     fn: generateDOCX,  ext: ".docx", dot: "#2b5eb7", recommended: false },
+                { fmt: "xlsx" as Format, label: "Excel", sub: "Dados tabulados",      fn: generateExcel, ext: ".xlsx", dot: "#1d6f42", recommended: false },
+                { fmt: "html" as Format, label: "HTML",  sub: "Web / impressão",      fn: generateHTML,  ext: ".html", dot: "#e34f26", recommended: false },
+              ]).map(({ fmt, label, sub, fn, ext, dot, recommended }) => {
+                const done    = generatedFormats.has(fmt);
                 const loading = generatingFormat === fmt;
                 return (
                   <button
                     key={fmt}
                     onClick={fn}
                     disabled={!!generatingFormat}
-                    className={`relative flex flex-col items-center gap-2 py-4 px-2 rounded-xl border-2 transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed group
-                      ${done
-                        ? "border-[#73b815]/40 bg-[#f0fdf4]"
-                        : recommended
-                        ? "border-[#203b88]/40 bg-[#EFF6FF]"
-                        : "border-[#E5E7EB] bg-white hover:border-[#203b88]/20 hover:bg-[#F8FAFC]"
-                      }`}
+                    style={{
+                      flex: "1 1 140px", display: "flex", alignItems: "center", gap: 10,
+                      padding: "12px 14px", borderRadius: "var(--ds-radius-md)",
+                      border: `0.5px solid ${done ? "var(--ds-success-border)" : recommended ? "var(--navy)" : "var(--ds-border-s)"}`,
+                      background: done ? "var(--ds-success-bg)" : recommended ? "#eff6ff" : "white",
+                      cursor: !!generatingFormat ? "not-allowed" : "pointer",
+                      opacity: !!generatingFormat && !loading ? 0.55 : 1,
+                      transition: "all 0.15s",
+                      position: "relative",
+                      textAlign: "left",
+                    }}
                   >
+                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: done ? "var(--ds-success-text)" : dot, flexShrink: 0 }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+                        <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-1)" }}>{label}</span>
+                        <span style={{ fontSize: 11, color: "var(--text-4)", fontFamily: "monospace" }}>{ext}</span>
+                      </div>
+                      <p style={{ fontSize: 11, color: loading ? dot : done ? "var(--ds-success-text)" : "var(--text-4)", marginTop: 2 }}>
+                        {loading ? "Gerando..." : done ? "Pronto!" : sub}
+                      </p>
+                    </div>
+                    {loading && <Loader2 size={14} className="animate-spin" style={{ color: dot, flexShrink: 0 }} />}
+                    {done    && <CheckCircle2 size={14} style={{ color: "var(--ds-success-text)", flexShrink: 0 }} />}
                     {recommended && !done && (
-                      <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 text-[9px] font-bold text-white bg-[#203b88] px-2 py-0.5 rounded-full whitespace-nowrap">Recomendado</span>
+                      <span style={{ position: "absolute", top: -9, right: 10, fontSize: 9, fontWeight: 700, color: "white", background: "var(--navy)", borderRadius: 99, padding: "2px 6px", letterSpacing: "0.03em" }}>
+                        Recomendado
+                      </span>
                     )}
-                    {/* Ícone */}
-                    <div
-                      className="w-11 h-11 rounded-xl flex items-center justify-center transition-all"
-                      style={{ backgroundColor: done ? "#f0fdf4" : `${color}10`, border: `1.5px solid ${done ? "#73b815" : color}22` }}
-                    >
-                      {loading
-                        ? <Loader2 size={22} className="animate-spin" style={{ color }} />
-                        : done
-                        ? <CheckCircle2 size={22} style={{ color: "#73b815" }} />
-                        : logo}
-                    </div>
-                    {/* Texto */}
-                    <div className="text-center">
-                      <p className="text-sm font-bold text-[#111827]">{label}</p>
-                      <p className="text-[10px] text-[#9CA3AF] font-mono">{ext}</p>
-                    </div>
-                    <p className="text-[10px] font-medium text-center leading-snug" style={{ color: done ? "#73b815" : loading ? color : "#6B7280" }}>
-                      {loading ? "Gerando..." : done ? "Pronto!" : sub}
-                    </p>
                   </button>
                 );
               })}
             </div>
           </div>
-        </div>
+        </SectionCard>
 
         {/* ── Sticky bottom action bar ── */}
-        <div className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-[#E5E7EB]" style={{ boxShadow: "0 -4px 20px rgba(0,0,0,0.08)" }}>
+        <div className="fixed bottom-0 left-0 right-0 z-50 bg-white" style={{ borderTop: "0.5px solid var(--ds-border-s)" }}>
           <div className="max-w-screen-xl mx-auto px-5 py-3 flex items-center justify-between gap-3">
-            {/* Esquerda: navegação */}
             <div className="flex items-center gap-2">
               <button onClick={onBack} className="btn-secondary" style={{ minHeight: "auto", padding: "8px 16px", fontSize: "13px" }}>
                 <ArrowLeft size={13} /> Voltar
@@ -2213,29 +1963,24 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
               {onReset && (
                 <button
                   onClick={() => { try { localStorage.removeItem(NOTES_KEY); } catch { /* ignore */ } onReset(); }}
-                  className="flex items-center gap-1.5 text-xs font-medium text-[#9CA3AF] hover:text-[#374151] transition-colors px-2 py-1.5 rounded-lg hover:bg-[#F3F4F6]"
-                  style={{ minHeight: "auto" }}
+                  style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--text-4)", background: "none", border: "none", cursor: "pointer", padding: "6px 8px", borderRadius: 6 }}
                 >
                   <RotateCcw size={12} /> Recomeçar
                 </button>
               )}
             </div>
 
-            {/* Centro: status pill */}
             <div className="flex items-center gap-2">
-              {savedFeedback && (
-                <span className="flex items-center gap-1 text-[11px] font-semibold text-[#73b815] bg-[#f0fdf4] border border-[#86efac] px-2.5 py-1 rounded-full">
-                  <Check size={11} /> Salvo
-                </span>
-              )}
+              {savedFeedback && <StatusPill label="Salvo" variant="green" dot />}
               {generatedFormats.size > 0 && (
-                <span className="flex items-center gap-1 text-[11px] font-semibold text-[#16a34a] bg-[#f0fdf4] border border-[#86efac] px-2.5 py-1 rounded-full">
-                  <CheckCircle2 size={11} /> {generatedFormats.size} formato{generatedFormats.size > 1 ? "s" : ""} gerado{generatedFormats.size > 1 ? "s" : ""}
-                </span>
+                <StatusPill
+                  label={`${generatedFormats.size} formato${generatedFormats.size > 1 ? "s" : ""} gerado${generatedFormats.size > 1 ? "s" : ""}`}
+                  variant="green"
+                  dot
+                />
               )}
             </div>
 
-            {/* Direita: ações principais */}
             <div className="flex items-center gap-2.5">
               <GoalfyButton data={data} aiAnalysis={aiAnalysis} settings={fundSettings} disabled={!aiAnalysis} />
 
@@ -2243,30 +1988,26 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
                 <button
                   onClick={() => setConfirmFinish(true)}
                   disabled={finishing}
-                  className="inline-flex items-center gap-1.5 text-sm font-semibold px-5 py-2.5 rounded-lg text-white active:scale-95 transition-all duration-150 disabled:opacity-50"
-                  style={{
-                    background: "linear-gradient(135deg, #5a9010 0%, #73b815 100%)",
-                    boxShadow: "0 4px 14px rgba(115,184,21,0.35)",
-                    minHeight: "auto",
-                  }}
+                  className="btn-green"
+                  style={{ minHeight: "auto", padding: "8px 18px", fontSize: "13px" }}
                 >
                   {finishing ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
                   {finishing ? "Finalizando..." : "Finalizar coleta"}
                 </button>
               ) : (
-                <div className="flex items-center gap-1.5 border border-[#73b815]/30 rounded-lg px-3.5 py-2 bg-[#f0fdf4]">
-                  <span className="text-xs text-[#374151] font-medium">Confirmar?</span>
-                  <button onClick={handleFinish} className="text-xs font-bold text-[#73b815] hover:underline" style={{ minHeight: "auto" }}>Sim</button>
-                  <span className="text-[#9CA3AF] text-xs">·</span>
-                  <button onClick={() => setConfirmFinish(false)} className="text-xs text-[#6B7280] hover:underline" style={{ minHeight: "auto" }}>Não</button>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, border: "0.5px solid var(--ds-success-border)", borderRadius: 8, padding: "6px 12px", background: "var(--ds-success-bg)" }}>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-2)" }}>Confirmar?</span>
+                  <button onClick={handleFinish} style={{ fontSize: 12, fontWeight: 700, color: "var(--ds-success-text)", background: "none", border: "none", cursor: "pointer" }}>Sim</button>
+                  <span style={{ color: "var(--text-4)", fontSize: 12 }}>·</span>
+                  <button onClick={() => setConfirmFinish(false)} style={{ fontSize: 12, color: "var(--text-4)", background: "none", border: "none", cursor: "pointer" }}>Não</button>
                 </div>
               )}
             </div>
           </div>
         </div>
-      </div>
 
       </div>
     </div>
   );
 }
+
