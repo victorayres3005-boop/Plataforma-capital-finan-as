@@ -235,7 +235,7 @@ function secCapa(p: PDFReportParams): string {
   <div style="padding:28px 40px 0;display:flex;align-items:center;justify-content:space-between">
     <div>
       <div style="font-size:11px;font-weight:900;color:#fff;letter-spacing:.1em;text-transform:uppercase">CAPITAL <span style="color:#22c55e">FINANÇAS</span></div>
-      <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:2px;letter-spacing:.04em">ANÁLISE DE CRÉDITO</div>
+      <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:2px;letter-spacing:.04em">ANÁLISE DE CEDENTE — FIDC</div>
     </div>
     <div style="font-size:9px;color:rgba(255,255,255,.35)">${hoje}</div>
   </div>
@@ -290,6 +290,7 @@ function secSumario(p: PDFReportParams): string {
   if(p.fundValidation?.criteria.length) itens.push(["FS","Conformidade com o Fundo","Critérios e parâmetros avaliados"]);
   itens.push(["05","SCR / Bacen","Histórico de crédito, exposição bancária e faixas de vencimento"]);
   if(p.data.scrSocios?.length) itens.push(["SS","SCR dos Sócios","Exposição de crédito individual de cada sócio"]);
+  if(p.data.irSocios?.length) itens.push(["IR","IR dos Sócios","Patrimônio declarado, rendimentos e situação na malha"]);
   const temProt=(p.data.protestos?.vigentesQtd&&p.data.protestos.vigentesQtd!=="0")||p.data.protestos?.detalhes?.length;
   if(temProt) itens.push(["PR","Protestos","Protestos vigentes e histórico de regularizações"]);
   itens.push(["07","Processos Judiciais","Distribuição por tipo e principais processos"]);
@@ -300,7 +301,9 @@ function secSumario(p: PDFReportParams): string {
   if(p.creditLimit||p.fundValidation||p.data.relatorioVisita) itens.push(["CV","Covenants e Condições","Parâmetros operacionais e gatilhos de monitoramento"]);
   if(p.data.curvaABC?.clientes?.length) itens.push(["CA","Curva ABC de Clientes","Concentração de receita e carteira de sacados"]);
   if(p.data.grupoEconomico?.empresas?.length) itens.push(["GE","Grupo Econômico","Empresas vinculadas e risco consolidado do grupo"]);
+  if(p.data.balanco?.anos?.length) itens.push(["BP","Balanço Patrimonial","Ativo, passivo, PL e índices de liquidez e endividamento"]);
   if(p.data.dre?.anos?.length) itens.push(["DR","DRE","Demonstração de resultado e análise de margens"]);
+  itens.push(["DC","Checklist de Documentos","Status de recebimento de toda a documentação necessária"]);
   if(p.data.relatorioVisita||p.perguntasVisita?.length) itens.push(["OP","Relatório de Visita","Taxas, limites, condições e observações de campo"]);
   if(p.observacoes?.trim()) itens.push(["NT","Anotações do Analista","Observações e notas livres do analista"]);
   itens.push(["DF","Parecer Final","Decisão consolidada, condições e assinatura do analista"]);
@@ -323,8 +326,26 @@ function secSumarioExec(p: PDFReportParams): string {
   const fmm=data.faturamento?.fmm12m||data.faturamento?.mediaAno||"—";
   const rc=finalRating>=7?"#16a34a":finalRating>=4?"#d97706":"#dc2626";
   const socios=data.qsa?.quadroSocietario?.slice(0,3).map(s=>esc(s.nome)).join(", ")||"—";
+  const cl=p.creditLimit;
+  const termSheet=cl?`<div style="background:linear-gradient(135deg,#1a2744 0%,#0f172a 100%);border-radius:10px;padding:18px 20px;margin-bottom:18px;page-break-inside:avoid">
+  <div style="font-size:9px;font-weight:900;color:#22c55e;letter-spacing:.1em;text-transform:uppercase;margin-bottom:14px">Term Sheet — Condições Indicativas</div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+    ${[
+      ["Decisão",cl.limiteAjustado>0?"Aprovado":"Reprovado"],
+      ["Limite Aprovado",fmtMoney(cl.limiteAjustado)],
+      ["Prazo Máx.",cl.prazo?`${cl.prazo} dias`:"—"],
+      ["Concentração Máx.",cl.concentracaoMaxPct!=null?`${cl.concentracaoMaxPct}%`:"—"],
+      ["Fator de Risco",cl.fatorReducao!=null?`${(cl.fatorReducao*100).toFixed(0)}%`:"—"],
+      ["Base FMM",fmtMoney(cl.fmmBase)],
+    ].map(([l,v])=>`<div style="background:rgba(255,255,255,.07);border-radius:6px;padding:10px 12px">
+      <div style="font-size:8px;color:rgba(255,255,255,.45);letter-spacing:.05em;margin-bottom:4px">${l}</div>
+      <div style="font-size:13px;font-weight:800;color:#fff">${v}</div>
+    </div>`).join("")}
+  </div>
+</div>`:"";
   return `<div class="pb">
   ${secHdr("00","Sumário Executivo")}
+  ${termSheet}
   ${alertsHigh.length>0?`<div style="margin-bottom:14px">${alertsHigh.map(a=>alertBox(a.message,"ALTA")).join("")}</div>`:""}
   ${alerts.filter(a=>a.severity!=="ALTA").slice(0,4).map(a=>alertBox(a.message,a.severity as "MODERADA"|"INFO")).join("")}
   ${grid(4,[
@@ -840,6 +861,178 @@ function secAnotacoes(p: PDFReportParams): string {
   const t=p.observacoes?.trim();
   if(!t) return "";
   return `<div class="pb">${secHdr("NT","Anotações do Analista")}<div style="background:#f8fafc;border-left:4px solid #1a2744;border-radius:0 8px 8px 0;padding:18px 20px;font-size:12px;line-height:1.9;color:#374151;white-space:pre-wrap;page-break-inside:avoid">${esc(t)}</div></div>`;
+}
+
+// ─── Checklist de Documentos ─────────────────────────────────────────────────
+function secDocumentos(p: PDFReportParams): string {
+  const d=p.data;
+  type Doc={label:string;categoria:string;recebido:boolean;obrigatorio:boolean;detalhe?:string};
+  const docs:Doc[]=[
+    {label:"Cartão CNPJ",                categoria:"Cadastral",   obrigatorio:true,  recebido:!!(d.cnpj?.razaoSocial)},
+    {label:"QSA / Quadro Societário",    categoria:"Cadastral",   obrigatorio:true,  recebido:!!(d.qsa?.quadroSocietario?.length)},
+    {label:"Contrato Social",            categoria:"Cadastral",   obrigatorio:false, recebido:!!(d.contrato?.capitalSocial||d.contrato?.socios?.length)},
+    {label:"Faturamento (extrato fiscal)",categoria:"Financeiro", obrigatorio:true,  recebido:!!(d.faturamento?.meses?.length||d.faturamento?.fmm12m)},
+    {label:"SCR / Bacen",                categoria:"Crédito",     obrigatorio:true,  recebido:!!(d.scr?.periodoReferencia),detalhe:d.scr?.periodoReferencia?`Ref. ${d.scr.periodoReferencia}`:undefined},
+    {label:"SCR Período Anterior",       categoria:"Crédito",     obrigatorio:false, recebido:!!(d.scrAnterior?.periodoReferencia)},
+    {label:"SCR dos Sócios",             categoria:"Crédito",     obrigatorio:false, recebido:!!(d.scrSocios?.length),detalhe:d.scrSocios?.length?`${d.scrSocios.length} sócio(s)`:undefined},
+    {label:"Protestos",                  categoria:"Crédito",     obrigatorio:true,  recebido:d.protestos?.vigentesQtd!==undefined&&d.protestos?.vigentesQtd!==null},
+    {label:"Processos Judiciais",        categoria:"Jurídico",    obrigatorio:true,  recebido:!!(d.processos?.passivosTotal!==undefined)},
+    {label:"Grupo Econômico",            categoria:"Cadastral",   obrigatorio:false, recebido:!!(d.grupoEconomico?.empresas?.length)},
+    {label:"Bureau Score (Serasa/SPC)",  categoria:"Crédito",     obrigatorio:false, recebido:!!(d.score?.serasa||d.score?.spc||d.score?.quod)},
+    {label:"CCF — Cheque Sem Fundo",     categoria:"Crédito",     obrigatorio:false, recebido:d.ccf?.qtdRegistros!==undefined},
+    {label:"Curva ABC / Carteira",       categoria:"Operacional", obrigatorio:false, recebido:!!(d.curvaABC?.clientes?.length)},
+    {label:"DRE",                        categoria:"Financeiro",  obrigatorio:false, recebido:!!(d.dre?.anos?.length)},
+    {label:"Balanço Patrimonial",        categoria:"Financeiro",  obrigatorio:false, recebido:!!(d.balanco?.anos?.length)},
+    {label:"IR dos Sócios",              categoria:"Financeiro",  obrigatorio:false, recebido:!!(d.irSocios?.length),detalhe:d.irSocios?.length?`${d.irSocios.length} sócio(s)`:undefined},
+    {label:"Relatório de Visita",        categoria:"Operacional", obrigatorio:false, recebido:!!(d.relatorioVisita?.dataVisita)},
+  ];
+  const recebidos=docs.filter(x=>x.recebido).length;
+  const obrigRecebidos=docs.filter(x=>x.obrigatorio&&x.recebido).length;
+  const obrigTotal=docs.filter(x=>x.obrigatorio).length;
+  const completude=Math.round((recebidos/docs.length)*100);
+  const baseOk=obrigRecebidos===obrigTotal;
+  const catClr:Record<string,string>={Cadastral:"#1a2744",Financeiro:"#0891b2",Crédito:"#dc2626",Jurídico:"#7c3aed",Operacional:"#16a34a"};
+  const cats=Array.from(new Set(docs.map(d=>d.categoria)));
+  return `<div class="pb">${secHdr("DC","Documentos Recebidos — Base da Análise")}
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:16px;page-break-inside:avoid">
+    <div style="border:1px solid #e5e7eb;border-top:3px solid ${completude>=80?"#22c55e":completude>=60?"#f59e0b":"#ef4444"};border-radius:8px;padding:14px 16px">
+      <div style="font-size:9px;color:#6b7280;font-weight:700;text-transform:uppercase;margin-bottom:4px">Completude</div>
+      <div style="font-size:28px;font-weight:900;color:${completude>=80?"#16a34a":completude>=60?"#d97706":"#dc2626"}">${completude}%</div>
+      <div style="height:6px;background:#f3f4f6;border-radius:3px;margin-top:8px;overflow:hidden"><div style="height:100%;width:${completude}%;background:${completude>=80?"#22c55e":completude>=60?"#f59e0b":"#ef4444"};border-radius:3px"></div></div>
+      <div style="font-size:9px;color:#9ca3af;margin-top:4px">${recebidos} de ${docs.length} documentos</div>
+    </div>
+    <div style="border:1px solid ${baseOk?"#86efac":"#fca5a5"};border-top:3px solid ${baseOk?"#22c55e":"#ef4444"};border-radius:8px;padding:14px 16px">
+      <div style="font-size:9px;color:#6b7280;font-weight:700;text-transform:uppercase;margin-bottom:4px">Obrigatórios</div>
+      <div style="font-size:28px;font-weight:900;color:${baseOk?"#16a34a":"#dc2626"}">${obrigRecebidos}<span style="font-size:14px;color:#9ca3af"> / ${obrigTotal}</span></div>
+      <div style="margin-top:8px"><span class="badge ${baseOk?"ok":"fail"}">${baseOk?"BASE COMPLETA":"BASE INCOMPLETA"}</span></div>
+    </div>
+    <div style="border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px">
+      <div style="font-size:9px;color:#6b7280;font-weight:700;text-transform:uppercase;margin-bottom:8px">Por Categoria</div>
+      ${cats.map(cat=>{const n=docs.filter(x=>x.categoria===cat&&x.recebido).length,t=docs.filter(x=>x.categoria===cat).length;return`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px"><span style="font-size:9px;color:${catClr[cat]||"#374151"};font-weight:600">${cat}</span><span style="font-size:9px;color:#374151">${n}/${t}</span></div>`;}).join("")}
+    </div>
+  </div>
+  <div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;page-break-inside:avoid">
+    ${docs.map((doc,i)=>`<div style="display:grid;grid-template-columns:24px 1fr 90px 80px 140px;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid #f3f4f6;background:${!doc.recebido&&doc.obrigatorio?"#fff8f8":i%2===0?"#fff":"#fafafa"}">
+      <span style="font-size:14px">${doc.recebido?"✅":"⬜"}</span>
+      <div style="font-size:11px;font-weight:${doc.recebido?"600":"400"};color:${doc.recebido?"#111827":"#9ca3af"}">${esc(doc.label)}</div>
+      <span style="display:inline-block;padding:2px 7px;border-radius:4px;background:${catClr[doc.categoria]||"#1a2744"}15;color:${catClr[doc.categoria]||"#1a2744"};font-size:8px;font-weight:700">${esc(doc.categoria)}</span>
+      <span style="font-size:8px;font-weight:700;color:${doc.obrigatorio?"#dc2626":"#9ca3af"}">${doc.obrigatorio?"OBRIGATÓRIO":"OPCIONAL"}</span>
+      <span style="font-size:9px;color:${doc.recebido?"#16a34a":"#dc2626"}">${doc.recebido?doc.detalhe?"Recebido — "+doc.detalhe:"Recebido":"Pendente / Não enviado"}</span>
+    </div>`).join("")}
+  </div>
+</div>`;
+}
+
+// ─── IR dos Sócios ────────────────────────────────────────────────────────────
+function secIrSocios(p: PDFReportParams): string {
+  const socios=p.data.irSocios;
+  if(!socios||socios.length===0) return "";
+  const limite=numVal(p.creditLimit?.limiteAjustado);
+  return `<div class="pb">${secHdr("IR","IR dos Sócios — Capacidade Patrimonial")}
+  <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:11px;color:#0369a1;page-break-inside:avoid">
+    O patrimônio pessoal dos sócios é o colchão de segurança para recompra em um FIDC. Um sócio com patrimônio líquido superior ao limite solicitado representa menor risco operacional.
+  </div>
+  ${socios.map(s=>{
+    const pl=numVal(s.patrimonioLiquido);
+    const rend=numVal(s.rendimentoTotal);
+    const bens=numVal(s.totalBensDireitos);
+    const dividas=numVal(s.dividasOnus);
+    const cobPatrim=limite>0&&pl>0?Math.round((pl/limite)*100):0;
+    const plClr=cobPatrim>=100?"#16a34a":cobPatrim>=50?"#d97706":"#dc2626";
+    return `<div style="border:1px solid ${s.situacaoMalhas||s.debitosEmAberto?"#fca5a5":"#e5e7eb"};border-left:4px solid ${pl>=limite?"#22c55e":pl>=limite*0.5?"#f59e0b":"#ef4444"};border-radius:0 8px 8px 0;padding:16px 18px;margin-bottom:14px;page-break-inside:avoid">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+        <div>
+          <div style="font-size:14px;font-weight:800;color:#111827">${esc(s.nomeSocio)}</div>
+          <div style="font-size:10px;color:#6b7280;margin-top:2px">CPF ${fmtCpf(s.cpf)} · IRPF ${esc(s.anoBase)} ${s.tipoDocumento?` · ${esc(s.tipoDocumento)}`:""}${s.dataEntrega?` · Entregue ${esc(s.dataEntrega)}`:""}</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${s.situacaoMalhas?`<span class="badge fail">MALHA FISCAL</span>`:""}
+          ${s.debitosEmAberto?`<span class="badge fail">DÉBITOS EM ABERTO</span>`:""}
+          ${!s.situacaoMalhas&&!s.debitosEmAberto?`<span class="badge ok">SEM PENDÊNCIAS</span>`:""}
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px">
+        ${kpi("Rendimento Total",fmtMoney(s.rendimentoTotal),rend>0?"#111827":"#9ca3af")}
+        ${kpi("Patrimônio Líquido",fmtMoney(s.patrimonioLiquido),plClr,limite>0?`${cobPatrim}% do limite FIDC`:undefined)}
+        ${kpi("Total Bens e Direitos",fmtMoney(s.totalBensDireitos))}
+        ${kpi("Dívidas e Ônus",fmtMoney(s.dividasOnus),dividas>0?"#dc2626":"#111827")}
+      </div>
+      ${(numVal(s.bensImoveis)>0||numVal(s.bensVeiculos)>0||numVal(s.aplicacoesFinanceiras)>0)?`
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px">
+        ${numVal(s.bensImoveis)>0?kpiSm("Bens Imóveis",fmtMoney(s.bensImoveis)):""}
+        ${numVal(s.bensVeiculos)>0?kpiSm("Veículos",fmtMoney(s.bensVeiculos)):""}
+        ${numVal(s.aplicacoesFinanceiras)>0?kpiSm("Aplicações Financeiras",fmtMoney(s.aplicacoesFinanceiras)):""}
+      </div>`:""}
+      ${s.debitosEmAberto&&s.descricaoDebitos?`<div style="background:#fff1f2;border-left:3px solid #ef4444;border-radius:0 4px 4px 0;padding:8px 12px;font-size:10px;color:#991b1b;margin-top:4px">${esc(s.descricaoDebitos)}</div>`:""}
+      ${limite>0?`<div style="margin-top:10px;display:flex;align-items:center;gap:10px">
+        <div style="font-size:9px;color:#6b7280">Cobertura do limite FIDC (${fmtMoney(String(limite))}):</div>
+        <div style="flex:1;height:6px;background:#f3f4f6;border-radius:3px;overflow:hidden"><div style="height:100%;width:${Math.min(100,cobPatrim)}%;background:${plClr};border-radius:3px"></div></div>
+        <div style="font-size:10px;font-weight:700;color:${plClr}">${cobPatrim}%</div>
+      </div>`:""}
+    </div>`;
+  }).join("")}
+</div>`;
+}
+
+// ─── Balanço Patrimonial ──────────────────────────────────────────────────────
+function secBalanco(p: PDFReportParams): string {
+  const bal=p.data.balanco;
+  if(!bal||!bal.anos?.length) return "";
+  const anos=bal.anos.slice(-3);
+  const ultimo=anos[anos.length-1];
+  const tlClr=bal.tendenciaPatrimonio==="crescimento"?"#16a34a":bal.tendenciaPatrimonio==="queda"?"#dc2626":"#d97706";
+  const tlLbl=bal.tendenciaPatrimonio==="crescimento"?"↑ Crescimento":bal.tendenciaPatrimonio==="queda"?"↓ Queda":"→ Estável";
+  const liqC=parseFloat(ultimo?.liquidezCorrente||"0");
+  const endiv=parseFloat(ultimo?.endividamentoTotal||"0");
+  const liqClr=liqC>=2?"#16a34a":liqC>=1?"#d97706":"#dc2626";
+  const endivClr=endiv<=40?"#16a34a":endiv<=60?"#d97706":"#dc2626";
+  type BRow={label:string;key:keyof typeof anos[0];bold?:boolean;isMoney?:boolean};
+  const estrutura:BRow[]=[
+    {label:"Ativo Total",key:"ativoTotal",bold:true,isMoney:true},
+    {label:"  Ativo Circulante",key:"ativoCirculante",isMoney:true},
+    {label:"    Caixa e Equivalentes",key:"caixaEquivalentes",isMoney:true},
+    {label:"    Contas a Receber",key:"contasAReceber",isMoney:true},
+    {label:"    Estoques",key:"estoques",isMoney:true},
+    {label:"  Ativo Não Circulante",key:"ativoNaoCirculante",isMoney:true},
+    {label:"    Imobilizado",key:"imobilizado",isMoney:true},
+    {label:"Passivo Total",key:"passivoTotal",bold:true,isMoney:true},
+    {label:"  Passivo Circulante",key:"passivoCirculante",isMoney:true},
+    {label:"    Empréstimos CP",key:"emprestimosCP",isMoney:true},
+    {label:"  Passivo Não Circulante",key:"passivoNaoCirculante",isMoney:true},
+    {label:"    Empréstimos LP",key:"emprestimosLP",isMoney:true},
+    {label:"Patrimônio Líquido",key:"patrimonioLiquido",bold:true,isMoney:true},
+  ];
+  return `<div class="pb">${secHdr("BP","Balanço Patrimonial")}
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;page-break-inside:avoid">
+    ${kpi("Tendência Patrimonial",tlLbl,tlClr)}
+    ${kpi("Patrimônio Líquido",fmtMoney(ultimo?.patrimonioLiquido),numVal(ultimo?.patrimonioLiquido)>0?"#111827":"#dc2626")}
+    ${kpi("Liquidez Corrente",ultimo?.liquidezCorrente?parseFloat(ultimo.liquidezCorrente).toFixed(2)+"x":"—",liqClr,liqC>=1?"Saudável (>1)":liqC>0?"Atenção (<1)":undefined)}
+    ${kpi("Endividamento Total",ultimo?.endividamentoTotal?parseFloat(ultimo.endividamentoTotal).toFixed(1)+"%":"—",endivClr,endiv<=60?"Normal (<60%)":endiv>0?"Elevado (>60%)":undefined)}
+  </div>
+  ${subTitle("Estrutura Patrimonial")}
+  <table style="${TS_AVOID}">
+    <thead>${row(["Indicador",...anos.map(a=>`<strong>${esc(a.ano)}</strong>`)],true)}</thead>
+    <tbody>${estrutura.map(r=>{
+      const vals=anos.map(a=>String(a[r.key]||""));
+      if(vals.every(v=>!v||v==="0"||v==="")) return "";
+      return row([
+        `<span style="${r.bold?"font-weight:700;color:#1a2744":"color:#374151"}">${esc(r.label)}</span>`,
+        ...vals.map(v=>v?fmtMoney(v):"—")
+      ]);
+    }).filter(Boolean).join("")}</tbody>
+  </table>
+  ${subTitle("Índices Financeiros")}
+  <table style="${TS_AVOID}">
+    <thead>${row(["Índice",...anos.map(a=>`<strong>${esc(a.ano)}</strong>`),"Referência"],true)}</thead>
+    <tbody>
+      ${anos.some(a=>a.liquidezCorrente)?row(["Liquidez Corrente",...anos.map(a=>a.liquidezCorrente?`<span style="color:${parseFloat(a.liquidezCorrente||"0")>=1?"#16a34a":"#dc2626"};font-weight:700">${parseFloat(a.liquidezCorrente).toFixed(2)}x</span>`:"—"),"≥ 1,00 (saudável)"]):""}
+      ${anos.some(a=>a.liquidezGeral)?row(["Liquidez Geral",...anos.map(a=>a.liquidezGeral?`${parseFloat(a.liquidezGeral).toFixed(2)}x`:"—"),"≥ 1,00"]):""}
+      ${anos.some(a=>a.endividamentoTotal)?row(["Endividamento Total",...anos.map(a=>a.endividamentoTotal?`<span style="color:${parseFloat(a.endividamentoTotal||"0")<=60?"#16a34a":"#dc2626"};font-weight:700">${parseFloat(a.endividamentoTotal).toFixed(1)}%</span>`:"—"),"≤ 60%"]):""}
+      ${anos.some(a=>a.capitalDeGiroLiquido)?row(["Capital de Giro Líquido",...anos.map(a=>a.capitalDeGiroLiquido?fmtMoney(a.capitalDeGiroLiquido):"—"),"Positivo = saudável"]):""}
+    </tbody>
+  </table>
+  ${bal.observacoes?`${subTitle("Observações")}${paraBox(bal.observacoes)}`:""}
+</div>`;
 }
 
 // ─── FIDC: Capacidade de Recompra ────────────────────────────────────────────
@@ -1473,6 +1666,7 @@ export function gerarHtmlRelatorio(p: PDFReportParams): {
   ${secFundo(p)}
   ${secScr(p)}
   ${secScrSocios(p)}
+  ${secIrSocios(p)}
   ${secProtestos(p)}
   ${secProcessos(p)}
   ${secBureau(p)}
@@ -1482,9 +1676,11 @@ export function gerarHtmlRelatorio(p: PDFReportParams): {
   ${secCovenants(p)}
   ${secCurvaAbc(p)}
   ${secGrupoEconomico(p)}
+  ${secBalanco(p)}
   ${secDre(p)}
   ${secVisita(p)}
   ${secAnotacoes(p)}
+  ${secDocumentos(p)}
   ${secDecisaoFinal(p)}
 </body></html>`;
 
