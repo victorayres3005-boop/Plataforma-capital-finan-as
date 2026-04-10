@@ -1003,6 +1003,25 @@ export default function HomePage() {
               );
             })()}
 
+            {/* ── Breakdown de Decisões ── */}
+            {metricas.totalFinalizadas > 0 && (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
+                {[
+                  { label: "Aprovadas",    value: metricas.porDecisao.aprovado,    sub: "sem restrições",        accent: "#16a34a", bg: "#f0fdf4", border: "#86efac" },
+                  { label: "Condicionais", value: metricas.porDecisao.condicional, sub: "aprovação condicional",  accent: "#7c3aed", bg: "#faf5ff", border: "#c4b5fd" },
+                  { label: "Em Análise",   value: metricas.porDecisao.pendente + metricas.emAnalise, sub: "aguardando parecer", accent: "#d97706", bg: "#fffbeb", border: "#fcd34d" },
+                  { label: "Recusadas",    value: metricas.porDecisao.reprovado,   sub: "não aprovadas",         accent: "#dc2626", bg: "#fff1f2", border: "#fca5a5" },
+                ].map((item, i) => (
+                  <div key={i} className="rounded-2xl border px-5 py-4 relative overflow-hidden" style={{ background: item.bg, borderColor: item.border }}>
+                    <div className="absolute top-0 left-0 w-1 h-full rounded-l-2xl" style={{ backgroundColor: item.accent }} />
+                    <p className="text-[10px] font-bold uppercase tracking-widest mb-2 pl-2" style={{ color: item.accent }}>{item.label}</p>
+                    <p className="text-2xl sm:text-3xl font-bold pl-2" style={{ color: item.accent }}>{item.value}</p>
+                    <p className="text-[11px] mt-1 pl-2" style={{ color: item.accent, opacity: 0.7 }}>{item.sub}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Dashboard de gráficos */}
             {collections.length > 0 && (
               <div className="mb-8">

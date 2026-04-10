@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useState, useEffect, useRef } from "react";
-import { ArrowLeft, Loader2, CheckCircle2, AlertTriangle, Pencil, Check, RotateCcw } from "lucide-react";
+import { ArrowLeft, Loader2, CheckCircle2, AlertTriangle, Pencil, RotateCcw, ThumbsUp, ThumbsDown, Clock } from "lucide-react";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import Image from "next/image";
 import { buildHTMLReport } from "@/lib/generators/html";
@@ -648,8 +648,8 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   // ── Supabase: Salvar / Finalizar coleta ──
   const [, setSaving] = useState(false);
   const [savedFeedback, setSavedFeedback] = useState(false);
-  const [confirmFinish, setConfirmFinish] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  const [pendingDecision, setPendingDecision] = useState<"APROVADO" | "REPROVADO" | "PENDENTE" | null>(null);
 
   // Helper: campos desnormalizados para a tabela
   const getCollectionMeta = () => {
@@ -751,9 +751,9 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     }
   };
 
-  const handleFinish = async () => {
+  const handleDecisionFinish = async (decisao: "APROVADO" | "REPROVADO" | "PENDENTE") => {
     setFinishing(true);
-    setConfirmFinish(false);
+    setPendingDecision(null);
     try {
       const supabase = createClient();
       let idToFinish = collectionId;
@@ -762,19 +762,26 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       }
       if (!idToFinish) throw new Error("Não foi possível salvar a coleta");
 
+      const meta = getCollectionMeta();
       const { error } = await supabase.from("document_collections").update({
         status: "finished",
         finished_at: new Date().toISOString(),
-        ...getCollectionMeta(),
+        ...meta,
+        decisao,
       }).eq("id", idToFinish);
       if (error) throw error;
 
-      toast.success("Coleta finalizada!");
-      onNotify?.(`Relatório de "${data.cnpj.razaoSocial || "empresa"}" finalizado`);
+      const labels: Record<typeof decisao, string> = {
+        APROVADO: "Aprovado",
+        REPROVADO: "Recusado",
+        PENDENTE: "Mantido em análise",
+      };
+      toast.success(`Parecer registrado: ${labels[decisao]}!`);
+      onNotify?.(`${labels[decisao]}: "${data.cnpj.razaoSocial || "empresa"}"`);
       onFirstCollection?.();
       window.location.href = `/historico?highlight=${idToFinish}`;
     } catch (err) {
-      toast.error("Erro ao finalizar: " + (err instanceof Error ? err.message : "Verifique a conexão"));
+      toast.error("Erro ao registrar parecer: " + (err instanceof Error ? err.message : "Verifique a conexão"));
     } finally {
       setFinishing(false);
     }
@@ -901,21 +908,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     return "baixo";
   })();
 
-  const riskCfg = {
-    alto:  { label: "RISCO ALTO",     labelColor: "text-[#DC2626]", bg: "bg-[#FEF2F2]", border: "border-[#FECACA]", dot: "bg-[#DC2626]", heroColor: "text-[#DC2626]" },
-    medio: { label: "RISCO MODERADO", labelColor: "text-[#D97706]", bg: "bg-[#FFFBEB]",  border: "border-[#FDE68A]", dot: "bg-[#F59E0B]", heroColor: "text-[#D97706]" },
-    baixo: { label: "RISCO BAIXO",    labelColor: "text-[#16A34A]", bg: "bg-[#F0FDF4]",  border: "border-[#BBF7D0]", dot: "bg-[#16A34A]", heroColor: "text-[#16A34A]" },
-  };
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const risk = riskCfg[riskScore];
-
   const qsaCount = data.qsa.quadroSocietario.filter(s => s.nome).length;
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const MutedValue = ({ v }: { v: string }) => {
-    const isZero = !v || v === "0" || v === "0,00" || v === "R$ 0,00";
-    return <span className={isZero ? "text-[#9CA3AF]" : "text-[#111827] font-semibold"}>{isZero ? "—" : v}</span>;
-  };
 
   // Company age helper
   const companyAge = (() => {
@@ -1984,22 +1977,49 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             <div className="flex items-center gap-2.5">
               <GoalfyButton data={data} aiAnalysis={aiAnalysis} settings={fundSettings} disabled={!aiAnalysis} />
 
-              {!confirmFinish ? (
-                <button
-                  onClick={() => setConfirmFinish(true)}
-                  disabled={finishing}
-                  className="btn-green"
-                  style={{ minHeight: "auto", padding: "8px 18px", fontSize: "13px" }}
-                >
-                  {finishing ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-                  {finishing ? "Finalizando..." : "Finalizar coleta"}
-                </button>
+              {finishing ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 8, background: "#f8fafc", border: "0.5px solid #e2e8f0" }}>
+                  <Loader2 size={13} className="animate-spin" style={{ color: "#64748b" }} />
+                  <span style={{ fontSize: 12, color: "#64748b", fontWeight: 500 }}>Registrando...</span>
+                </div>
+              ) : pendingDecision !== null ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, borderRadius: 8, padding: "6px 12px", border: "0.5px solid #e2e8f0", background: "#f8fafc" }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}>
+                    Confirmar{" "}
+                    <span style={{ color: pendingDecision === "APROVADO" ? "#16a34a" : pendingDecision === "REPROVADO" ? "#dc2626" : "#d97706" }}>
+                      {pendingDecision === "APROVADO" ? "Aprovação" : pendingDecision === "REPROVADO" ? "Recusa" : "Em Análise"}
+                    </span>
+                    ?
+                  </span>
+                  <button
+                    onClick={() => handleDecisionFinish(pendingDecision)}
+                    style={{ fontSize: 12, fontWeight: 700, color: pendingDecision === "APROVADO" ? "#16a34a" : pendingDecision === "REPROVADO" ? "#dc2626" : "#d97706", background: "none", border: "none", cursor: "pointer" }}
+                  >
+                    Sim
+                  </button>
+                  <span style={{ color: "#cbd5e1", fontSize: 12 }}>·</span>
+                  <button onClick={() => setPendingDecision(null)} style={{ fontSize: 12, color: "#94a3b8", background: "none", border: "none", cursor: "pointer" }}>Não</button>
+                </div>
               ) : (
-                <div style={{ display: "flex", alignItems: "center", gap: 6, border: "0.5px solid var(--ds-success-border)", borderRadius: 8, padding: "6px 12px", background: "var(--ds-success-bg)" }}>
-                  <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-2)" }}>Confirmar?</span>
-                  <button onClick={handleFinish} style={{ fontSize: 12, fontWeight: 700, color: "var(--ds-success-text)", background: "none", border: "none", cursor: "pointer" }}>Sim</button>
-                  <span style={{ color: "var(--text-4)", fontSize: 12 }}>·</span>
-                  <button onClick={() => setConfirmFinish(false)} style={{ fontSize: 12, color: "var(--text-4)", background: "none", border: "none", cursor: "pointer" }}>Não</button>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <button
+                    onClick={() => setPendingDecision("REPROVADO")}
+                    style={{ display: "flex", alignItems: "center", gap: 5, minHeight: "auto", padding: "8px 14px", fontSize: "13px", fontWeight: 600, borderRadius: 8, border: "1px solid #fca5a5", background: "#fff1f2", color: "#dc2626", cursor: "pointer" }}
+                  >
+                    <ThumbsDown size={13} /> Recusar
+                  </button>
+                  <button
+                    onClick={() => setPendingDecision("PENDENTE")}
+                    style={{ display: "flex", alignItems: "center", gap: 5, minHeight: "auto", padding: "8px 14px", fontSize: "13px", fontWeight: 600, borderRadius: 8, border: "1px solid #fcd34d", background: "#fffbeb", color: "#d97706", cursor: "pointer" }}
+                  >
+                    <Clock size={13} /> Em Análise
+                  </button>
+                  <button
+                    onClick={() => setPendingDecision("APROVADO")}
+                    style={{ display: "flex", alignItems: "center", gap: 5, minHeight: "auto", padding: "8px 14px", fontSize: "13px", fontWeight: 600, borderRadius: 8, border: "1px solid #86efac", background: "#f0fdf4", color: "#16a34a", cursor: "pointer" }}
+                  >
+                    <ThumbsUp size={13} /> Aprovar
+                  </button>
                 </div>
               )}
             </div>
