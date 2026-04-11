@@ -440,6 +440,9 @@ function ParecerContent() {
   const handleConfirmar = async () => {
     if (!decisao) { toast.error("Selecione uma decisão antes de confirmar."); return; }
     if (!id || !collection) return;
+    // Cancela auto-save pendente para evitar race condition
+    if (autoSaveTimer.current) { clearTimeout(autoSaveTimer.current); autoSaveTimer.current = null; }
+    pendingSave.current = false;
     setSaving(true);
     try {
       const supabase = createClient();

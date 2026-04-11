@@ -277,6 +277,11 @@ function loadNavState(): { step: AppStep; showDashboard: boolean } | null {
 }
 
 function saveNavState(step: AppStep, showDashboard: boolean) {
+  // Se voltou ao dashboard, limpa o state para evitar reload em step sem collection
+  if (showDashboard) {
+    try { sessionStorage.removeItem(NAV_STATE_KEY); } catch { /* ignore */ }
+    return;
+  }
   try { sessionStorage.setItem(NAV_STATE_KEY, JSON.stringify({ step, showDashboard })); } catch { /* ignore */ }
 }
 

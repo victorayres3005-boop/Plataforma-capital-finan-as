@@ -1,3 +1,6 @@
+import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
+
 export const runtime = "nodejs";
 
 const GOALFY_WEBHOOK_URL = process.env.GOALFY_WEBHOOK_URL || "";
@@ -5,6 +8,16 @@ const GOALFY_API_KEY = process.env.GOALFY_API_KEY || "";
 
 export async function POST(req: Request) {
   try {
+    // Auth check
+    const cookieStore = cookies();
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { cookies: { get(name: string) { try { return cookieStore.get(name)?.value; } catch { return undefined; } }, set() {}, remove() {} } }
+    );
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+
     const { data, aiAnalysis, settings } = await req.json();
 
     if (!GOALFY_WEBHOOK_URL) {
