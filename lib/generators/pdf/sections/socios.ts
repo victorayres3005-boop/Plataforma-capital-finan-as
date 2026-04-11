@@ -40,12 +40,12 @@ export function renderSocios(ctx: PdfCtx): void {
     // Header do sócio
     doc.setFillColor(240, 246, 255);
     doc.rect(margin, pos.y, contentW, 8, "F");
-    doc.setFontSize(8);
+    doc.setFontSize(DS.font.bodySmall);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...colors.primary);
     doc.text(`Sócio ${idx + 1} — ${ir.nomeSocio || "Nome não informado"}`, margin + 3, pos.y + 5.2);
 
-    doc.setFontSize(7);
+    doc.setFontSize(DS.font.micro);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...colors.textMuted);
     const cpfAno = [ir.cpf && `CPF: ${ir.cpf}`, ir.anoBase && `Ano-base: ${ir.anoBase}`]
@@ -57,7 +57,7 @@ export function renderSocios(ctx: PdfCtx): void {
 
     // Tipo do documento
     const tipoLabel = ir.tipoDocumento === "declaracao" ? "Declaração Completa" : "Recibo de Entrega";
-    doc.setFontSize(6.5);
+    doc.setFontSize(DS.font.micro);
     doc.setFont("helvetica", "italic");
     doc.setTextColor(...colors.textMuted);
     doc.text(`Documento: ${tipoLabel}`, margin + 3, pos.y);
@@ -90,22 +90,22 @@ export function renderSocios(ctx: PdfCtx): void {
     ];
 
     linhasIR.forEach((linha, i) => {
-      const bg: [number, number, number] = i % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+      const bg: [number, number, number] = i % 2 === 0 ? colors.zebraRow : colors.cardBg;
       doc.setFillColor(...bg);
-      doc.rect(margin, pos.y, contentW, 6, "F");
-      doc.setFontSize(7);
+      doc.rect(margin, pos.y, contentW, DS.space.tableRowH, "F");
+      doc.setFontSize(DS.font.micro);
       doc.setFont("helvetica", linha.bold ? "bold" : "normal");
       doc.setTextColor(...colors.text);
-      doc.text(linha.label, margin + 3, pos.y + 4.2);
-      doc.text(linha.valor, margin + contentW - 3, pos.y + 4.2, { align: "right" });
-      pos.y += 6;
+      doc.text(linha.label, margin + 3, pos.y + 5.2);
+      doc.text(linha.valor, margin + contentW - 3, pos.y + 5.2, { align: "right" });
+      pos.y += DS.space.tableRowH;
     });
 
     pos.y += 4;
 
     // Participação em outras sociedades
     if (ir.temSociedades && ir.sociedades && ir.sociedades.length > 0) {
-      doc.setFontSize(7);
+      doc.setFontSize(DS.font.micro);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...colors.primary);
       doc.text("Participação em outras sociedades:", margin + 3, pos.y);
@@ -113,7 +113,7 @@ export function renderSocios(ctx: PdfCtx): void {
       ir.sociedades.forEach((soc: { razaoSocial?: string; cnpj?: string; participacao?: string }) => {
         doc.setFont("helvetica", "normal");
         doc.setTextColor(...colors.text);
-        doc.setFontSize(6.5);
+        doc.setFontSize(DS.font.micro);
         doc.text(
           `• ${soc.razaoSocial || "N/D"}${soc.cnpj ? ` — CNPJ: ${soc.cnpj}` : ""}${soc.participacao ? ` (${soc.participacao})` : ""}`,
           margin + 5,
@@ -125,13 +125,13 @@ export function renderSocios(ctx: PdfCtx): void {
     }
 
     // Indicador de coerência
-    doc.setFontSize(7);
+    doc.setFontSize(DS.font.micro);
     doc.setFont("helvetica", "bold");
     if (ir.coerenciaComEmpresa) {
-      doc.setTextColor(22, 163, 74);
+      doc.setTextColor(...colors.success);
       doc.text("✓ Renda compatível com o porte da empresa", margin + 3, pos.y);
     } else {
-      doc.setTextColor(220, 38, 38);
+      doc.setTextColor(...colors.danger);
       doc.text("⚠ Renda incompatível com o porte da empresa", margin + 3, pos.y);
     }
     pos.y += 6;
@@ -139,7 +139,7 @@ export function renderSocios(ctx: PdfCtx): void {
     // Observações
     if (ir.observacoes) {
       doc.setFont("helvetica", "italic");
-      doc.setFontSize(6.5);
+      doc.setFontSize(DS.font.micro);
       doc.setTextColor(...colors.textMuted);
       const obsLines = doc.splitTextToSize(ir.observacoes, contentW - 6);
       obsLines.forEach((l: string) => {

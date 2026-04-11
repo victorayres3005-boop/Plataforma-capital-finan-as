@@ -30,7 +30,7 @@ export function renderVisita(ctx: PdfCtx): void {
   pos.y += 8;
 
   // Cabeçalho da visita
-  doc.setFontSize(7.5);
+  doc.setFontSize(DS.font.caption);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(...colors.text);
   doc.text(`Data: ${rv.dataVisita || "—"}   |   Responsavel: ${rv.responsavelVisita || "—"}   |   Duracao: ${rv.duracaoVisita || "—"}`, margin + 2, pos.y);
@@ -48,31 +48,31 @@ export function renderVisita(ctx: PdfCtx): void {
   ];
 
   checklist.forEach((item, i) => {
-    const bg: [number, number, number] = i % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+    const bg: [number, number, number] = i % 2 === 0 ? colors.zebraRow : colors.cardBg;
     doc.setFillColor(...bg);
-    doc.rect(margin, pos.y, contentW, 6, "F");
-    doc.setFontSize(7);
-    const itemColor: [number, number, number] = item.ok ? [22, 163, 74] : [220, 38, 38];
+    doc.rect(margin, pos.y, contentW, DS.space.tableRowH, "F");
+    doc.setFontSize(DS.font.micro);
+    const itemColor: [number, number, number] = item.ok ? colors.success : colors.danger;
     doc.setTextColor(...itemColor);
-    doc.text(item.ok ? "+" : "x", margin + 3, pos.y + 4.2);
+    doc.text(item.ok ? "+" : "x", margin + 3, pos.y + 5.2);
     doc.setTextColor(...colors.text);
-    doc.text(item.label, margin + 10, pos.y + 4.2);
-    pos.y += 6;
+    doc.text(item.label, margin + 10, pos.y + 5.2);
+    pos.y += DS.space.tableRowH;
   });
 
   pos.y += 4;
 
   // Pontos positivos
   if (rv.pontosPositivos?.length > 0) {
-    doc.setFontSize(7.5);
+    doc.setFontSize(DS.font.caption);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...colors.primary);
     doc.text("Pontos Positivos:", margin + 2, pos.y);
     pos.y += 5;
     rv.pontosPositivos.forEach((p: string) => {
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(7);
-      doc.setTextColor(22, 163, 74);
+      doc.setFontSize(DS.font.micro);
+      doc.setTextColor(...colors.success);
       doc.text(`+ ${p}`, margin + 4, pos.y);
       pos.y += 4.5;
     });
@@ -81,15 +81,15 @@ export function renderVisita(ctx: PdfCtx): void {
 
   // Pontos de atenção
   if (rv.pontosAtencao?.length > 0) {
-    doc.setFontSize(7.5);
+    doc.setFontSize(DS.font.caption);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...colors.primary);
     doc.text("Pontos de Atencao:", margin + 2, pos.y);
     pos.y += 5;
     rv.pontosAtencao.forEach((p: string) => {
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(7);
-      doc.setTextColor(220, 38, 38);
+      doc.setFontSize(DS.font.micro);
+      doc.setTextColor(...colors.danger);
       doc.text(`! ${p}`, margin + 4, pos.y);
       pos.y += 4.5;
     });
@@ -98,11 +98,11 @@ export function renderVisita(ctx: PdfCtx): void {
 
   // Recomendação
   pos.y += 4;
-  const recCor: [number, number, number] = rv.recomendacaoVisitante === "aprovado" ? [22, 163, 74] :
-    rv.recomendacaoVisitante === "condicional" ? [234, 179, 8] : [220, 38, 38];
+  const recCor: [number, number, number] = rv.recomendacaoVisitante === "aprovado" ? colors.success :
+    rv.recomendacaoVisitante === "condicional" ? colors.warning : colors.danger;
   doc.setFillColor(...recCor);
   doc.roundedRect(margin, pos.y, contentW, 9, 1, 1, "F");
-  doc.setFontSize(8);
+  doc.setFontSize(DS.font.bodySmall);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(255, 255, 255);
   const recTexto = rv.recomendacaoVisitante === "aprovado" ? "Recomendação do visitante: Aprovado" :
@@ -115,13 +115,13 @@ export function renderVisita(ctx: PdfCtx): void {
   if (rv.observacoesLivres) {
     pos.y += 12;
     checkPageBreak(ctx, 16);
-    doc.setFontSize(7.5);
+    doc.setFontSize(DS.font.caption);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...colors.textMuted);
     doc.text("Observações:", margin + 2, pos.y);
     pos.y += 6;
     doc.setFont("helvetica", "italic");
-    doc.setFontSize(7);
+    doc.setFontSize(DS.font.micro);
     doc.setTextColor(...colors.text);
     const obsLines = doc.splitTextToSize(rv.observacoesLivres, contentW - 6);
     obsLines.forEach((l: string) => { checkPageBreak(ctx, 5); doc.text(l, margin + 2, pos.y); pos.y += 4.5; });
@@ -147,18 +147,18 @@ export function renderVisita(ctx: PdfCtx): void {
     const colLW = 90;
     const colRW = contentW - colLW;
     rows.forEach(([label, value], i) => {
-      checkPageBreak(ctx, 6);
-      const bg: [number, number, number] = i % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
+      checkPageBreak(ctx, DS.space.tableRowH);
+      const bg: [number, number, number] = i % 2 === 0 ? colors.zebraRow : colors.cardBg;
       doc.setFillColor(...bg);
-      doc.rect(margin, pos.y, contentW, 6, "F");
-      doc.setFontSize(6.5);
+      doc.rect(margin, pos.y, contentW, DS.space.tableRowH, "F");
+      doc.setFontSize(DS.font.micro);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...colors.textMuted);
-      doc.text(label, margin + 3, pos.y + 4);
+      doc.text(label, margin + 3, pos.y + 5.2);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...colors.text);
-      doc.text(value || "—", margin + colLW, pos.y + 4, { maxWidth: colRW - 4 });
-      pos.y += 6;
+      doc.text(value || "—", margin + colLW, pos.y + 5.2, { maxWidth: colRW - 4 });
+      pos.y += DS.space.tableRowH;
     });
     pos.y += 3;
   };

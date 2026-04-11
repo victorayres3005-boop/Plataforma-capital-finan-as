@@ -7,7 +7,7 @@
  */
 import type { PdfCtx } from "../context";
 import {
-  newPage, drawHeader, checkPageBreak, drawSectionTitle, drawSpacer,
+  checkPageBreak, drawSectionTitle, drawSpacer,
   drawAlertDeduped, dsMiniHeader, dsMetricCard, autoT,
   fmtMoney, fmtBR, parseMoneyToNumber,
 } from "../helpers";
@@ -25,7 +25,7 @@ export function renderRisco(ctx: PdfCtx): void {
 
 function _renderProtestos(ctx: PdfCtx): void {
   const { doc, DS, pos, data, params, margin, contentW } = ctx;
-  const colors = DS.colors;
+  void DS;
   const { protestosVigentes } = params;
   const protestosNaoConsultados = !data.protestos;
 
@@ -36,9 +36,9 @@ function _renderProtestos(ctx: PdfCtx): void {
   // ── KPI Cards ──
   {
     checkPageBreak(ctx, 22);
-    const kpiGapP = 3;
+    const kpiGapP = DS.space.kpiCardGap;
     const kpiWP = (contentW - kpiGapP * 3) / 4;
-    const kpiHP = 20;
+    const kpiHP = DS.space.kpiCardH;
     const vigQtdP = parseInt(data.protestos?.vigentesQtd || '0');
     const regQtdP = parseInt(data.protestos?.regularizadosQtd || '0');
     const kpiDataP = [
@@ -61,11 +61,11 @@ function _renderProtestos(ctx: PdfCtx): void {
     const temFalSint = !!data.processos?.temFalencia;
     if (procTotalSint > 0 || temFalSint) {
       checkPageBreak(ctx, 22);
-      const kpiGapP2 = 3;
+      const kpiGapP2 = DS.space.kpiCardGap;
       const kpiWP2 = (contentW - kpiGapP2 * 3) / 4;
-      const kpiHP2 = 20;
+      const kpiHP2 = DS.space.kpiCardH;
       const procKpis = [
-        { label: "Processos Judiciais", value: String(procTotalSint), border: procTotalSint > 0 ? ([217, 119, 6] as [number, number, number]) : DS.colors.borderRGB, valColor: procTotalSint > 0 ? ([217, 119, 6] as [number, number, number]) : DS.colors.textPrimary },
+        { label: "Processos Judiciais", value: String(procTotalSint), border: procTotalSint > 0 ? ([...DS.colors.warning] as [number, number, number]) : DS.colors.borderRGB, valColor: procTotalSint > 0 ? ([...DS.colors.warning] as [number, number, number]) : DS.colors.textPrimary },
         { label: "Polo Ativo (Autor)", value: poloAtivoSint > 0 ? String(poloAtivoSint) : "—", border: [59, 130, 246] as [number, number, number], valColor: [29, 78, 216] as [number, number, number] },
         { label: "Polo Passivo (Réu)", value: poloPassivoSint > 0 ? String(poloPassivoSint) : "—", border: poloPassivoSint > 0 ? DS.colors.danger : DS.colors.borderRGB, valColor: poloPassivoSint > 0 ? DS.colors.danger : DS.colors.textPrimary },
         { label: "Falência / RJ", value: temFalSint ? "ALERTA" : (data.processos?.temRJ ? "RJ" : "—"), border: (temFalSint || data.processos?.temRJ) ? DS.colors.danger : DS.colors.borderRGB, valColor: (temFalSint || data.processos?.temRJ) ? DS.colors.danger : DS.colors.textLight2 },
@@ -93,13 +93,13 @@ function _renderProtestos(ctx: PdfCtx): void {
   if (!protestosNaoConsultados && protestoDetalhes.length === 0) {
     drawSpacer(ctx, 4);
     checkPageBreak(ctx, 12);
-    doc.setFillColor(240, 253, 244);
+    doc.setFillColor(...DS.colors.successBg);
     doc.roundedRect(margin, pos.y, contentW, 10, 1, 1, "F");
-    doc.setFillColor(22, 163, 74);
+    doc.setFillColor(...DS.colors.success);
     doc.roundedRect(margin, pos.y, 3, 10, 0.5, 0.5, "F");
-    doc.setFontSize(7.5);
+    doc.setFontSize(DS.font.caption);
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(22, 163, 74);
+    doc.setTextColor(...DS.colors.success);
     doc.text("Nenhum protesto identificado", margin + 8, pos.y + 6.5);
     pos.y += 14;
   } else if (!protestosNaoConsultados) {
@@ -155,7 +155,7 @@ function _renderProtestos(ctx: PdfCtx): void {
     {
       const colGapD = 4;
       const colWD = (contentW - colGapD) / 2;
-      const rowHD = 6;
+      const rowHD = DS.space.tableRowH;
       const maxRowsD = Math.max(tempBuckets.length, valBuckets.length);
       const neededD = 7 + maxRowsD * rowHD + 8;
       drawSpacer(ctx, 4);
@@ -172,14 +172,14 @@ function _renderProtestos(ctx: PdfCtx): void {
 
       const drawSubHeader2 = (cx: number, startY: number, cw: number, c1: string, c2: string, c3: string) => {
         doc.setFillColor(50, 70, 110);
-        doc.rect(cx, startY, cw, 5.5, 'F');
-        doc.setFontSize(5.5);
+        doc.rect(cx, startY, cw, DS.space.tableRowH, 'F');
+        doc.setFontSize(DS.font.micro);
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(255, 255, 255);
-        doc.text(c1, cx + 2, startY + 4);
-        doc.text(c2, cx + cw * 0.72, startY + 4, { align: 'right' });
-        doc.text(c3, cx + cw - 1, startY + 4, { align: 'right' });
-        return startY + 5.5;
+        doc.text(c1, cx + 2, startY + 5.5);
+        doc.text(c2, cx + cw * 0.72, startY + 5.5, { align: 'right' });
+        doc.text(c3, cx + cw - 1, startY + 5.5, { align: 'right' });
+        return startY + DS.space.tableRowH;
       };
       yL = drawSubHeader2(margin, yL, colWD, 'PERIODO', 'QTD', 'VALOR');
       yR = drawSubHeader2(margin + colWD + colGapD, yR, colWD, 'FAIXA', 'QTD', 'VALOR');
@@ -187,14 +187,14 @@ function _renderProtestos(ctx: PdfCtx): void {
       tempBuckets.forEach((b, idx) => {
         doc.setFillColor(...(idx % 2 === 0 ? DS.colors.zebraRow : DS.colors.cardBg));
         doc.rect(margin, yL, colWD, rowHD, 'F');
-        doc.setFontSize(6);
+        doc.setFontSize(DS.font.micro);
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(...DS.colors.textPrimary);
         const labTrunc = b.label.length > 22 ? b.label.substring(0, 21) + '…' : b.label;
-        doc.text(labTrunc, margin + 2, yL + 4);
-        doc.text(String(b.qtd), margin + colWD * 0.72, yL + 4, { align: 'right' });
+        doc.text(labTrunc, margin + 2, yL + 5.5);
+        doc.text(String(b.qtd), margin + colWD * 0.72, yL + 5.5, { align: 'right' });
         doc.setTextColor(...(b.qtd > 0 ? DS.colors.danger : DS.colors.textLight2));
-        doc.text(b.qtd > 0 ? fmtProt(b.valor) : '—', margin + colWD - 1, yL + 4, { align: 'right' });
+        doc.text(b.qtd > 0 ? fmtProt(b.valor) : '—', margin + colWD - 1, yL + 5.5, { align: 'right' });
         doc.setDrawColor(...DS.colors.borderRGB);
         doc.line(margin, yL + rowHD, margin + colWD, yL + rowHD);
         yL += rowHD;
@@ -204,14 +204,14 @@ function _renderProtestos(ctx: PdfCtx): void {
         const cx2 = margin + colWD + colGapD;
         doc.setFillColor(...(idx % 2 === 0 ? DS.colors.zebraRow : DS.colors.cardBg));
         doc.rect(cx2, yR, colWD, rowHD, 'F');
-        doc.setFontSize(6);
+        doc.setFontSize(DS.font.micro);
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(...DS.colors.textPrimary);
         const labTrunc2 = b.label.length > 20 ? b.label.substring(0, 19) + '…' : b.label;
-        doc.text(labTrunc2, cx2 + 2, yR + 4);
-        doc.text(String(b.qtd), cx2 + colWD * 0.72, yR + 4, { align: 'right' });
+        doc.text(labTrunc2, cx2 + 2, yR + 5.5);
+        doc.text(String(b.qtd), cx2 + colWD * 0.72, yR + 5.5, { align: 'right' });
         doc.setTextColor(...(b.qtd > 0 ? DS.colors.textPrimary : DS.colors.textLight2));
-        doc.text(b.qtd > 0 ? fmtProt(b.valor) : '—', cx2 + colWD - 1, yR + 4, { align: 'right' });
+        doc.text(b.qtd > 0 ? fmtProt(b.valor) : '—', cx2 + colWD - 1, yR + 5.5, { align: 'right' });
         doc.setDrawColor(...DS.colors.borderRGB);
         doc.line(cx2, yR + rowHD, cx2 + colWD, yR + rowHD);
         yR += rowHD;
@@ -248,7 +248,7 @@ function _renderProtestos(ctx: PdfCtx): void {
       dsMiniHeader(ctx, 'LOCAIS DOS PROTESTOS');
       drawProtTable(protestoDetalhes.slice(0, 10));
       checkPageBreak(ctx, 10);
-      doc.setFontSize(5.5);
+      doc.setFontSize(DS.font.micro);
       doc.setFont("helvetica", "italic");
       doc.setTextColor(...DS.colors.textMuted);
       doc.text("* Detalhes (valor, data, apresentante) nao disponiveis no plano atual do Credit Hub — confirmar diretamente nos cartorios.", margin, pos.y);
@@ -296,9 +296,9 @@ function _renderProcessos(ctx: PdfCtx): void {
   // KPI Cards
   {
     checkPageBreak(ctx, 52);
-    const kpiGapQ = 3;
+    const kpiGapQ = DS.space.kpiCardGap;
     const kpiWQ = (contentW - kpiGapQ * 2) / 3;
-    const kpiHQ = 20;
+    const kpiHQ = DS.space.kpiCardH;
     const passivosN = parseInt(data.processos?.passivosTotal || '0');
     const poloAtivoN = parseInt(data.processos?.poloAtivoQtd || '0');
     const poloPassN = parseInt(data.processos?.poloPassivoQtd || '0');
@@ -357,13 +357,13 @@ function _renderProcessos(ctx: PdfCtx): void {
   if (!processosNaoConsultados && semDados) {
     drawSpacer(ctx, 4);
     checkPageBreak(ctx, 12);
-    doc.setFillColor(240, 253, 244);
+    doc.setFillColor(...DS.colors.successBg);
     doc.roundedRect(margin, pos.y, contentW, 10, 1, 1, "F");
-    doc.setFillColor(22, 163, 74);
+    doc.setFillColor(...DS.colors.success);
     doc.roundedRect(margin, pos.y, 3, 10, 0.5, 0.5, "F");
-    doc.setFontSize(7.5);
+    doc.setFontSize(DS.font.caption);
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(22, 163, 74);
+    doc.setTextColor(...DS.colors.success);
     doc.text("Nenhum processo judicial identificado", margin + 8, pos.y + 6.5);
     pos.y += 14;
   } else if (!processosNaoConsultados) {
@@ -374,7 +374,7 @@ function _renderProcessos(ctx: PdfCtx): void {
     };
 
     const statusColor = (s: string): [number, number, number] =>
-      /arquivado/i.test(s) ? [22, 163, 74] : colors.warning;
+      /arquivado/i.test(s) ? ([...colors.success] as [number, number, number]) : colors.warning;
 
     type ProcCell = { text: string; color?: [number, number, number]; bold?: boolean; align?: "left" | "right" };
 
@@ -608,7 +608,7 @@ function _renderCCF(ctx: PdfCtx): void {
       const fx = margin + i * (fieldW + 2);
       doc.setFillColor(...DS.colors.surface2);
       doc.rect(fx, pos.y, fieldW, rowH, "F");
-      doc.setFontSize(6.5);
+      doc.setFontSize(DS.font.micro);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...DS.colors.textMuted);
       doc.text(f.label, fx + 2, pos.y + 3.5);
@@ -628,7 +628,7 @@ function _renderCCF(ctx: PdfCtx): void {
     if (temCCF && ccf.bancos.length > 0) {
       drawSpacer(ctx, 4);
       checkPageBreak(ctx, 14);
-      doc.setFontSize(7);
+      doc.setFontSize(DS.font.micro);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...colors.textMuted);
       doc.text("OCORRÊNCIAS POR BANCO", margin, pos.y + 4);
@@ -653,18 +653,18 @@ function _renderCCF(ctx: PdfCtx): void {
         temMotivo
           ? [0.32, 0.10, 0.18, 0.40].map(r => contentW * r)
           : [0.50, 0.20, 0.30].map(r => contentW * r),
-        { fontSize: 6.5 },
+        { fontSize: DS.font.micro },
       );
     } else if (!temCCF) {
       drawSpacer(ctx, 4);
       checkPageBreak(ctx, 12);
-      doc.setFillColor(240, 253, 244);
+      doc.setFillColor(...DS.colors.successBg);
       doc.roundedRect(margin, pos.y, contentW, 10, 1, 1, "F");
-      doc.setFillColor(22, 163, 74);
+      doc.setFillColor(...DS.colors.success);
       doc.roundedRect(margin, pos.y, 3, 10, 0.5, 0.5, "F");
-      doc.setFontSize(7.5);
+      doc.setFontSize(DS.font.caption);
       doc.setFont("helvetica", "bold");
-      doc.setTextColor(22, 163, 74);
+      doc.setTextColor(...DS.colors.success);
       doc.text("Nenhuma ocorrência de Cheque sem Fundo identificada", margin + 8, pos.y + 6.5);
       pos.y += 14;
     }
@@ -689,7 +689,7 @@ function _renderHistoricoConsultas(ctx: PdfCtx): void {
   drawSpacer(ctx, 4);
   checkPageBreak(ctx, 8 + Math.min(hist.length, 15) * 6 + 4);
 
-  doc.setFontSize(7);
+  doc.setFontSize(DS.font.micro);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(...colors.textMuted);
   doc.text(`${hist.length} consulta(s) registrada(s) — mostrando as mais recentes`, margin, pos.y + 4);
@@ -702,7 +702,7 @@ function _renderHistoricoConsultas(ctx: PdfCtx): void {
       { content: h.ultimaConsulta ? new Date(h.ultimaConsulta).toLocaleDateString("pt-BR") : "—", styles: { textColor: colors.textMuted } },
     ]),
     [contentW * 0.70, contentW * 0.30],
-    { fontSize: 6.5 },
+    { fontSize: DS.font.micro },
   );
 }
 
@@ -711,10 +711,10 @@ function _renderHistoricoConsultas(ctx: PdfCtx): void {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function _dsMiniHeaderAt(ctx: PdfCtx, cx: number, cy: number, cw: number, title: string, fillColor: [number, number, number]): void {
-  const { doc } = ctx;
+  const { doc, DS } = ctx;
   doc.setFillColor(...fillColor);
   doc.rect(cx, cy, cw, 7, "F");
-  doc.setFontSize(6.5);
+  doc.setFontSize(DS.font.micro);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(255, 255, 255);
   doc.text(title.toUpperCase(), cx + 3, cy + 4.8);
@@ -724,22 +724,22 @@ function _drawBannerNaoConsultadoLocal(ctx: PdfCtx, secao: string): void {
   const { doc, DS, pos, margin, contentW } = ctx;
   const padV = 10; const padH = 14;
   const textW = contentW - padH * 2 - 3;
-  doc.setFontSize(7);
+  doc.setFontSize(DS.font.micro);
   doc.setFont("helvetica", "normal");
   const descText = `${secao}: consulta não realizada nesta análise — dado não disponível no momento da geração do relatório.`;
   const descLines = doc.splitTextToSize(descText, textW);
   const bannerH = padV + 8 + descLines.length * 4 + padV;
   checkPageBreak(ctx, bannerH + 4);
-  doc.setFillColor(255, 251, 235);
-  doc.roundedRect(margin, pos.y, contentW, bannerH, 1.5, 1.5, "F");
+  doc.setFillColor(...DS.colors.warningBg);
+  doc.roundedRect(margin, pos.y, contentW, bannerH, DS.radius.md, DS.radius.md, "F");
   doc.setFillColor(...DS.colors.warn);
   doc.roundedRect(margin, pos.y, 3, bannerH, 0.5, 0.5, "F");
-  doc.setFontSize(8);
+  doc.setFontSize(DS.font.bodySmall);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(...DS.colors.warn);
   doc.text("Consulta não realizada", margin + padH, pos.y + padV);
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(7);
+  doc.setFontSize(DS.font.micro);
   doc.setTextColor(120, 80, 0);
   descLines.forEach((l: string, i: number) => {
     doc.text(l, margin + padH, pos.y + padV + 7 + i * 4);

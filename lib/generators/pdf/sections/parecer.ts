@@ -46,7 +46,7 @@ export function renderParecerSection(ctx: NewPdfCtx): void {
     margin,
     contentW,
     colors: DS.colors as unknown as LegacyPdfCtx["colors"],
-    DS: { colors: DS.colors },
+    DS: { colors: DS.colors, font: DS.font, space: DS.space, radius: DS.radius, lineH: DS.lineH },
     newPage: () => _newPage(ctx),
     drawHeader: () => _drawHeader(ctx),
     checkPageBreak: (needed: number) => _checkPageBreak(ctx, needed),

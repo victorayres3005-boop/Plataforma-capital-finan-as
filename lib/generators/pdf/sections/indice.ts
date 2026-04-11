@@ -52,7 +52,7 @@ export function renderIndice(ctx: PdfCtx): void {
     pos.y += 2.5;
     doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(148, 163, 184);
+    doc.setTextColor(...DS.colors.textMuted);
     doc.text(clEmpresa, W / 2, pos.y, { align: "center" });
     pos.y += 5.5;
   } else {
@@ -105,7 +105,7 @@ export function renderIndice(ctx: PdfCtx): void {
 
   const clGap  = contentW * 0.04;
   const clColW = contentW * 0.48;
-  const clRowH = 7;
+  const clRowH = DS.space.tableRowH;
   const clHdrH = 14;
 
   const clDrawCol = (
@@ -134,7 +134,7 @@ export function renderIndice(ctx: PdfCtx): void {
     doc.setTextColor(255, 255, 255);
     doc.text(frente, cx + 5.5, startY + 6.2);
 
-    doc.setFontSize(7);
+    doc.setFontSize(DS.font.micro);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(180, 200, 235);
     doc.text(subtitle, cx + 5.5, startY + 11.5);
@@ -174,7 +174,7 @@ export function renderIndice(ctx: PdfCtx): void {
         doc.setFillColor(255, 255, 255);
         doc.roundedRect(sqX, sqY, sqSize, sqSize, 0.5, 0.5, "F");
         doc.setLineDashPattern([0.6, 0.5], 0);
-        doc.setDrawColor(209, 213, 219);
+        doc.setDrawColor(...DS.colors.border);
         doc.setLineWidth(0.3);
         doc.roundedRect(sqX, sqY, sqSize, sqSize, 0.5, 0.5, "D");
         doc.setLineDashPattern([], 0);
@@ -182,28 +182,28 @@ export function renderIndice(ctx: PdfCtx): void {
       }
 
       const nameY = (!ok && item.obrigatorio) ? iy + clRowH / 2 - 0.5 : iy + clRowH / 2 + 2;
-      doc.setFontSize(8);
+      doc.setFontSize(DS.font.bodySmall);
       doc.setFont("helvetica", ok ? "normal" : "italic");
-      doc.setTextColor(...(ok ? [31, 41, 55] as [number, number, number] : [156, 163, 175] as [number, number, number]));
+      doc.setTextColor(...(ok ? DS.colors.textPrimary : DS.colors.textMuted));
       doc.text(item.label, cx + 10, nameY);
 
       if (!ok && item.obrigatorio) {
-        doc.setFontSize(6.5);
+        doc.setFontSize(DS.font.micro);
         doc.setFont("helvetica", "italic");
-        doc.setTextColor(217, 119, 6);
+        doc.setTextColor(...DS.colors.warning);
         doc.text("Nao enviado", cx + 10, iy + clRowH / 2 + 3.2);
       }
 
       const missing = item.obrigatorio && !ok;
       const badgeLabel = item.obrigatorio ? "OBR" : "OPC";
       const badgeBg: [number, number, number] = missing ? [254, 243, 199] : item.obrigatorio ? [219, 234, 254] : [243, 244, 246];
-      const badgeFg: [number, number, number] = missing ? [217, 119, 6] : item.obrigatorio ? [29, 78, 216] : [107, 114, 128];
+      const badgeFg: [number, number, number] = missing ? DS.colors.warning as [number, number, number] : item.obrigatorio ? [29, 78, 216] : DS.colors.textSecondary as [number, number, number];
       const bw = 11; const bh = 4;
       const bx = cx + clColW - bw - 2.5;
       const by = iy + (clRowH - bh) / 2;
       doc.setFillColor(...badgeBg);
       doc.roundedRect(bx, by, bw, bh, 0.8, 0.8, "F");
-      doc.setFontSize(7.5);
+      doc.setFontSize(DS.font.caption);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...badgeFg);
       doc.text(badgeLabel, bx + bw / 2, by + bh - 0.8, { align: "center" });
@@ -237,7 +237,7 @@ export function renderIndice(ctx: PdfCtx): void {
   // Legend
   {
     doc.setLineDashPattern([0.8, 0.6], 0);
-    doc.setDrawColor(229, 231, 235);
+    doc.setDrawColor(...DS.colors.border);
     doc.setLineWidth(0.3);
     doc.line(margin, pos.y, margin + contentW, pos.y);
     doc.setLineDashPattern([], 0);
@@ -256,9 +256,9 @@ export function renderIndice(ctx: PdfCtx): void {
     doc.line(lX + lSq * 0.42, lY - lSq + 0.5 + lSq * 0.82, lX + lSq - 0.4, lY - lSq + 0.5 + lSq * 0.22);
     doc.setLineWidth(0.2);
     lX += lSq + 1.8;
-    doc.setFontSize(7.5);
+    doc.setFontSize(DS.font.caption);
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(107, 114, 128);
+    doc.setTextColor(...DS.colors.textSecondary);
     doc.text("Documento recebido", lX, lY);
     lX += doc.getTextWidth("Documento recebido") + 6;
 
@@ -266,20 +266,20 @@ export function renderIndice(ctx: PdfCtx): void {
     doc.setFillColor(255, 255, 255);
     doc.roundedRect(lX, lY - lSq + 0.5, lSq, lSq, 0.3, 0.3, "F");
     doc.setLineDashPattern([0.5, 0.4], 0);
-    doc.setDrawColor(209, 213, 219);
+    doc.setDrawColor(...DS.colors.border);
     doc.setLineWidth(0.25);
     doc.roundedRect(lX, lY - lSq + 0.5, lSq, lSq, 0.3, 0.3, "D");
     doc.setLineDashPattern([], 0);
     doc.setLineWidth(0.2);
     lX += lSq + 1.8;
-    doc.setFontSize(7.5);
+    doc.setFontSize(DS.font.caption);
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(107, 114, 128);
+    doc.setTextColor(...DS.colors.textSecondary);
     doc.text("Nao enviado", lX, lY);
     lX += doc.getTextWidth("Nao enviado") + 6;
 
     // [OBR]
-    doc.setFontSize(7);
+    doc.setFontSize(DS.font.micro);
     doc.setFont("helvetica", "bold");
     const obrW = doc.getTextWidth("OBR") + 4;
     const lBh  = 3.2;
@@ -288,24 +288,24 @@ export function renderIndice(ctx: PdfCtx): void {
     doc.setTextColor(29, 78, 216);
     doc.text("OBR", lX + obrW / 2, lY - 0.1, { align: "center" });
     lX += obrW + 1.8;
-    doc.setFontSize(7.5);
+    doc.setFontSize(DS.font.caption);
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(107, 114, 128);
+    doc.setTextColor(...DS.colors.textSecondary);
     doc.text("Obrigatorio", lX, lY);
     lX += doc.getTextWidth("Obrigatorio") + 6;
 
     // [OPC]
-    doc.setFontSize(7);
+    doc.setFontSize(DS.font.micro);
     doc.setFont("helvetica", "bold");
     const opcW = doc.getTextWidth("OPC") + 4;
     doc.setFillColor(243, 244, 246);
     doc.roundedRect(lX, lY - lBh + 0.5, opcW, lBh, 0.4, 0.4, "F");
-    doc.setTextColor(107, 114, 128);
+    doc.setTextColor(...DS.colors.textSecondary);
     doc.text("OPC", lX + opcW / 2, lY - 0.1, { align: "center" });
     lX += opcW + 1.8;
-    doc.setFontSize(7.5);
+    doc.setFontSize(DS.font.caption);
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(107, 114, 128);
+    doc.setTextColor(...DS.colors.textSecondary);
     doc.text("Opcional", lX, lY);
     void lX;
 
@@ -326,14 +326,14 @@ export function renderIndice(ctx: PdfCtx): void {
   const clCardH = 32;
   doc.setFillColor(248, 250, 252);
   doc.roundedRect(margin, pos.y, contentW, clCardH, 3, 3, "F");
-  doc.setDrawColor(229, 231, 235);
+  doc.setDrawColor(...DS.colors.border);
   doc.setLineWidth(0.35);
   doc.roundedRect(margin, pos.y, contentW, clCardH, 3, 3, "D");
   doc.setLineWidth(0.1);
 
-  doc.setFontSize(8);
+  doc.setFontSize(DS.font.bodySmall);
   doc.setFont("helvetica", "normal");
-  doc.setTextColor(107, 114, 128);
+  doc.setTextColor(...DS.colors.textSecondary);
   doc.text("COBERTURA DOCUMENTAL TOTAL", margin + 6, pos.y + 6);
 
   doc.setFontSize(18);
@@ -343,9 +343,9 @@ export function renderIndice(ctx: PdfCtx): void {
   doc.text(clCountStr, margin + 6, pos.y + 16);
   const clCountW = doc.getTextWidth(clCountStr);
 
-  doc.setFontSize(9);
+  doc.setFontSize(DS.font.h3);
   doc.setFont("helvetica", "normal");
-  doc.setTextColor(107, 114, 128);
+  doc.setTextColor(...DS.colors.textSecondary);
   doc.text("documentos recebidos", margin + 8 + clCountW, pos.y + 16);
 
   const clBarX = margin + 6;
@@ -354,12 +354,12 @@ export function renderIndice(ctx: PdfCtx): void {
   const clBarY = pos.y + 20;
   const clFillW = clBarW * (clPct / 100);
 
-  doc.setFillColor(229, 231, 235);
+  doc.setFillColor(...DS.colors.border);
   doc.roundedRect(clBarX, clBarY, clBarW, clBarH, clBarH / 2, clBarH / 2, "F");
 
   if (clPct < 100 && clFillW < clBarW) {
     doc.setLineDashPattern([1.2, 0.8], 0);
-    doc.setDrawColor(156, 163, 175);
+    doc.setDrawColor(...DS.colors.textMuted);
     doc.setLineWidth(0.5);
     const pendX = clBarX + clFillW + 1;
     doc.line(pendX, clBarY + clBarH / 2, clBarX + clBarW - 1, clBarY + clBarH / 2);
@@ -378,9 +378,9 @@ export function renderIndice(ctx: PdfCtx): void {
   doc.text(`${clPct}%`, clBarX + clBarW + 2.5, clBarY + clBarH - 0.3);
 
   const clPendentes = clTotal - clPresent;
-  doc.setFontSize(8);
+  doc.setFontSize(DS.font.bodySmall);
   doc.setFont("helvetica", "normal");
-  doc.setTextColor(107, 114, 128);
+  doc.setTextColor(...DS.colors.textSecondary);
   doc.text(
     `${clPresent} de ${clTotal} documentos recebidos  -  ${clPendentes} pendente${clPendentes !== 1 ? "s" : ""}`,
     clBarX,

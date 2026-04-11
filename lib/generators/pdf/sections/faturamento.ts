@@ -6,7 +6,7 @@ import type { PdfCtx } from "../context";
 import type { AutoCell } from "../context";
 import {
   newPage, drawHeader, checkPageBreak, drawSectionTitle, drawSpacer,
-  drawAlertDeduped, drawDetAlerts, dsMiniHeader, dsMetricCard, autoT,
+  drawAlertDeduped, drawDetAlerts, autoT,
   fmtMoney, fmtBR, parseMoneyToNumber, normalizeTendencia,
   gerarAlertasFaturamento, gerarAlertasSCR, gerarAlertasDRE, gerarAlertasBalanco,
 } from "../helpers";
@@ -88,65 +88,95 @@ export function renderFaturamento(ctx: PdfCtx): void {
     const chartVals = chartMeses.map(m => parseMoneyToNumber(m.valor));
     const chartMax = Math.max(...chartVals, 1);
     const fmmChart = parseMoneyToNumber(data.faturamento?.fmm12m || "0");
-    const barAreaH = 40;
-    const barTopPadding = 10;
-    const labelAreaH = mesesFMM.length > 6 ? 12 : 6;
+    const barAreaH = DS.space.chartH;
+    const barTopPadding = DS.space.chartPadTop;
+    const labelAreaH = DS.space.chartLabelH;
     const n = chartMeses.length;
-    const bW = Math.max(2, (leftW / n) - 1.5);
+    const bW = Math.max(4, (leftW / n) - 2);
     const chartTopY = yLeft + barTopPadding;
+
+    // Chart title
+    doc.setFontSize(DS.font.h3);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...DS.colors.headerBg);
+    doc.text("FATURAMENTO MENSAL (R$ mil)", leftX, yLeft + 4);
+    const chartTitleH = 8;
 
     // FMM reference line
     if (fmmChart > 0) {
-      const fmmLineY = chartTopY + barAreaH - (fmmChart / chartMax) * barAreaH;
-      doc.setDrawColor(150, 150, 150);
-      doc.setLineDashPattern([1, 1], 0);
+      const fmmLineY = chartTopY + chartTitleH + barAreaH - (fmmChart / chartMax) * barAreaH;
+      doc.setDrawColor(...DS.colors.textMuted);
+      doc.setLineDashPattern([2, 2], 0);
       doc.line(leftX, fmmLineY, leftX + leftW, fmmLineY);
       doc.setLineDashPattern([], 0);
-      doc.setFontSize(5);
-      doc.setTextColor(130, 130, 130);
-      doc.text("FMM", leftX + leftW + 1, fmmLineY + 1);
+      doc.setFontSize(DS.font.micro);
+      doc.setTextColor(...DS.colors.textMuted);
+      doc.text("FMM", leftX + 2, fmmLineY - 1.5);
     }
 
+    // Y-axis max value
+    doc.setFontSize(DS.font.micro);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...DS.colors.textMuted);
+    const maxLabel = chartMax >= 1000 ? fmtBR(chartMax / 1000, 0) + "k" : fmtBR(chartMax, 0);
+    doc.text(maxLabel, leftX, chartTopY + chartTitleH + 3);
+
     // Bars
+    const barsStartY = chartTopY + chartTitleH;
     chartMeses.forEach((m, i) => {
       const v = chartVals[i];
       const bH = Math.max(1, (v / chartMax) * barAreaH);
-      const bX = leftX + i * (bW + 1.5);
-      const bY = chartTopY + barAreaH - bH;
+      const bX = leftX + i * (bW + 2);
+      const bY = barsStartY + barAreaH - bH;
       const isMax = v === chartMax && v > 0;
       const isZero = v === 0;
-      const barColor: [number, number, number] = isZero ? [217, 119, 6] : isMax ? [20, 40, 100] : colors.navy;
+      const barColor: [number, number, number] = isZero ? [...DS.colors.warning] as [number, number, number] : isMax ? [...DS.colors.headerBg] as [number, number, number] : [...colors.navy] as [number, number, number];
       doc.setFillColor(...barColor);
-      doc.roundedRect(bX, bY, bW, bH, 0.5, 0.5, "F");
+      doc.roundedRect(bX, bY, bW, bH, 0.8, 0.8, "F");
 
-      doc.setFontSize(4.5);
-      doc.setTextColor(100, 100, 100);
+      // Month labels - all on same line (no zig-zag)
       const mLabel = parseMesLabel(m.mes);
       const labelX = bX + bW / 2;
-      const isEven = i % 2 === 0;
-      const labelY = chartTopY + barAreaH + (isEven ? 4 : 8);
-
-      doc.setFontSize(5.5);
-      doc.setTextColor(80, 80, 80);
+      const labelY = barsStartY + barAreaH + 5;
+      doc.setFontSize(DS.font.chartLabel);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...DS.colors.textSecondary);
       doc.text(mLabel, labelX, labelY, { align: "center" });
 
+      // Value labels
       const vLabel = v >= 1000
         ? fmtBR(v / 1000, 0) + "k"
         : v > 0
           ? fmtBR(v / 1000, 1) + "k"
           : "0";
 
-      doc.setFontSize(4);
-      doc.setTextColor(70, 70, 70);
-      if (bH > 6) {
-        doc.text(vLabel, bX + bW / 2, bY - 1, { align: "center" });
+      doc.setFontSize(DS.font.chartValue);
+      doc.setTextColor(...DS.colors.textSecondary);
+      if (bH > 8) {
+        doc.text(vLabel, bX + bW / 2, bY - 1.5, { align: "center" });
       } else if (v > 0) {
-        doc.setTextColor(30, 30, 30);
-        doc.text(vLabel, bX + bW / 2, chartTopY + barAreaH - bH - 1.5, { align: "center" });
+        doc.setTextColor(...DS.colors.textPrimary);
+        doc.text(vLabel, bX + bW / 2, barsStartY + barAreaH - bH - 2, { align: "center" });
       }
     });
 
-    yLeft = chartTopY + barAreaH + labelAreaH + 1;
+    // Legend
+    const legendY = barsStartY + barAreaH + labelAreaH + 2;
+    doc.setFontSize(DS.font.micro);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...DS.colors.textMuted);
+    doc.setFillColor(...colors.navy);
+    doc.rect(leftX, legendY - 2, 4, 2.5, "F");
+    doc.text("Faturamento Mensal", leftX + 6, legendY);
+    if (fmmChart > 0) {
+      doc.setDrawColor(...DS.colors.textMuted);
+      doc.setLineDashPattern([1.5, 1.5], 0);
+      doc.line(leftX + 55, legendY - 1, leftX + 63, legendY - 1);
+      doc.setLineDashPattern([], 0);
+      doc.text("FMM 12M", leftX + 65, legendY);
+    }
+
+    yLeft = legendY + 4;
 
     // Summary line
     const fmmK = fmmNum > 0 ? (fmmNum / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) : "—";
@@ -168,19 +198,19 @@ export function renderFaturamento(ctx: PdfCtx): void {
     const totalFat = chartVals.reduce((a, b) => a + b, 0);
     const totalK = (totalFat / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 });
 
-    doc.setFontSize(6.5);
+    doc.setFontSize(DS.font.bodySmall);
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(...colors.textMuted);
+    doc.setTextColor(...DS.colors.textSecondary);
     doc.text(`FMM 12M (mil R$): ${fmmK}   |   FMM Médio (mil R$): ${fmmMedioK}   |   Total (mil R$): ${totalK}`, leftX, yLeft);
-    yLeft += 6;
+    yLeft += 8;
 
     // ── Tabela faturamento mensal — 2 colunas ──
     yLeft += 6;
-    const tbl2RowH = 5.2;
-    const tbl2HdrH = 6;
+    const tbl2RowH = DS.space.tableRowH;
+    const tbl2HdrH = DS.space.tableHeaderH;
     const tbl2ColW = (leftW - 4) / 2;
 
-    doc.setFontSize(7);
+    doc.setFontSize(DS.font.bodySmall);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...DS.colors.headerBg);
     doc.text("FATURAMENTO MENSAL DETALHADO", leftX, yLeft);
@@ -192,11 +222,11 @@ export function renderFaturamento(ctx: PdfCtx): void {
     const drawTbl2Header = (cx: number) => {
       doc.setFillColor(...DS.colors.headerBg);
       doc.rect(cx, yLeft, tbl2ColW, tbl2HdrH, "F");
-      doc.setFontSize(6.5);
+      doc.setFontSize(DS.font.tableHead);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(255, 255, 255);
-      doc.text("MÊS", cx + 2, yLeft + 4.2);
-      doc.text("FATURAMENTO (R$)", cx + tbl2ColW - 2, yLeft + 4.2, { align: "right" });
+      doc.text("MÊS", cx + 2, yLeft + 5.5);
+      doc.text("FATURAMENTO (R$)", cx + tbl2ColW - 2, yLeft + 5.5, { align: "right" });
     };
     drawTbl2Header(leftX);
     drawTbl2Header(leftX + tbl2ColW + 4);
@@ -208,26 +238,26 @@ export function renderFaturamento(ctx: PdfCtx): void {
     const maxRows = Math.max(colA.length, colB.length);
 
     const drawTbl2Row = (cx: number, mes: { mes: string; valor: string } | null, idx: number) => {
-      const bg: [number, number, number] = idx % 2 === 0 ? [235, 243, 255] : [247, 251, 255];
+      const bg: [number, number, number] = idx % 2 === 0 ? [...DS.colors.zebraRow] as [number, number, number] : [...DS.colors.cardBg] as [number, number, number];
       doc.setFillColor(...bg);
       doc.rect(cx, yLeft, tbl2ColW, tbl2RowH, "F");
       if (!mes) return;
-      doc.setFontSize(6.5);
+      doc.setFontSize(DS.font.tableCell);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...DS.colors.textPrimary);
-      doc.text(parseMesLabel(mes.mes), cx + 2, yLeft + 3.6);
+      doc.text(parseMesLabel(mes.mes), cx + 2, yLeft + 5.5);
       const valNum = parseMoneyToNumber(mes.valor || "0");
-      const valColor: [number, number, number] = valNum === 0 ? DS.colors.warn : DS.colors.textPrimary;
+      const valColor: [number, number, number] = valNum === 0 ? [...DS.colors.warning] as [number, number, number] : [...DS.colors.textPrimary] as [number, number, number];
       doc.setTextColor(...valColor);
-      doc.text(mes.valor || "—", cx + tbl2ColW - 2, yLeft + 3.6, { align: "right" });
-      doc.setDrawColor(210, 225, 250);
+      doc.text(mes.valor || "—", cx + tbl2ColW - 2, yLeft + 5.5, { align: "right" });
+      doc.setDrawColor(...DS.colors.border);
       doc.setLineWidth(0.15);
       doc.line(cx, yLeft + tbl2RowH, cx + tbl2ColW, yLeft + tbl2RowH);
       doc.setLineWidth(0.1);
     };
 
     for (let i = 0; i < maxRows; i++) {
-      if (yLeft + tbl2RowH > 275) {
+      if (yLeft + tbl2RowH > DS.space.pageBreakY) {
         pos.y = yLeft;
         newPage(ctx);
         drawHeader(ctx);
@@ -250,7 +280,7 @@ export function renderFaturamento(ctx: PdfCtx): void {
       })
       .join("   |   ");
     if (fmmAnualTexto) {
-      doc.setFontSize(6);
+      doc.setFontSize(DS.font.micro);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(130, 130, 130);
       doc.text(fmmAnualTexto, leftX, yLeft);
@@ -261,7 +291,7 @@ export function renderFaturamento(ctx: PdfCtx): void {
     const mesesZeradosPDF = data.faturamento?.mesesZerados;
     if (mesesZeradosPDF && mesesZeradosPDF.length > 0) {
       const listaMeses = mesesZeradosPDF.map((mz: { mes: string }) => mz.mes).join(", ");
-      doc.setFontSize(6);
+      doc.setFontSize(DS.font.micro);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...colors.warning);
       doc.text(`\u26A0 ${mesesZeradosPDF.length} mes(es) com faturamento zero: ${listaMeses}`, leftX, yLeft);
@@ -299,7 +329,7 @@ export function renderFaturamento(ctx: PdfCtx): void {
   if (scrSemHistorico) {
     doc.setFillColor(...colors.primary);
     doc.roundedRect(margin, yRight, contentW, 7, 1, 1, "F");
-    doc.setFontSize(6);
+    doc.setFontSize(DS.font.micro);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
     doc.text("\u2713 PERFIL SCR \u2014 SEM OPERAÇÕES BANCÁRIAS", margin + 3, yRight + 4.8);
@@ -312,12 +342,12 @@ export function renderFaturamento(ctx: PdfCtx): void {
       "\u2713 Sem coobrigações (não figura como avalista)",
       "\u2713 Sem operações em discordância ou sub judice",
     ];
-    doc.setFontSize(6.5);
+    doc.setFontSize(DS.font.micro);
     confirmacoes.forEach(linha => {
       doc.setFillColor(240, 246, 255);
       doc.rect(margin, yRight, contentW, 6, "F");
       doc.setFont("helvetica", "normal");
-      doc.setTextColor(22, 163, 74);
+      doc.setTextColor(...DS.colors.success);
       doc.text(linha, margin + 3, yRight + 4.2);
       yRight += 6;
     });
@@ -332,7 +362,7 @@ export function renderFaturamento(ctx: PdfCtx): void {
       contentW - 4
     );
     doc.setFont("helvetica", "italic");
-    doc.setFontSize(6);
+    doc.setFontSize(DS.font.micro);
     doc.setTextColor(...colors.textMuted);
     interpretacaoLines.forEach((l: string) => { doc.text(l, margin + 2, yRight); yRight += 4; });
 
@@ -366,8 +396,8 @@ export function renderFaturamento(ctx: PdfCtx): void {
     const cLabel = contentW * 0.38;
     const cAnt = contentW * 0.19;
     const cAt = contentW * 0.19;
-    const scrRowH = 7;
-    const grpRowH = 5.5;
+    const scrRowH = DS.space.tableRowH;
+    const grpRowH = DS.space.tableRowH;
 
     const buildVar = (atRaw: number, antRaw: number, positiveIsGood: boolean): { str: string; color: [number, number, number] } => {
       if (antRaw === 0) return { str: "—", color: [160, 160, 160] };
@@ -376,7 +406,7 @@ export function renderFaturamento(ctx: PdfCtx): void {
       const pct = (diff / antRaw) * 100;
       const str = (pct > 0 ? "+" : "") + fmtBR(pct, 1) + "%";
       const isGood = (diff > 0 && positiveIsGood) || (diff < 0 && !positiveIsGood);
-      return { str, color: isGood ? [22, 163, 74] : [220, 38, 38] };
+      return { str, color: isGood ? DS.colors.success : DS.colors.danger };
     };
 
     type DataRow = { type: "data"; label: string; antVal: string; atVal: string; antRaw: number; atRaw: number; positiveIsGood: boolean; bold?: boolean; skipVar?: boolean };
@@ -434,12 +464,12 @@ export function renderFaturamento(ctx: PdfCtx): void {
     }
 
     yRight += 4;
-    doc.setFontSize(6.5);
+    doc.setFontSize(DS.font.micro);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...colors.text);
     doc.text(scrTableTitle, margin, yRight + 4.5);
     yRight += 6;
-    doc.setFontSize(5);
+    doc.setFontSize(DS.font.micro);
     doc.setFont("helvetica", "italic");
     doc.setTextColor(...colors.textMuted);
     doc.text("Saldos em mil R$ extraidos do Banco Central (SCR/Bacen). Variação: verde = melhora, vermelho = piora.", margin, yRight + 4);
@@ -447,7 +477,7 @@ export function renderFaturamento(ctx: PdfCtx): void {
 
     doc.setFillColor(...colors.navy);
     doc.rect(margin, yRight, contentW, 7, "F");
-    doc.setFontSize(6);
+    doc.setFontSize(DS.font.micro);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
     doc.text("MÉTRICA", margin + 3, yRight + 4.8);
@@ -463,7 +493,7 @@ export function renderFaturamento(ctx: PdfCtx): void {
     let dataIdx = 0;
     filteredRows.forEach((row) => {
       if (row.type === "group") {
-        if (yRight + grpRowH > 275) {
+        if (yRight + grpRowH > DS.space.pageBreakY) {
           pos.y = yRight;
           newPage(ctx);
           drawHeader(ctx);
@@ -472,7 +502,7 @@ export function renderFaturamento(ctx: PdfCtx): void {
         }
         doc.setFillColor(240, 244, 252);
         doc.rect(margin, yRight, contentW, grpRowH, "F");
-        doc.setFontSize(5);
+        doc.setFontSize(DS.font.micro);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(30, 58, 138);
         doc.text(row.label, margin + 3, yRight + 3.8);
@@ -481,7 +511,7 @@ export function renderFaturamento(ctx: PdfCtx): void {
         yRight += grpRowH;
       } else {
         const dr = row as DataRow;
-        if (yRight + scrRowH > 275) {
+        if (yRight + scrRowH > DS.space.pageBreakY) {
           pos.y = yRight;
           newPage(ctx);
           drawHeader(ctx);
@@ -493,7 +523,7 @@ export function renderFaturamento(ctx: PdfCtx): void {
         doc.setFillColor(...bg);
         doc.rect(margin, yRight, contentW, scrRowH, "F");
 
-        doc.setFontSize(6.5);
+        doc.setFontSize(DS.font.micro);
         doc.setFont("helvetica", dr.bold ? "bold" : "normal");
         doc.setTextColor(...(dr.bold ? colors.text : [60, 70, 90] as [number, number, number]));
         doc.text((dr.bold ? "  " : "    ") + dr.label, margin + 2, yRight + 4.8);
@@ -548,7 +578,7 @@ export function renderFaturamento(ctx: PdfCtx): void {
   if (data.scr?.instituicoes && data.scr.instituicoes.length > 0) {
     drawSpacer(ctx, 4);
     checkPageBreak(ctx, 8 + 8 + data.scr.instituicoes.length * 10 + 4);
-    doc.setFontSize(7.5);
+    doc.setFontSize(DS.font.caption);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...colors.text);
     doc.text("INSTITUICOES CREDORAS", margin, pos.y + 4);
@@ -564,13 +594,13 @@ export function renderFaturamento(ctx: PdfCtx): void {
   if (data.scr?.historicoInadimplencia) {
     pos.y += 4;
     checkPageBreak(ctx, 12);
-    doc.setFontSize(7);
+    doc.setFontSize(DS.font.micro);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...colors.textMuted);
     doc.text("Historico de Inadimplencia", margin, pos.y);
     pos.y += 5;
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(6.5);
+    doc.setFontSize(DS.font.micro);
     doc.setTextColor(...colors.text);
     const lines = doc.splitTextToSize(data.scr.historicoInadimplencia, contentW - 4);
     lines.forEach((l: string) => { doc.text(l, margin + 2, pos.y); pos.y += 4; });
@@ -642,7 +672,7 @@ function _renderSCRVencimentos(ctx: PdfCtx): void {
 
   const vColLabel = contentW * 0.35;
   const vColData = (contentW - vColLabel) / vencEntities.length;
-  const vRowH = 5.5;
+  const vRowH = DS.space.tableRowH;
 
   const hasFaixaBreakdown = vencEntities.some(e =>
     faixaKeys.some(k => parseMoneyToNumber((e.aVencer as Record<string, string> | undefined)?.[k] || "0") > 0
@@ -657,12 +687,12 @@ function _renderSCRVencimentos(ctx: PdfCtx): void {
   drawSpacer(ctx, 6);
   checkPageBreak(ctx, vNeeded);
 
-  doc.setFontSize(7.5);
+  doc.setFontSize(DS.font.caption);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(...colors.text);
   doc.text("SCR VENCIMENTOS", margin, pos.y + 4);
   pos.y += 5;
-  doc.setFontSize(5);
+  doc.setFontSize(DS.font.micro);
   doc.setFont("helvetica", "italic");
   doc.setTextColor(...colors.textMuted);
   doc.text(
@@ -675,7 +705,7 @@ function _renderSCRVencimentos(ctx: PdfCtx): void {
 
   doc.setFillColor(...colors.navy);
   doc.rect(margin, pos.y, contentW, 6, "F");
-  doc.setFontSize(5);
+  doc.setFontSize(DS.font.micro);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(255, 255, 255);
   doc.text(hasFaixaBreakdown ? "FAIXA" : "POSIÇÃO", margin + 2, pos.y + 4);
@@ -696,7 +726,7 @@ function _renderSCRVencimentos(ctx: PdfCtx): void {
     vals: string[],
     opts: { bold?: boolean; sectionBg?: "blue" | "red"; summaryBg?: "blue" | "red" } = {}
   ) => {
-    if (pos.y + vRowH > 275) {
+    if (pos.y + vRowH > DS.space.pageBreakY) {
       newPage(ctx);
       drawHeader(ctx);
     }
@@ -705,7 +735,7 @@ function _renderSCRVencimentos(ctx: PdfCtx): void {
       const isBlue = opts.sectionBg === "blue";
       doc.setFillColor(...(isBlue ? [22, 78, 140] as [number, number, number] : [185, 28, 28] as [number, number, number]));
       doc.rect(margin, pos.y, contentW, vRowH, "F");
-      doc.setFontSize(5.5);
+      doc.setFontSize(DS.font.micro);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(255, 255, 255);
       doc.text(label, margin + 2, pos.y + 3.8);
@@ -718,7 +748,7 @@ function _renderSCRVencimentos(ctx: PdfCtx): void {
       const isBlue = opts.summaryBg === "blue";
       doc.setFillColor(...(isBlue ? [215, 237, 255] as [number, number, number] : [255, 220, 220] as [number, number, number]));
       doc.rect(margin, pos.y, contentW, vRowH, "F");
-      doc.setFontSize(5.5);
+      doc.setFontSize(DS.font.micro);
       doc.setFont("helvetica", "bold");
       const summaryColor = isBlue ? colors.primary : [185, 28, 28] as [number, number, number];
       doc.setTextColor(...summaryColor);
@@ -735,7 +765,7 @@ function _renderSCRVencimentos(ctx: PdfCtx): void {
     const isVencida = opts.bold === false && vals.some(v => parseMoneyToNumber(v) > 0);
     doc.setFillColor(...(vIdx % 2 === 0 ? [248, 250, 252] as [number, number, number] : [255, 255, 255] as [number, number, number]));
     doc.rect(margin, pos.y, contentW, vRowH, "F");
-    doc.setFontSize(5.5);
+    doc.setFontSize(DS.font.micro);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...colors.textSec);
     doc.text(label, margin + 2, pos.y + 3.8);
@@ -775,7 +805,7 @@ function _renderSCRVencimentos(ctx: PdfCtx): void {
   pos.y += 4;
 
   if (!data.scrSocios || data.scrSocios.length === 0) {
-    doc.setFontSize(5);
+    doc.setFontSize(DS.font.micro);
     doc.setFont("helvetica", "italic");
     doc.setTextColor(...colors.textMuted);
     doc.text("* SCR dos socios nao enviado — apenas dados da empresa exibidos.", margin, pos.y);
@@ -791,16 +821,16 @@ function _renderModalidadesPJ(ctx: PdfCtx, hasAnterior: boolean, periodoAnt: str
   const modPJ = data.scr.modalidades;
   const modPJAnt = data.scrAnterior?.modalidades || [];
   const temAntPJ = modPJAnt.length > 0 && hasAnterior;
-  const modPJRowH = 6;
+  const modPJRowH = DS.space.tableRowH;
   const modPJNeeded = 4 + 8 + 6 + 5 + modPJ.length * modPJRowH + 4;
-  if (pos.y + modPJNeeded > 275) {
+  if (pos.y + modPJNeeded > DS.space.pageBreakY) {
     newPage(ctx);
     drawHeader(ctx);
   } else {
     pos.y += 4;
   }
 
-  doc.setFontSize(7.5);
+  doc.setFontSize(DS.font.caption);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(...colors.text);
   const razaoFull = data.cnpj?.razaoSocial || "Empresa";
@@ -814,7 +844,7 @@ function _renderModalidadesPJ(ctx: PdfCtx, hasAnterior: boolean, periodoAnt: str
 
   doc.setFillColor(...colors.navy);
   doc.rect(margin, pos.y, contentW, 6, "F");
-  doc.setFontSize(5);
+  doc.setFontSize(DS.font.micro);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(255, 255, 255);
   if (temAntPJ) {
@@ -827,7 +857,7 @@ function _renderModalidadesPJ(ctx: PdfCtx, hasAnterior: boolean, periodoAnt: str
 
   doc.setFillColor(50, 70, 110);
   doc.rect(margin, pos.y, contentW, 5, "F");
-  doc.setFontSize(4.5);
+  doc.setFontSize(DS.font.micro);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(255, 255, 255);
   doc.text("MODALIDADE", margin + 2, pos.y + 3.5);
@@ -882,10 +912,10 @@ function _renderModalidadesPJ(ctx: PdfCtx, hasAnterior: boolean, periodoAnt: str
   orderedModPJ.forEach((m: ModItem) => {
     if (m.ehContingente && !separadorRendered) {
       separadorRendered = true;
-      if (pos.y + modPJRowH + 1 > 275) { newPage(ctx); drawHeader(ctx); }
+      if (pos.y + modPJRowH + 1 > DS.space.pageBreakY) { newPage(ctx); drawHeader(ctx); }
       doc.setFillColor(245, 245, 245);
       doc.rect(margin, pos.y, contentW, modPJRowH, "F");
-      doc.setFontSize(4.8);
+      doc.setFontSize(DS.font.micro);
       doc.setFont("helvetica", "italic");
       doc.setTextColor(...colors.textMuted);
       doc.text("Responsabilidades contingentes / Títulos fora da carteira", margin + 2, pos.y + 4);
@@ -893,11 +923,11 @@ function _renderModalidadesPJ(ctx: PdfCtx, hasAnterior: boolean, periodoAnt: str
       bgIdxPJ = 0;
     }
 
-    if (pos.y + modPJRowH > 275) { newPage(ctx); drawHeader(ctx); }
+    if (pos.y + modPJRowH > DS.space.pageBreakY) { newPage(ctx); drawHeader(ctx); }
     const bg: [number, number, number] = bgIdxPJ % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
     doc.setFillColor(...bg);
     doc.rect(margin, pos.y, contentW, modPJRowH, "F");
-    doc.setFontSize(5);
+    doc.setFontSize(DS.font.micro);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...colors.text);
     const nomeT = m.nome.length > 38 ? m.nome.substring(0, 37) + "…" : m.nome;
@@ -927,7 +957,7 @@ function _renderSCRSocios(ctx: PdfCtx, hasAnterior: boolean, periodoAt: string, 
 
     doc.setFillColor(...colors.primary);
     doc.roundedRect(margin, pos.y, contentW, 7, 1, 1, "F");
-    doc.setFontSize(7);
+    doc.setFontSize(DS.font.micro);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
     doc.text(`SCR SÓCIO — ${socio.nomeSocio || socio.cpfSocio}`, margin + 3, pos.y + 4.8);
@@ -939,7 +969,7 @@ function _renderSCRSocios(ctx: PdfCtx, hasAnterior: boolean, periodoAt: string, 
 
     doc.setFillColor(...colors.primary);
     doc.roundedRect(margin, pos.y, contentW, 6, 1, 1, "F");
-    doc.setFontSize(5.5);
+    doc.setFontSize(DS.font.micro);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
 
@@ -970,8 +1000,8 @@ function _renderSCRSocios(ctx: PdfCtx, hasAnterior: boolean, periodoAt: string, 
     linhasSocio.forEach((linha, idx) => {
       const bgColor = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
       doc.setFillColor(...(bgColor as [number, number, number]));
-      doc.rect(margin, pos.y, contentW, 5.5, "F");
-      doc.setFontSize(5.5);
+      doc.rect(margin, pos.y, contentW, DS.space.tableRowH, "F");
+      doc.setFontSize(DS.font.micro);
       doc.setFont("helvetica", (linha as { bold?: boolean }).bold ? "bold" : "normal");
       doc.setTextColor(...colors.text);
       doc.text(linha.label, margin + 2, pos.y + 3.8);
@@ -987,9 +1017,7 @@ function _renderSCRSocios(ctx: PdfCtx, hasAnterior: boolean, periodoAt: string, 
           const igual = Math.abs(varPct) < 0.1;
           const varStr = (varPct > 0 ? "+" : "") + fmtBR(varPct, 1) + "%";
           doc.setTextColor(
-            igual ? colors.textMuted[0] : melhorou ? 22 : 220,
-            igual ? colors.textMuted[1] : melhorou ? 163 : 38,
-            igual ? colors.textMuted[2] : melhorou ? 74 : 38
+            ...(igual ? colors.textMuted : melhorou ? DS.colors.success : DS.colors.danger)
           );
           doc.text(varStr, margin + colMetrica + colAt + colAnt + 2, pos.y + 3.8);
           doc.setTextColor(...colors.text);
@@ -999,20 +1027,20 @@ function _renderSCRSocios(ctx: PdfCtx, hasAnterior: boolean, periodoAt: string, 
           doc.setTextColor(...colors.text);
         }
       }
-      pos.y += 5.5;
+      pos.y += DS.space.tableRowH;
     });
 
     // Modalidades do sócio
     if (socio.periodoAtual?.modalidades && socio.periodoAtual.modalidades.length > 0) {
       const modS = socio.periodoAtual.modalidades;
       const modSAnt = socio.periodoAnterior?.modalidades || [];
-      const modSRowH = 6;
+      const modSRowH = DS.space.tableRowH;
       const modSNeeded = 8 + 6 + 6 + modS.length * modSRowH + 4;
       checkPageBreak(ctx, modSNeeded);
       pos.y += 4;
 
       const labelMod = `MODALIDADES — ${(socio.nomeSocio || socio.cpfSocio || "Sócio").split(" ").slice(0, 2).join(" ")}`;
-      doc.setFontSize(7);
+      doc.setFontSize(DS.font.micro);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...colors.text);
       doc.text(labelMod, margin, pos.y + 4);
@@ -1025,7 +1053,7 @@ function _renderSCRSocios(ctx: PdfCtx, hasAnterior: boolean, periodoAt: string, 
 
       doc.setFillColor(...colors.navy);
       doc.rect(margin, pos.y, contentW, 6, "F");
-      doc.setFontSize(5);
+      doc.setFontSize(DS.font.micro);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(255, 255, 255);
       if (temAntMod) {
@@ -1040,7 +1068,7 @@ function _renderSCRSocios(ctx: PdfCtx, hasAnterior: boolean, periodoAt: string, 
 
       doc.setFillColor(50, 70, 110);
       doc.rect(margin, pos.y, contentW, 5, "F");
-      doc.setFontSize(4.5);
+      doc.setFontSize(DS.font.micro);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(255, 255, 255);
       doc.text("MODALIDADE", margin + 2, pos.y + 3.5);
@@ -1095,21 +1123,21 @@ function _renderSCRSocios(ctx: PdfCtx, hasAnterior: boolean, periodoAt: string, 
       orderedModS.forEach((m: ModSItem) => {
         if (m.ehContingente && !sepRenderedS) {
           sepRenderedS = true;
-          if (pos.y + modSRowH > 275) { newPage(ctx); drawHeader(ctx); }
+          if (pos.y + modSRowH > DS.space.pageBreakY) { newPage(ctx); drawHeader(ctx); }
           doc.setFillColor(245, 245, 245);
           doc.rect(margin, pos.y, contentW, modSRowH, "F");
-          doc.setFontSize(4.8);
+          doc.setFontSize(DS.font.micro);
           doc.setFont("helvetica", "italic");
           doc.setTextColor(...colors.textMuted);
           doc.text("Responsabilidades contingentes / Títulos fora da carteira", margin + 2, pos.y + 4);
           pos.y += modSRowH;
           bgIdxS = 0;
         }
-        if (pos.y + modSRowH > 275) { newPage(ctx); drawHeader(ctx); }
+        if (pos.y + modSRowH > DS.space.pageBreakY) { newPage(ctx); drawHeader(ctx); }
         const bg: [number, number, number] = bgIdxS % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
         doc.setFillColor(...bg);
         doc.rect(margin, pos.y, contentW, modSRowH, "F");
-        doc.setFontSize(5);
+        doc.setFontSize(DS.font.micro);
         doc.setFont("helvetica", "normal");
         doc.setTextColor(...colors.text);
         const nomeT = m.nome.length > 38 ? m.nome.substring(0, 37) + "…" : m.nome;
@@ -1152,7 +1180,7 @@ function _renderDRE(ctx: PdfCtx, alertasDRE: import("../helpers").AlertaDet[]): 
   const dreAnosMap = new Map<string, Record<string, string>>();
   (data.dre.anos as unknown as Record<string, string>[]).forEach((a) => dreAnosMap.set(a["ano"], a));
   const dreAnos = Array.from(dreAnosMap.values()).sort((a, b) => parseInt(a["ano"]) - parseInt(b["ano"]));
-  const dreFontSz = dreAnos.length >= 4 ? 6.5 : 7;
+  const dreFontSz = DS.font.micro;
   const dreColLabel = dreAnos.length >= 4 ? 58 : 62;
   const dreColAno = (contentW - dreColLabel) / dreAnos.length;
 
@@ -1205,7 +1233,7 @@ function _renderDRE(ctx: PdfCtx, alertasDRE: import("../helpers").AlertaDet[]): 
   });
 
   pos.y += 4;
-  doc.setFontSize(7);
+  doc.setFontSize(DS.font.micro);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(...colors.primary);
   const tendenciaDRE = normalizeTendencia(data.dre.tendenciaLucro);
@@ -1214,7 +1242,7 @@ function _renderDRE(ctx: PdfCtx, alertasDRE: import("../helpers").AlertaDet[]): 
 
   if (data.dre.observacoes) {
     doc.setFont("helvetica", "italic");
-    doc.setFontSize(6.5);
+    doc.setFontSize(DS.font.micro);
     doc.setTextColor(...colors.textMuted);
     const obsLines = doc.splitTextToSize(data.dre.observacoes, contentW - 4);
     obsLines.forEach((l: string) => { doc.text(l, margin + 2, pos.y); pos.y += 4; });
@@ -1239,7 +1267,7 @@ function _renderBalanco(ctx: PdfCtx, alertasBalanco: import("../helpers").Alerta
   const balAnosMap = new Map<string, Record<string, string>>();
   (data.balanco.anos as unknown as Record<string, string>[]).forEach((a) => balAnosMap.set(a["ano"], a));
   const balAnos = Array.from(balAnosMap.values()).sort((a, b) => parseInt(a["ano"]) - parseInt(b["ano"]));
-  const balFontSz = balAnos.length >= 4 ? 6.5 : 7;
+  const balFontSz = DS.font.micro;
   const colLabelB = balAnos.length >= 4 ? 58 : 65;
   const colAnoB = (contentW - colLabelB) / balAnos.length;
 
@@ -1325,11 +1353,11 @@ function _renderCurvaABC(ctx: PdfCtx): void {
     const ctxX = margin + ACCENT + PAD_L;
     const ctxMaxW = contentW - ACCENT - PAD_L - 2;
 
-    doc.setFontSize(7); doc.setFont("helvetica", "bold"); doc.setCharSpace(0);
+    doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "bold"); doc.setCharSpace(0);
     const linhaPrincipal = `${nomeCliente} — ${cleanPct}% da receita total`;
     const mainLines = doc.splitTextToSize(linhaPrincipal, textMaxW) as string[];
 
-    doc.setFontSize(6.5); doc.setFont("helvetica", "normal");
+    doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "normal");
     const linhaContexto = `Limite: 30%  ·  Período: ${data.curvaABC.periodoReferencia || "—"}`;
     const ctxLines = doc.splitTextToSize(linhaContexto, ctxMaxW) as string[];
 
@@ -1339,26 +1367,26 @@ function _renderCurvaABC(ctx: PdfCtx): void {
 
     doc.setFillColor(255, 245, 245);
     doc.rect(margin, pos.y, contentW, alertaH, "F");
-    doc.setFillColor(220, 38, 38);
+    doc.setFillColor(...DS.colors.danger);
     doc.rect(margin, pos.y, ACCENT, alertaH, "F");
 
     const bx = margin + ACCENT + PAD_L;
     const by = pos.y + PAD_H;
 
-    doc.setFillColor(220, 38, 38);
+    doc.setFillColor(...DS.colors.danger);
     doc.roundedRect(bx, by, BADGE_W, BADGE_H, 0.8, 0.8, "F");
-    doc.setFontSize(4.5); doc.setFont("helvetica", "bold"); doc.setCharSpace(0.3);
+    doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "bold"); doc.setCharSpace(0.3);
     doc.setTextColor(255, 255, 255);
     doc.text("ALTA", bx + BADGE_W / 2, by + BADGE_H - 0.9, { align: "center" });
 
-    doc.setFontSize(7); doc.setFont("helvetica", "bold"); doc.setCharSpace(0);
+    doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "bold"); doc.setCharSpace(0);
     doc.setTextColor(153, 27, 27);
     const mainBaseline = by + BADGE_H - 0.9;
     mainLines.forEach((line: string, i: number) => {
       doc.text(line, textX, mainBaseline + i * mainLineH);
     });
 
-    doc.setFontSize(6.5); doc.setFont("helvetica", "normal"); doc.setCharSpace(0);
+    doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "normal"); doc.setCharSpace(0);
     doc.setTextColor(185, 28, 28);
     const ctxY = by + BADGE_H + 1.5;
     ctxLines.forEach((line: string, i: number) => {
@@ -1374,7 +1402,7 @@ function _renderCurvaABC(ctx: PdfCtx): void {
   const classeATxt = data.curvaABC.totalClientesClasseA
     ? `   |   Classe A: ${data.curvaABC.totalClientesClasseA} clientes (R$ ${fmtMoney(data.curvaABC.receitaClasseA)})` : "";
   const resumoTexto = `Periodo: ${data.curvaABC.periodoReferencia || "—"}   |   Top 3: ${data.curvaABC.concentracaoTop3}%   |   Top 5: ${data.curvaABC.concentracaoTop5}%${top10Txt}   |   Total clientes: ${data.curvaABC.totalClientesNaBase || "—"}${classeATxt}`;
-  doc.setFontSize(7.5);
+  doc.setFontSize(DS.font.caption);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(...colors.text);
   const resumoLines = doc.splitTextToSize(resumoTexto, contentW - 4);
@@ -1389,7 +1417,7 @@ function _renderCurvaABC(ctx: PdfCtx): void {
     }) => {
       const pct = parseFloat(String(c.percentualReceita || "0").replace(",", "."));
       const pctCell: AutoCell = pct > 30
-        ? { content: `${c.percentualReceita}%`, styles: { textColor: [220, 38, 38] as [number, number, number], fontStyle: "bold" } }
+        ? { content: `${c.percentualReceita}%`, styles: { textColor: DS.colors.danger, fontStyle: "bold" } }
         : { content: `${c.percentualReceita}%` };
       const classeCell: AutoCell = c.classe === "A"
         ? { content: "A", styles: { textColor: [21, 128, 61] as [number, number, number], fontStyle: "bold" } }
@@ -1409,7 +1437,7 @@ function _renderCurvaABC(ctx: PdfCtx): void {
       ["#", "CLIENTE", "FATURAMENTO (R$)", "% RECEITA", "% ACUM.", "CL."],
       abcRows,
       [10, 65, 40, 20, 20, 10],
-      { fontSize: 7, headFontSize: 6 }
+      { fontSize: DS.font.micro, headFontSize: DS.font.micro }
     );
   }
 }

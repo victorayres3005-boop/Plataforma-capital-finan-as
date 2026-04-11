@@ -25,7 +25,7 @@ export interface PdfCtx {
   margin: number;
   contentW: number;
   colors: PdfColors;
-  DS: { colors: DSColors };
+  DS: { colors: DSColors; font?: Record<string, number>; space?: Record<string, number>; radius?: Record<string, number>; lineH?: Record<string, number> };
   // ── Core helpers ──────────────────────────────────────────────────────────
   newPage: () => void;
   drawHeader: () => void;

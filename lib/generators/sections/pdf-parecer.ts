@@ -38,6 +38,10 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
   const { aiAnalysis, decision, finalRating, resumoExecutivo, pontosFortes, pontosFracos, perguntasVisita, observacoes, coberturaAnalise,
           data, vencidosSCR = 0, fmmNum = 0, protestosVigentes = 0, alavancagem = 0, validMeses = [] } = params;
 
+  // DS tokens with fallbacks for legacy callers
+  const DSFont = DS.font ?? { micro: 7, caption: 7.5, bodySmall: 8, tableHead: 8, tableCell: 8, h3: 9.5, h2: 11 };
+  const DSSpace = DS.space ?? { tableRowH: 8, pageBreakY: 270 };
+
   newPage();
   drawHeader();
 
@@ -91,7 +95,7 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
   doc.setFont("helvetica", "normal");
   doc.setTextColor(...dsRGB(DS.colors.textMuted));
   doc.text("/10", margin + 5 + pareScoreW + 1, heroY + 21);
-  doc.setFontSize(6);
+  doc.setFontSize(DSFont.micro);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(...dsRGB(DS.colors.textMuted));
   doc.text("SCORE DE RISCO", margin + 5, heroY + 27);
@@ -126,7 +130,7 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
   // Subtitle under decision
   const decSubtitle =
     decision === "APROVADO" ? "Operação recomendada" : decision === "REPROVADO" ? "Operação não recomendada" : "Sujeito a condições";
-  doc.setFontSize(6);
+  doc.setFontSize(DSFont.micro);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(...dc.text);
   doc.text(decSubtitle, bX2p + bW2p / 2, bY2p + bH2p / 2 + 6.5, { align: "center" });
@@ -159,12 +163,12 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
       doc.setFillColor(217, 119, 6);
       doc.roundedRect(margin, badgeY, 3, badgeH, 0.5, 0.5, "F");
       // Texto
-      doc.setFontSize(6.5);
+      doc.setFontSize(DSFont.micro);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(161, 98, 7);
       doc.text("ANÁLISE PARCIAL", margin + 6, badgeY + 5);
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(6);
+      doc.setFontSize(DSFont.micro);
       doc.setTextColor(120, 70, 0);
       const ausentesStr = `Documentos ausentes: ${todosAusentes.join(", ")}. Score reflete apenas dados disponíveis — solicitar documentação antes de decisão final.`;
       const ausentesLines = doc.splitTextToSize(ausentesStr, contentW - 10) as string[];
@@ -236,7 +240,7 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
     ];
 
     const rowH   = 8;
-    const hdrH   = 7;
+    const hdrH   = DSSpace.tableRowH;
     const tableH = hdrH + components.length * rowH + 6;
     checkPageBreak(tableH + 10);
 
@@ -246,10 +250,10 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
     doc.rect(margin, pos.y, contentW, hdrH, "F");
     doc.setFillColor(...dsRGB(DS.colors.accentRGB));
     doc.rect(margin, pos.y, 3.5, hdrH, "F");
-    doc.setFontSize(7);
+    doc.setFontSize(DSFont.micro);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
-    doc.text("COMPOSICAO DO SCORE — POR COMPONENTE", margin + 7, pos.y + 4.8);
+    doc.text("COMPOSICAO DO SCORE — POR COMPONENTE", margin + 7, pos.y + 5.3);
 
     // Col widths: label | peso | status badge | barra | detalhe
     const cLabel = 38;
@@ -261,17 +265,17 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
     // Sub-header
     pos.y += hdrH;
     doc.setFillColor(45, 65, 100);
-    doc.rect(margin, pos.y, contentW, 5.5, "F");
-    doc.setFontSize(5.5);
+    doc.rect(margin, pos.y, contentW, DSSpace.tableRowH, "F");
+    doc.setFontSize(DSFont.micro);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(180, 200, 240);
     let hx = margin + 2;
-    doc.text("COMPONENTE",    hx, pos.y + 3.9); hx += cLabel;
-    doc.text("PESO",          hx, pos.y + 3.9); hx += cPeso;
-    doc.text("STATUS",        hx, pos.y + 3.9); hx += cBadge;
-    doc.text("RELEVÂNCIA",    hx, pos.y + 3.9); hx += cBarra;
-    doc.text("DIAGNÓSTICO",   hx, pos.y + 3.9);
-    pos.y += 5.5;
+    doc.text("COMPONENTE",    hx, pos.y + 5.3); hx += cLabel;
+    doc.text("PESO",          hx, pos.y + 5.3); hx += cPeso;
+    doc.text("STATUS",        hx, pos.y + 5.3); hx += cBadge;
+    doc.text("RELEVÂNCIA",    hx, pos.y + 5.3); hx += cBarra;
+    doc.text("DIAGNÓSTICO",   hx, pos.y + 5.3);
+    pos.y += DSSpace.tableRowH;
 
     components.forEach((comp, idx) => {
       const isZebra = idx % 2 === 0;
@@ -287,14 +291,14 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
       let cx = margin + 2;
 
       // Label
-      doc.setFontSize(7);
+      doc.setFontSize(DSFont.micro);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...dsRGB(DS.colors.textPrimary));
       doc.text(comp.label, cx, pos.y + 5.2);
       cx += cLabel;
 
       // Peso
-      doc.setFontSize(6.5);
+      doc.setFontSize(DSFont.micro);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...dsRGB(DS.colors.textMuted));
       doc.text(`${comp.peso}%`, cx, pos.y + 5.2);
@@ -314,7 +318,7 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
       const bw = 18; const bh = 5;
       doc.setFillColor(...sBg);
       doc.roundedRect(cx, pos.y + (rowH - bh) / 2, bw, bh, 1, 1, "F");
-      doc.setFontSize(5.5);
+      doc.setFontSize(DSFont.micro);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...sFg);
       doc.text(comp.status, cx + bw / 2, pos.y + (rowH - bh) / 2 + 3.6, { align: "center" });
@@ -331,14 +335,14 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
       doc.setFillColor(...barFg);
       doc.roundedRect(cx, bBarY, fill, bBarH, 1, 1, "F");
       // Percentual
-      doc.setFontSize(5.5);
+      doc.setFontSize(DSFont.micro);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...dsRGB(DS.colors.textMuted));
       doc.text(`${comp.peso}%`, cx + bBarW + 2, pos.y + 5.2);
       cx += cBarra;
 
       // Detalhe
-      doc.setFontSize(6);
+      doc.setFontSize(DSFont.micro);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...dsRGB(DS.colors.textMuted));
       const dLines = doc.splitTextToSize(comp.detalhe, cDet - 2) as string[];
@@ -349,13 +353,13 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
 
     // Linha totalizadora
     doc.setFillColor(228, 238, 252);
-    doc.rect(margin, pos.y, contentW, 7, "F");
+    doc.rect(margin, pos.y, contentW, DSSpace.tableRowH, "F");
     doc.setFillColor(...dsRGB(DS.colors.accentRGB));
-    doc.rect(margin, pos.y, 3.5, 7, "F");
-    doc.setFontSize(7.5);
+    doc.rect(margin, pos.y, 3.5, DSSpace.tableRowH, "F");
+    doc.setFontSize(DSFont.caption);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...dsRGB(DS.colors.headerBg));
-    doc.text("SCORE FINAL", margin + 7, pos.y + 4.8);
+    doc.text("SCORE FINAL", margin + 7, pos.y + 5.3);
     const scoreC: [number,number,number] = finalRating >= 7.5 ? [22,163,74] : finalRating >= 6 ? [217,119,6] : [220,38,38];
     doc.setTextColor(...scoreC);
     doc.text(`${finalRating}/10  —  ${decision.replace(/_/g, " ")}`, margin + 50, pos.y + 4.8);
@@ -367,7 +371,7 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
     doc.setFillColor(...dsRGB(DS.colors.accentRGB ?? DS.colors.accent));
     doc.rect(margin, pos.y, contentW, 0.8, "F");
     pos.y += 3;
-    doc.setFontSize(8);
+    doc.setFontSize(DSFont.bodySmall);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...dsRGB(DS.colors.accentRGB ?? DS.colors.accent));
     doc.text("RESUMO EXECUTIVO", margin, pos.y + 5);
@@ -393,7 +397,7 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
       doc.setFillColor(...accentC);
       doc.rect(margin, pos.y, contentW, 0.8, "F");
       pos.y += 3;
-      doc.setFontSize(8);
+      doc.setFontSize(DSFont.bodySmall);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(...accentC);
       doc.text(title.toUpperCase(), margin, pos.y + 5);
@@ -445,7 +449,7 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
         ];
       }),
       [0.15, 0.3, 0.25, 0.3].map((r) => contentW * r),
-      { fontSize: 6.5, headFontSize: 5.5, minCellHeight: 8 },
+      { fontSize: DSFont.micro, headFontSize: DSFont.micro, minCellHeight: DSSpace.tableRowH },
     );
   }
 
@@ -457,15 +461,15 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
     perguntasVisita.forEach((q, i) => {
       // Seta fonte antes do split para garantir cálculo de largura correto
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(8);
+      doc.setFontSize(DSFont.bodySmall);
       const qLines = doc.splitTextToSize(`${i + 1}. ${q.pergunta}`, contentW - 4) as string[];
       doc.setFont("helvetica", "italic");
-      doc.setFontSize(7.5);
+      doc.setFontSize(DSFont.caption);
       const cLines = q.contexto ? (doc.splitTextToSize("Contexto: " + q.contexto, contentW - 8) as string[]) : [];
       const needed = qLines.length * 4 + cLines.length * 3.5 + 5;
       checkPageBreak(needed);
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(8);
+      doc.setFontSize(DSFont.bodySmall);
       doc.setTextColor(...colors.text);
       qLines.forEach((line: string) => {
         doc.text(line, margin + 2, pos.y);
@@ -473,7 +477,7 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
       });
       if (cLines.length > 0) {
         doc.setFont("helvetica", "italic");
-        doc.setFontSize(7.5);
+        doc.setFontSize(DSFont.caption);
         doc.setTextColor(...colors.textMuted);
         cLines.forEach((line: string) => {
           doc.text(line, margin + 4, pos.y);
@@ -495,14 +499,14 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
     const paramCW = [contentW * 0.3, contentW * 0.35, contentW * 0.35];
 
     doc.setFillColor(50, 70, 110);
-    doc.rect(margin, pos.y, contentW, 5.5, "F");
-    doc.setFontSize(5.5);
+    doc.rect(margin, pos.y, contentW, DSSpace.tableRowH, "F");
+    doc.setFontSize(DSFont.micro);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
-    doc.text("PARAMETRO", margin + 2, pos.y + 4);
-    doc.text("VALOR SUGERIDO", margin + paramCW[0] + 2, pos.y + 4);
-    doc.text("BASE DE CALCULO", margin + paramCW[0] + paramCW[1] + 2, pos.y + 4);
-    pos.y += 5.5;
+    doc.text("PARAMETRO", margin + 2, pos.y + 5.3);
+    doc.text("VALOR SUGERIDO", margin + paramCW[0] + 2, pos.y + 5.3);
+    doc.text("BASE DE CALCULO", margin + paramCW[0] + paramCW[1] + 2, pos.y + 5.3);
+    pos.y += DSSpace.tableRowH;
 
     const paramRows: Array<{ label: string; key: string; base: string }> = [
       { label: "Limite aproximado", key: "limiteAproximado", base: "FMM × fatores de score e risco" },
@@ -514,27 +518,27 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
 
     paramRows.forEach((row, idx) => {
       const val = (paramOp as Record<string, string>)[row.key] || "—";
-      checkPageBreak(7);
+      checkPageBreak(DSSpace.tableRowH);
       doc.setFillColor(...(idx % 2 === 0 ? colors.surface : colors.surface2));
-      doc.rect(margin, pos.y, contentW, 6, "F");
+      doc.rect(margin, pos.y, contentW, DSSpace.tableRowH, "F");
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(6.5);
+      doc.setFontSize(DSFont.micro);
       doc.setTextColor(...colors.text);
-      doc.text(row.label, margin + 2, pos.y + 4);
+      doc.text(row.label, margin + 2, pos.y + 5.3);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...colors.primary);
-      doc.text(val, margin + paramCW[0] + 2, pos.y + 4);
+      doc.text(val, margin + paramCW[0] + 2, pos.y + 5.3);
       doc.setTextColor(...colors.textMuted);
-      doc.text(row.base, margin + paramCW[0] + paramCW[1] + 2, pos.y + 4);
+      doc.text(row.base, margin + paramCW[0] + paramCW[1] + 2, pos.y + 5.3);
       doc.setDrawColor(230, 230, 230);
-      doc.line(margin, pos.y + 6, margin + contentW, pos.y + 6);
-      pos.y += 6;
+      doc.line(margin, pos.y + DSSpace.tableRowH, margin + contentW, pos.y + DSSpace.tableRowH);
+      pos.y += DSSpace.tableRowH;
     });
 
     pos.y += 3;
     checkPageBreak(8);
     doc.setFont("helvetica", "italic");
-    doc.setFontSize(6);
+    doc.setFontSize(DSFont.micro);
     doc.setTextColor(...colors.textMuted);
     doc.text("Parametros indicativos. Limite e condicoes formais definidos pelo Comite.", margin, pos.y);
     pos.y += 6;
@@ -544,7 +548,7 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
   if (observacoes && observacoes.trim()) {
     // Define fonte ANTES do splitTextToSize para que a largura seja calculada corretamente
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(7.5);
+    doc.setFontSize(DSFont.caption);
     const noteLines = doc.splitTextToSize(observacoes.trim(), contentW - 8) as string[];
     const titleH = 10;
     const lineH = 5;
@@ -556,7 +560,7 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
     doc.roundedRect(margin, pos.y, contentW, titleH, 1.5, 1.5, "F");
     doc.setFillColor(...colors.navy);
     doc.roundedRect(margin, pos.y, 3, titleH, 0.5, 0.5, "F");
-    doc.setFontSize(6);
+    doc.setFontSize(DSFont.micro);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...colors.navy);
     doc.text("OBS", margin + 7, pos.y + 6.5);
@@ -572,7 +576,7 @@ export function renderParecer(ctx: PdfCtx, params: ParecerParams): void {
       doc.setFillColor(...colors.accent);
       doc.rect(margin, pos.y, 2.5, lineH, "F");
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(7.5);
+      doc.setFontSize(DSFont.caption);
       doc.setTextColor(...colors.text);
       doc.text(line, margin + 6, pos.y + lineH - 1.2);
       pos.y += lineH;

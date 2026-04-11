@@ -9,10 +9,8 @@ import {
   dsMetricCard, fmtMoney, fmtBR, parseMoneyToNumber,
   gerarAlertasQSA,
 } from "../helpers";
-import type { AutoCell } from "../context";
-
 export function renderSintese(ctx: PdfCtx): void {
-  const { doc, DS, pos, params, data, W, margin, contentW } = ctx;
+  const { doc, DS, pos, params, data, margin, contentW } = ctx;
   const {
     decision, finalRating, alerts, alertsHigh: _alertsHigh, riskScore,
     resumoExecutivo, alavancagem: alavParam,
@@ -51,9 +49,9 @@ export function renderSintese(ctx: PdfCtx): void {
   const scrNum = parseMoneyToNumber(data.scr?.totalDividasAtivas || "0");
   const alavancagem = alavParam ?? (fmmNum > 0 ? scrNum / fmmNum : 0);
 
-  const vermelho:   [number,number,number] = [220, 38, 38];
-  const amarelo:    [number,number,number] = [217, 119, 6];
-  const verde:      [number,number,number] = [22, 163, 74];
+  const vermelho:   [number,number,number] = [...DS.colors.danger] as [number,number,number];
+  const amarelo:    [number,number,number] = [...DS.colors.warning] as [number,number,number];
+  const verde:      [number,number,number] = [...DS.colors.success] as [number,number,number];
   const scoreColor: [number,number,number] = finalRating >= 7.5 ? verde : finalRating >= 6 ? amarelo : vermelho;
 
   // BLOCO 1 — Hero Score + Decisão
@@ -81,9 +79,9 @@ export function renderSintese(ctx: PdfCtx): void {
 
     // Score (left)
     const scoreX = margin + 8;
-    doc.setFontSize(6);
+    doc.setFontSize(DS.font.caption);
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(140, 175, 220);
+    doc.setTextColor(...DS.colors.textOnDark);
     doc.text("SCORE DE RISCO", scoreX, bloco1Y + 7);
     doc.setFontSize(28);
     doc.setFont("helvetica", "bold");
@@ -91,13 +89,13 @@ export function renderSintese(ctx: PdfCtx): void {
     const scoreStr = String(finalRating);
     doc.text(scoreStr, scoreX, bloco1Y + 22);
     const scoreNumW = doc.getTextWidth(scoreStr);
-    doc.setFontSize(11);
+    doc.setFontSize(DS.font.h2);
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(140, 175, 220);
+    doc.setTextColor(...DS.colors.textOnDark);
     doc.text("/10", scoreX + scoreNumW + 1, bloco1Y + 22);
 
     const ratingLabel = finalRating >= 8 ? "EXCELENTE" : finalRating >= 6.5 ? "SATISFATORIO" : finalRating >= 5 ? "MODERADO" : "ALTO RISCO";
-    doc.setFontSize(6);
+    doc.setFontSize(DS.font.micro);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...scoreColor);
     doc.text(ratingLabel, scoreX, bloco1Y + 27);
@@ -122,9 +120,9 @@ export function renderSintese(ctx: PdfCtx): void {
     const decC: [number,number,number] = decision === "APROVADO" ? verde : decision === "REPROVADO" ? vermelho : amarelo;
     const rightX = divX + 6;
     const rightW = contentW - (divX - margin) - 10;
-    doc.setFontSize(6);
+    doc.setFontSize(DS.font.caption);
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(140, 175, 220);
+    doc.setTextColor(...DS.colors.textOnDark);
     doc.text("DECISAO", rightX, bloco1Y + 7);
     doc.setFontSize(15);
     doc.setFont("helvetica", "bold");
@@ -137,28 +135,28 @@ export function renderSintese(ctx: PdfCtx): void {
       decision === "REPROVADO" ? "Operacao nao recomendada" :
       decision === "APROVACAO_CONDICIONAL" ? "Aprovacao mediante condicoes" :
       "Pendente de informacoes adicionais";
-    doc.setFontSize(6.5);
+    doc.setFontSize(DS.font.bodySmall);
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(140, 175, 220);
+    doc.setTextColor(...DS.colors.textOnDark);
     doc.text(decSubtitle, rightX, bloco1Y + 26);
 
     // Risk badge
-    const riscoBg: [number,number,number] = riskScore === "baixo" ? [22,163,74] : riskScore === "medio" ? [217,119,6] : [220,38,38];
-    const riscoBw = 30; const riscoBh = 7;
+    const riscoBg: [number,number,number] = riskScore === "baixo" ? verde : riskScore === "medio" ? amarelo : vermelho;
+    const riscoBw = 30; const riscoBh = 8;
     const riscoBx = margin + contentW - riscoBw - 4;
     const riscoBy = bloco1Y + 4;
     doc.setFillColor(...riscoBg);
-    doc.roundedRect(riscoBx, riscoBy, riscoBw, riscoBh, 1, 1, "F");
-    doc.setFontSize(6);
+    doc.roundedRect(riscoBx, riscoBy, riscoBw, riscoBh, DS.radius.sm, DS.radius.sm, "F");
+    doc.setFontSize(DS.font.micro);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
-    doc.text(`RISCO ${riskScore.toUpperCase()}`, riscoBx + riscoBw / 2, riscoBy + 4.8, { align: "center" });
+    doc.text(`RISCO ${riskScore.toUpperCase()}`, riscoBx + riscoBw / 2, riscoBy + 5.5, { align: "center" });
 
     pos.y = bloco1Y + bloco1H + 5;
   }
 
   // Green accent separator
-  doc.setFillColor(...colors.accentRGB);
+  doc.setFillColor(...colors.accent);
   doc.rect(margin, pos.y, contentW, 0.8, "F");
   pos.y += 5;
 
@@ -166,20 +164,20 @@ export function renderSintese(ctx: PdfCtx): void {
   {
     const mcGap = 4;
     const mcW   = (contentW - mcGap * 2) / 3;
-    const mcH   = 22;
+    const mcH   = DS.space.kpiCardH;
     checkPageBreak(ctx, mcH + DS.space.md);
 
-    const ratingBorderC: [number,number,number] = finalRating >= 7.5 ? DS.colors.success : finalRating >= 6 ? DS.colors.warn : DS.colors.danger;
+    const ratingBorderC: [number,number,number] = finalRating >= 7.5 ? DS.colors.success : finalRating >= 6 ? DS.colors.warning : DS.colors.danger;
     dsMetricCard(ctx, margin, pos.y, mcW, mcH, "Rating de Crédito", `${finalRating}/10`,
       finalRating >= 7.5 ? "Excelente" : finalRating >= 6 ? "Satisfatório" : "Atenção",
       ratingBorderC, ratingBorderC);
 
-    const decBorderC: [number,number,number] = decision === "APROVADO" ? DS.colors.success : decision === "REPROVADO" ? DS.colors.danger : DS.colors.warn;
+    const decBorderC: [number,number,number] = decision === "APROVADO" ? DS.colors.success : decision === "REPROVADO" ? DS.colors.danger : DS.colors.warning;
     dsMetricCard(ctx, margin + mcW + mcGap, pos.y, mcW, mcH, "Decisão", decision.replace(/_/g, " "),
       decision === "APROVADO" ? "Operação recomendada" : decision === "REPROVADO" ? "Não recomendada" : "Mediante condições",
       decBorderC, decBorderC);
 
-    const riscoBorderC: [number,number,number] = riskScore === "baixo" ? DS.colors.success : riskScore === "medio" ? DS.colors.warn : DS.colors.danger;
+    const riscoBorderC: [number,number,number] = riskScore === "baixo" ? DS.colors.success : riskScore === "medio" ? DS.colors.warning : DS.colors.danger;
     dsMetricCard(ctx, margin + (mcW + mcGap) * 2, pos.y, mcW, mcH, "Nível de Risco", riskScore.toUpperCase(),
       riskScore === "baixo" ? "Perfil conservador" : riskScore === "medio" ? "Perfil moderado" : "Perfil agressivo",
       riscoBorderC, riscoBorderC);
@@ -189,62 +187,62 @@ export function renderSintese(ctx: PdfCtx): void {
 
   // Two-column data layout
   {
-    const IR_PAD_TOP = 3.5; const IR_LABEL_H = 2.2; const IR_LV_GAP = 1.8;
-    const IR_VAL_H = 5.5; const IR_DET_H = 4.0; const IR_FIELD_GAP = 5.0; const IR_PAD_BOT = 4.0;
+    const IR_PAD_TOP = 3.5; const IR_LABEL_H = 3; const IR_LV_GAP = 2;
+    const IR_VAL_H = 6; const IR_DET_H = 4.5; const IR_FIELD_GAP = 5.0; const IR_PAD_BOT = 4.0;
 
-    const calcRowH = (value: string, rw: number, isLast: boolean, primarySize = 10.5): number => {
+    const calcRowH = (value: string, rw: number, isLast: boolean, primarySize: number = DS.font.kpiValue): number => {
       const segs = value.split("\n");
-      const scaledValH = (primarySize / 10.5) * IR_VAL_H;
+      const scaledValH = (primarySize / DS.font.kpiValue) * IR_VAL_H;
       doc.setFontSize(primarySize); doc.setFont("helvetica", "bold"); doc.setCharSpace(0);
       const primCount = (doc.splitTextToSize(segs[0].trim(), rw - 10) as string[]).length;
       let detCount = 0;
       if (segs.length > 1) {
-        doc.setFontSize(7); doc.setFont("helvetica", "normal");
+        doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "normal");
         segs.slice(1).forEach(s => { detCount += (doc.splitTextToSize(s.trim(), rw - 10) as string[]).length; });
       }
       const bot = isLast ? IR_PAD_BOT : IR_FIELD_GAP;
-      return Math.max(18, IR_PAD_TOP + IR_LABEL_H + IR_LV_GAP + primCount * scaledValH + detCount * IR_DET_H + bot);
+      return Math.max(DS.space.infoRowMinH, IR_PAD_TOP + IR_LABEL_H + IR_LV_GAP + primCount * scaledValH + detCount * IR_DET_H + bot);
     };
 
     const renderInfoRow = (
       rx: number, ry: number, rw: number,
       label: string, value: string,
       isLast = false, overrideH?: number,
-      valueColor?: [number, number, number], primarySize = 10.5
+      valueColor?: [number, number, number], primarySize: number = DS.font.kpiValue
     ): number => {
       const segs = value.split("\n");
-      const scaledValH = (primarySize / 10.5) * IR_VAL_H;
+      const scaledValH = (primarySize / DS.font.kpiValue) * IR_VAL_H;
       doc.setFontSize(primarySize); doc.setFont("helvetica", "bold"); doc.setCharSpace(0);
       const primLines = doc.splitTextToSize(segs[0].trim(), rw - 10) as string[];
       const detSegs: string[][] = [];
       if (segs.length > 1) {
-        doc.setFontSize(7); doc.setFont("helvetica", "normal");
+        doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "normal");
         segs.slice(1).forEach(s => detSegs.push(doc.splitTextToSize(s.trim(), rw - 10) as string[]));
       }
       const totalDet = detSegs.reduce((a, b) => a + b.length, 0);
       const bot = isLast ? IR_PAD_BOT : IR_FIELD_GAP;
-      const naturalH = Math.max(18, IR_PAD_TOP + IR_LABEL_H + IR_LV_GAP + primLines.length * scaledValH + totalDet * IR_DET_H + bot);
+      const naturalH = Math.max(DS.space.infoRowMinH, IR_PAD_TOP + IR_LABEL_H + IR_LV_GAP + primLines.length * scaledValH + totalDet * IR_DET_H + bot);
       const rH = overrideH ?? naturalH;
 
-      doc.setFontSize(6); doc.setFont("helvetica", "normal"); doc.setCharSpace(0.4);
-      doc.setTextColor(156, 163, 175);
+      doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "normal"); doc.setCharSpace(0.4);
+      doc.setTextColor(...DS.colors.textMuted);
       doc.text(label.toUpperCase(), rx + 5, ry + IR_PAD_TOP + IR_LABEL_H);
       doc.setCharSpace(0);
 
       doc.setFontSize(primarySize); doc.setFont("helvetica", "bold"); doc.setCharSpace(0);
-      doc.setTextColor(...(valueColor ?? ([17, 24, 39] as [number, number, number])));
+      doc.setTextColor(...(valueColor ?? ([...DS.colors.textPrimary] as [number, number, number])));
       const valBaseY = ry + IR_PAD_TOP + IR_LABEL_H + IR_LV_GAP + scaledValH * 0.82;
       primLines.forEach((line, i) => doc.text(line, rx + 5, valBaseY + i * scaledValH));
 
       if (detSegs.length > 0) {
-        doc.setFontSize(7); doc.setFont("helvetica", "normal"); doc.setCharSpace(0);
-        doc.setTextColor(107, 114, 128);
+        doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "normal"); doc.setCharSpace(0);
+        doc.setTextColor(...DS.colors.textSecondary);
         let dY = valBaseY + primLines.length * scaledValH;
         detSegs.forEach(seg => seg.forEach(line => { doc.text(line, rx + 5, dY); dY += IR_DET_H; }));
       }
 
       if (!isLast) {
-        doc.setDrawColor(209, 213, 219); doc.setLineWidth(0.25);
+        doc.setDrawColor(...DS.colors.border); doc.setLineWidth(0.25);
         doc.line(rx + 5, ry + rH, rx + rw - 5, ry + rH);
         doc.setLineWidth(0.1);
       }
@@ -328,34 +326,34 @@ export function renderSintese(ctx: PdfCtx): void {
     else if (c2Tot < c1Tot) c2H[c2H.length - 1] += c1Tot - c2Tot;
     const bodyH = c1H.reduce((a, b) => a + b, 0);
 
-    doc.setFillColor(248, 249, 250);
+    doc.setFillColor(...DS.colors.pageBg);
     doc.rect(margin, blockYSint + hdrH, contentW, bodyH, "F");
 
-    doc.setFillColor(26, 46, 74);
+    doc.setFillColor(...DS.colors.headerBg);
     doc.rect(margin, blockYSint, col1WSint, hdrH, "F");
-    doc.setFillColor(232, 160, 32);
+    doc.setFillColor(...DS.colors.accent);
     doc.rect(margin, blockYSint, 3, hdrH, "F");
-    doc.setFontSize(7.5); doc.setFont("helvetica", "bold"); doc.setTextColor(255, 255, 255);
+    doc.setFontSize(DS.font.bodySmall); doc.setFont("helvetica", "bold"); doc.setTextColor(255, 255, 255);
     doc.text("PERFIL & OPERACIONAL", margin + 7, blockYSint + 6);
-    doc.setFontSize(5.5); doc.setFont("helvetica", "normal"); doc.setTextColor(180, 200, 240);
+    doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "normal"); doc.setTextColor(...DS.colors.textOnDark);
     doc.text("Cadastro e operações", margin + 7, blockYSint + 10.5);
 
-    doc.setFillColor(26, 46, 74);
+    doc.setFillColor(...DS.colors.headerBg);
     doc.rect(col2XSint, blockYSint, col2WSint, hdrH, "F");
-    doc.setFillColor(232, 160, 32);
+    doc.setFillColor(...DS.colors.accent);
     doc.rect(col2XSint, blockYSint, 3, hdrH, "F");
-    doc.setFontSize(7.5); doc.setFont("helvetica", "bold"); doc.setTextColor(255, 255, 255);
+    doc.setFontSize(DS.font.bodySmall); doc.setFont("helvetica", "bold"); doc.setTextColor(255, 255, 255);
     doc.text("INDICADORES DE RISCO", col2XSint + 7, blockYSint + 6);
-    doc.setFontSize(5.5); doc.setFont("helvetica", "normal"); doc.setTextColor(180, 200, 240);
+    doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "normal"); doc.setTextColor(...DS.colors.textOnDark);
     doc.text("Exposição a riscos", col2XSint + 7, blockYSint + 10.5);
 
     const divX = margin + col1WSint + colGapSint / 2;
-    doc.setDrawColor(209, 213, 219); doc.setLineWidth(0.3);
+    doc.setDrawColor(...DS.colors.border); doc.setLineWidth(0.3);
     doc.line(divX, blockYSint + hdrH, divX, blockYSint + hdrH + bodyH);
     doc.setLineWidth(0.1);
 
-    doc.setDrawColor(209, 213, 219); doc.setLineWidth(0.3);
-    doc.roundedRect(margin, blockYSint, contentW, hdrH + bodyH, 1.5, 1.5, "S");
+    doc.setDrawColor(...DS.colors.border); doc.setLineWidth(0.3);
+    doc.roundedRect(margin, blockYSint, contentW, hdrH + bodyH, DS.radius.md, DS.radius.md, "S");
     doc.setLineWidth(0.1);
 
     let y1Sint = blockYSint + hdrH;
@@ -375,23 +373,18 @@ export function renderSintese(ctx: PdfCtx): void {
 
   // Síntese executiva text
   if (params.aiAnalysis?.sinteseExecutiva) {
-    pos.y += 8;
-    doc.setFillColor(...colors.primary);
-    doc.rect(margin, pos.y, contentW, 7, "F");
-    doc.setFontSize(7.5);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(255, 255, 255);
-    doc.text("SÍNTESE EXECUTIVA", margin + 3, pos.y + 4.8);
-    pos.y += 10;
+    pos.y += DS.space.subsectionGap;
+    dsMiniHeader(ctx, "SÍNTESE EXECUTIVA");
+    pos.y += 3;
 
-    doc.setFontSize(7);
+    doc.setFontSize(DS.font.bodySmall);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...colors.text);
     const linhasSintese = doc.splitTextToSize(params.aiAnalysis.sinteseExecutiva, contentW - 6);
     for (const linha of linhasSintese) {
       checkPageBreak(ctx, 10);
       doc.text(linha, margin + 3, pos.y);
-      pos.y += 4.5;
+      pos.y += DS.lineH.normal;
     }
     pos.y += 6;
   }
@@ -416,7 +409,8 @@ export function renderSintese(ctx: PdfCtx): void {
   renderQSAGestao(ctx);
 }
 
-function renderParametrosFundo(ctx: PdfCtx, _fmmNum: number): void {
+function renderParametrosFundo(ctx: PdfCtx, fmmNum: number): void {
+  void fmmNum;
   const { doc, DS, pos, params, margin, contentW } = ctx;
   const fv = params.fundValidation!;
 
@@ -453,9 +447,9 @@ function renderParametrosFundo(ctx: PdfCtx, _fmmNum: number): void {
         doc.roundedRect(px, pos.y + pillH - 4, pillW * pct, 4, 1, 1, "F");
         doc.setGState(doc.GState({ opacity: 1 }));
       }
-      doc.setFontSize(14); doc.setFont("helvetica", "bold"); doc.setTextColor(...pill.txt);
+      doc.setFontSize(DS.font.h1); doc.setFont("helvetica", "bold"); doc.setTextColor(...pill.txt);
       doc.text(String(pill.value), px + pillW / 2, pos.y + 11, { align: "center" });
-      doc.setFontSize(6); doc.setFont("helvetica", "normal"); doc.setTextColor(...pill.txt);
+      doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "normal"); doc.setTextColor(...pill.txt);
       doc.text(pill.label.toUpperCase(), px + pillW / 2, pos.y + 15.5, { align: "center" });
     });
     pos.y += pillH + 5;
@@ -468,9 +462,9 @@ function renderParametrosFundo(ctx: PdfCtx, _fmmNum: number): void {
   const fsColApur  = margin + 112;
   const fsColStat  = margin + 144;
 
-  doc.setFillColor(241, 245, 249);
-  doc.roundedRect(margin, pos.y, contentW, 8, 1.5, 1.5, "F");
-  doc.setFontSize(7); doc.setFont("helvetica", "bold"); doc.setTextColor(107, 114, 128);
+  doc.setFillColor(...DS.colors.pageBg);
+  doc.roundedRect(margin, pos.y, contentW, 8, DS.radius.md, DS.radius.md, "F");
+  doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "bold"); doc.setTextColor(...DS.colors.textSecondary);
   doc.text("CRITERIO DE ELEGIBILIDADE", fsColCrit, pos.y + 5.5);
   doc.text("LIMITE DO FUNDO",           fsColLim,  pos.y + 5.5);
   doc.text("APURADO",                   fsColApur, pos.y + 5.5);
@@ -498,45 +492,45 @@ function renderParametrosFundo(ctx: PdfCtx, _fmmNum: number): void {
     const iconLabel = isOk ? "OK" : isErr ? "FAIL" : isWarn ? "AVS" : "—";
     const iconBg:  [number,number,number] = isOk ? [220,252,231] : isErr ? [254,226,226] : isWarn ? [254,243,199] : [243,244,246];
     const iconTxt: [number,number,number] = isOk ? [21,128,61]   : isErr ? [220,38,38]   : isWarn ? [133,77,14]   : [107,114,128];
-    doc.setFontSize(5.5); doc.setFont("helvetica", "bold");
+    doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "bold");
     const iconW = doc.getTextWidth(iconLabel) + 5;
     doc.setFillColor(...iconBg);
-    doc.roundedRect(fsColBadge, pos.y + (rowH - 5) / 2, iconW, 5, 1.5, 1.5, "F");
+    doc.roundedRect(fsColBadge, pos.y + (rowH - 6) / 2, iconW, 6, DS.radius.md, DS.radius.md, "F");
     doc.setTextColor(...iconTxt);
-    doc.text(iconLabel, fsColBadge + iconW / 2, pos.y + (rowH - 5) / 2 + 3.5, { align: "center" });
+    doc.text(iconLabel, fsColBadge + iconW / 2, pos.y + (rowH - 6) / 2 + 4.2, { align: "center" });
 
     const labelText = (isElim ? "* " : "") + cr.label;
-    doc.setFontSize(isErr ? 9 : 8.5); doc.setFont("helvetica", isErr ? "bold" : "normal");
-    doc.setTextColor(...((isErr && isElim) ? [185,28,28] as [number,number,number] : isErr ? [220,38,38] as [number,number,number] : [31,41,55] as [number,number,number]));
+    doc.setFontSize(isErr ? DS.font.h3 : DS.font.body); doc.setFont("helvetica", isErr ? "bold" : "normal");
+    doc.setTextColor(...((isErr && isElim) ? DS.colors.dangerText : isErr ? DS.colors.danger : DS.colors.textPrimary));
     const labelLines = doc.splitTextToSize(labelText, fsColLim - fsColCrit - 3) as string[];
     doc.text(labelLines[0], fsColCrit, pos.y + rowH / 2 + 1.5);
-    if (labelLines[1]) { doc.setFontSize(7); doc.setFont("helvetica", "normal"); doc.text(labelLines[1], fsColCrit, pos.y + rowH / 2 + 5.5); }
+    if (labelLines[1]) { doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "normal"); doc.text(labelLines[1], fsColCrit, pos.y + rowH / 2 + 5.5); }
 
     if (hasDetail) {
-      doc.setFontSize(7); doc.setFont("helvetica", "italic"); doc.setTextColor(107, 114, 128);
+      doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "italic"); doc.setTextColor(...DS.colors.textSecondary);
       const detailLines = doc.splitTextToSize(cr.detail!, fsColLim - fsColCrit - 3) as string[];
       doc.text(detailLines[0], fsColCrit, pos.y + rowH - 4);
     }
 
-    doc.setFontSize(8); doc.setFont("helvetica", "normal"); doc.setTextColor(107, 114, 128);
+    doc.setFontSize(DS.font.bodySmall); doc.setFont("helvetica", "normal"); doc.setTextColor(...DS.colors.textSecondary);
     const threshNorm = normalizeThreshold(cr.threshold);
     const threshLines = doc.splitTextToSize(threshNorm, fsColApur - fsColLim - 4) as string[];
     doc.text(threshLines[0], fsColLim, pos.y + rowH / 2 + 1.5);
 
-    doc.setFontSize(9); doc.setFont("helvetica", "bold"); doc.setTextColor(...stripC);
+    doc.setFontSize(DS.font.h3); doc.setFont("helvetica", "bold"); doc.setTextColor(...stripC);
     doc.text(cr.actual, fsColApur, pos.y + rowH / 2 + 1.5);
 
     const sLabel = isOk ? "APROVADO" : isWarn ? "ATENCAO" : isErr ? "REPROVADO" : "S/DADO";
-    const sBg:  [number,number,number] = isOk ? [220,252,231] : isWarn ? [254,243,199] : isErr ? [254,226,226] : [243,244,246];
-    const sTxt: [number,number,number] = isOk ? [21,128,61]   : isWarn ? [133,77,14]   : isErr ? [220,38,38]   : [107,114,128];
-    doc.setFontSize(7); doc.setFont("helvetica", "bold");
+    const sBg:  [number,number,number] = isOk ? DS.colors.successBg : isWarn ? DS.colors.warningBg : isErr ? DS.colors.dangerBg : [243,244,246];
+    const sTxt: [number,number,number] = isOk ? DS.colors.successText : isWarn ? DS.colors.warningText : isErr ? DS.colors.danger : DS.colors.textSecondary;
+    doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "bold");
     const sPw = doc.getTextWidth(sLabel) + 10;
     doc.setFillColor(...sBg);
-    doc.roundedRect(fsColStat, pos.y + (rowH - 6) / 2, sPw, 6, 1.5, 1.5, "F");
+    doc.roundedRect(fsColStat, pos.y + (rowH - 7) / 2, sPw, 7, DS.radius.md, DS.radius.md, "F");
     doc.setTextColor(...sTxt);
     doc.text(sLabel, fsColStat + 5, pos.y + rowH / 2 + 1.5);
 
-    doc.setDrawColor(229, 231, 235); doc.setLineWidth(0.2);
+    doc.setDrawColor(...DS.colors.border); doc.setLineWidth(0.2);
     doc.line(margin, pos.y + rowH, margin + contentW, pos.y + rowH);
     pos.y += rowH + 1;
   });
@@ -561,14 +555,14 @@ function renderParametrosFundo(ctx: PdfCtx, _fmmNum: number): void {
   doc.setFillColor(...fsFinalBrd);
   doc.rect(margin, pos.y, 4, 14, "F");
 
-  doc.setFontSize(7.5); doc.setFont("helvetica", "normal"); doc.setTextColor(...fsFinalTxt);
+  doc.setFontSize(DS.font.caption); doc.setFont("helvetica", "normal"); doc.setTextColor(...fsFinalTxt);
   doc.text(`${fv.passCount}/${fv.criteria.length} criterios aprovados${fsElimFails > 0 ? ` · ${fsElimFails} eliminatorio(s) reprovado(s)` : ""}`, margin + 9, pos.y + 5.5);
-  doc.setFontSize(9); doc.setFont("helvetica", "bold");
+  doc.setFontSize(DS.font.h3); doc.setFont("helvetica", "bold");
   doc.text(fsFinalStatus, margin + 9, pos.y + 11);
   pos.y += 15;
 
   if (fsHasAnyElim) {
-    doc.setFontSize(7); doc.setFont("helvetica", "italic"); doc.setTextColor(156, 163, 175);
+    doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "italic"); doc.setTextColor(...DS.colors.textMuted);
     doc.text("* Criterio eliminatorio: nao atendimento impede aprovacao independente dos demais resultados.", margin + 4, pos.y + 4);
     pos.y += 8;
   }
@@ -614,17 +608,17 @@ function renderLimiteCredito(ctx: PdfCtx): void {
     const cellW = contentW / 4;
     cols.forEach((col, i) => {
       const cx = margin + i * cellW;
-      doc.setFillColor(248, 250, 252);
+      doc.setFillColor(...DS.colors.pageBg);
       doc.rect(cx, pos.y, cellW - 1, 16, "F");
-      doc.setFont("helvetica", "bold"); doc.setFontSize(7); doc.setTextColor(156, 163, 175);
+      doc.setFont("helvetica", "bold"); doc.setFontSize(DS.font.micro); doc.setTextColor(...DS.colors.textMuted);
       doc.text(col.label, cx + 3, pos.y + 5);
-      doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(...lcColor);
+      doc.setFont("helvetica", "bold"); doc.setFontSize(DS.font.md); doc.setTextColor(...lcColor);
       doc.text(col.value, cx + 3, pos.y + 12);
     });
     pos.y += 20;
   }
 
-  doc.setFont("helvetica", "italic"); doc.setFontSize(8); doc.setTextColor(107, 114, 128);
+  doc.setFont("helvetica", "italic"); doc.setFontSize(DS.font.bodySmall); doc.setTextColor(...DS.colors.textSecondary);
   const noteText = lc.classificacao === "REPROVADO"
     ? `Perfil: ${lc.presetName} — revise os criterios eliminatorios antes de prosseguir.`
     : `Perfil: ${lc.presetName} | Base: FMM ${fmtM(lc.fmmBase)} x ${lc.fatorBase} = ${fmtM(lc.limiteBase)}${lc.fatorReducao < 1 ? ` | Fator reducao: ${Math.round((1 - lc.fatorReducao) * 100)}%` : ""}`;
@@ -648,31 +642,31 @@ function renderCNPJ(ctx: PdfCtx): void {
     const situColor: [number,number,number] = situOk ? [22,163,74] : [220,38,38];
     const situBg:    [number,number,number] = situOk ? [220,252,231] : [254,226,226];
 
-    doc.setFillColor(26, 46, 74);
+    doc.setFillColor(...DS.colors.headerBg);
     doc.rect(margin, pos.y, contentW, heroH, "F");
     doc.setFillColor(...situColor);
     doc.rect(margin, pos.y, 3.5, heroH, "F");
 
-    doc.setFontSize(12); doc.setFont("helvetica", "bold"); doc.setTextColor(255, 255, 255);
+    doc.setFontSize(DS.font.lg); doc.setFont("helvetica", "bold"); doc.setTextColor(255, 255, 255);
     const rzStr = data.cnpj?.razaoSocial || "—";
     const rzLines = doc.splitTextToSize(rzStr, contentW - 68) as string[];
     doc.text(rzLines[0], margin + 8, pos.y + 10);
-    if (rzLines[1]) { doc.setFontSize(9); doc.text(rzLines[1], margin + 8, pos.y + 17); }
+    if (rzLines[1]) { doc.setFontSize(DS.font.h3); doc.text(rzLines[1], margin + 8, pos.y + 17); }
 
     const nf = data.cnpj?.nomeFantasia;
     if (nf && nf.toLowerCase() !== (data.cnpj?.razaoSocial || "").toLowerCase()) {
-      doc.setFontSize(7); doc.setFont("helvetica", "italic"); doc.setTextColor(160, 185, 220);
+      doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "italic"); doc.setTextColor(...DS.colors.textOnDark);
       doc.text(`"${nf}"`, margin + 8, pos.y + 21);
     }
-    doc.setFontSize(7); doc.setFont("helvetica", "normal"); doc.setTextColor(130, 165, 210);
+    doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "normal"); doc.setTextColor(...DS.colors.textOnDark);
     doc.text("CNPJ: " + (data.cnpj?.cnpj || "—"), margin + 8, pos.y + (nf ? 21 : 20));
 
     const bw = 44; const bh = 11;
     const bx = margin + contentW - bw - 5;
     const by = pos.y + (heroH - bh) / 2;
     doc.setFillColor(...situBg);
-    doc.roundedRect(bx, by, bw, bh, 2, 2, "F");
-    doc.setFontSize(7.5); doc.setFont("helvetica", "bold"); doc.setTextColor(...situColor);
+    doc.roundedRect(bx, by, bw, bh, DS.radius.lg, DS.radius.lg, "F");
+    doc.setFontSize(DS.font.caption); doc.setFont("helvetica", "bold"); doc.setTextColor(...situColor);
     const situLabel = situ || "N/D";
     doc.text(situLabel.length > 12 ? situLabel.substring(0, 12) + "…" : situLabel, bx + bw / 2, by + 7.5, { align: "center" });
     pos.y += heroH + 5;

@@ -42,9 +42,9 @@ export function newPage(ctx: PdfCtx): void {
   if (pageCount.n > 0) doc.addPage();
   pageCount.n++;
   doc.setFillColor(...DS.colors.pageBg);
-  doc.rect(0, 0, 210, 297, "F");
-  doc.setFillColor(...DS.colors.navy);
-  doc.rect(0, 0, 210, 1.5, "F");
+  doc.rect(0, 0, DS.pageW, DS.pageH, "F");
+  doc.setFillColor(...DS.colors.primary);
+  doc.rect(0, 0, DS.pageW, 1.5, "F");
   pos.y = 1.5;
 }
 
@@ -52,10 +52,10 @@ export function drawHeader(ctx: PdfCtx): void {
   const { doc, DS, pos, W, margin, data, pageCount } = ctx;
   const colors = DS.colors;
 
-  doc.setFillColor(...colors.navy);
-  doc.rect(0, 1.5, 210, 32, "F");
-  doc.setFillColor(...colors.accentRGB);
-  doc.rect(0, 33.5, 210, 2, "F");
+  doc.setFillColor(...colors.primary);
+  doc.rect(0, 1.5, W, 32, "F");
+  doc.setFillColor(...colors.accent);
+  doc.rect(0, 33.5, W, 2, "F");
 
   doc.setDrawColor(255, 255, 255);
   doc.setLineWidth(1.2);
@@ -63,40 +63,39 @@ export function drawHeader(ctx: PdfCtx): void {
   doc.setFillColor(255, 255, 255);
   doc.circle(margin + 7, 20.5, 1.5, "F");
 
-  doc.setFontSize(14);
+  doc.setFontSize(DS.font.h1);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(255, 255, 255);
   doc.text("capital", margin + 17, 16);
-  doc.setTextColor(...colors.accentRGB);
+  doc.setTextColor(...colors.accent);
   doc.text("financas", margin + 17 + doc.getTextWidth("capital") + 1, 16);
 
-  doc.setFontSize(6);
+  doc.setFontSize(DS.font.caption);
   doc.setFont("helvetica", "normal");
-  doc.setTextColor(180, 200, 240);
+  doc.setTextColor(...colors.textOnDark);
   doc.text("CONSOLIDADOR DE DOCUMENTOS", margin + 17, 21);
 
-  doc.setFontSize(11);
+  doc.setFontSize(DS.font.h2);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(255, 255, 255);
   doc.text("Relatório de Due Diligence", W - margin, 13, { align: "right" });
 
-  doc.setFontSize(7.5);
+  doc.setFontSize(DS.font.caption);
   doc.setFont("helvetica", "normal");
-  doc.setTextColor(180, 200, 240);
+  doc.setTextColor(...colors.textOnDark);
   const now = new Date();
   const dtStr = now.toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
   doc.text(`Gerado em ${dtStr}`, W - margin, 20, { align: "right" });
 
   if (data.cnpj?.razaoSocial) {
-    doc.setFontSize(7);
-    doc.setTextColor(180, 200, 240);
+    doc.setFontSize(DS.font.micro);
+    doc.setTextColor(...colors.textOnDark);
     doc.text(data.cnpj.razaoSocial.substring(0, 45), W - margin, 26, { align: "right" });
   }
 
-  // Page number top-right
-  doc.setFontSize(7);
+  doc.setFontSize(DS.font.micro);
   doc.setFont("helvetica", "bold");
-  doc.setTextColor(180, 200, 240);
+  doc.setTextColor(...colors.textOnDark);
   doc.text(`Pág. ${pageCount.n}`, W - margin, 33, { align: "right" });
 
   pos.y = 42;
@@ -105,53 +104,52 @@ export function drawHeader(ctx: PdfCtx): void {
 export function drawFooter(ctx: PdfCtx): void {
   const { doc, DS, W, margin, data, footerDateStr } = ctx;
 
-  doc.setFillColor(22, 38, 68);
-  doc.rect(0, 284, 210, 13, "F");
-  doc.setFillColor(...DS.colors.accentRGB);
-  doc.rect(0, 284, 210, 1.2, "F");
+  doc.setFillColor(...DS.colors.footerBg);
+  doc.rect(0, 284, W, 13, "F");
+  doc.setFillColor(...DS.colors.accent);
+  doc.rect(0, 284, W, 1.2, "F");
 
-  doc.setFontSize(6.5);
+  doc.setFontSize(DS.font.micro);
   doc.setFont("helvetica", "bold");
-  doc.setTextColor(...DS.colors.accentRGB);
+  doc.setTextColor(...DS.colors.accent);
   doc.text("capital", margin, 291);
   const capFW = doc.getTextWidth("capital");
-  doc.setTextColor(168, 200, 240);
+  doc.setTextColor(...DS.colors.textOnDark);
   doc.text("financas", margin + capFW + 0.8, 291);
-  doc.setFontSize(5.5);
+  doc.setFontSize(DS.font.micro);
   doc.setFont("helvetica", "normal");
-  doc.setTextColor(100, 140, 190);
+  doc.setTextColor(...DS.colors.textOnDark);
   doc.text("CONSOLIDADOR DE DOCUMENTOS  |  " + footerDateStr + "  |  CONFIDENCIAL", margin, 294.5);
 
   if (data.cnpj?.razaoSocial) {
-    doc.setFontSize(6);
+    doc.setFontSize(DS.font.micro);
     doc.setFont("helvetica", "italic");
-    doc.setTextColor(130, 160, 205);
+    doc.setTextColor(...DS.colors.textOnDark);
     doc.text(data.cnpj.razaoSocial.substring(0, 40), W / 2, 292, { align: "center" });
   }
 }
 
 export function drawFooterAllPages(ctx: PdfCtx): void {
-  const { doc, pageCount, W, margin } = ctx;
+  const { doc, DS, pageCount, W, margin } = ctx;
   const totalPages = doc.getNumberOfPages();
   for (let pg = 1; pg <= totalPages; pg++) {
     doc.setPage(pg);
-    if (pg === 1) continue; // capa has its own footer
+    if (pg === 1) continue;
     drawFooter(ctx);
-    // Page number right
-    doc.setFontSize(7.5);
+    doc.setFontSize(DS.font.caption);
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(200, 220, 245);
+    doc.setTextColor(...(DS.colors.textOnDark as [number, number, number]));
     doc.text(`${pg}`, W - margin, 290, { align: "right" });
-    doc.setFontSize(5.5);
+    doc.setFontSize(DS.font.micro);
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(100, 140, 190);
+    doc.setTextColor(...(DS.colors.textOnDark as [number, number, number]));
     doc.text(`de ${totalPages}`, W - margin, 294, { align: "right" });
   }
   void pageCount;
 }
 
 export function checkPageBreak(ctx: PdfCtx, needed: number): void {
-  if (ctx.pos.y + needed > 275) {
+  if (ctx.pos.y + needed > ctx.DS.space.pageBreakY) {
     newPage(ctx);
     drawHeader(ctx);
   }
@@ -161,21 +159,21 @@ export function drawSectionTitle(ctx: PdfCtx, code: string, title: string): void
   const { doc, DS, pos, margin, contentW } = ctx;
   checkPageBreak(ctx, 17);
 
-  doc.setFillColor(228, 238, 252);
+  doc.setFillColor(...DS.colors.sectionTitleBg);
   doc.rect(margin, pos.y, contentW, 12, "F");
-  doc.setFillColor(...DS.colors.accentRGB);
+  doc.setFillColor(...DS.colors.accent);
   doc.rect(margin, pos.y, 3.5, 12, "F");
   doc.setFillColor(...DS.colors.headerBg);
-  doc.roundedRect(margin + 6, pos.y + 2.5, 16, 7, 1.5, 1.5, "F");
-  doc.setFontSize(6.5);
+  doc.roundedRect(margin + 6, pos.y + 2.5, 16, 7, DS.radius.md, DS.radius.md, "F");
+  doc.setFontSize(DS.font.micro);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(255, 255, 255);
   doc.text(code, margin + 14, pos.y + 7.6, { align: "center" });
-  doc.setFontSize(9.5);
+  doc.setFontSize(DS.font.h3);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(...DS.colors.headerBg);
   doc.text(title, margin + 26, pos.y + 8.2);
-  doc.setDrawColor(190, 210, 240);
+  doc.setDrawColor(...DS.colors.border);
   doc.setLineWidth(0.4);
   doc.line(margin, pos.y + 12, margin + contentW, pos.y + 12);
   doc.setLineWidth(0.1);
@@ -191,9 +189,9 @@ export interface KpiItem {
 
 export function drawKpiGrid(ctx: PdfCtx, kpis: KpiItem[], columns = 4): void {
   const { doc, DS, pos, margin, contentW } = ctx;
-  const gap = 3;
+  const gap = DS.space.kpiCardGap;
   const itemW = (contentW - gap * (columns - 1)) / columns;
-  const itemH = 22;
+  const itemH = DS.space.kpiCardH;
   const rows = Math.ceil(kpis.length / columns);
 
   checkPageBreak(ctx, rows * (itemH + gap) + 4);
@@ -205,31 +203,31 @@ export function drawKpiGrid(ctx: PdfCtx, kpis: KpiItem[], columns = 4): void {
     const iy = pos.y + row * (itemH + gap);
 
     doc.setFillColor(...DS.colors.cardBg);
-    doc.roundedRect(ix, iy, itemW, itemH, 1.5, 1.5, "F");
+    doc.roundedRect(ix, iy, itemW, itemH, DS.radius.md, DS.radius.md, "F");
     doc.setDrawColor(...DS.colors.border);
     doc.setLineWidth(0.2);
-    doc.roundedRect(ix, iy, itemW, itemH, 1.5, 1.5, "D");
+    doc.roundedRect(ix, iy, itemW, itemH, DS.radius.md, DS.radius.md, "D");
     doc.setLineWidth(0.1);
     doc.setFillColor(...DS.colors.borderStrong);
     doc.rect(ix, iy, 2.5, itemH, "F");
 
-    doc.setFontSize(DS.font.small);
+    doc.setFontSize(DS.font.kpiLabel);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...DS.colors.textMuted);
-    doc.text(item.label.toUpperCase(), ix + 5, iy + 5);
+    doc.text(item.label.toUpperCase(), ix + 5, iy + 6);
 
-    doc.setFontSize(DS.font.h2);
+    doc.setFontSize(DS.font.kpiValue);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...(item.color ?? DS.colors.textPrimary));
     const maxW = Math.floor((itemW - 6) / 2.2);
     const disp = item.value.length > maxW ? item.value.substring(0, maxW) + "…" : item.value;
-    doc.text(disp, ix + 5, iy + 14);
+    doc.text(disp, ix + 5, iy + 15);
 
     if (item.sub) {
-      doc.setFontSize(DS.font.micro);
+      doc.setFontSize(DS.font.kpiSub);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...DS.colors.textSecondary);
-      doc.text(item.sub, ix + 5, iy + 19.5);
+      doc.text(item.sub, ix + 5, iy + 21);
     }
   });
 
@@ -250,26 +248,26 @@ export type AlertSev = "high" | "medium" | "info";
 export function drawAlert(ctx: PdfCtx, severity: AlertSev, message: string, subtitle?: string): void {
   const { doc, DS, pos, margin, contentW } = ctx;
 
-  const accentC: RGB = severity === "high" ? DS.colors.danger : severity === "medium" ? DS.colors.warn : DS.colors.info;
-  const badgeBg: RGB = severity === "high" ? DS.colors.dangerBg : severity === "medium" ? DS.colors.warnBg : DS.colors.infoBg;
-  const badgeTxt: RGB = severity === "high" ? DS.colors.dangerText : severity === "medium" ? DS.colors.warnText : DS.colors.infoText;
+  const accentC: RGB = severity === "high" ? DS.colors.danger : severity === "medium" ? DS.colors.warning : DS.colors.info;
+  const badgeBg: RGB = severity === "high" ? DS.colors.dangerBg : severity === "medium" ? DS.colors.warningBg : DS.colors.infoBg;
+  const badgeTxt: RGB = severity === "high" ? DS.colors.dangerText : severity === "medium" ? DS.colors.warningText : DS.colors.infoText;
   const rowBg: RGB = severity === "high" ? [255, 250, 250] : severity === "medium" ? [255, 253, 244] : [248, 251, 255];
   const badgeLabel = severity === "high" ? "ALTA" : severity === "medium" ? "MODERADO" : "INFO";
-  const pillW = severity === "medium" ? 22 : 14;
+  const pillW = DS.space.alertPillW;
 
   const textX = margin + 3 + pillW + 4;
   const textAvailW = contentW - (textX - margin) - 6;
 
-  doc.setFontSize(6.5);
+  doc.setFontSize(DS.font.alertTitle);
   doc.setFont("helvetica", "bold");
   const mainLines: string[] = doc.splitTextToSize(message, textAvailW);
 
-  doc.setFontSize(6);
+  doc.setFontSize(DS.font.alertSub);
   doc.setFont("helvetica", "normal");
   const subLines: string[] = subtitle ? doc.splitTextToSize(subtitle, textAvailW) : [];
 
-  const lineH = 4.2;
-  const rowH = Math.max(9, (mainLines.length + subLines.length) * lineH + 4);
+  const lineH = DS.space.alertLineH;
+  const rowH = Math.max(DS.space.alertMinH, (mainLines.length + subLines.length) * lineH + 5);
   checkPageBreak(ctx, rowH + 1);
 
   doc.setFillColor(...rowBg);
@@ -278,26 +276,27 @@ export function drawAlert(ctx: PdfCtx, severity: AlertSev, message: string, subt
   doc.rect(margin, pos.y, 3, rowH, "F");
 
   doc.setFillColor(...badgeBg);
-  doc.roundedRect(margin + 4, pos.y + (rowH - 5) / 2, pillW, 5, 1, 1, "F");
-  doc.setFontSize(5.5);
+  const pillH = 6;
+  doc.roundedRect(margin + 4, pos.y + (rowH - pillH) / 2, pillW, pillH, DS.radius.sm, DS.radius.sm, "F");
+  doc.setFontSize(DS.font.alertBadge);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(...badgeTxt);
-  doc.text(badgeLabel, margin + 4 + pillW / 2, pos.y + (rowH - 5) / 2 + 3.5, { align: "center" });
+  doc.text(badgeLabel, margin + 4 + pillW / 2, pos.y + (rowH - pillH) / 2 + 4.2, { align: "center" });
 
-  doc.setFontSize(6.5);
+  doc.setFontSize(DS.font.alertTitle);
   doc.setFont("helvetica", "bold");
-  doc.setTextColor(17, 24, 39);
-  let ty = pos.y + 3 + lineH * 0.5;
+  doc.setTextColor(...DS.colors.text);
+  let ty = pos.y + 4 + lineH * 0.5;
   mainLines.forEach((l: string) => { doc.text(l, textX, ty); ty += lineH; });
 
   if (subLines.length > 0) {
-    doc.setFontSize(6);
+    doc.setFontSize(DS.font.alertSub);
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(107, 114, 128);
+    doc.setTextColor(...DS.colors.textMuted);
     subLines.forEach((l: string) => { doc.text(l, textX, ty); ty += lineH; });
   }
 
-  doc.setDrawColor(235, 235, 240);
+  doc.setDrawColor(...DS.colors.border);
   doc.setLineWidth(0.2);
   doc.line(margin + 3, pos.y + rowH, margin + contentW, pos.y + rowH);
   doc.setLineWidth(0.1);
@@ -325,8 +324,8 @@ export function drawAlertDeduped(ctx: PdfCtx, text: string, severity: AlertSever
 // ─── AutoTable wrapper ────────────────────────────────────────────────────────
 
 export const TABLE_DEFAULTS = {
-  headStyles: { fillColor: [32, 59, 136] as RGB, textColor: [255, 255, 255] as RGB, fontSize: 8, fontStyle: "bold" as const, cellPadding: 3 },
-  bodyStyles: { fontSize: 8, cellPadding: 3, textColor: [30, 30, 30] as RGB },
+  headStyles: { fillColor: [32, 59, 136] as RGB, textColor: [255, 255, 255] as RGB, fontSize: 8, fontStyle: "bold" as const, cellPadding: 2.5 },
+  bodyStyles: { fontSize: 8, cellPadding: 2.5, textColor: [30, 30, 30] as RGB },
   alternateRowStyles: { fillColor: [248, 250, 253] as RGB },
   tableLineColor: [220, 225, 235] as RGB,
   tableLineWidth: 0.2,
@@ -352,10 +351,10 @@ export function autoT(
   const scale = contentW / (totalW || contentW);
   const scaledWidths = colWidths.map(w => w * scale);
 
-  const headFill = opts?.headFill ?? DS.colors.navy;
+  const headFill = opts?.headFill ?? DS.colors.primary;
   const headText = opts?.headTextColor ?? ([255, 255, 255] as RGB);
-  const fs = opts?.fontSize ?? 7;
-  const hfs = opts?.headFontSize ?? 5.5;
+  const fs = opts?.fontSize ?? DS.font.tableCell;
+  const hfs = opts?.headFontSize ?? DS.font.tableHead;
   const gap = opts?.gap ?? 4;
 
   autoTable(doc, {
@@ -367,20 +366,20 @@ export function autoT(
     theme: "plain",
     styles: {
       fontSize: fs,
-      cellPadding: { top: 2, bottom: 2, left: 2, right: 2 },
+      cellPadding: { top: DS.space.tableCellPad, bottom: DS.space.tableCellPad, left: DS.space.tableCellPad, right: DS.space.tableCellPad },
       overflow: "linebreak",
-      lineColor: [230, 230, 230],
+      lineColor: [...DS.colors.border],
       lineWidth: 0.1,
       textColor: DS.colors.text,
       font: "helvetica",
-      minCellHeight: opts?.minCellHeight ?? 6,
+      minCellHeight: opts?.minCellHeight ?? DS.space.tableRowH,
     },
     headStyles: {
       fillColor: headFill,
       textColor: headText,
       fontStyle: "bold",
       fontSize: hfs,
-      cellPadding: { top: 2, bottom: 2, left: 2, right: 2 },
+      cellPadding: { top: DS.space.tableCellPad, bottom: DS.space.tableCellPad, left: DS.space.tableCellPad, right: DS.space.tableCellPad },
     },
     alternateRowStyles: {
       fillColor: DS.colors.surface2,
@@ -399,9 +398,9 @@ export function autoT(
 export function drawTable(ctx: PdfCtx, headers: string[], rows: string[][], colWidths: number[]): void {
   autoT(ctx, headers, rows, colWidths, {
     headFill: ctx.DS.colors.surface2,
-    headTextColor: ctx.DS.colors.textMuted,
-    headFontSize: 6.5,
-    fontSize: 7.5,
+    headTextColor: ctx.DS.colors.textSecondary,
+    headFontSize: ctx.DS.font.bodySmall,
+    fontSize: ctx.DS.font.bodySmall,
   });
 }
 
@@ -410,12 +409,12 @@ export function drawTable(ctx: PdfCtx, headers: string[], rows: string[][], colW
 export function dsMiniHeader(ctx: PdfCtx, title: string): number {
   const { doc, DS, pos, margin, contentW } = ctx;
   doc.setFillColor(...DS.colors.headerBg);
-  doc.rect(margin, pos.y, contentW, 7, "F");
-  doc.setFontSize(7);
+  doc.rect(margin, pos.y, contentW, 8, "F");
+  doc.setFontSize(DS.font.caption);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(255, 255, 255);
-  doc.text(title.toUpperCase(), margin + 3, pos.y + 4.8);
-  const newY = pos.y + 7;
+  doc.text(title.toUpperCase(), margin + 3, pos.y + 5.5);
+  const newY = pos.y + 8;
   pos.y = newY;
   return newY;
 }
@@ -431,29 +430,29 @@ export function dsMetricCard(
   const { doc, DS } = ctx;
   const bc = borderColor ?? DS.colors.info;
   const vc = valueColor ?? DS.colors.textPrimary;
-  doc.setFillColor(248, 249, 250);
-  doc.roundedRect(cx, cy, cw, ch, 1.5, 1.5, "F");
-  doc.setDrawColor(...DS.colors.borderRGB);
+  doc.setFillColor(...DS.colors.cardBg);
+  doc.roundedRect(cx, cy, cw, ch, DS.radius.md, DS.radius.md, "F");
+  doc.setDrawColor(...DS.colors.border);
   doc.setLineWidth(0.3);
-  doc.roundedRect(cx, cy, cw, ch, 1.5, 1.5, "D");
+  doc.roundedRect(cx, cy, cw, ch, DS.radius.md, DS.radius.md, "D");
   doc.setLineWidth(0.1);
   doc.setFillColor(...bc);
   doc.rect(cx, cy, 3, ch, "F");
-  doc.setFontSize(7);
+  doc.setFontSize(DS.font.kpiLabel);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(...DS.colors.textMuted);
-  doc.text(label.toUpperCase(), cx + 5, cy + 5.5);
-  doc.setFontSize(10);
+  doc.text(label.toUpperCase(), cx + 5, cy + 6.5);
+  doc.setFontSize(DS.font.kpiValue);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(...vc);
-  const maxC = Math.floor((cw - 8) / 2.3);
+  const maxC = Math.floor((cw - 8) / 2.8);
   const disp = value.length > maxC ? value.substring(0, maxC) + "…" : value;
-  doc.text(disp, cx + 5, cy + 12);
+  doc.text(disp, cx + 5, cy + 14.5);
   if (sub) {
-    doc.setFontSize(7);
+    doc.setFontSize(DS.font.kpiSub);
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(...DS.colors.textLight2);
-    doc.text(sub, cx + 5, cy + 17);
+    doc.setTextColor(...DS.colors.textMuted);
+    doc.text(sub, cx + 5, cy + 20);
   }
 }
 
@@ -464,25 +463,25 @@ export function drawBannerNaoConsultado(ctx: PdfCtx, secao: string): void {
   const padV = 10;
   const padH = 14;
   const textW = contentW - padH * 2 - 3;
-  doc.setFontSize(7);
+  doc.setFontSize(DS.font.micro);
   doc.setFont("helvetica", "normal");
   const descText = `${secao}: consulta não realizada nesta análise — dado não disponível no momento da geração do relatório.`;
   const descLines = doc.splitTextToSize(descText, textW);
-  const bannerH = padV + 8 + descLines.length * 4 + padV;
+  const bannerH = padV + 8 + descLines.length * DS.lineH.tight + padV;
   checkPageBreak(ctx, bannerH + 4);
-  doc.setFillColor(255, 251, 235);
-  doc.roundedRect(margin, pos.y, contentW, bannerH, 1.5, 1.5, "F");
-  doc.setFillColor(...DS.colors.warn);
+  doc.setFillColor(...DS.colors.warningBg);
+  doc.roundedRect(margin, pos.y, contentW, bannerH, DS.radius.md, DS.radius.md, "F");
+  doc.setFillColor(...DS.colors.warning);
   doc.roundedRect(margin, pos.y, 3, bannerH, 0.5, 0.5, "F");
-  doc.setFontSize(8);
+  doc.setFontSize(DS.font.bodySmall);
   doc.setFont("helvetica", "bold");
-  doc.setTextColor(...DS.colors.warn);
+  doc.setTextColor(...DS.colors.warning);
   doc.text("Consulta não realizada", margin + padH, pos.y + padV);
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(7);
-  doc.setTextColor(120, 80, 0);
+  doc.setFontSize(DS.font.micro);
+  doc.setTextColor(...DS.colors.warningText);
   descLines.forEach((l: string, i: number) => {
-    doc.text(l, margin + padH, pos.y + padV + 7 + i * 4);
+    doc.text(l, margin + padH, pos.y + padV + 7 + i * DS.lineH.tight);
   });
   pos.y += bannerH + 4;
 }
