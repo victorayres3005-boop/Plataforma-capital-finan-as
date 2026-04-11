@@ -14,6 +14,9 @@ import { createClient } from "@/lib/supabase/client";
 import { uploadFile } from "@/lib/storage";
 import GoalfyButton from "@/components/GoalfyButton";
 import AlertList from "@/components/AlertList";
+import NotasSection from "@/components/generate/NotasSection";
+import VisitaSection from "@/components/generate/VisitaSection";
+import ExportSection from "@/components/generate/ExportSection";
 import { ExtractedData, CollectionDocument, DocumentCollection, FundSettings, DEFAULT_FUND_SETTINGS, AIAnalysis, FundCriterion, FundValidationResult, CriterionStatus, FundPreset, CreditLimitResult } from "@/types";
 import type { OriginalFiles } from "@/components/UploadStep";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -2268,169 +2271,30 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         {/* ════════════════════════════════════════
             SEÇÃO OP — RELATÓRIO DE VISITA
             ════════════════════════════════════════ */}
-        {data.relatorioVisita && (
-          <SectionCard
-            id="sec-op"
-            badge="OP"
-            badgeVariant="teal"
-            sectionLabel="Parâmetros Operacionais"
-            title="Relatório de Visita"
-          >
-            <div className="px-8 py-6 flex flex-col gap-6">
-
-              {/* Taxas e Limites */}
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.05em] text-gray-500 pb-2 mb-2.5 border-b border-gray-200">Taxas e Limites</p>
-                <div className="kpi-grid">
-                  {([
-                    ["Taxa Convencional",    data.relatorioVisita.taxaConvencional],
-                    ["Taxa Comissária",      data.relatorioVisita.taxaComissaria],
-                    ["Limite Total",         data.relatorioVisita.limiteTotal        ? `R$ ${data.relatorioVisita.limiteTotal}` : ""],
-                    ["Limite Convencional",  data.relatorioVisita.limiteConvencional ? `R$ ${data.relatorioVisita.limiteConvencional}` : ""],
-                    ["Limite Comissária",    data.relatorioVisita.limiteComissaria   ? `R$ ${data.relatorioVisita.limiteComissaria}` : ""],
-                    ["Limite por Sacado",    data.relatorioVisita.limitePorSacado    ? `R$ ${data.relatorioVisita.limitePorSacado}` : ""],
-                    ["Ticket Médio",         data.relatorioVisita.ticketMedio        ? `R$ ${data.relatorioVisita.ticketMedio}` : ""],
-                    ["Cobr. Boleto",         data.relatorioVisita.valorCobrancaBoleto ? `R$ ${data.relatorioVisita.valorCobrancaBoleto}` : ""],
-                  ] as [string, string | undefined][]).map(([label, value]) => (
-                    <KpiCard key={label} label={label} value={value || "—"} />
-                  ))}
-                </div>
-              </div>
-
-              {/* Condições e Prazos */}
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.05em] text-gray-500 pb-2 mb-2.5 border-b border-gray-200">Condições e Prazos</p>
-                <div className="kpi-grid">
-                  {([
-                    ["Prazo Recompra",   data.relatorioVisita.prazoRecompraCedente ? `${data.relatorioVisita.prazoRecompraCedente} dias` : ""],
-                    ["Envio Cartório",   data.relatorioVisita.prazoEnvioCartorio   ? `${data.relatorioVisita.prazoEnvioCartorio} dias` : ""],
-                    ["Prazo Máximo Op.", data.relatorioVisita.prazoMaximoOp        ? `${data.relatorioVisita.prazoMaximoOp} dias` : ""],
-                    ["Cobrança TAC",     data.relatorioVisita.cobrancaTAC],
-                    ["Tranche",          data.relatorioVisita.tranche              ? `R$ ${data.relatorioVisita.tranche}` : ""],
-                    ["Prazo Tranche",    data.relatorioVisita.prazoTranche         ? `${data.relatorioVisita.prazoTranche} dias` : ""],
-                  ] as [string, string | undefined][]).map(([label, value]) => (
-                    <KpiCard key={label} label={label} value={value || "—"} />
-                  ))}
-                </div>
-              </div>
-
-              {/* Mix de Vendas */}
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.05em] text-gray-500 pb-2 mb-2.5 border-b border-gray-200">Dados da Empresa</p>
-                <div className="kpi-grid">
-                  {([
-                    ["Funcionários",        String(data.relatorioVisita.funcionariosObservados || "—")],
-                    ["Folha Pagamento",     data.relatorioVisita.folhaPagamento         ? `R$ ${data.relatorioVisita.folhaPagamento}` : ""],
-                    ["Endiv. Banco",        data.relatorioVisita.endividamentoBanco],
-                    ["Endiv. Factoring",    data.relatorioVisita.endividamentoFactoring],
-                    ["Vendas Cheque",       data.relatorioVisita.vendasCheque],
-                    ["Vendas Duplicata",    data.relatorioVisita.vendasDuplicata],
-                    ["Vendas Outras",       data.relatorioVisita.vendasOutras],
-                    ["Prazo Faturamento",   data.relatorioVisita.prazoMedioFaturamento  ? `${data.relatorioVisita.prazoMedioFaturamento} dias` : ""],
-                    ["Prazo Entrega",       data.relatorioVisita.prazoMedioEntrega      ? `${data.relatorioVisita.prazoMedioEntrega} dias` : ""],
-                  ] as [string, string | undefined][]).map(([label, value]) => (
-                    <KpiCard key={label} label={label} value={value || "—"} />
-                  ))}
-                </div>
-                {data.relatorioVisita.referenciasFornecedores && (
-                  <div className="mt-3">
-                    <p className="text-[11px] font-medium uppercase tracking-[0.05em] text-cf-text-4 mb-1">Referências Comerciais / Fornecedores</p>
-                    <p className="text-[13px] text-cf-text-2 leading-relaxed">{data.relatorioVisita.referenciasFornecedores}</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </SectionCard>
-        )}
+        <VisitaSection data={data} />
 
         {/* ════════════════════════════════════════
             SEÇÃO ✎ — ANOTAÇÕES
             ════════════════════════════════════════ */}
-        <SectionCard
-          id="sec-nt"
-          badge="✎"
-          badgeVariant="navy"
-          sectionLabel="Observações do Analista"
-          title="Anotações"
-          headerRight={savingNotes ? <span className="text-[11px] text-cf-text-4">Salvando...</span> : undefined}
-        >
-          <div className="px-8 py-6">
-            <textarea
-              value={analystNotes}
-              onChange={e => setAnalystNotes(e.target.value)}
-              onBlur={() => saveNotes(analystNotes)}
-              placeholder="Registre aqui observações sobre a empresa, pontos de atenção identificados na visita, pendências de documentação, ou qualquer informação relevante para a tomada de decisão de crédito..."
-              className="w-full min-h-[180px] resize-y bg-gray-50 border border-gray-200 rounded-lg px-3.5 py-3 text-[13px] text-cf-text-1 leading-relaxed font-sans outline-none focus:border-navy-800 focus:ring-1 focus:ring-navy-800/20 placeholder:text-cf-text-4"
-            />
-            <div className="flex justify-between mt-1.5 px-0.5">
-              <span className="text-[11px] text-cf-text-4">Salvo automaticamente ao sair do campo</span>
-              <span className="text-[11px] text-cf-text-4 font-mono">{analystNotes.length} caracteres</span>
-            </div>
-          </div>
-        </SectionCard>
+        <NotasSection
+          analystNotes={analystNotes}
+          onNotesChange={setAnalystNotes}
+          onSave={saveNotes}
+          savingNotes={savingNotes}
+        />
 
         {/* ════════════════════════════════════════
             SEÇÃO ↓ — EXPORTAR
             ════════════════════════════════════════ */}
-        <SectionCard
-          id="sec-ex"
-          badge="↓"
-          badgeVariant="navy"
-          sectionLabel="Download"
-          title="Exportar Relatório"
-        >
-          <div className="px-8 py-6">
-            {generatedFormats.size > 0 && (
-              <div className="flex items-center gap-2 px-3.5 py-2.5 bg-green-50 border border-green-200 rounded-lg mb-3.5">
-                <CheckCircle2 size={14} className="text-green-600" />
-                <span className="text-xs font-medium text-green-700">Relatório gerado com sucesso!</span>
-              </div>
-            )}
-
-            <div className="flex gap-2.5 flex-wrap">
-              {([
-                { fmt: "pdf"  as Format, label: "PDF",   sub: "Download direto (.pdf)", fn: generatePDF,   ext: ".pdf",  dot: "#dc2626", recommended: true },
-                { fmt: "html" as Format, label: "Visualizar",  sub: "Abre em nova aba",     fn: generateHTMLView,  ext: ".html", dot: "#203b88", recommended: false },
-                { fmt: "docx" as Format, label: "Word",  sub: "Editável (.docx)",     fn: generateDOCX,  ext: ".docx", dot: "#2b5eb7", recommended: false },
-                { fmt: "xlsx" as Format, label: "Excel", sub: "Dados tabulados",      fn: generateExcel, ext: ".xlsx", dot: "#1d6f42", recommended: false },
-                { fmt: "html" as Format, label: "HTML",  sub: "Web / impressão",      fn: generateHTML,  ext: ".html", dot: "#e34f26", recommended: false },
-              ]).map(({ fmt, label, sub, fn, ext, dot, recommended }) => {
-                const done    = generatedFormats.has(fmt);
-                const loading = generatingFormat === fmt;
-                return (
-                  <button
-                    key={fmt}
-                    onClick={fn}
-                    disabled={!!generatingFormat}
-                    className={`flex-[1_1_140px] flex items-center gap-2.5 px-3.5 py-3 rounded-lg border relative text-left transition-all duration-150 hover:shadow-sm ${
-                      done ? "bg-green-50 border-green-200" :
-                      recommended ? "bg-blue-50 border-cf-navy" :
-                      "bg-white border-gray-200"
-                    } ${!!generatingFormat ? "cursor-not-allowed" : "cursor-pointer"} ${!!generatingFormat && !loading ? "opacity-55" : "opacity-100"}`}
-                  >
-                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: done ? "#16a34a" : dot }} />
-                    <div className="flex-1">
-                      <div className="flex items-baseline gap-1">
-                        <span className="text-[13px] font-medium text-cf-text-1">{label}</span>
-                        <span className="text-[11px] text-cf-text-4 font-mono">{ext}</span>
-                      </div>
-                      <p className="text-[11px] mt-0.5" style={{ color: loading ? dot : done ? "#16a34a" : undefined }}>
-                        {loading ? "Gerando..." : done ? "Pronto!" : <span className="text-cf-text-4">{sub}</span>}
-                      </p>
-                    </div>
-                    {loading && <Loader2 size={14} className="animate-spin shrink-0" style={{ color: dot }} />}
-                    {done    && <CheckCircle2 size={14} className="text-green-600 shrink-0" />}
-                    {recommended && !done && (
-                      <span className="absolute -top-2.5 right-2.5 text-[9px] font-bold text-white bg-cf-navy rounded-full px-1.5 py-0.5 tracking-[0.03em]">
-                        Recomendado
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </SectionCard>
+        <ExportSection
+          generatedFormats={generatedFormats}
+          generatingFormat={generatingFormat}
+          generatePDF={generatePDF}
+          generateDOCX={generateDOCX}
+          generateExcel={generateExcel}
+          generateHTML={generateHTML}
+          generateHTMLView={generateHTMLView}
+        />
 
         {/* ── Sticky bottom action bar ── */}
         <div className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200">
