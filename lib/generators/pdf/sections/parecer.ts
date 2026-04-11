@@ -6,10 +6,9 @@ import type { PdfCtx as NewPdfCtx } from "../context";
 import type { PdfCtx as LegacyPdfCtx } from "../../pdf-ctx";
 import { renderParecer } from "../../sections/pdf-parecer";
 import {
-  newPage as _newPage,
-  drawHeader as _drawHeader,
   checkPageBreak as _checkPageBreak,
   drawSectionTitle,
+  drawSpacer as _drawSpacer,
   dsMiniHeader as _dsMiniHeader,
   autoT as _autoT,
 } from "../helpers";
@@ -47,8 +46,8 @@ export function renderParecerSection(ctx: NewPdfCtx): void {
     contentW,
     colors: DS.colors as unknown as LegacyPdfCtx["colors"],
     DS: { colors: DS.colors, font: DS.font, space: DS.space, radius: DS.radius, lineH: DS.lineH },
-    newPage: () => _newPage(ctx),
-    drawHeader: () => _drawHeader(ctx),
+    newPage: () => { _drawSpacer(ctx, ctx.DS.space.sectionGap); _checkPageBreak(ctx, 50); },
+    drawHeader: () => {},
     checkPageBreak: (needed: number) => _checkPageBreak(ctx, needed),
     dsSectionHeader: (num: string, title: string) => drawSectionTitle(ctx, num, title),
     dsMiniHeader: (startY: number, title: string) => {

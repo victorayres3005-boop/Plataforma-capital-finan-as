@@ -96,13 +96,13 @@ export async function buildPDFReport(params: PDFReportParams): Promise<Blob> {
 
   // ── Render sections ──
   renderCapa(ctx);
-  renderIndice(ctx);
   renderSintese(ctx);
+  renderParecerSection(ctx);
   renderFaturamento(ctx);
   renderRisco(ctx);
   renderSocios(ctx);
   renderVisita(ctx);
-  renderParecerSection(ctx);
+  renderIndice(ctx);
 
   // ── Footer on all pages (except cover = page 1) ──
   drawFooterAllPages(ctx);

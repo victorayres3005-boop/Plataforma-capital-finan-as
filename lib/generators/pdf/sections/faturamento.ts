@@ -5,7 +5,7 @@
 import type { PdfCtx } from "../context";
 import type { AutoCell } from "../context";
 import {
-  newPage, drawHeader, checkPageBreak, drawSectionTitle, drawSpacer,
+  newPage, drawHeaderCompact, checkPageBreak, drawSectionTitle, drawSpacer,
   drawAlertDeduped, drawDetAlerts, autoT,
   fmtMoney, fmtBR, parseMoneyToNumber, normalizeTendencia,
   gerarAlertasFaturamento, gerarAlertasSCR, gerarAlertasDRE, gerarAlertasBalanco,
@@ -47,8 +47,8 @@ export function renderFaturamento(ctx: PdfCtx): void {
   const alertasDRE = gerarAlertasDRE(data.dre);
   const alertasBalanco = gerarAlertasBalanco(data.balanco);
 
-  newPage(ctx);
-  drawHeader(ctx);
+  drawSpacer(ctx, DS.space.sectionGap);
+  checkPageBreak(ctx, 50);
   drawSectionTitle(ctx, "04", "FATURAMENTO / SCR");
 
   const leftW = contentW;
@@ -260,7 +260,7 @@ export function renderFaturamento(ctx: PdfCtx): void {
       if (yLeft + tbl2RowH > DS.space.pageBreakY) {
         pos.y = yLeft;
         newPage(ctx);
-        drawHeader(ctx);
+        drawHeaderCompact(ctx);
         yLeft = pos.y + 4;
       }
       drawTbl2Row(leftX, colA[i] ?? null, i);
@@ -458,7 +458,7 @@ export function renderFaturamento(ctx: PdfCtx): void {
     if (yRight + scrNeeded > 220) {
       pos.y = yRight;
       newPage(ctx);
-      drawHeader(ctx);
+      drawHeaderCompact(ctx);
       currentSCRPage = doc.getCurrentPageInfo().pageNumber;
       yRight = pos.y;
     }
@@ -496,7 +496,7 @@ export function renderFaturamento(ctx: PdfCtx): void {
         if (yRight + grpRowH > DS.space.pageBreakY) {
           pos.y = yRight;
           newPage(ctx);
-          drawHeader(ctx);
+          drawHeaderCompact(ctx);
           currentSCRPage = doc.getCurrentPageInfo().pageNumber;
           yRight = pos.y;
         }
@@ -514,7 +514,7 @@ export function renderFaturamento(ctx: PdfCtx): void {
         if (yRight + scrRowH > DS.space.pageBreakY) {
           pos.y = yRight;
           newPage(ctx);
-          drawHeader(ctx);
+          drawHeaderCompact(ctx);
           currentSCRPage = doc.getCurrentPageInfo().pageNumber;
           yRight = pos.y;
         }
@@ -728,7 +728,7 @@ function _renderSCRVencimentos(ctx: PdfCtx): void {
   ) => {
     if (pos.y + vRowH > DS.space.pageBreakY) {
       newPage(ctx);
-      drawHeader(ctx);
+      drawHeaderCompact(ctx);
     }
 
     if (opts.sectionBg) {
@@ -825,7 +825,7 @@ function _renderModalidadesPJ(ctx: PdfCtx, hasAnterior: boolean, periodoAnt: str
   const modPJNeeded = 4 + 8 + 6 + 5 + modPJ.length * modPJRowH + 4;
   if (pos.y + modPJNeeded > DS.space.pageBreakY) {
     newPage(ctx);
-    drawHeader(ctx);
+    drawHeaderCompact(ctx);
   } else {
     pos.y += 4;
   }
@@ -912,7 +912,7 @@ function _renderModalidadesPJ(ctx: PdfCtx, hasAnterior: boolean, periodoAnt: str
   orderedModPJ.forEach((m: ModItem) => {
     if (m.ehContingente && !separadorRendered) {
       separadorRendered = true;
-      if (pos.y + modPJRowH + 1 > DS.space.pageBreakY) { newPage(ctx); drawHeader(ctx); }
+      if (pos.y + modPJRowH + 1 > DS.space.pageBreakY) { newPage(ctx); drawHeaderCompact(ctx); }
       doc.setFillColor(245, 245, 245);
       doc.rect(margin, pos.y, contentW, modPJRowH, "F");
       doc.setFontSize(DS.font.micro);
@@ -923,7 +923,7 @@ function _renderModalidadesPJ(ctx: PdfCtx, hasAnterior: boolean, periodoAnt: str
       bgIdxPJ = 0;
     }
 
-    if (pos.y + modPJRowH > DS.space.pageBreakY) { newPage(ctx); drawHeader(ctx); }
+    if (pos.y + modPJRowH > DS.space.pageBreakY) { newPage(ctx); drawHeaderCompact(ctx); }
     const bg: [number, number, number] = bgIdxPJ % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
     doc.setFillColor(...bg);
     doc.rect(margin, pos.y, contentW, modPJRowH, "F");
@@ -1123,7 +1123,7 @@ function _renderSCRSocios(ctx: PdfCtx, hasAnterior: boolean, periodoAt: string, 
       orderedModS.forEach((m: ModSItem) => {
         if (m.ehContingente && !sepRenderedS) {
           sepRenderedS = true;
-          if (pos.y + modSRowH > DS.space.pageBreakY) { newPage(ctx); drawHeader(ctx); }
+          if (pos.y + modSRowH > DS.space.pageBreakY) { newPage(ctx); drawHeaderCompact(ctx); }
           doc.setFillColor(245, 245, 245);
           doc.rect(margin, pos.y, contentW, modSRowH, "F");
           doc.setFontSize(DS.font.micro);
@@ -1133,7 +1133,7 @@ function _renderSCRSocios(ctx: PdfCtx, hasAnterior: boolean, periodoAt: string, 
           pos.y += modSRowH;
           bgIdxS = 0;
         }
-        if (pos.y + modSRowH > DS.space.pageBreakY) { newPage(ctx); drawHeader(ctx); }
+        if (pos.y + modSRowH > DS.space.pageBreakY) { newPage(ctx); drawHeaderCompact(ctx); }
         const bg: [number, number, number] = bgIdxS % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
         doc.setFillColor(...bg);
         doc.rect(margin, pos.y, contentW, modSRowH, "F");

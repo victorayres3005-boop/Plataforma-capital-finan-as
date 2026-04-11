@@ -4,7 +4,7 @@
  */
 import type { PdfCtx } from "../context";
 import {
-  newPage, drawHeader, checkPageBreak, drawSectionTitle, drawSpacer,
+  newPage, drawHeader, drawHeaderCompact, checkPageBreak, drawSectionTitle, drawSpacer,
   drawAlertDeduped, drawDetAlerts, drawTable, autoT, dsMiniHeader,
   dsMetricCard, fmtMoney, fmtBR, parseMoneyToNumber,
   gerarAlertasQSA,
@@ -371,23 +371,7 @@ export function renderSintese(ctx: PdfCtx): void {
     drawSpacer(ctx, 4);
   }
 
-  // Síntese executiva text
-  if (params.aiAnalysis?.sinteseExecutiva) {
-    pos.y += DS.space.subsectionGap;
-    dsMiniHeader(ctx, "SÍNTESE EXECUTIVA");
-    pos.y += 3;
-
-    doc.setFontSize(DS.font.bodySmall);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(...colors.text);
-    const linhasSintese = doc.splitTextToSize(params.aiAnalysis.sinteseExecutiva, contentW - 6);
-    for (const linha of linhasSintese) {
-      checkPageBreak(ctx, 10);
-      doc.text(linha, margin + 3, pos.y);
-      pos.y += DS.lineH.normal;
-    }
-    pos.y += 6;
-  }
+  // Síntese executiva text was moved to Parecer section (renders right after this)
 
   void resumoExecutivo;
   void protestosVigentes;
@@ -422,7 +406,7 @@ function renderParametrosFundo(ctx: PdfCtx, fmmNum: number): void {
   const fsSummaryH = 18;
   const fsHasAnyElim = fv.criteria.some(c => c.eliminatoria);
   const fsAlturaTotal = 13 + fsSummaryH + 4 + 8 + fv.criteria.length * (fsRowH + 1) + 18 + (fsHasAnyElim ? 8 : 0);
-  if (pos.y + fsAlturaTotal > 265) { newPage(ctx); drawHeader(ctx); }
+  if (pos.y + fsAlturaTotal > 265) { newPage(ctx); drawHeaderCompact(ctx); }
 
   drawSectionTitle(ctx, "FS", "CONFORMIDADE COM PARAMETROS DO FUNDO");
 
@@ -908,7 +892,7 @@ function renderQSAGestao(ctx: PdfCtx): void {
 
   // Gestão e Grupo Econômico
   drawSpacer(ctx, 6);
-  if (pos.y > 215) { newPage(ctx); drawHeader(ctx); }
+  if (pos.y > 215) { newPage(ctx); drawHeaderCompact(ctx); }
   drawSectionTitle(ctx, "04", "GESTAO E GRUPO ECONOMICO");
 
   // Tabela de Sócios
@@ -958,7 +942,7 @@ function renderQSAGestao(ctx: PdfCtx): void {
       };
 
       sociosList.forEach((s, idx) => {
-        if (pos.y + gRowH > 275) { newPage(ctx); drawHeader(ctx); }
+        if (pos.y + gRowH > DS.space.pageBreakY) { newPage(ctx); drawHeaderCompact(ctx); }
         const bg: [number, number, number] = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
         doc.setFillColor(...bg);
         doc.rect(margin, pos.y, contentW, gRowH, "F");
@@ -1029,7 +1013,7 @@ function renderQSAGestao(ctx: PdfCtx): void {
       pos.y += 6;
 
       empresasGrupo.forEach((emp, idx) => {
-        if (pos.y + geRowH > 275) { newPage(ctx); drawHeader(ctx); }
+        if (pos.y + geRowH > DS.space.pageBreakY) { newPage(ctx); drawHeaderCompact(ctx); }
         const bg: [number, number, number] = idx % 2 === 0 ? [248, 250, 252] : [255, 255, 255];
         doc.setFillColor(...bg);
         doc.rect(margin, pos.y, contentW, geRowH, "F");

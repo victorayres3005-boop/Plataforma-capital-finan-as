@@ -148,10 +148,42 @@ export function drawFooterAllPages(ctx: PdfCtx): void {
   void pageCount;
 }
 
+export function drawHeaderCompact(ctx: PdfCtx): void {
+  const { doc, DS, pos, W, margin, data, pageCount } = ctx;
+
+  doc.setFillColor(...DS.colors.primary);
+  doc.rect(0, 1.5, W, 14, "F");
+  doc.setFillColor(...DS.colors.accent);
+  doc.rect(0, 15.5, W, 1, "F");
+
+  doc.setFontSize(DS.font.bodySmall);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(255, 255, 255);
+  doc.text("capital", margin, 10);
+  const cw = doc.getTextWidth("capital");
+  doc.setTextColor(...DS.colors.accent);
+  doc.text("financas", margin + cw + 0.8, 10);
+
+  if (data.cnpj?.razaoSocial) {
+    doc.setFontSize(DS.font.micro);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...DS.colors.textOnDark);
+    const rz = data.cnpj.razaoSocial.length > 50 ? data.cnpj.razaoSocial.substring(0, 50) + "…" : data.cnpj.razaoSocial;
+    doc.text(rz, W / 2, 10, { align: "center" });
+  }
+
+  doc.setFontSize(DS.font.micro);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(...DS.colors.textOnDark);
+  doc.text(`${pageCount.n}`, W - margin, 10, { align: "right" });
+
+  pos.y = 20;
+}
+
 export function checkPageBreak(ctx: PdfCtx, needed: number): void {
   if (ctx.pos.y + needed > ctx.DS.space.pageBreakY) {
     newPage(ctx);
-    drawHeader(ctx);
+    drawHeaderCompact(ctx);
   }
 }
 
