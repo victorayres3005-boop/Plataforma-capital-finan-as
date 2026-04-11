@@ -32,6 +32,11 @@ function numVal(v: string | number | null | undefined): number {
   const n = parseFloat(String(v).replace(/[^\d,-]/g,"").replace(",","."));
   return isNaN(n) ? 0 : n;
 }
+function fmtCompact(v: number): string {
+  if (v >= 1000000) return (v / 1000000).toFixed(1).replace(".", ",") + "M";
+  if (v >= 1000) return Math.round(v / 1000) + "k";
+  return String(Math.round(v));
+}
 
 function decisaoBadge(decisao: string, big = false): string {
   const map: Record<string,{bg:string;color:string;border:string;label:string}> = {
@@ -46,8 +51,8 @@ function decisaoBadge(decisao: string, big = false): string {
 }
 
 function kpi(label: string, value: string, color="#111827", sub?: string): string {
-  return `<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;min-width:0">
-    <div style="font-size:9px;color:#6b7280;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">${label}</div>
+  return `<div style="background:#fff;border:1px solid #e0e4ec;border-radius:8px;padding:13px 15px;min-width:0;box-shadow:0 1px 2px rgba(32,59,136,.04)">
+    <div style="font-size:8.5px;color:#6b7280;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;font-family:'Open Sans',Arial,sans-serif">${label}</div>
     <div style="font-size:15px;font-weight:800;color:${color};line-height:1.1;word-break:break-all">${value}</div>
     ${sub?`<div style="font-size:9px;color:#9ca3af;margin-top:3px">${sub}</div>`:""}
   </div>`;
@@ -55,9 +60,9 @@ function kpi(label: string, value: string, color="#111827", sub?: string): strin
 
 function secHdr(num: string, title: string): string {
   return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid #e5e7eb">
-    <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;background:var(--navy);color:#fff;font-size:9px;font-weight:800;border-radius:6px;flex-shrink:0">${num}</span>
-    <span style="font-size:14px;font-weight:800;color:var(--navy);text-transform:uppercase;letter-spacing:.05em">${esc(title)}</span>
-    <div style="flex:1;height:2px;background:linear-gradient(to right,var(--green),transparent)"></div>
+    <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;background:#203B88;color:#fff;font-size:9px;font-weight:800;border-radius:6px;flex-shrink:0">${num}</span>
+    <span style="font-family:'Bebas Neue','Open Sans',Arial,sans-serif;font-size:16px;font-weight:700;color:#203B88;text-transform:uppercase;letter-spacing:.06em">${esc(title)}</span>
+    <div style="flex:1;height:2px;background:linear-gradient(to right,#73B815,transparent)"></div>
   </div>`;
 }
 
@@ -85,12 +90,16 @@ function grid(cols: number, items: string[]): string {
 }
 
 function subTitle(t: string): string {
-  return `<div style="font-size:10px;font-weight:800;color:var(--navy);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #e5e7eb;padding-bottom:5px;margin:18px 0 10px">${esc(t)}</div>`;
+  return `<div style="font-family:'Bebas Neue','Open Sans',Arial,sans-serif;font-size:11px;font-weight:700;color:#203B88;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #e5e7eb;padding-bottom:5px;margin:18px 0 10px">${esc(t)}</div>`;
 }
 
 function paraBox(text: string): string {
-  return `<div style="background:#f8fafc;border-left:3px solid var(--navy);border-radius:0 6px 6px 0;padding:14px 16px;font-size:12px;line-height:1.8;color:#374151;page-break-inside:avoid">${esc(text)}</div>`;
+  return `<div style="background:#f8f9fb;border-left:3px solid #203B88;border-radius:0 6px 6px 0;padding:14px 16px;font-size:12px;line-height:1.8;color:#374151;page-break-inside:avoid">${esc(text)}</div>`;
 }
+
+// ─── SVG Brand Logo ──────────────────────────────────────────────────────────
+const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64"><rect width="64" height="64" rx="14" fill="#203b88"/><circle cx="32" cy="28" r="14" stroke="#ffffff" stroke-width="3.5" fill="none"/><circle cx="32" cy="44" r="3.2" fill="#73b815"/></svg>`;
+const LOGO_DATA_URI = `data:image/svg+xml;base64,${typeof Buffer !== "undefined" ? Buffer.from(LOGO_SVG).toString("base64") : ""}`;
 
 // ─── SVG Rating Gauge ─────────────────────────────────────────────────────────
 function ratingGauge(rating: number): string {
@@ -101,28 +110,44 @@ function ratingGauge(rating: number): string {
   return `<svg width="180" height="90" viewBox="0 0 180 90" style="overflow:visible">
     <path d="M ${cx-R},${cy} A ${R},${R} 0 0 1 ${cx+R},${cy}" fill="none" stroke="rgba(255,255,255,.1)" stroke-width="10" stroke-linecap="round"/>
     ${rating>0?`<path d="M ${cx-R},${cy} A ${R},${R} 0 0 1 ${ex.toFixed(1)},${ey.toFixed(1)}" fill="none" stroke="${color}" stroke-width="10" stroke-linecap="round"/>`:""}
-    <circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="7" fill="${color}" stroke="var(--navy)" stroke-width="2.5"/>
-    <text x="${cx}" y="${cy-14}" text-anchor="middle" font-family="Arial,sans-serif" font-size="36" font-weight="900" fill="${color}">${rating}</text>
-    <text x="${cx}" y="${cy+4}" text-anchor="middle" font-family="Arial,sans-serif" font-size="11" fill="rgba(255,255,255,.35)">/ 10</text>
+    <circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="7" fill="${color}" stroke="#203B88" stroke-width="2.5"/>
+    <text x="${cx}" y="${cy-14}" text-anchor="middle" font-family="'Open Sans',Arial,sans-serif" font-size="36" font-weight="900" fill="${color}">${rating}</text>
+    <text x="${cx}" y="${cy+4}" text-anchor="middle" font-family="'Open Sans',Arial,sans-serif" font-size="11" fill="rgba(255,255,255,.35)">/ 10</text>
   </svg>`;
 }
 
-// ─── Faturamento Bar Chart ────────────────────────────────────────────────────
-function faturamentoChart(meses: FaturamentoMensal[]): string {
+// ─── Faturamento Bar Chart (improved) ────────────────────────────────────────
+function faturamentoChart(meses: FaturamentoMensal[], fmmRef?: number): string {
   if(!meses||meses.length===0) return "";
   const values=meses.map(m=>numVal(m.valor));
-  const max=Math.max(...values,1);
-  const n=meses.length,W=480,H=72,gap=3;
+  const max=Math.max(...values, fmmRef||0, 1);
+  const n=meses.length, W=640, H=140, gap=4, padTop=22, padBot=20;
   const bw=Math.floor((W-(n-1)*gap)/n);
+  const totalH = H + padTop + padBot;
+
   const bars=meses.map((m,i)=>{
-    const v=values[i],bh=Math.max(3,Math.floor((v/max)*H)),x=i*(bw+gap),y=H-bh;
-    const clr=v===0?"#e5e7eb":v===max?"#22c55e":v>=max*0.7?"#4ade80":"#93c5fd";
-    return `<rect x="${x}" y="${y}" width="${bw}" height="${bh}" rx="2" fill="${clr}"/>
-<text x="${x+bw/2}" y="${H+11}" text-anchor="middle" font-size="7" fill="#9ca3af" font-family="Arial">${esc(m.mes?.slice(0,3)||"")}</text>`;
+    const v=values[i];
+    const bh=Math.max(3,Math.floor((v/max)*H));
+    const x=i*(bw+gap);
+    const y=padTop+H-bh;
+    const intensity = v === 0 ? 0 : Math.max(0.35, v / max);
+    const clr = v === 0 ? "#e5e7eb" : `rgba(32,59,136,${intensity.toFixed(2)})`;
+    const label = v > 0 ? fmtCompact(v) : "";
+    const mesLabel = esc(m.mes || "");
+    return `<rect x="${x}" y="${y}" width="${bw}" height="${bh}" rx="3" fill="${clr}"/>
+${label ? `<text x="${x+bw/2}" y="${y-5}" text-anchor="middle" font-size="8" font-weight="700" fill="#203B88" font-family="'Open Sans',Arial">${label}</text>` : ""}
+<text x="${x+bw/2}" y="${padTop+H+14}" text-anchor="middle" font-size="7.5" fill="#6b7280" font-family="'Open Sans',Arial">${mesLabel}</text>`;
   }).join("");
-  return `<div style="margin-bottom:14px;padding:12px 14px;background:#f8fafc;border-radius:8px;border:1px solid #e5e7eb">
-    <div style="font-size:9px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Faturamento Mensal</div>
-    <svg width="${W}" height="${H+14}" viewBox="0 0 ${W} ${H+14}">${bars}</svg>
+
+  const fmmLine = fmmRef && fmmRef > 0 ? (() => {
+    const fmmY = padTop + H - Math.floor((fmmRef / max) * H);
+    return `<line x1="0" y1="${fmmY}" x2="${W}" y2="${fmmY}" stroke="#73B815" stroke-width="1.5" stroke-dasharray="6,3"/>
+<text x="${W-2}" y="${fmmY-4}" text-anchor="end" font-size="8" fill="#73B815" font-weight="700" font-family="'Open Sans',Arial">FMM ${fmtCompact(fmmRef)}</text>`;
+  })() : "";
+
+  return `<div style="margin-bottom:14px;padding:16px 18px;background:#f8f9fb;border-radius:8px;border:1px solid #e0e4ec">
+    <div style="font-size:9px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Faturamento Mensal</div>
+    <svg width="${W}" height="${totalH}" viewBox="0 0 ${W} ${totalH}">${bars}${fmmLine}</svg>
   </div>`;
 }
 
@@ -150,23 +175,22 @@ const TS = "width:100%;border-collapse:collapse;font-size:11px;margin-bottom:14p
 
 // ─── CSS ──────────────────────────────────────────────────────────────────────
 const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-:root{--navy:#203B88;--navy-dark:#1a2744;--green:#73B815;--green-light:#22c55e}
+@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700;800&family=Bebas+Neue&display=swap');
+:root{--navy:#203B88;--green:#73B815;--bg-light:#edf2fb;--bg-card:#f8f9fb;--border:#e0e4ec;--text:#111827;--text-muted:#6b7280}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Inter','Helvetica Neue',Arial,sans-serif;font-size:12px;color:#111827;background:#fff;line-height:1.5;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{font-family:'Open Sans','Helvetica Neue',Arial,sans-serif;font-size:12px;color:var(--text);background:#fff;line-height:1.55;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:14px}
-th{background:var(--navy-dark);color:#fff;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:8px 10px;text-align:left;border-bottom:2px solid #e5e7eb}
-td{padding:8px 10px;border-bottom:1px solid #f3f4f6;vertical-align:top;font-size:11px}
-tr:nth-child(even) td{background:#f9fafb}
+th{background:#203B88;color:#fff;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:9px 11px;text-align:left;border-bottom:2px solid #e5e7eb}
+td{padding:9px 11px;border-bottom:1px solid #f0f1f5;vertical-align:top;font-size:11px}
+tr:nth-child(even) td{background:#fafbfd}
 table{page-break-inside:avoid}
-.sec{margin-top:24px}
+.sec{margin-top:28px}
 .avoid{page-break-inside:avoid}
 .badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
 .ok{background:#dcfce7;color:#166534}
 .fail{background:#fee2e2;color:#991b1b}
 .warn{background:#fef3c7;color:#92400e}
 .info{background:#dbeafe;color:#1d4ed8}
-.watermark{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-45deg);font-size:90px;font-weight:900;color:rgba(32,59,136,0.035);white-space:nowrap;pointer-events:none;z-index:1;font-family:'Inter',Arial,sans-serif;letter-spacing:.15em;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .money{text-align:right;font-variant-numeric:tabular-nums}
 .neg{color:#dc2626;font-weight:700}
 @media print{@page{margin:28mm 16mm 18mm}}
@@ -179,35 +203,38 @@ function secCapa(p: PDFReportParams): string {
   const c=p.data.cnpj;
   const ok=(c?.situacaoCadastral||"").toUpperCase().includes("ATIVA");
   const hoje=new Date().toLocaleDateString("pt-BR",{day:"2-digit",month:"long",year:"numeric"});
-  return `<div style="page-break-after:always;min-height:260mm;display:flex;flex-direction:column;background:#0f1e3c">
-  <div style="padding:28px 40px 0;display:flex;align-items:center;justify-content:space-between">
-    <div>
-      <div style="font-size:11px;font-weight:900;color:#fff;letter-spacing:.1em;text-transform:uppercase">CAPITAL <span style="color:var(--green-light)">FINANCAS</span></div>
-      <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:2px;letter-spacing:.04em">ANALISE DE CREDITO</div>
+  return `<div style="page-break-after:always;min-height:260mm;display:flex;flex-direction:column;background:#203B88">
+  <div style="padding:32px 40px 0;display:flex;align-items:center;justify-content:space-between">
+    <div style="display:flex;align-items:center;gap:14px">
+      <img src="${LOGO_DATA_URI}" width="48" height="48" style="border-radius:10px" />
+      <div>
+        <div style="font-family:'Bebas Neue','Open Sans',Arial,sans-serif;font-size:22px;color:#fff;letter-spacing:.06em;line-height:1">capital <span style="color:#73B815">financas</span></div>
+        <div style="font-size:9px;color:rgba(255,255,255,.45);margin-top:2px;letter-spacing:.06em;text-transform:uppercase;font-family:'Open Sans',Arial,sans-serif">Analise de Credito</div>
+      </div>
     </div>
-    <div style="font-size:9px;color:rgba(255,255,255,.35)">${hoje}</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);font-family:'Open Sans',Arial,sans-serif">${hoje}</div>
   </div>
-  <div style="margin:24px 40px;height:1px;background:rgba(255,255,255,.08)"></div>
+  <div style="margin:20px 40px;height:1px;background:rgba(255,255,255,.1)"></div>
   <div style="padding:0 40px;flex:1">
     <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:8px">
       <span style="display:inline-block;padding:3px 10px;border-radius:4px;background:${ok?"rgba(34,197,94,.15)":"rgba(239,68,68,.15)"};color:${ok?"#4ade80":"#fca5a5"};font-size:9px;font-weight:700;letter-spacing:.06em;border:1px solid ${ok?"rgba(34,197,94,.3)":"rgba(239,68,68,.3)"}">${esc(c?.situacaoCadastral||"\u2014")}</span>
     </div>
-    <div style="font-size:28px;font-weight:900;color:#fff;line-height:1.15;margin-bottom:6px;max-width:75%">${esc(c?.razaoSocial||"\u2014")}</div>
-    <div style="font-size:11px;color:rgba(255,255,255,.4);margin-bottom:28px">CNPJ ${fmtCnpj(c?.cnpj)} &nbsp;·&nbsp; ${esc(p.companyAge||"\u2014")}</div>
+    <div style="font-family:'Bebas Neue','Open Sans',Arial,sans-serif;font-size:32px;font-weight:700;color:#fff;line-height:1.15;margin-bottom:6px;max-width:75%;letter-spacing:.02em">${esc(c?.razaoSocial||"\u2014")}</div>
+    <div style="font-size:11px;color:rgba(255,255,255,.45);margin-bottom:28px;font-family:'Open Sans',Arial,sans-serif">CNPJ ${fmtCnpj(c?.cnpj)} &nbsp;&middot;&nbsp; ${esc(p.companyAge||"\u2014")}</div>
     <div style="display:flex;align-items:flex-end;gap:48px;flex-wrap:wrap">
       <div>
-        <div style="font-size:9px;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">Decisao de Credito</div>
+        <div style="font-size:9px;color:rgba(255,255,255,.45);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;font-family:'Open Sans',Arial,sans-serif">Decisao de Credito</div>
         ${decisaoBadge(p.decision,true)}
       </div>
       <div>
-        <div style="font-size:9px;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;text-align:center">Rating</div>
+        <div style="font-size:9px;color:rgba(255,255,255,.45);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;text-align:center;font-family:'Open Sans',Arial,sans-serif">Rating</div>
         ${ratingGauge(p.finalRating)}
       </div>
     </div>
   </div>
-  <div style="padding:12px 40px;background:rgba(0,0,0,.25);margin-top:16px;display:flex;justify-content:space-between;align-items:center">
-    <span style="font-size:9px;color:rgba(255,255,255,.3)">Documento confidencial</span>
-    <span style="font-size:9px;color:rgba(255,255,255,.25)">Capital Financas · ${hoje}</span>
+  <div style="padding:14px 40px;background:#111827;margin-top:16px;display:flex;justify-content:space-between;align-items:center">
+    <span style="font-size:9px;color:rgba(255,255,255,.35);font-family:'Open Sans',Arial,sans-serif">Documento de uso interno</span>
+    <span style="font-size:9px;color:rgba(255,255,255,.3);font-family:'Open Sans',Arial,sans-serif">Capital Financas &middot; ${hoje}</span>
   </div>
 </div>`;
 }
@@ -233,10 +260,20 @@ function secChecklist(p: PDFReportParams): string {
     ["Historico Consultas",!!(d.historicoConsultas?.length)],
   ];
   const recebidos=docs.filter(x=>x[1]).length;
+  const pct=Math.round((recebidos/docs.length)*100);
+  const barColor = pct >= 80 ? "#73B815" : pct >= 50 ? "#f59e0b" : "#dc2626";
   return `<div class="sec">${secHdr("02","Checklist de Documentos")}
-  <div style="margin-bottom:12px;font-size:11px;color:#6b7280">${recebidos} de ${docs.length} documentos recebidos</div>
-  <div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;page-break-inside:avoid">
-    ${docs.map(([label,ok],i)=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid #f3f4f6;background:${i%2===0?"#fff":"#fafafa"}">
+  <div style="margin-bottom:16px;padding:16px 18px;background:#f8f9fb;border-radius:8px;border:1px solid #e0e4ec">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <span style="font-size:13px;font-weight:800;color:#111827">${recebidos} de ${docs.length} documentos coletados (${pct}%)</span>
+      <span style="font-size:11px;font-weight:700;color:${barColor}">${pct}%</span>
+    </div>
+    <div style="width:100%;height:10px;background:#e5e7eb;border-radius:6px;overflow:hidden">
+      <div style="width:${pct}%;height:100%;background:${barColor};border-radius:6px;transition:width .3s"></div>
+    </div>
+  </div>
+  <div style="border:1px solid #e0e4ec;border-radius:8px;overflow:hidden;page-break-inside:avoid">
+    ${docs.map(([label,ok],i)=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid #f3f4f6;background:${i%2===0?"#fff":"#fafbfd"}">
       <span style="font-size:14px">${ok?"\u2705":"\u274C"}</span>
       <span style="font-size:11px;font-weight:${ok?"600":"400"};color:${ok?"#111827":"#9ca3af"}">${esc(label)}</span>
       <span style="margin-left:auto;font-size:9px;color:${ok?"#16a34a":"#dc2626"};font-weight:700">${ok?"Recebido":"Pendente"}</span>
@@ -252,6 +289,36 @@ function secSintese(p: PDFReportParams): string {
   const {data,finalRating,decision,alerts,alavancagem}=p;
   const fmm=data.faturamento?.fmm12m||data.faturamento?.mediaAno||"\u2014";
   const rc=finalRating>=7?"#16a34a":finalRating>=4?"#d97706":"#dc2626";
+
+  // Extra KPIs
+  const fatMeses = data.faturamento?.meses || [];
+  const fatMedia = fatMeses.length > 0 ? fatMeses.reduce((s, m) => s + numVal(m.valor), 0) / fatMeses.length : 0;
+
+  const rv = data.relatorioVisita;
+  const modalidade = rv?.modalidade || (rv?.taxaComissaria && rv?.taxaConvencional ? "Hibrida" : rv?.taxaComissaria ? "Comissaria" : rv?.taxaConvencional ? "Convencional" : "\u2014");
+  const pleito = rv?.pleito || rv?.limiteTotal || "\u2014";
+
+  const geCount = data.grupoEconomico?.empresas?.length || 0;
+
+  // Curva ABC top 3
+  const abcClientes = data.curvaABC?.clientes || [];
+  const top3Names = abcClientes.slice(0, 3).map(c => esc(c.nome || "")).join(", ");
+  const top3Pct = data.curvaABC?.concentracaoTop3 || (abcClientes.length >= 3 ? "\u2014" : "\u2014");
+
+  // Most recent protesto
+  const detProtestos = data.protestos?.detalhes || [];
+  const sortedProtestos = [...detProtestos].sort((a, b) => {
+    const da = a.data ? new Date(a.data.split("/").reverse().join("-")).getTime() : 0;
+    const db = b.data ? new Date(b.data.split("/").reverse().join("-")).getTime() : 0;
+    return db - da;
+  });
+  const lastProtesto = sortedProtestos.length > 0 ? sortedProtestos[0].data || "\u2014" : "\u2014";
+
+  // Processos ativo + passivo and most recent
+  const procAtivo = parseInt(data.processos?.poloAtivoQtd || "0");
+  const procPassivo = parseInt(data.processos?.passivosTotal || "0");
+  const procRecentes = (data.processos?.top10Recentes as ProcessoItem[] | undefined) || [];
+  const lastProcesso = procRecentes.length > 0 ? procRecentes[0].data || "\u2014" : "\u2014";
 
   // Score composition
   const cob=p.aiAnalysis?.coberturaAnalise;
@@ -286,13 +353,25 @@ function secSintese(p: PDFReportParams): string {
     kpi("Rating",`${finalRating} / 10`,rc),
     kpi("Decisao",decision.replace(/_/g," ")),
     kpi("FMM 12m",fmtMoney(fmm)),
-    kpi("Protestos Vigentes",String(p.protestosVigentes),p.protestosVigentes>0?"#dc2626":"#111827"),
+    kpi("Faturamento Medio", fatMedia > 0 ? fmtMoney(String(fatMedia)) : "\u2014"),
   ])}
   ${grid(4,[
-    kpi("Processos",fmt(data.processos?.passivosTotal)),
+    kpi("Protestos Vigentes",String(p.protestosVigentes),p.protestosVigentes>0?"#dc2626":"#111827"),
+    kpi("Processos",`A:${procAtivo} / P:${procPassivo}`),
     kpi("SCR Vencido",fmtMoney(data.scr?.vencidos),p.vencidosSCR>0?"#dc2626":"#111827"),
     kpi("Alavancagem",alavancagem!=null?`${alavancagem.toFixed(1)}x`:"\u2014",alavancagem&&alavancagem>3?"#dc2626":"#111827"),
+  ])}
+  ${grid(4,[
     kpi("Tempo Empresa",esc(p.companyAge)||"\u2014"),
+    kpi("Modalidade",esc(String(modalidade))),
+    kpi("Pleito",typeof pleito === "string" ? (pleito.match(/\d/) ? fmtMoney(pleito) : esc(pleito)) : fmtMoney(pleito)),
+    kpi("Grupo Economico",geCount > 0 ? `${geCount} empresa(s)` : "\u2014"),
+  ])}
+  ${grid(4,[
+    kpi("Curva ABC Top 3",fmt(top3Pct), "#111827", top3Names || undefined),
+    kpi("Ult. Protesto",esc(String(lastProtesto))),
+    kpi("Ult. Processo",esc(String(lastProcesso))),
+    kpi("CCF", data.ccf ? (data.ccf.qtdRegistros > 0 ? `${data.ccf.qtdRegistros} ocorr.` : "Sem ocorrencias") : "\u2014", data.ccf && data.ccf.qtdRegistros > 0 ? "#dc2626" : "#111827"),
   ])}
 
   ${subTitle("Composicao do Score")}
@@ -339,7 +418,7 @@ function secParametros(p: PDFReportParams): string {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 5: CONFORMIDADE COM PARAMETROS DO FUNDO
+// SECTION 5: CONFORMIDADE COM AS POLITICAS DO FUNDO
 // ═══════════════════════════════════════════════════════════════════════════════
 function secFundo(p: PDFReportParams): string {
   if(!p.fundValidation||!p.fundValidation.criteria.length) return "";
@@ -348,14 +427,14 @@ function secFundo(p: PDFReportParams): string {
   const vClr=aprov?"#166534":"#991b1b";
   const vBg=aprov?"#f0fdf4":"#fff1f2";
   const vBrd=aprov?"#86efac":"#fca5a5";
-  return `<div class="sec">${secHdr("05","Conformidade com Parametros do Fundo")}
+  return `<div class="sec">${secHdr("05","Conformidade com as Politicas do Fundo")}
   <table style="${TS}">
     <thead>${row(["Criterio","Limite","Apurado","Status"],true)}</thead>
     <tbody>${fv.criteria.map((cr: FundCriterion)=>{
       const ok=cr.status==="ok",err=cr.status==="error";
       const clr=ok?"#16a34a":err?"#dc2626":"#d97706";
-      const bg=ok?"#f0fdf4":err?"#fff1f2":"#fffbeb";
-      return `<tr style="background:${bg}"><td><strong>${esc(cr.label)}</strong>${cr.eliminatoria?' <span class="badge fail" style="font-size:8px">ELIMINATORIO</span>':""}</td><td>${esc(cr.threshold)}</td><td style="font-weight:700;color:${clr}">${esc(cr.actual||"\u2014")}</td><td><span style="color:${clr};font-weight:700">${ok?"\u2713":err?"\u2717":"!"}</span></td></tr>`;
+      const icon=ok?`<span style="color:#16a34a;font-weight:800;font-size:13px">\u2713</span>`:err?`<span style="color:#dc2626;font-weight:800;font-size:13px">\u2717</span>`:`<span style="color:#d97706;font-weight:800;font-size:13px">!</span>`;
+      return `<tr><td style="border-left:3px solid ${clr}"><strong>${esc(cr.label)}</strong>${cr.eliminatoria?' <span class="badge fail" style="font-size:8px">ELIMINATORIO</span>':""}</td><td>${esc(cr.threshold)}</td><td style="font-weight:700;color:${clr}">${esc(cr.actual||"\u2014")}</td><td style="text-align:center">${icon}</td></tr>`;
     }).join("")}</tbody>
   </table>
   <div style="border-radius:8px;padding:14px 18px;background:${vBg};border:1px solid ${vBrd};page-break-inside:avoid">
@@ -372,8 +451,9 @@ function secFaturamento(p: PDFReportParams): string {
   const fat=p.data.faturamento;
   if(!fat||!fat.meses?.length) return `<div class="sec">${secHdr("06","Faturamento")}<div style="color:#9ca3af;font-size:11px">Dados de faturamento nao disponiveis.</div></div>`;
   const meses=sortMeses(fat.meses);
+  const fmmVal = numVal(fat.fmm12m);
   return `<div class="sec">${secHdr("06","Faturamento")}
-  ${faturamentoChart(meses)}
+  ${faturamentoChart(meses, fmmVal > 0 ? fmmVal : undefined)}
   ${fat.fmm12m?`<div style="margin-bottom:14px;font-size:12px;color:#374151">FMM 12 meses: <strong>${fmtMoney(fat.fmm12m)}</strong></div>`:""}
   <table style="${TS}">
     <thead>${row(["Mes","Faturamento (R$)"],true)}</thead>
@@ -395,6 +475,55 @@ function secProtestos(p: PDFReportParams): string {
   const top10Rec=detalhes.slice(0,10);
   const top10Val=[...detalhes].sort((a,b)=>numVal(b.valor)-numVal(a.valor)).slice(0,10);
 
+  // Distribuicao Temporal
+  const now = new Date();
+  const parseDate = (d: string | undefined): Date | null => {
+    if (!d) return null;
+    const parts = d.split("/");
+    if (parts.length === 3) return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+    const t = new Date(d);
+    return isNaN(t.getTime()) ? null : t;
+  };
+  const daysDiff = (d: Date): number => Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
+
+  type DistTemp = { label: string; qtd: number; valor: number };
+  const temporal: DistTemp[] = [
+    { label: "Ultimo mes (30 dias)", qtd: 0, valor: 0 },
+    { label: "Ultimos 3 meses", qtd: 0, valor: 0 },
+    { label: "Ultimos 12 meses", qtd: 0, valor: 0 },
+    { label: "Mais de 12 meses", qtd: 0, valor: 0 },
+  ];
+  detalhes.forEach(d => {
+    const dt = parseDate(d.data);
+    const v = numVal(d.valor);
+    if (!dt) { temporal[3].qtd++; temporal[3].valor += v; return; }
+    const days = daysDiff(dt);
+    if (days <= 30) { temporal[0].qtd++; temporal[0].valor += v; }
+    else if (days <= 90) { temporal[1].qtd++; temporal[1].valor += v; }
+    else if (days <= 365) { temporal[2].qtd++; temporal[2].valor += v; }
+    else { temporal[3].qtd++; temporal[3].valor += v; }
+  });
+
+  // Distribuicao por Faixa de Valor
+  type DistFaixa = { label: string; qtd: number; valor: number };
+  const faixas: DistFaixa[] = [
+    { label: "Abaixo de R$ 1.000", qtd: 0, valor: 0 },
+    { label: "R$ 1.000 a R$ 10.000", qtd: 0, valor: 0 },
+    { label: "R$ 10.000 a R$ 50.000", qtd: 0, valor: 0 },
+    { label: "R$ 50.000 a R$ 100.000", qtd: 0, valor: 0 },
+    { label: "Acima de R$ 100.000", qtd: 0, valor: 0 },
+  ];
+  detalhes.forEach(d => {
+    const v = numVal(d.valor);
+    if (v < 1000) { faixas[0].qtd++; faixas[0].valor += v; }
+    else if (v < 10000) { faixas[1].qtd++; faixas[1].valor += v; }
+    else if (v < 50000) { faixas[2].qtd++; faixas[2].valor += v; }
+    else if (v < 100000) { faixas[3].qtd++; faixas[3].valor += v; }
+    else { faixas[4].qtd++; faixas[4].valor += v; }
+  });
+
+  const hasDistributions = detalhes.length > 0;
+
   return `<div class="sec">${secHdr("07","Protestos")}
   ${grid(4,[
     kpi("Vigentes Qtd",String(vig),vig>0?"#dc2626":"#111827"),
@@ -402,6 +531,22 @@ function secProtestos(p: PDFReportParams): string {
     kpi("Regularizados Qtd",String(reg)),
     kpi("Regularizados R$",fmtMoney(prot.regularizadosValor)),
   ])}
+  ${hasDistributions ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+    <div>
+      ${subTitle("Distribuicao Temporal")}
+      <table style="${TS}">
+        <thead>${row(["Periodo","Qtd","Valor"],true)}</thead>
+        <tbody>${temporal.map(t => row([esc(t.label), String(t.qtd), fmtMoney(String(t.valor))])).join("")}</tbody>
+      </table>
+    </div>
+    <div>
+      ${subTitle("Distribuicao por Faixa de Valor")}
+      <table style="${TS}">
+        <thead>${row(["Faixa","Qtd","Valor"],true)}</thead>
+        <tbody>${faixas.map(f => row([esc(f.label), String(f.qtd), fmtMoney(String(f.valor))])).join("")}</tbody>
+      </table>
+    </div>
+  </div>` : ""}
   ${top10Rec.length>0?`${subTitle("Top 10 Mais Recentes")}
   <table style="${TS}"><thead>${row(["Data","Credor","Valor","Regularizado"],true)}</thead>
   <tbody>${top10Rec.map(d=>row([fmt(d.data),esc(d.apresentante||d.credor||"\u2014"),fmtMoney(d.valor),d.regularizado?'<span class="badge ok">Sim</span>':'<span class="badge fail">Nao</span>'])).join("")}</tbody></table>`:""}
@@ -425,7 +570,7 @@ function secProcessos(p: PDFReportParams): string {
   ${temRJ?alertBox("Pedido de RJ/Falencia identificado","ALTA"):""}
   ${grid(4,[
     kpi("Total Processos",String(total),total>20?"#dc2626":"#111827"),
-    kpi("Polo Ativo",String(ativo)),
+    kpi("Polo Ativo",String(ativo),"#203B88"),
     kpi("Polo Passivo",String(passiv),passiv>10?"#dc2626":"#111827"),
     kpi("Falencia/RJ",temRJ?"SIM":"NAO",temRJ?"#dc2626":"#16a34a"),
   ])}
@@ -499,8 +644,8 @@ function secCnpj(p: PDFReportParams): string {
   const ok=(c.situacaoCadastral||"").toUpperCase().includes("ATIVA");
   const cap=p.data.qsa?.capitalSocial||c.capitalSocialCNPJ||"";
   return `<div class="sec">${secHdr("12","Cartao CNPJ")}
-  <div style="background:var(--navy-dark);border-radius:10px;padding:20px 24px;margin-bottom:16px;page-break-inside:avoid">
-    <div style="font-size:18px;font-weight:900;color:#fff;margin-bottom:3px">${esc(c.razaoSocial||"\u2014")}</div>
+  <div style="background:#203B88;border-radius:10px;padding:20px 24px;margin-bottom:16px;page-break-inside:avoid">
+    <div style="font-family:'Bebas Neue','Open Sans',Arial,sans-serif;font-size:20px;font-weight:700;color:#fff;margin-bottom:3px;letter-spacing:.02em">${esc(c.razaoSocial||"\u2014")}</div>
     ${c.nomeFantasia&&c.nomeFantasia!==c.razaoSocial?`<div style="font-size:11px;color:rgba(255,255,255,.45);font-style:italic;margin-bottom:4px">"${esc(c.nomeFantasia)}"</div>`:""}
     <div style="font-size:11px;color:rgba(255,255,255,.45)">CNPJ ${fmtCnpj(c.cnpj)}</div>
     <span style="margin-top:8px;display:inline-block;padding:3px 10px;border-radius:4px;background:${ok?"rgba(34,197,94,.15)":"rgba(239,68,68,.15)"};color:${ok?"#4ade80":"#fca5a5"};font-size:9px;font-weight:700">${esc(c.situacaoCadastral||"\u2014")}</span>
@@ -524,13 +669,13 @@ function secCnpj(p: PDFReportParams): string {
     </tbody>
   </table>
   ${p.streetViewBase64||p.mapStaticBase64?`<div style="display:grid;grid-template-columns:${p.streetViewBase64&&p.mapStaticBase64?"1fr 1fr":"1fr"};gap:12px;margin-bottom:16px;page-break-inside:avoid">
-    ${p.streetViewBase64?`<div style="border-radius:8px;overflow:hidden;border:1px solid #e5e7eb">
-      <img src="${p.streetViewBase64}" style="width:100%;height:170px;object-fit:cover;display:block"/>
-      <div style="padding:6px 10px;background:#f8fafc;font-size:9px;color:#9ca3af">Street View</div>
+    ${p.streetViewBase64?`<div style="border-radius:8px;overflow:hidden;border:1px solid #e0e4ec">
+      <img src="data:image/jpeg;base64,${p.streetViewBase64}" style="width:100%;height:170px;object-fit:cover;display:block"/>
+      <div style="padding:6px 10px;background:#f8f9fb;font-size:9px;color:#9ca3af">Street View</div>
     </div>`:""}
-    ${p.mapStaticBase64?`<div style="border-radius:8px;overflow:hidden;border:1px solid #e5e7eb">
-      <img src="${p.mapStaticBase64}" style="width:100%;height:170px;object-fit:cover;display:block"/>
-      <div style="padding:6px 10px;background:#f8fafc;font-size:9px;color:#9ca3af">Mapa</div>
+    ${p.mapStaticBase64?`<div style="border-radius:8px;overflow:hidden;border:1px solid #e0e4ec">
+      <img src="data:image/jpeg;base64,${p.mapStaticBase64}" style="width:100%;height:170px;object-fit:cover;display:block"/>
+      <div style="padding:6px 10px;background:#f8f9fb;font-size:9px;color:#9ca3af">Mapa</div>
     </div>`:""}
   </div>`:""}
 </div>`;
@@ -681,6 +826,64 @@ function secModalidadesScr(p: PDFReportParams): string {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 18b: SCR SOCIOS
+// ═══════════════════════════════════════════════════════════════════════════════
+function secScrSocios(p: PDFReportParams): string {
+  const socios = p.data.scrSocios;
+  if (!socios || socios.length === 0) return "";
+
+  return socios.map((socio) => {
+    const scr = socio.periodoAtual;
+    const prev = socio.periodoAnterior;
+    const perAtual = fmt(scr?.periodoReferencia);
+    const perAnt = prev ? fmt(prev.periodoReferencia) : "";
+
+    // Comparativo table
+    type R = { metrica: string; ant: string; atual: string; variacao: string };
+    const rows: R[] = [];
+    function addRow(metrica: string, antVal: string | undefined, atualVal: string | undefined) {
+      const v = prev ? (delta(atualVal, antVal) || "\u2014") : "\u2014";
+      rows.push({ metrica, ant: prev ? fmtMoney(antVal) : "\u2014", atual: fmtMoney(atualVal), variacao: v });
+    }
+    if (scr) {
+      addRow("Total Dividas", prev?.totalDividasAtivas, scr.totalDividasAtivas);
+      addRow("Vencidos", prev?.vencidos, scr.vencidos);
+      addRow("A Vencer", prev?.carteiraAVencer, scr.carteiraAVencer);
+      addRow("Limite Credito", prev?.limiteCredito, scr.limiteCredito);
+    }
+
+    // Modalidades
+    const mods = scr?.modalidades || [];
+    void prev; // may be used for modalidades comparison later
+
+    return `<div class="sec" style="margin-top:20px;padding:16px 18px;background:#f8f9fb;border-radius:8px;border:1px solid #e0e4ec;page-break-inside:avoid">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;background:#203B88;color:#fff;font-size:8px;font-weight:800;border-radius:5px;flex-shrink:0">PF</span>
+        <div>
+          <div style="font-size:13px;font-weight:800;color:#111827">${esc(socio.nomeSocio)}</div>
+          <div style="font-size:10px;color:#6b7280">CPF ${fmtCpf(socio.cpfSocio)} &middot; Ref: ${perAtual}</div>
+        </div>
+      </div>
+      ${rows.length > 0 ? `<table style="${TS}">
+        <thead>${row(prev ? ["Metrica", perAnt, perAtual, "Var."] : ["Metrica", perAtual], true)}</thead>
+        <tbody>${rows.map(r => prev
+          ? `<tr><td><strong>${esc(r.metrica)}</strong></td><td>${r.ant}</td><td>${r.atual}</td><td>${r.variacao}</td></tr>`
+          : `<tr><td><strong>${esc(r.metrica)}</strong></td><td>${r.atual}</td></tr>`
+        ).join("")}</tbody>
+      </table>` : ""}
+      ${mods.length > 0 ? `<div style="font-size:9px;font-weight:700;color:#203B88;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Modalidades</div>
+      <table style="${TS}">
+        <thead><tr><th>Modalidade</th><th>Total</th><th>A Vencer</th><th>Vencido</th><th>Part%</th></tr></thead>
+        <tbody>${mods.filter(m => m.nome).map(m => {
+          const vencClr = m.vencido && m.vencido !== "0" ? "color:#dc2626;font-weight:700" : "";
+          return `<tr><td><strong>${esc(m.nome)}</strong></td><td>${fmtMoney(m.total)}</td><td>${fmtMoney(m.aVencer)}</td><td style="${vencClr}">${fmtMoney(m.vencido)}</td><td>${fmt(m.participacao)}</td></tr>`;
+        }).join("")}</tbody>
+      </table>` : ""}
+    </div>`;
+  }).join("");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // SECTION 19: DRE
 // ═══════════════════════════════════════════════════════════════════════════════
 function secDre(p: PDFReportParams): string {
@@ -786,9 +989,9 @@ function secIrSocios(p: PDFReportParams): string {
   if(!socios?.length) return "";
   return `<div class="sec">${secHdr("22","IR dos Socios")}
   ${socios.map(s=>{
-    return `<div style="border:1px solid #e5e7eb;border-left:4px solid var(--navy);border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:14px;page-break-inside:avoid">
+    return `<div style="border:1px solid #e0e4ec;border-left:4px solid #203B88;border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:14px;page-break-inside:avoid">
       <div style="font-size:14px;font-weight:800;color:#111827;margin-bottom:2px">${esc(s.nomeSocio)}</div>
-      <div style="font-size:10px;color:#6b7280;margin-bottom:12px">CPF ${fmtCpf(s.cpf)} ${s.anoBase?` · Ano-base ${esc(s.anoBase)}`:""}</div>
+      <div style="font-size:10px;color:#6b7280;margin-bottom:12px">CPF ${fmtCpf(s.cpf)} ${s.anoBase?` &middot; Ano-base ${esc(s.anoBase)}`:""}</div>
       <table style="${TS}">
         <tbody>
           ${row(["Renda Total",fmtMoney(s.rendimentoTotal)])}
@@ -874,7 +1077,6 @@ export function gerarHtmlRelatorio(p: PDFReportParams): {
   <title>Relatorio de Credito \u2014 ${razao}</title>
   <style>${CSS}</style>
 </head><body>
-  <div class="watermark">CONFIDENCIAL</div>
   ${secCapa(p)}
   ${secChecklist(p)}
   ${secSintese(p)}
@@ -893,6 +1095,7 @@ export function gerarHtmlRelatorio(p: PDFReportParams): {
   ${secComparativoScr(p)}
   ${secScrVencimentos(p)}
   ${secModalidadesScr(p)}
+  ${secScrSocios(p)}
   ${secDre(p)}
   ${secBalanco(p)}
   ${secHistoricoConsultas(p)}
@@ -901,14 +1104,14 @@ export function gerarHtmlRelatorio(p: PDFReportParams): {
   ${secDadosEmpresa(p)}
 </body></html>`;
 
-  const headerTemplate=`<div style="width:100%;padding:5px 16mm 3px;display:flex;justify-content:space-between;align-items:center;font-family:'Helvetica Neue',Arial,sans-serif;font-size:8px;color:#6b7280;border-bottom:1px solid #e5e7eb">
+  const headerTemplate=`<div style="width:100%;padding:5px 16mm 3px;display:flex;justify-content:space-between;align-items:center;font-family:'Open Sans','Helvetica Neue',Arial,sans-serif;font-size:8px;color:#6b7280;border-bottom:1px solid #e5e7eb">
     <span style="font-weight:800;color:#203B88;letter-spacing:.04em">CAPITAL <span style="color:#73B815">FINANCAS</span></span>
     <span style="max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${razao}</span>
     <span></span>
   </div>`;
 
-  const footerTemplate=`<div style="width:100%;padding:3px 16mm 5px;display:flex;justify-content:space-between;align-items:center;font-family:'Helvetica Neue',Arial,sans-serif;font-size:8px;color:#9ca3af;border-top:1px solid #f3f4f6">
-    <span>Confidencial \u2014 uso interno \u00b7 ${hoje}</span>
+  const footerTemplate=`<div style="width:100%;padding:3px 16mm 5px;display:flex;justify-content:space-between;align-items:center;font-family:'Open Sans','Helvetica Neue',Arial,sans-serif;font-size:8px;color:#9ca3af;border-top:1px solid #f3f4f6">
+    <span>Uso interno &middot; ${hoje}</span>
     <span>Pagina <span class="pageNumber"></span> de <span class="totalPages"></span></span>
   </div>`;
 
