@@ -172,18 +172,20 @@ export default function UploadArea({
               <X size={13} />
             </button>
           )}
-          {/* Upload / Trocar button */}
+          {/* Upload / Adicionar / Trocar button */}
           {!processing && (
             <span
               className={`inline-flex items-center gap-1 text-[11px] font-semibold border rounded-lg px-2.5 py-1.5 transition-colors cursor-pointer ${
-                hasFiles || hasResumed
+                hasFiles
                   ? "text-cf-text-3 border-cf-border hover:border-cf-navy hover:text-cf-navy"
-                  : "text-cf-navy border-cf-border hover:border-cf-navy hover:bg-cf-surface"
+                  : hasResumed
+                    ? "text-cf-navy border-cf-navy/30 bg-cf-navy/5 hover:bg-cf-navy/10"
+                    : "text-cf-navy border-cf-border hover:border-cf-navy hover:bg-cf-surface"
               }`}
               onClick={() => inputRef.current?.click()}
             >
               <Upload size={11} />
-              {hasFiles || hasResumed ? "Trocar" : "Upload"}
+              {hasFiles ? "Trocar" : hasResumed ? "Adicionar" : "Upload"}
             </span>
           )}
         </div>
@@ -216,12 +218,20 @@ export default function UploadArea({
 
       {/* ── Resumed filenames (when no new files uploaded) ── */}
       {hasResumed && !hasFiles && (
-        <div className="px-4 pb-3 flex flex-wrap gap-1.5">
-          {resumedFilenames!.map((name, i) => (
-            <span key={i} className="text-[10px] bg-green-50 text-green-700 border border-green-200 rounded-md px-2 py-0.5 font-medium">
-              ✓ {name}
-            </span>
-          ))}
+        <div className="px-4 pb-3">
+          <div className="flex flex-wrap gap-1.5">
+            {resumedFilenames!.map((name, i) => (
+              <span key={i} className="text-[10px] bg-green-50 text-green-700 border border-green-200 rounded-md px-2 py-0.5 font-medium">
+                ✓ {name}
+              </span>
+            ))}
+          </div>
+          <button
+            onClick={e => { e.stopPropagation(); inputRef.current?.click(); }}
+            className="w-full text-[10px] font-medium text-cf-text-4 hover:text-cf-navy transition-colors pt-2 flex items-center justify-center gap-1"
+          >
+            <Upload size={9} /> Adicionar novo documento
+          </button>
         </div>
       )}
 
