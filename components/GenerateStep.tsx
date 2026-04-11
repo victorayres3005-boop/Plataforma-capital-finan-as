@@ -1461,6 +1461,35 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   };
 
   // ═══════════════════════════════════════════════════
+  // HTML View (abre relatório visual em nova aba)
+  // ═══════════════════════════════════════════════════
+  const generateHTMLView = async () => {
+    setGeneratingFormat("html");
+    try {
+      const payload = {
+        data, aiAnalysis, decision, finalRating, alerts, alertsHigh,
+        pontosFortes, pontosFracos, perguntasVisita, resumoExecutivo,
+        companyAge, protestosVigentes, vencidosSCR, vencidas, prejuizosVal,
+        dividaAtiva, atraso, riskScore: riskScore as "alto" | "medio" | "baixo", decisionColor, decisionBg, decisionBorder,
+        observacoes: analystNotes.trim() || undefined,
+        fundValidation,
+        creditLimit,
+      };
+      const { html } = gerarHtmlRelatorio(payload);
+      const w = window.open("", "_blank");
+      if (w) {
+        w.document.write(html);
+        w.document.close();
+      }
+      setGeneratedFormats(p => new Set(p).add("html"));
+    } catch (err) {
+      console.error("HTML view error:", err);
+    } finally {
+      setGeneratingFormat(null);
+    }
+  };
+
+  // ═══════════════════════════════════════════════════
   // DOCX Generation
   // ═══════════════════════════════════════════════════
   const generateDOCX = async () => {
@@ -2360,7 +2389,8 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
             <div className="flex gap-2.5 flex-wrap">
               {([
-                { fmt: "pdf"  as Format, label: "PDF",   sub: "Completo e formatado", fn: generatePDF,   ext: ".pdf",  dot: "#dc2626", recommended: true },
+                { fmt: "pdf"  as Format, label: "PDF",   sub: "Download direto (.pdf)", fn: generatePDF,   ext: ".pdf",  dot: "#dc2626", recommended: true },
+                { fmt: "html" as Format, label: "Visualizar",  sub: "Abre em nova aba",     fn: generateHTMLView,  ext: ".html", dot: "#203b88", recommended: false },
                 { fmt: "docx" as Format, label: "Word",  sub: "Editável (.docx)",     fn: generateDOCX,  ext: ".docx", dot: "#2b5eb7", recommended: false },
                 { fmt: "xlsx" as Format, label: "Excel", sub: "Dados tabulados",      fn: generateExcel, ext: ".xlsx", dot: "#1d6f42", recommended: false },
                 { fmt: "html" as Format, label: "HTML",  sub: "Web / impressão",      fn: generateHTML,  ext: ".html", dot: "#e34f26", recommended: false },
