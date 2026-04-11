@@ -1639,22 +1639,26 @@ export default function HomePage() {
             )}
           </div>
           );
-        })() : (
+        })() : step === "generate" ? (
+
+        <div key="generate" className="w-full animate-slide-up">
+          <GenerateStep data={extractedData} originalFiles={originalFiles} onBack={() => setStep("review")} onReset={() => { setShowDashboard(true); setStep("upload"); setExtractedData(defaultData); setResumedDocs(undefined); setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] }); }} onNotify={handleNotify} onFirstCollection={markFirstCollectionDone} />
+        </div>
+
+        ) : (
 
         <div key={step} className="max-w-2xl mx-auto animate-slide-up">
-
           {/* Botão voltar + Step header */}
           <div className="mb-6">
             <button onClick={() => {
               if (step === "upload") { setShowDashboard(true); }
-              else if (step === "review") { setStep("upload"); }
-              else { setStep("review"); }
+              else { setStep("upload"); }
             }} className="flex items-center gap-1.5 text-xs font-semibold text-cf-text-3 hover:text-cf-navy mb-4 transition-colors" style={{ minHeight: "auto" }}>
               {step === "upload" ? <><Home size={13} /> Voltar ao painel</> : <><ArrowLeft size={13} /> Voltar</>}
             </button>
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-cf-navy flex items-center justify-center text-white text-sm font-bold shadow-sm">
-                {step === "upload" ? "1" : step === "review" ? "2" : "3"}
+                {step === "upload" ? "1" : "2"}
               </div>
               <div>
                 <h2 className="text-lg font-bold text-cf-text-1">{stepLabels[step]}</h2>
@@ -1673,10 +1677,8 @@ export default function HomePage() {
           {step === "review" && (
             <ReviewStep data={extractedData} onComplete={(d) => { setExtractedData(d); try { localStorage.removeItem(DRAFT_KEY); } catch {/**/} setLocalDraft(null); setStep("generate"); }} onBack={() => setStep("upload")} />
           )}
-          {step === "generate" && (
-            <GenerateStep data={extractedData} originalFiles={originalFiles} onBack={() => setStep("review")} onReset={() => { setShowDashboard(true); setStep("upload"); setExtractedData(defaultData); setResumedDocs(undefined); setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] }); }} onNotify={handleNotify} onFirstCollection={markFirstCollectionDone} />
-          )}
         </div>
+
         )}
       </main>
 

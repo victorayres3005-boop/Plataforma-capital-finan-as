@@ -1086,12 +1086,51 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   };
 
   // ── Auto-save: salva automaticamente ao entrar no step ──
+  // Proteção contra duplicatas: verifica se já existe coleta recente com mesmo CNPJ
   const autoSaved = useRef(false);
   useEffect(() => {
-    if (!autoSaved.current) {
-      autoSaved.current = true;
+    if (autoSaved.current) return;
+    autoSaved.current = true;
+
+    (async () => {
+      // Se já tem collectionId (ex: retomou coleta), só atualiza
+      if (collectionId) {
+        handleSave();
+        return;
+      }
+
+      // Verifica se já existe coleta in_progress recente com o mesmo CNPJ (últimos 5 min)
+      // para evitar duplicatas por StrictMode ou re-renders
+      try {
+        const supabase = createClient();
+        const { data: session } = await supabase.auth.getUser();
+        if (!session.user) { handleSave(); return; }
+        const cnpj = data.cnpj.cnpj;
+        if (cnpj) {
+          const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+          const { data: existing } = await supabase
+            .from("document_collections")
+            .select("id")
+            .eq("user_id", session.user.id)
+            .eq("cnpj", cnpj)
+            .eq("status", "in_progress")
+            .gte("created_at", fiveMinAgo)
+            .order("created_at", { ascending: false })
+            .limit(1);
+          if (existing && existing.length > 0) {
+            // Já existe uma coleta recente para o mesmo CNPJ, reutiliza
+            setCollectionId(existing[0].id);
+            const documents = buildDocuments();
+            await supabase.from("document_collections").update({ documents, label: data.cnpj.razaoSocial || null, ...getCollectionMeta() }).eq("id", existing[0].id);
+            setSavedFeedback(true);
+            setTimeout(() => setSavedFeedback(false), 2000);
+            return;
+          }
+        }
+      } catch { /* continue com save normal */ }
+
       handleSave();
-    }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1502,19 +1541,19 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   ];
 
   return (
-    <div className="w-full animate-slide-up flex gap-6 items-start">
+    <div className="w-full animate-slide-up flex gap-8 items-start">
 
       {/* ── Sidebar de navegação (desktop) ── */}
-      <nav className="hidden lg:flex flex-col gap-1 w-[220px] flex-shrink-0 sticky top-4 self-start">
-        <p className="text-xs font-bold text-cf-text-4 uppercase tracking-[0.12em] px-3 mb-2">Seções</p>
+      <nav className="hidden lg:flex flex-col gap-1.5 w-[240px] flex-shrink-0 sticky self-start" style={{ top: "80px" }}>
+        <p className="text-[11px] font-bold text-cf-text-4 uppercase tracking-[0.14em] px-3 mb-1">Navegação</p>
         {navItems.map(item => (
           <a
             key={item.id}
             href={`#${item.id}`}
-            className="flex items-center gap-2.5 py-2.5 px-3 rounded-lg text-sm font-medium text-cf-text-2 no-underline transition-colors hover:bg-blue-50 hover:text-cf-navy"
+            className="flex items-center gap-3 py-2.5 px-3 rounded-xl text-[13px] font-medium text-cf-text-2 no-underline transition-all hover:bg-blue-50/80 hover:text-cf-navy hover:shadow-sm"
             onClick={e => { e.preventDefault(); document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
           >
-            <span className="w-8 h-8 rounded-lg bg-cf-surface-2 flex items-center justify-center text-[11px] font-bold text-cf-text-3 shrink-0">
+            <span className="w-9 h-9 rounded-xl bg-cf-surface-2 flex items-center justify-center text-[11px] font-bold text-cf-text-3 shrink-0 shadow-sm">
               {item.icon}
             </span>
             <span className="leading-snug">{item.label}</span>
@@ -1523,7 +1562,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       </nav>
 
       {/* ── Conteúdo principal ── */}
-      <div className="flex-1 min-w-0 pb-28 flex flex-col gap-6">
+      <div className="flex-1 min-w-0 pb-28 flex flex-col gap-7">
 
         {/* ════════════════════════════════════════
             SEÇÃO 00 — SUMÁRIO EXECUTIVO
