@@ -17,6 +17,15 @@ function fmtMoney(v: string | number | null | undefined): string {
   if (isNaN(n)) return esc(String(v));
   return "R$\u00a0" + n.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
 }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function fmtMoneyRound(v: string | number | null | undefined): string {
+  if (v == null || v === "") return "\u2014";
+  const n = parseFloat(String(v).replace(/[^\d,-]/g,"").replace(",","."));
+  if (isNaN(n)) return esc(String(v));
+  if (Math.abs(n) >= 1_000_000) return "R$\u00a0" + (n / 1_000_000).toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:1}) + "M";
+  if (Math.abs(n) >= 1_000) return "R$\u00a0" + (n / 1_000).toLocaleString("pt-BR",{minimumFractionDigits:0,maximumFractionDigits:0}) + "k";
+  return "R$\u00a0" + Math.round(n).toLocaleString("pt-BR");
+}
 function fmtPct(v: string | number | null | undefined): string {
   if (v == null || v === "") return "\u2014";
   const s = String(v).trim();
@@ -488,17 +497,17 @@ function secSintese(p: PDFReportParams): string {
 
   ${groupLabel("INDICADORES FINANCEIROS")}
   ${grid(4,[
-    kpi("FMM 12m", fmmNum > 0 ? fmtMoney(String(fmmNum)) : "\u2014"),
-    kpi("Faturamento Medio", fatMedia > 0 ? fmtMoney(String(fatMedia)) : "\u2014", "#111827", last12Meses.length > 0 ? `ultimos ${last12Meses.length} meses` : undefined),
+    kpi("FMM 12m", fmmNum > 0 ? fmtMoneyRound(String(fmmNum)) : "\u2014"),
+    kpi("Faturamento Medio", fatMedia > 0 ? fmtMoneyRound(String(fatMedia)) : "\u2014", "#111827", last12Meses.length > 0 ? `ultimos ${last12Meses.length} meses` : undefined),
     kpi("Alavancagem", alavancagem != null ? `${alavancagem.toFixed(1)}x` : "\u2014", alavancagem != null && alavancagem > 3 ? "#dc2626" : "#111827"),
-    kpi("Pleito",typeof pleito === "string" ? (pleito.match(/\d/) ? fmtMoney(pleito) : esc(pleito)) : fmtMoney(pleito)),
+    kpi("Pleito",typeof pleito === "string" ? (pleito.match(/\d/) ? fmtMoneyRound(pleito) : esc(pleito)) : fmtMoneyRound(pleito)),
   ])}
 
   ${groupLabel("INDICADORES DE RISCO")}
   ${grid(4,[
-    kpi("Protestos Vigentes",String(p.protestosVigentes),p.protestosVigentes>0?"#dc2626":"#111827", `${fmtMoney(data.protestos?.vigentesValor)} | ult: ${esc(String(lastProtesto))}`),
+    kpi("Protestos Vigentes",String(p.protestosVigentes),p.protestosVigentes>0?"#dc2626":"#111827", `${fmtMoneyRound(data.protestos?.vigentesValor)} | ult: ${esc(String(lastProtesto))}`),
     kpi("Processos",`A:${procAtivo} / P:${procPassivo}`, "#111827", `ult: ${esc(String(lastProcesso))}`),
-    kpi("SCR Vencido",fmtMoney(data.scr?.vencidos),p.vencidosSCR>0?"#dc2626":"#111827"),
+    kpi("SCR Vencido",fmtMoneyRound(data.scr?.vencidos),p.vencidosSCR>0?"#dc2626":"#111827"),
     kpi("CCF", data.ccf ? (data.ccf.qtdRegistros > 0 ? `${data.ccf.qtdRegistros} ocorr.` : "Sem ocorrencias") : "\u2014", data.ccf && data.ccf.qtdRegistros > 0 ? "#dc2626" : "#111827", ccfBancos || undefined),
   ])}
 
@@ -508,7 +517,7 @@ function secSintese(p: PDFReportParams): string {
     const balAnos = data.balanco?.anos || [];
     const ultimoAno = balAnos.length > 0 ? balAnos[balAnos.length - 1] : null;
     const ncgVal = ultimoAno ? numVal(ultimoAno.ativoCirculante) - numVal(ultimoAno.passivoCirculante) : 0;
-    const ncgStr = ultimoAno ? fmtMoney(String(ncgVal)) : "\u2014";
+    const ncgStr = ultimoAno ? fmtMoneyRound(String(ncgVal)) : "\u2014";
     const ncgColor = ncgVal < 0 ? "#dc2626" : "#16a34a";
     const ncgSub = ncgVal < 0 ? "Deficit \u2014 necessita financiamento" : "Superavit";
     return grid(4,[
@@ -543,6 +552,8 @@ function secParecer(p: PDFReportParams): string {
   const parecerObj = p.aiAnalysis?.parecer;
   const parecerIsObj = parecerObj && typeof parecerObj === "object";
 
+  const textoCompleto = parecerIsObj ? (parecerObj as { textoCompleto?: string }).textoCompleto : undefined;
+
   const resumo = p.resumoExecutivo
     || (parecerIsObj ? (parecerObj as { resumoExecutivo?: string }).resumoExecutivo : undefined)
     || p.aiAnalysis?.sinteseExecutiva
@@ -561,7 +572,7 @@ function secParecer(p: PDFReportParams): string {
     : (parecerIsObj ? ((parecerObj as { perguntasVisita?: { pergunta: string; contexto: string }[] }).perguntasVisita || []) : []);
 
   // If we have nothing to show, skip section
-  if (!resumo && pontosFortes.length === 0 && pontosFracos.length === 0 && perguntasVisita.length === 0) return "";
+  if (!resumo && !textoCompleto && pontosFortes.length === 0 && pontosFracos.length === 0 && perguntasVisita.length === 0) return "";
 
   const rc = p.finalRating >= 7 ? "#16a34a" : p.finalRating >= 4 ? "#d97706" : "#dc2626";
 
@@ -580,6 +591,10 @@ function secParecer(p: PDFReportParams): string {
   ${resumo ? `<!-- Resumo Executivo -->
   ${subTitle("Resumo Executivo")}
   <div style="background:linear-gradient(135deg,#f8f9fb 0%,#edf2fb 100%);border-left:4px solid #203B88;border-radius:0 8px 8px 0;padding:16px 18px;font-size:12px;line-height:1.8;color:#374151;page-break-inside:avoid;margin-bottom:20px">${esc(resumo)}</div>` : ""}
+
+  ${textoCompleto ? `<!-- Analise Completa -->
+  ${subTitle("Analise de Credito")}
+  <div style="background:#fff;border:1px solid #e0e4ec;border-radius:8px;padding:18px 20px;font-size:11.5px;line-height:1.9;color:#374151;page-break-inside:avoid;margin-bottom:20px;text-align:justify">${textoCompleto.split(/\n\n|\n/).filter(p => p.trim()).map(p => `<p style="margin:0 0 12px 0">${esc(p.trim())}</p>`).join("")}</div>` : ""}
 
   ${pontosFortes.length > 0 ? `<!-- Pontos Fortes -->
   ${subTitle("Pontos Fortes")}

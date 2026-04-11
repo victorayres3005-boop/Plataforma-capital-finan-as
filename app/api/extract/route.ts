@@ -448,44 +448,60 @@ Regras obrigatórias:
 14. Se o nome do cliente vier com CPF/número no início (ex: "59.580.931 MARIA LUIZA"), separe: cnpjCpf = "59.580.931", nome = "MARIA LUIZA DA SILVA MACEDO"
 15. NÃO invente dados — use apenas o que está no documento`;
 
-const PROMPT_DRE = `Você receberá uma Demonstração de Resultado do Exercício (DRE). Pode estar em formato SPED ECD/ECF, DRE simplificada, relatório gerencial ou planilha. Retorne APENAS JSON válido, sem markdown.
+const PROMPT_DRE = `Você receberá uma Demonstração de Resultado do Exercício (DRE). Pode estar em formato SPED ECD/ECF, DRE simplificada, relatório gerencial, planilha Excel ou PDF contábil. Retorne APENAS JSON válido, sem markdown, sem texto adicional.
 
-Schema:
+Schema EXATO (respeite todos os campos):
 {"anos":[{"ano":"2024","receitaBruta":"0,00","deducoes":"0,00","receitaLiquida":"0,00","custoProdutosServicos":"0,00","lucroBruto":"0,00","margemBruta":"0,00","despesasOperacionais":"0,00","ebitda":"0,00","margemEbitda":"0,00","depreciacaoAmortizacao":"0,00","resultadoFinanceiro":"0,00","lucroAntesIR":"0,00","impostoRenda":"0,00","lucroLiquido":"0,00","margemLiquida":"0,00"}],"crescimentoReceita":"0,00","tendenciaLucro":"estavel","periodoMaisRecente":"","observacoes":""}
 
-Regras gerais:
-- Extraia dados ANUAIS consolidados — NÃO extraia mensais ou trimestrais
-- Se o documento tiver vários anos, extraia todos em ordem cronológica crescente
-- Valores: formato brasileiro com ponto milhar e vírgula decimal (ex: "1.234.567,89")
-- Valores negativos: manter sinal de menos (ex: "-45.000,00")
-- Margens: em percentual com sinal de menos se negativo (ex: "12,5" ou "-3,2") — sem "%"
-- Se um campo não existir no documento, use "0,00"
+REGRAS OBRIGATÓRIAS DE FORMATO:
+1. TODOS os valores monetários DEVEM estar em formato brasileiro: ponto como separador de milhar, vírgula para decimais
+   - CORRETO: "1.234.567,89", "456.789,00", "-12.345,67"
+   - ERRADO: "1234567.89", "1,234,567.89", "R$ 1.234,00"
+   - Sem prefixo "R$", sem espaços extras
+2. Valores negativos: prefixar com sinal de menos: "-45.000,00" (custos, deduções, despesas e prejuízos)
+3. Margens: número percentual SEM símbolo "%", com vírgula decimal: "12,5" ou "-3,2"
+4. Se um campo não existir no documento, use "0,00"
+5. NÃO arredonde — mantenha os centavos como aparecem no documento
 
-Mapeamento SPED ECD/ECF (linhas do SPED começam com código contábil):
-- receitaBruta → "RECEITA BRUTA DE VENDAS" / "RECEITA OPERACIONAL BRUTA" / conta 3.01
-- deducoes → "DEDUÇÕES DA RECEITA" / "(-) Impostos sobre Vendas" / conta 3.02
-- receitaLiquida → "RECEITA LÍQUIDA" / conta 3.03
-- custoProdutosServicos → "CUSTO DOS PRODUTOS/SERVIÇOS VENDIDOS" / "CMV" / conta 3.04
-- lucroBruto → "LUCRO BRUTO" / conta 3.05
-- despesasOperacionais → "DESPESAS OPERACIONAIS" / soma de despesas com vendas + administrativas
-- ebitda → "EBITDA" / "LAJIDA" — se não constar, calcule: lucroBruto - despesasOperacionais
-- depreciacaoAmortizacao → "DEPRECIAÇÃO E AMORTIZAÇÃO" / conta 3.06
-- resultadoFinanceiro → "RESULTADO FINANCEIRO" / "RECEITAS/DESPESAS FINANCEIRAS" — negativo se despesa
-- lucroAntesIR → "LUCRO ANTES DO IRPJ E CSLL" / "LAIR"
-- impostoRenda → "IRPJ + CSLL" — valor como negativo se for despesa
-- lucroLiquido → "LUCRO/PREJUÍZO LÍQUIDO DO EXERCÍCIO" / "LUCRO APURADO NO PERÍODO" / conta 3.99
+REGRAS DE EXTRAÇÃO:
+- Extraia dados ANUAIS consolidados. Se houver vários anos, extraia TODOS em ordem cronológica crescente (ex: 2022, 2023, 2024)
+- Se o documento contiver dados MENSAIS ou TRIMESTRAIS (sem consolidação anual), SOME todos os meses/trimestres de cada ano para obter o total anual
+- Exemplo: se Jan=100, Fev=150, ..., Dez=200, então receitaBruta do ano = soma de todos os 12 meses
+- Se houver coluna "Acumulado" ou "Total do Período", prefira esse valor em vez de somar manualmente
 
-Cálculos de margem (calcule você mesmo se não constarem):
-- margemBruta = lucroBruto / receitaLiquida * 100
-- margemEbitda = ebitda / receitaLiquida * 100
-- margemLiquida = lucroLiquido / receitaLiquida * 100
+Mapeamento de contas (SPED ECD/ECF e DRE padrão):
+- receitaBruta → "RECEITA BRUTA" / "RECEITA OPERACIONAL BRUTA" / "FATURAMENTO BRUTO" / conta 3.01 / linha que antecede deduções
+- deducoes → "DEDUÇÕES DA RECEITA" / "(-) Impostos sobre Vendas" / "(-) Devoluções e Abatimentos" / conta 3.02 — SEMPRE como valor negativo
+- receitaLiquida → "RECEITA LÍQUIDA" / "RECEITA OPERACIONAL LÍQUIDA" / conta 3.03 — se não constar, calcule: receitaBruta + deducoes (deducoes é negativo)
+- custoProdutosServicos → "CPV" / "CMV" / "CUSTO DOS PRODUTOS VENDIDOS" / "CUSTO DOS SERVIÇOS PRESTADOS" / conta 3.04 — SEMPRE como valor negativo
+- lucroBruto → "LUCRO BRUTO" / "RESULTADO BRUTO" / conta 3.05 — se não constar, calcule: receitaLiquida + custoProdutosServicos
+- despesasOperacionais → "DESPESAS OPERACIONAIS" / soma de "Despesas com Vendas" + "Despesas Administrativas" + "Despesas Gerais" — SEMPRE como valor negativo
+- ebitda → "EBITDA" / "LAJIDA" — se não constar, calcule: lucroBruto + despesasOperacionais + depreciacaoAmortizacao (despesas são negativas, depreciação é negativa, então: lucroBruto - |despesas| - |depreciação| efetivamente)
+  Alternativa simplificada quando depreciação = 0: ebitda = lucroBruto + despesasOperacionais
+- depreciacaoAmortizacao → "DEPRECIAÇÃO E AMORTIZAÇÃO" / "D&A" / conta 3.06 — como valor negativo
+- resultadoFinanceiro → "RESULTADO FINANCEIRO" / "RECEITAS FINANCEIRAS" menos "DESPESAS FINANCEIRAS" — negativo se despesa líquida
+- lucroAntesIR → "LAIR" / "LUCRO ANTES DO IRPJ E CSLL" / "RESULTADO ANTES DOS TRIBUTOS"
+- impostoRenda → "IRPJ" + "CSLL" / "PROVISÃO PARA IR E CSLL" — como valor negativo
+- lucroLiquido → "LUCRO LÍQUIDO" / "PREJUÍZO DO EXERCÍCIO" / "RESULTADO LÍQUIDO" / conta 3.99
+
+CÁLCULOS DE MARGEM (calcule SEMPRE, mesmo se o documento informar):
+- margemBruta = (lucroBruto / receitaLiquida) * 100 → ex: se lucroBruto = "500.000,00" e receitaLiquida = "1.000.000,00", margemBruta = "50,0"
+- margemEbitda = (ebitda / receitaLiquida) * 100
+- margemLiquida = (lucroLiquido / receitaLiquida) * 100
+- Se receitaLiquida = 0, todas as margens = "0,00"
+- Margens negativas mantêm sinal: "-8,5"
 
 Campos adicionais:
-- crescimentoReceita: variação % da receitaBruta entre o primeiro e último ano (ex: "15,3" ou "-8,2")
-- tendenciaLucro: "crescimento" se lucroLiquido aumentou nos últimos 2 anos, "queda" se diminuiu, "estavel" se variação < 5%
+- crescimentoReceita: variação % da receitaBruta entre primeiro e último ano — fórmula: ((último - primeiro) / |primeiro|) * 100 — ex: "15,3" ou "-8,2"
+- tendenciaLucro: "crescimento" se lucroLiquido aumentou nos últimos 2 anos, "queda" se diminuiu, "estavel" se variação absoluta < 5%
 - periodoMaisRecente: ano mais recente encontrado (ex: "2024")
-- observacoes: qualquer dado relevante não capturado nos campos acima
-- NÃO invente dados`;
+- observacoes: informações relevantes não capturadas (regime tributário, notas do contador, etc.)
+
+IMPORTANTE:
+- NÃO invente dados — use APENAS valores presentes no documento
+- Se o documento estiver ilegível ou vazio em algum campo, use "0,00"
+- Confira a coerência: receitaLiquida deve ser aproximadamente receitaBruta - |deducoes|
+- lucroBruto deve ser aproximadamente receitaLiquida - |custoProdutosServicos|`;
 
 const PROMPT_BALANCO = `Você receberá um Balanço Patrimonial. Pode estar em formato SPED ECD, balanço simplificado, relatório gerencial ou planilha. Retorne APENAS JSON válido, sem markdown.
 
