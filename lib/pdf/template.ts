@@ -234,15 +234,20 @@ function sortMeses(meses: FaturamentoMensal[]): FaturamentoMensal[] {
   });
 }
 
-/** Compute FMM from fmm12m or last 12 months of meses[] — ALWAYS divide by 12 */
+/** Compute FMM from meses[] (preferred) or fallback to pre-calculated fields */
 function computeFmm(faturamento: { fmm12m?: string | number; mediaAno?: string | number; meses?: FaturamentoMensal[] } | undefined): number {
   if (!faturamento) return 0;
-  if (faturamento.fmm12m) return numVal(faturamento.fmm12m);
+  // Always prefer calculating from meses (most reliable)
   const valid = sortMeses(faturamento.meses || []).filter(m => m?.mes && m?.valor);
   const last12 = valid.slice(-12);
-  if (last12.length === 0) return 0;
-  const sum = last12.reduce((s, m) => s + numVal(m.valor), 0);
-  return sum / 12; // ALWAYS divide by 12, even if fewer months
+  if (last12.length > 0) {
+    const sum = last12.reduce((s, m) => s + numVal(m.valor), 0);
+    return sum / 12;
+  }
+  // Fallback to pre-calculated values
+  if (faturamento.fmm12m) return numVal(faturamento.fmm12m);
+  if (faturamento.mediaAno) return numVal(faturamento.mediaAno);
+  return 0;
 }
 
 function delta(cur:string|undefined,ant:string|undefined):string{
@@ -475,10 +480,11 @@ function secSintese(p: PDFReportParams): string {
   const last12Meses = allMesesSorted.slice(-12);
   const fatMedia = last12Meses.length > 0 ? last12Meses.reduce((s, m) => s + numVal(m.valor), 0) / last12Meses.length : 0;
 
-  // Alavancagem - calculate if not provided
+  // Alavancagem uses ONLY company (PJ) SCR, not socios
+  const scrPjDivida = numVal(data.scr?.totalDividasAtivas || "0");
   const alavancagem = p.alavancagem != null
     ? p.alavancagem
-    : (fmmNum > 0 ? numVal(data.scr?.totalDividasAtivas || "0") / fmmNum : null);
+    : (fmmNum > 0 ? scrPjDivida / fmmNum : null);
 
   const rv = data.relatorioVisita;
   const modalidade = rv?.modalidade || (rv?.taxaComissaria && rv?.taxaConvencional ? "Hibrida" : rv?.taxaComissaria ? "Comissaria" : rv?.taxaConvencional ? "Convencional" : "\u2014");
@@ -882,9 +888,9 @@ function secFaturamento(p: PDFReportParams): string {
 
   return `<div class="sec">${secHdr("06","Faturamento")}
   ${grid(4,[
-    kpi("FMM 12m", fmmNum > 0 ? fmtMoney(String(fmmNum)) : "\u2014", "#203B88"),
-    kpi("Total do Periodo", fmtMoney(String(total12)), "#111827", `ultimos 12 meses`),
-    kpi("Media 12m", media12 > 0 ? fmtMoney(String(media12)) : "\u2014", "#111827", `${last12.length} meses`),
+    kpi("FMM 12m", fmmNum > 0 ? fmtMoneyRound(String(fmmNum)) : "\u2014", "#203B88"),
+    kpi("Total do Periodo", fmtMoneyRound(String(total12)), "#111827", `ultimos 12 meses`),
+    kpi("Media 12m", media12 > 0 ? fmtMoneyRound(String(media12)) : "\u2014", "#111827", `${last12.length} meses`),
     kpi("Tendencia", tendencia, tendColor),
   ])}
   ${trendHtml}
@@ -1255,7 +1261,9 @@ function secComparativoScr(p: PDFReportParams): string {
   const alvAnt=fmmNum>0?`${(numVal(prev.totalDividasAtivas)/fmmNum).toFixed(1)}x`:"\u2014";
   rows.push({grupo:"RESUMO",metrica:"Alavancagem",ant:alvAnt,atual:alvAtual,variacao:"\u2014"});
 
-  return `<div class="sec">${secHdr("16","Comparativo SCR")}
+  // ── PJ Comparativo Table ──
+  let html = `<div class="sec">${secHdr("16","Comparativo SCR")}
+  <div style="font-size:10px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;padding:6px 12px;background:#edf2fb;border-radius:6px;display:inline-block">Empresa (PJ)</div>
   <div style="display:flex;gap:16px;margin-bottom:16px">
     <div style="flex:1;padding:12px 16px;background:#f8f9fb;border-radius:8px;border:1px solid #e0e4ec;text-align:center">
       <div style="font-size:8px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Periodo Anterior</div>
@@ -1275,8 +1283,59 @@ function secComparativoScr(p: PDFReportParams): string {
       const metricStyle = isTotalDividas ? "font-weight:900;font-size:12px" : "font-weight:700";
       return `<tr style="${rowStyle}"><td><strong style="${metricStyle}">${esc(r.metrica)}</strong><br/><span style="font-size:8px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em">${esc(r.grupo)}</span></td><td>${r.ant}</td><td style="font-weight:700">${r.atual}</td><td style="text-align:center">${r.variacao}</td></tr>`;
     }).join("")}</tbody>
-  </table>
-</div>`;
+  </table>`;
+
+  // ── Socios (PF) Comparativo Tables ──
+  const scrSocios = p.data.scrSocios || [];
+  if (scrSocios.length > 0) {
+    html += `<div style="font-size:10px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.08em;margin:24px 0 14px;padding:6px 12px;background:#edf2fb;border-radius:6px;display:inline-block">Socios (PF)</div>`;
+    scrSocios.forEach(socio => {
+      const scrPF = socio.periodoAtual;
+      const prevPF = socio.periodoAnterior;
+      const perAtualPF = fmt(scrPF?.periodoReferencia);
+      const perAntPF = prevPF ? fmt(prevPF.periodoReferencia) : "";
+      type RPF = { metrica: string; ant: string; atual: string; variacao: string };
+      const rowsPF: RPF[] = [];
+      function addRowPF(metrica: string, antVal: string | undefined, atualVal: string | undefined) {
+        const v = prevPF ? (delta(atualVal, antVal) || "\u2014") : "\u2014";
+        rowsPF.push({ metrica, ant: prevPF ? fmtMoney(antVal) : "\u2014", atual: fmtMoney(atualVal), variacao: v });
+      }
+      function addRowNumPF(metrica: string, antVal: string | undefined, atualVal: string | undefined) {
+        const v = prevPF ? (delta(atualVal, antVal) || "\u2014") : "\u2014";
+        rowsPF.push({ metrica, ant: prevPF ? fmt(antVal) : "\u2014", atual: fmt(atualVal), variacao: v });
+      }
+      if (scrPF) {
+        addRowPF("Total Dividas", prevPF?.totalDividasAtivas, scrPF.totalDividasAtivas);
+        addRowPF("Vencidos", prevPF?.vencidos, scrPF.vencidos);
+        addRowPF("A Vencer", prevPF?.carteiraAVencer, scrPF.carteiraAVencer);
+        addRowPF("Limite Credito", prevPF?.limiteCredito, scrPF.limiteCredito);
+        addRowNumPF("IFs", prevPF?.qtdeInstituicoes, scrPF.qtdeInstituicoes);
+        addRowNumPF("Operacoes", prevPF?.qtdeOperacoes, scrPF.qtdeOperacoes);
+      }
+      html += `<div style="margin-top:14px;padding:14px 16px;background:#f8f9fb;border-radius:8px;border:1px solid #e0e4ec;page-break-inside:avoid">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;background:#203B88;color:#fff;font-size:8px;font-weight:800;border-radius:6px">PF</span>
+          <div>
+            <div style="font-size:12px;font-weight:800;color:#111827">${esc(socio.nomeSocio)}</div>
+            <div style="font-size:9px;color:#6b7280">CPF ${fmtCpf(socio.cpfSocio)}${perAntPF ? ` &middot; ${perAntPF} vs ${perAtualPF}` : ` &middot; Ref: ${perAtualPF}`}</div>
+          </div>
+        </div>
+        ${rowsPF.length > 0 ? `<table style="${TS}">
+          <thead>${row(prevPF ? ["Metrica", perAntPF, perAtualPF, "Var."] : ["Metrica", perAtualPF], true)}</thead>
+          <tbody>${rowsPF.map(r => {
+            const isRiskPF = r.metrica === "Vencidos" && numVal(r.atual) > 0;
+            const rowStylePF = isRiskPF ? "background:#fff5f5" : "";
+            return prevPF
+              ? `<tr style="${rowStylePF}"><td><strong>${esc(r.metrica)}</strong></td><td>${r.ant}</td><td style="font-weight:700">${r.atual}</td><td style="text-align:center">${r.variacao}</td></tr>`
+              : `<tr style="${rowStylePF}"><td><strong>${esc(r.metrica)}</strong></td><td style="font-weight:700">${r.atual}</td></tr>`;
+          }).join("")}</tbody>
+        </table>` : `<div style="color:#9ca3af;font-size:10px">Sem dados SCR disponíveis</div>`}
+      </div>`;
+    });
+  }
+
+  html += `</div>`;
+  return html;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
