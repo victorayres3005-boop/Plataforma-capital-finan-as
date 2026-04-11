@@ -260,22 +260,61 @@ const stepDescriptions: Record<AppStep, string> = {
   generate: "Adicione o parecer e escolha o formato do relatório",
 };
 
+// ── Helpers para persistir estado de navegação ──
+const NAV_STATE_KEY = "cf_nav_state";
+const COLLECTIONS_CACHE_KEY = "cf_collections_cache";
+
+function loadNavState(): { step: AppStep; showDashboard: boolean } | null {
+  try {
+    const raw = sessionStorage.getItem(NAV_STATE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.step === "string" && typeof parsed.showDashboard === "boolean") {
+      return parsed as { step: AppStep; showDashboard: boolean };
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+function saveNavState(step: AppStep, showDashboard: boolean) {
+  try { sessionStorage.setItem(NAV_STATE_KEY, JSON.stringify({ step, showDashboard })); } catch { /* ignore */ }
+}
+
+function loadCachedCollections(): DocumentCollection[] {
+  try {
+    const raw = sessionStorage.getItem(COLLECTIONS_CACHE_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as DocumentCollection[];
+  } catch { return []; }
+}
+
+function saveCachedCollections(cols: DocumentCollection[]) {
+  try { sessionStorage.setItem(COLLECTIONS_CACHE_KEY, JSON.stringify(cols.slice(0, 50))); } catch { /* ignore */ }
+}
+
 export default function HomePage() {
-  const [step, setStep] = useState<AppStep>("upload");
+  const savedNav = loadNavState();
+  const [step, setStep] = useState<AppStep>(savedNav?.step || "upload");
   const [extractedData, setExtractedData] = useState<ExtractedData>(defaultData);
   const [originalFiles, setOriginalFiles] = useState<OriginalFiles>({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] });
   const [resumedDocs, setResumedDocs] = useState<import("@/types").CollectionDocument[] | undefined>(undefined);
   const { user, loading: authLoading, signOut } = useAuth();
   const { welcomeSeen, firstCollectionDone, loaded: onboardingLoaded, markWelcomeSeen, markTooltipSeen, markFirstCollectionDone, isTooltipSeen } = useOnboarding(user?.id);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [showDashboard, setShowDashboard] = useState(true);
+  const [showDashboard, setShowDashboard] = useState(savedNav?.showDashboard ?? true);
+
+  // Persistir estado de navegação sempre que mudar
+  useEffect(() => {
+    saveNavState(step, showDashboard);
+  }, [step, showDashboard]);
 
   // Scroll to top ao trocar de step ou sair do dashboard
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "instant" });
   }, [step, showDashboard]);
-  const [collections, setCollections] = useState<DocumentCollection[]>([]);
-  const [loadingCollections, setLoadingCollections] = useState(true);
+  const cachedCols = loadCachedCollections();
+  const [collections, setCollections] = useState<DocumentCollection[]>(cachedCols);
+  const [loadingCollections, setLoadingCollections] = useState(cachedCols.length === 0);
   const [dateFilter, setDateFilter] = useState<"hoje" | "7dias" | "30dias" | "custom">("30dias");
   const [customDate, setCustomDate] = useState("");
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
@@ -309,7 +348,7 @@ export default function HomePage() {
   const metricas = useMemo(() => calcularMetricasDashboard(dashCollections, dashAnterior), [dashCollections, dashAnterior]);
 
   // ── Resume collection from URL param ──
-  const handleResumeCollection = useCallback(async (collectionId: string) => {
+  const handleResumeCollection = useCallback(async (collectionId: string, forceStep?: AppStep) => {
     setResumingCollection(true);
     try {
       const supabase = createClient();
@@ -339,7 +378,8 @@ export default function HomePage() {
       setExtractedData(hydrated);
       setResumedDocs(docs as import("@/types").CollectionDocument[]);
       setShowDashboard(false);
-      setStep(col.status === "finished" ? "generate" : "upload");
+      // Se um step foi forçado (ex: voltar do parecer), usa ele; senão usa lógica padrão
+      setStep(forceStep || (col.status === "finished" ? "generate" : "upload"));
 
       // Clean URL
       window.history.replaceState({}, "", "/");
@@ -353,8 +393,9 @@ export default function HomePage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const resumeId = params.get("resume");
+    const forceStep = params.get("step") as AppStep | null;
     if (resumeId) {
-      handleResumeCollection(resumeId);
+      handleResumeCollection(resumeId, forceStep || undefined);
     }
   }, [handleResumeCollection]);
 
@@ -384,7 +425,9 @@ export default function HomePage() {
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })
         .limit(50);
-      setCollections((data as DocumentCollection[]) || []);
+      const cols = (data as DocumentCollection[]) || [];
+      setCollections(cols);
+      saveCachedCollections(cols);
     } catch { /* silent */ }
     finally { setLoadingCollections(false); }
   }, [user]);
