@@ -15,7 +15,7 @@ const GEMINI_API_KEYS = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_K
   .map(k => k.trim())
   .filter(Boolean);
 
-const GEMINI_MODELS = ["gemini-2.0-flash", "gemini-1.5-flash-8b"];
+const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash-lite"];
 
 const OPENROUTER_API_KEYS = (process.env.OPENROUTER_API_KEYS || process.env.OPENROUTER_API_KEY || "")
   .split(",").map(k => k.trim()).filter(Boolean);
