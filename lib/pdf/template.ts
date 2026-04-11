@@ -503,12 +503,21 @@ function secSintese(p: PDFReportParams): string {
   ])}
 
   ${groupLabel("ESTRUTURA")}
-  ${grid(4,[
-    kpi("Grupo Economico",geCount > 0 ? `${geCount} empresa(s)` : "\u2014", "#111827", geNames || undefined),
-    kpi("Curva ABC Top 3",fmt(top3Pct), "#111827", top3Names || undefined),
-    kpiPlaceholder(),
-    kpiPlaceholder(),
-  ])}
+  ${(() => {
+    // NCG = Ativo Circulante - Passivo Circulante (último ano do balanço)
+    const balAnos = data.balanco?.anos || [];
+    const ultimoAno = balAnos.length > 0 ? balAnos[balAnos.length - 1] : null;
+    const ncgVal = ultimoAno ? numVal(ultimoAno.ativoCirculante) - numVal(ultimoAno.passivoCirculante) : 0;
+    const ncgStr = ultimoAno ? fmtMoney(String(ncgVal)) : "\u2014";
+    const ncgColor = ncgVal < 0 ? "#dc2626" : "#16a34a";
+    const ncgSub = ncgVal < 0 ? "Deficit \u2014 necessita financiamento" : "Superavit";
+    return grid(4,[
+      kpi("Grupo Economico",geCount > 0 ? `${geCount} empresa(s)` : "\u2014", "#111827", geNames || undefined),
+      kpi("Curva ABC Top 3",fmt(top3Pct), "#111827", top3Names || undefined),
+      kpi("NCG (Cap. Giro)", ncgStr, ncgColor, ncgSub),
+      kpiPlaceholder(),
+    ]);
+  })()}
 
   ${subTitle("Composicao do Score")}
   <table style="${TS}">
@@ -1255,13 +1264,22 @@ function secBalanco(p: PDFReportParams): string {
     {label:"Patrimonio Liquido",key:"patrimonioLiquido",isMoney:true,isPct:false},
     {label:"Liquidez Corrente",key:"liquidezCorrente",isMoney:false,isPct:false},
     {label:"Endividamento",key:"endividamentoTotal",isMoney:false,isPct:true},
-    {label:"Capital de Giro",key:"capitalDeGiroLiquido",isMoney:true,isPct:false},
+    {label:"Capital de Giro Liq.",key:"capitalDeGiroLiquido",isMoney:true,isPct:false},
+    {label:"NCG (Necess. Cap. Giro)",key:"_ncg",isMoney:true,isPct:false},
   ];
   return `<div class="sec">${secHdr("20","Balanco Patrimonial")}
   <table style="${TS}">
     <thead>${row(["Metrica",...anos.map(a=>`<strong>${esc(a.ano)}</strong>`)],true)}</thead>
     <tbody>${metricas.map(m=>{
       const vals=anos.map(a=>{
+        // NCG = Ativo Circulante - Passivo Circulante (calculado)
+        if(m.key==="_ncg"){
+          const ac=numVal((a as unknown as Record<string,string>).ativoCirculante);
+          const pc=numVal((a as unknown as Record<string,string>).passivoCirculante);
+          if(ac===0&&pc===0) return "\u2014";
+          const ncg=ac-pc;
+          return `<span class="money${ncg<0?" neg":""}" title="Ativo Circ. ${fmtMoney(String(ac))} - Passivo Circ. ${fmtMoney(String(pc))}">${fmtMoney(String(ncg))}</span>`;
+        }
         const v=(a as unknown as Record<string,string>)[m.key];
         if(!v||v==="0"||v==="") return "\u2014";
         if(m.isPct) return fmtPct(v);

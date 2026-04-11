@@ -1059,7 +1059,7 @@ function fillRelatorioVisitaDefaults(data: Partial<RelatorioVisitaData>): Relato
     vendasOutras: data.vendasOutras || "",
     prazoMedioFaturamento: data.prazoMedioFaturamento || "",
     prazoMedioEntrega: data.prazoMedioEntrega || "",
-    referenciasFornecedores: data.referenciasFornecedores || "",
+    referenciasFornecedores: data.referenciasFornecedores || (data as Record<string, unknown>).referenciaComercial as string || "",
   };
 }
 
