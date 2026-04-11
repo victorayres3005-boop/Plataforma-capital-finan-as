@@ -283,7 +283,7 @@ table{page-break-inside:avoid}
 .score-row-ok td{background:rgba(34,197,94,.06) !important}
 .score-row-fail td{background:rgba(239,68,68,.06) !important}
 .score-row-warn td{background:rgba(245,158,11,.06) !important}
-@media print{@page{margin:28mm 16mm 18mm}}
+@media print{@page{margin:28mm 16mm 22mm}body::after{content:"Capital Financas · Confidencial";position:fixed;bottom:5mm;left:14mm;font-size:8px;color:#9ca3af}}
 `;
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -326,6 +326,13 @@ function secCapa(p: PDFReportParams): string {
   <!-- Date + Confidential -->
   <div style="font-size:11px;color:rgba(255,255,255,.4);font-family:'Open Sans',Arial,sans-serif;position:relative;z-index:1">${dataFormatada}</div>
   <div style="font-size:9px;color:rgba(255,255,255,.25);margin-top:6px;letter-spacing:.08em;text-transform:uppercase;font-family:'Open Sans',Arial,sans-serif;position:relative;z-index:1">Documento confidencial</div>
+  <div style="font-size:8px;color:rgba(255,255,255,0.35);margin-top:8px;font-family:'Open Sans',Arial,sans-serif;position:relative;z-index:1">Esta analise e valida por 90 dias a partir de ${dataFormatada}</div>
+  <div style="font-size:8px;color:rgba(255,255,255,0.3);margin-top:4px;font-family:'Open Sans',Arial,sans-serif;position:relative;z-index:1">Codigo de verificacao: ${(() => {
+    const raw = (c?.cnpj || "") + dataFormatada;
+    let h = 0;
+    for (let i = 0; i < raw.length; i++) { h = ((h << 5) - h + raw.charCodeAt(i)) | 0; }
+    return ("CF-" + Math.abs(h).toString(36).toUpperCase().padStart(8, "0")).substring(0, 14);
+  })()}</div>
 
   ${p.committeMembers ? `<div style="margin-top:24px;text-align:center;position:relative;z-index:1">
     <div style="font-size:9px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.15em;margin-bottom:6px">Comite de Credito</div>
@@ -588,6 +595,57 @@ function secSintese(p: PDFReportParams): string {
     ]);
   })()}
 
+  ${(() => {
+    // Gestão e Grupo Econômico compact table
+    const socios = data.qsa?.quadroSocietario || [];
+    const scrSocios = data.scrSocios || [];
+    const geEmpresas = data.grupoEconomico?.empresas || [];
+    if (socios.length === 0 && geEmpresas.length === 0) return "";
+
+    type GestaoRow = { nome: string; doc: string; scrTotal: string; vencido: string; protestos: string; processos: string };
+    const gestaoRows: GestaoRow[] = [];
+
+    // Sócios from QSA matched with SCR sócios
+    socios.filter(s => s.nome).forEach(s => {
+      const nomeUpper = (s.nome || "").toUpperCase().trim();
+      const matched = scrSocios.find(sc => {
+        const scNome = (sc.nomeSocio || "").toUpperCase().trim();
+        return scNome === nomeUpper || scNome.includes(nomeUpper) || nomeUpper.includes(scNome);
+      });
+      const digits = s.cpfCnpj ? s.cpfCnpj.replace(/\D/g, "") : "";
+      const docFmt = digits.length > 11 ? fmtCnpj(s.cpfCnpj) : digits.length > 0 ? fmtCpf(s.cpfCnpj) : "\u2014";
+      gestaoRows.push({
+        nome: esc(s.nome || "\u2014"),
+        doc: docFmt,
+        scrTotal: matched?.periodoAtual?.totalDividasAtivas ? fmtMoneyRound(matched.periodoAtual.totalDividasAtivas) : "\u2014",
+        vencido: matched?.periodoAtual?.vencidos && numVal(matched.periodoAtual.vencidos) > 0 ? fmtMoneyRound(matched.periodoAtual.vencidos) : "\u2014",
+        protestos: "\u2014",
+        processos: "\u2014",
+      });
+    });
+
+    // Grupo econômico empresas
+    geEmpresas.forEach(e => {
+      gestaoRows.push({
+        nome: esc(e.razaoSocial || "\u2014"),
+        doc: fmtCnpj(e.cnpj),
+        scrTotal: "\u2014",
+        vencido: "\u2014",
+        protestos: "\u2014",
+        processos: "\u2014",
+      });
+    });
+
+    return `${groupLabel("GESTAO E GRUPO ECONOMICO")}
+    <table style="${TS}">
+      <thead>${row(["Nome/Razao Social", "CPF/CNPJ", "SCR Total", "Vencido", "Protestos", "Processos"], true)}</thead>
+      <tbody>${gestaoRows.map(r => {
+        const vencColor = r.vencido !== "\u2014" ? "color:#dc2626;font-weight:700" : "";
+        return `<tr><td><strong>${r.nome}</strong></td><td>${r.doc}</td><td class="money">${r.scrTotal}</td><td class="money" style="${vencColor}">${r.vencido}</td><td style="text-align:center">${r.protestos}</td><td style="text-align:center">${r.processos}</td></tr>`;
+      }).join("")}</tbody>
+    </table>`;
+  })()}
+
   ${subTitle("Composicao do Score")}
   <table style="${TS}">
     <thead>${row(["Componente","Peso","Status","Impacto","Relevancia","Diagnostico"],true)}</thead>
@@ -796,6 +854,32 @@ function secFaturamento(p: PDFReportParams): string {
     : "\u2014";
   const tendColor = tendencia.includes("Crescente") ? "#16a34a" : tendencia.includes("Decrescente") ? "#dc2626" : "#6b7280";
 
+  // Trend indicator: last 3 months vs previous 3 months
+  const trendHtml = (() => {
+    if (prevThree.length < 3 || lastThree.length < 3) return "";
+    const sumLast = lastThree.reduce((s, v) => s + v, 0);
+    const sumPrev = prevThree.reduce((s, v) => s + v, 0);
+    if (sumPrev === 0) return "";
+    const pctChange = ((sumLast - sumPrev) / sumPrev) * 100;
+    const absPct = Math.abs(pctChange).toFixed(1);
+    if (pctChange > 5) {
+      return `<div style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:99px;background:#dcfce7;border:1px solid #bbf7d0;margin-bottom:14px">
+        <span style="font-size:14px;color:#16a34a;font-weight:900">\u2191</span>
+        <span style="font-size:10px;font-weight:700;color:#166534">Crescimento de ${absPct}% (ultimos 3 meses vs anteriores)</span>
+      </div>`;
+    }
+    if (pctChange < -5) {
+      return `<div style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:99px;background:#fee2e2;border:1px solid #fecaca;margin-bottom:14px">
+        <span style="font-size:14px;color:#dc2626;font-weight:900">\u2193</span>
+        <span style="font-size:10px;font-weight:700;color:#991b1b">Queda de ${absPct}% (ultimos 3 meses vs anteriores)</span>
+      </div>`;
+    }
+    return `<div style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:99px;background:#f3f4f6;border:1px solid #e5e7eb;margin-bottom:14px">
+      <span style="font-size:14px;color:#6b7280;font-weight:900">\u2192</span>
+      <span style="font-size:10px;font-weight:700;color:#6b7280">Estavel (variacao de ${absPct}%)</span>
+    </div>`;
+  })();
+
   return `<div class="sec">${secHdr("06","Faturamento")}
   ${grid(4,[
     kpi("FMM 12m", fmmNum > 0 ? fmtMoney(String(fmmNum)) : "\u2014", "#203B88"),
@@ -803,6 +887,7 @@ function secFaturamento(p: PDFReportParams): string {
     kpi("Media 12m", media12 > 0 ? fmtMoney(String(media12)) : "\u2014", "#111827", `${last12.length} meses`),
     kpi("Tendencia", tendencia, tendColor),
   ])}
+  ${trendHtml}
   ${faturamentoChart(meses, fmmNum > 0 ? fmmNum : undefined)}
   <table style="${TS}">
     <thead>${row(["Mes","Faturamento (R$)"],true)}</thead>
@@ -1482,6 +1567,67 @@ function secDadosEmpresa(p: PDFReportParams): string {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 25: HISTORICO DE OPERACOES COM O FUNDO
+// ═══════════════════════════════════════════════════════════════════════════════
+function secHistoricoOperacoes(p: PDFReportParams): string {
+  const ops = p.histOperacoes;
+  if (!ops || ops.length === 0) return "";
+
+  function opStatusBadge(status: string): string {
+    const s = (status || "").toLowerCase();
+    if (s === "ativa") return statusBadge("Ativa", "info");
+    if (s === "liquidada") return statusBadge("Liquidada", "ok");
+    if (s === "inadimplente") return statusBadge("Inadimplente", "fail");
+    if (s === "prorrogada") return statusBadge("Prorrogada", "warn");
+    return statusBadge(status || "\u2014", "info");
+  }
+
+  function fmtIsoDate(d: string | null | undefined): string {
+    if (!d) return "\u2014";
+    try {
+      const dt = new Date(d);
+      if (isNaN(dt.getTime())) return esc(d);
+      return dt.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+    } catch { return esc(d); }
+  }
+
+  // Sort by data_operacao descending
+  const sorted = [...ops].sort((a, b) => {
+    const da = a.data_operacao ? new Date(a.data_operacao).getTime() : 0;
+    const db = b.data_operacao ? new Date(b.data_operacao).getTime() : 0;
+    return db - da;
+  });
+
+  // KPIs
+  const totalOps = sorted.length;
+  const totalValor = sorted.reduce((s, o) => s + (o.valor || 0), 0);
+  const ativas = sorted.filter(o => o.status === "ativa").length;
+  const inadimplentes = sorted.filter(o => o.status === "inadimplente").length;
+
+  return `<div class="sec">${secHdr("25","Historico de Operacoes com o Fundo")}
+  ${grid(4, [
+    kpi("Total Operacoes", String(totalOps)),
+    kpi("Volume Total", fmtMoneyRound(String(totalValor))),
+    kpi("Ativas", String(ativas), "#203B88"),
+    kpi("Inadimplentes", String(inadimplentes), inadimplentes > 0 ? "#dc2626" : "#16a34a"),
+  ])}
+  <table style="${TS}">
+    <thead>${row(["Data", "N\u00BA", "Valor", "Taxa", "Prazo", "Modalidade", "Status", "Sacado"], true)}</thead>
+    <tbody>${sorted.map(o => `<tr>
+      <td>${fmtIsoDate(o.data_operacao)}</td>
+      <td>${fmt(o.numero_operacao)}</td>
+      <td class="money">${fmtMoney(o.valor)}</td>
+      <td>${o.taxa_mensal != null ? o.taxa_mensal.toFixed(2) + "%" : "\u2014"}</td>
+      <td>${o.prazo != null ? o.prazo + "d" : "\u2014"}</td>
+      <td>${fmt(o.modalidade)}</td>
+      <td>${opStatusBadge(o.status)}</td>
+      <td>${esc(o.sacado || "\u2014")}</td>
+    </tr>`).join("")}</tbody>
+  </table>
+</div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // MAIN EXPORT
 // ═══════════════════════════════════════════════════════════════════════════════
 export function gerarHtmlRelatorio(p: PDFReportParams): {
@@ -1490,7 +1636,6 @@ export function gerarHtmlRelatorio(p: PDFReportParams): {
   footerTemplate: string;
 } {
   const razao=esc(p.data?.cnpj?.razaoSocial||"Cedente");
-  const hoje=new Date().toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric"});
 
   const html=`<!DOCTYPE html><html lang="pt-BR"><head>
   <meta charset="UTF-8">
@@ -1502,6 +1647,7 @@ export function gerarHtmlRelatorio(p: PDFReportParams): {
   ${secSintese(p)}
   ${secParecer(p)}
   ${secParametros(p)}
+  ${secHistoricoOperacoes(p)}
   ${secFundo(p)}
   ${secFaturamento(p)}
   ${secProtestos(p)}
@@ -1535,9 +1681,9 @@ export function gerarHtmlRelatorio(p: PDFReportParams): {
   </div>`;
 
   const footerTemplate=`<div style="width:100%;font-family:'Open Sans','Helvetica Neue',Arial,sans-serif">
-    <div style="height:2px;background:linear-gradient(90deg,#73B815,#73B815 40%,transparent)"></div>
-    <div style="padding:4px 16mm 6px;display:flex;justify-content:space-between;align-items:center;font-size:8px;color:#9ca3af">
-      <span>Capital Financas &middot; Analise de Credito &middot; ${hoje}</span>
+    <div style="height:1.5px;background:#73B815"></div>
+    <div style="padding:5px 16mm 6px;display:flex;justify-content:space-between;align-items:center;font-size:8px;color:#9ca3af">
+      <span>Capital Financas &middot; Analise de Credito &middot; Confidencial</span>
       <span>Pagina <span class="pageNumber"></span> de <span class="totalPages"></span></span>
     </div>
   </div>`;
