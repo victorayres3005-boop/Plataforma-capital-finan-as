@@ -646,9 +646,12 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
           }
 
           const result = await response.json();
-          const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+          // gemini-2.5-flash pode retornar "thinking" parts - pegar a última text part (não thought)
+          const parts2 = result?.candidates?.[0]?.content?.parts || [];
+          const textPart = [...parts2].reverse().find((p: { text?: string; thought?: boolean }) => p.text && !p.thought);
+          const text = textPart?.text || parts2?.[parts2.length - 1]?.text || parts2?.[0]?.text;
           if (!text) {
-            console.error(`[Gemini] Empty response`);
+            console.error(`[Gemini] Empty response, parts:`, JSON.stringify(parts2).substring(0, 200));
             break;
           }
           return text;

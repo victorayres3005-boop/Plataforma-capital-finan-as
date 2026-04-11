@@ -183,7 +183,10 @@ async function callGemini(prompt: string, data: string): Promise<string> {
             break;
           }
           const result = await response.json();
-          const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+          // gemini-2.5-flash pode retornar "thinking" parts - pegar a última text part
+          const resParts = result?.candidates?.[0]?.content?.parts || [];
+          const textP = [...resParts].reverse().find((p: { text?: string; thought?: boolean }) => p.text && !p.thought);
+          const text = textP?.text || resParts?.[resParts.length - 1]?.text || resParts?.[0]?.text;
           if (text) return text;
           console.error(`[analyze] Gemini model=${model} returned empty response`);
         } catch (err) {
