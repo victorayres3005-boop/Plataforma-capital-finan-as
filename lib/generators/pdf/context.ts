@@ -41,6 +41,7 @@ export interface PDFReportParams {
   fundValidation?: FundValidationResult;
   creditLimit?: CreditLimitResult;
   histOperacoes?: Operacao[];
+  committeMembers?: string;
 }
 
 export type AutoCell = string | { content: string; styles?: Record<string, unknown> };

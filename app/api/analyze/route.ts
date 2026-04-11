@@ -300,6 +300,10 @@ Retorne APENAS um JSON válido com esta estrutura exata:
 Use OBRIGATORIAMENTE os códigos abaixo. Inclua todos os alertas que se aplicam aos dados fornecidos.
 NÃO gere alertas sobre concentração de clientes/sacados (Curva ABC) — esses alertas são gerados automaticamente pelo sistema com formato próprio.
 
+REGRA DE OURO DOS ALERTAS: cada alerta DEVE conter o valor exato e, quando possível, o percentual em relação ao FMM ou faturamento.
+Exemplo BOM: "SCR com R$ 162.834 em operações vencidas — representa 4,6% do FMM mensal de R$ 3.506.158"
+Exemplo RUIM: "SCR com operações vencidas" (genérico demais, não ajuda o comitê a decidir)
+
 Critérios para [ALTA] — severidade "ALTA":
 — CCF_REGISTRADO: qualquer registro de CCF (Cheque Sem Fundo) identificado — CRÍTICO: indica inadimplência intencional com o sistema bancário, sinal de gestão financeira gravemente comprometida
 — CCF_REINCIDENTE: múltiplos bancos ou alto volume de CCF — indica padrão sistêmico de inadimplência, praticamente inviabiliza a operação
@@ -424,11 +428,14 @@ parecer.perguntasVisita (3–6 objetos { pergunta, contexto }):
 Foque nos alertas [ALTA] e [MODERADA] identificados. Tom direto de analista experiente.
 Contexto entre parênteses explica por que a pergunta importa para a operação.
 
-parecer.textoCompleto (3–4 parágrafos corridos, sem markdown, sem bullets):
-P1 — Capacidade financeira: SCR, alavancagem, CP/LP, tendência
-P2 — Disciplina de pagamento: protestos, processos, histórico
-P3 — Estrutura societária: sócios, administração, grupo econômico
-P4 — Faturamento (se disponível): validação, sazonalidade, tendência
+parecer.textoCompleto (5–6 parágrafos corridos, SEM markdown, SEM bullets, SEM listas — apenas texto corrido):
+P1 — Perfil e contexto: quem é a empresa, setor, tempo de operação, porte, FMM. Contextualize para o comitê entender o negócio.
+P2 — Capacidade financeira: SCR detalhado (cite valores exatos), alavancagem (X,Xx), composição CP/LP, tendência entre períodos. Compare com FMM.
+P3 — Disciplina de pagamento: protestos (cite quantidade, valor total e % do FMM), processos judiciais (cite tipos e quantidades), CCF se houver. Seja específico com números.
+P4 — Estrutura societária e governança: sócios (cite nomes), participações, IR dos sócios (cite restrições), grupo econômico se houver. Identifique riscos de concentração de gestão.
+P5 — Balanço e DRE: patrimônio líquido, liquidez corrente, endividamento, margens. Compare anos se disponível. Identifique tendências.
+P6 — Conclusão e recomendação: decisão fundamentada com condições específicas. O que precisa ser esclarecido antes de aprovar. Prazo de revisão sugerido.
+IMPORTANTE: Cada parágrafo deve ter 3-5 frases com dados concretos. NÃO seja genérico. Cite valores em R$, percentuais e quantidades sempre que disponíveis.
 
 === PARÂMETROS OPERACIONAIS ===
 

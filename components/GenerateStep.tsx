@@ -653,6 +653,15 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   });
   const [savingNotes, setSavingNotes] = useState(false);
 
+  // ── Integrantes do Comitê ──
+  const COMMITTEE_KEY = "cf_committee_members";
+  const [committeMembers, setCommitteMembers] = useState<string>(() => {
+    try { return localStorage.getItem(COMMITTEE_KEY) || "Luiz Carlos, Débora Santos, Gleyson Azevedo"; } catch { return "Luiz Carlos, Débora Santos, Gleyson Azevedo"; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(COMMITTEE_KEY, committeMembers); } catch { /* ignore */ }
+  }, [committeMembers]);
+
   // Persiste no localStorage a cada mudança
   useEffect(() => {
     try { localStorage.setItem(NOTES_KEY, analystNotes); } catch { /* ignore */ }
@@ -1404,6 +1413,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         fundValidation,
         creditLimit,
         histOperacoes: histOperacoes.length ? histOperacoes : undefined,
+        committeMembers: committeMembers.trim() || undefined,
       };
 
       // Tenta API Puppeteer primeiro (servidor com Chromium)
@@ -1454,6 +1464,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           dividaAtiva, atraso, riskScore, decisionColor, decisionBg, decisionBorder,
           observacoes: analystNotes.trim() || undefined,
           fundValidation, creditLimit,
+          committeMembers: committeMembers.trim() || undefined,
         });
         triggerDownload(blob, `capital-financas-${safeName}-${dateStr}.pdf`);
         setGeneratedFormats(p => new Set(p).add("pdf"));
@@ -1477,6 +1488,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         observacoes: analystNotes.trim() || undefined,
         fundValidation,
         creditLimit,
+        committeMembers: committeMembers.trim() || undefined,
       };
       const { html } = gerarHtmlRelatorio(payload);
       const w = window.open("", "_blank");
@@ -2282,6 +2294,20 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           onSave={saveNotes}
           savingNotes={savingNotes}
         />
+
+        {/* ── Integrantes do Comitê ── */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5 mt-4">
+          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+            Integrantes do Comit&ecirc;
+          </label>
+          <input
+            type="text"
+            value={committeMembers}
+            onChange={e => setCommitteMembers(e.target.value)}
+            placeholder="Ex: Luiz Carlos, Débora Santos, Gleyson Azevedo"
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400 transition-colors"
+          />
+        </div>
 
         {/* ════════════════════════════════════════
             SEÇÃO ↓ — EXPORTAR

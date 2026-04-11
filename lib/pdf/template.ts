@@ -249,7 +249,9 @@ function delta(cur:string|undefined,ant:string|undefined):string{
   const c=numVal(cur),a=numVal(ant);
   if(a===0||c===0) return "";
   const d=c-a,pct=Math.round((d/a)*100),up=d>0;
-  return `<span style="font-size:11px;font-weight:800;color:${up?"#dc2626":"#16a34a"};margin-left:6px">${up?"\u25B2":"\u25BC"} ${Math.abs(pct)}%</span>`;
+  const color=up?"#dc2626":"#16a34a";
+  const barW=Math.min(Math.abs(pct),100);
+  return `<span style="font-size:13px;font-weight:900;color:${color};margin-left:6px">${up?"\u25B2":"\u25BC"} ${Math.abs(pct)}%</span><span style="display:inline-block;width:${barW}px;height:6px;background:${color};border-radius:3px;margin-left:6px;vertical-align:middle"></span>`;
 }
 
 const TS = "width:100%;border-collapse:separate;border-spacing:0;font-size:11px;margin-bottom:16px;page-break-inside:avoid;border-radius:8px;overflow:hidden;border:1px solid #e0e4ec";
@@ -325,6 +327,11 @@ function secCapa(p: PDFReportParams): string {
   <div style="font-size:11px;color:rgba(255,255,255,.4);font-family:'Open Sans',Arial,sans-serif;position:relative;z-index:1">${dataFormatada}</div>
   <div style="font-size:9px;color:rgba(255,255,255,.25);margin-top:6px;letter-spacing:.08em;text-transform:uppercase;font-family:'Open Sans',Arial,sans-serif;position:relative;z-index:1">Documento confidencial</div>
 
+  ${p.committeMembers ? `<div style="margin-top:24px;text-align:center;position:relative;z-index:1">
+    <div style="font-size:9px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.15em;margin-bottom:6px">Comite de Credito</div>
+    <div style="font-size:11px;color:rgba(255,255,255,0.7);letter-spacing:0.03em">${esc(p.committeMembers)}</div>
+  </div>` : ""}
+
 </div>`;
 }
 
@@ -398,6 +405,52 @@ function secChecklist(p: PDFReportParams): string {
     </div>
   </div>
 </div>`;
+}
+
+/** Build calculated contextual alerts (deterministic, outside template literal) */
+function buildCalcAlerts(p: PDFReportParams, data: PDFReportParams["data"], alerts: PDFReportParams["alerts"], fmmNum: number, alavancagem: number | null): string {
+  const calcAlerts: {msg:string;sev:"ALTA"|"MODERADA"|"INFO"}[] = [];
+
+  // Protestos vs faturamento
+  const protVal = numVal(data.protestos?.vigentesValor);
+  if (p.protestosVigentes > 0 && fmmNum > 0 && protVal > 0) {
+    const pctFat = (protVal / fmmNum) * 100;
+    calcAlerts.push({msg:"Protesto vigente de " + fmtMoneyRound(data.protestos?.vigentesValor) + " representa " + pctFat.toFixed(1) + "% do faturamento mensal", sev: pctFat > 10 ? "ALTA" : "MODERADA"});
+  }
+
+  // CCF with bank names
+  const ccf = data.ccf;
+  if (ccf && ccf.qtdRegistros > 0) {
+    const bancoNames = (ccf.bancos || []).slice(0, 5).map(b => b.banco).filter(Boolean).join(", ");
+    calcAlerts.push({msg: ccf.qtdRegistros + " ocorrencia(s) de cheque sem fundo" + (bancoNames ? " nos bancos: " + bancoNames : ""), sev:"ALTA"});
+  }
+
+  // Alavancagem
+  if (alavancagem != null && alavancagem > 3) {
+    calcAlerts.push({msg:"Alavancagem de " + alavancagem.toFixed(1) + "x acima do patamar conservador (max 3x)", sev: alavancagem > 5 ? "ALTA" : "MODERADA"});
+  }
+
+  // PL negativo (from balanço)
+  const balAnos2 = data.balanco?.anos || [];
+  if (balAnos2.length > 0) {
+    const ultimoBal = balAnos2[balAnos2.length - 1];
+    const pl = numVal(ultimoBal.patrimonioLiquido);
+    if (pl < 0) calcAlerts.push({msg:"Patrimonio Liquido negativo de " + fmtMoneyRound(String(pl)) + " — passivo a descoberto", sev:"ALTA"});
+    const lc = parseFloat(String(ultimoBal.liquidezCorrente || "0").replace(",", "."));
+    if (lc > 0 && lc < 1) calcAlerts.push({msg:"Liquidez corrente de " + lc.toFixed(2) + " — abaixo do ideal (>1,0)", sev:"MODERADA"});
+  }
+
+  // Vencidos SCR
+  if (p.vencidosSCR > 0 && fmmNum > 0) {
+    const vencVal = numVal(data.scr?.vencidos);
+    const pctVenc = (vencVal / fmmNum) * 100;
+    calcAlerts.push({msg:"SCR com " + fmtMoneyRound(data.scr?.vencidos) + " em vencidos (" + pctVenc.toFixed(1) + "% do FMM)", sev:"ALTA"});
+  }
+
+  // Render with deduplication
+  const filtered = calcAlerts.filter(ca => !alerts.some(a => a.message.toLowerCase().includes(ca.msg.substring(0, 30).toLowerCase())));
+  if (filtered.length === 0) return "";
+  return (alerts.length === 0 ? subTitle("Alertas") : "") + filtered.map(ca => alertBox(ca.msg, ca.sev)).join("");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -484,7 +537,15 @@ function secSintese(p: PDFReportParams): string {
     return `<div style="font-size:11px;font-weight:900;color:#203B88;text-transform:uppercase;letter-spacing:.12em;margin:24px 0 12px;padding:8px 14px;background:linear-gradient(90deg,#edf2fb 0%,#f8f9fb 100%);border-left:4px solid #73B815;border-radius:0 6px 6px 0;border-bottom:2px solid #e0e4ec">${esc(label)}</div>`;
   }
 
+  const resumoTldr = p.aiAnalysis?.sinteseExecutiva || p.resumoExecutivo || "";
+  const tldrHtml = resumoTldr ? `
+    <div style="background:#edf2fb;border-left:4px solid #203B88;border-radius:0 8px 8px 0;padding:14px 18px;margin-bottom:20px;page-break-inside:avoid">
+      <div style="font-size:13px;color:#1a2744;line-height:1.7;font-style:italic">${esc(resumoTldr.length > 400 ? resumoTldr.substring(0, 400) + "... (ver Parecer)" : resumoTldr)}</div>
+    </div>` : "";
+
   return `<div class="sec">${secHdr("03","Sintese Preliminar")}
+
+  ${tldrHtml}
 
   ${groupLabel("IDENTIFICACAO")}
   ${grid(4,[
@@ -529,17 +590,28 @@ function secSintese(p: PDFReportParams): string {
 
   ${subTitle("Composicao do Score")}
   <table style="${TS}">
-    <thead>${row(["Componente","Peso","Status","Relevancia","Diagnostico"],true)}</thead>
+    <thead>${row(["Componente","Peso","Status","Impacto","Relevancia","Diagnostico"],true)}</thead>
     <tbody>${scoreRows.map(r=>{
       const st=r.status==="OK"?"ok":r.status==="ALERTA"?"fail":"warn";
       const pesoNum = parseFloat(r.peso) || 0;
-      const rowClass = st === "ok" ? "score-row-ok" : st === "fail" ? "score-row-fail" : "score-row-warn";
+      const pesoFrac = pesoNum / 100;
+      const impactoVal = pesoFrac * 10 * (st === "ok" ? 1 : st === "fail" ? 0.3 : 0.5);
+      const impactoColor = st === "ok" ? "#16a34a" : "#dc2626";
+      const impactoSign = st === "ok" ? "+" : "-";
+      const impactoDisplay = `<span style="font-weight:800;color:${impactoColor}">${impactoSign}${impactoVal.toFixed(1)} pts</span>`;
+      const rowBg = st === "ok" ? "background:rgba(34,197,94,.06)" : st === "fail" ? "background:rgba(239,68,68,.06)" : "background:rgba(245,158,11,.06)";
       const progressBar = `<div style="display:flex;align-items:center;gap:6px"><span>${esc(r.peso)}</span><div style="flex:1;height:6px;background:#e5e7eb;border-radius:3px;overflow:hidden"><div style="width:${pesoNum}%;height:100%;background:${st==="ok"?"#22c55e":st==="fail"?"#ef4444":"#f59e0b"};border-radius:3px"></div></div></div>`;
-      return `<tr class="${rowClass}"><td>${esc(r.comp)}</td><td>${progressBar}</td><td>${statusBadge(r.status,st)}</td><td>${esc(r.relevancia)}</td><td>${esc(r.diag)}</td></tr>`;
-    }).join("")}</tbody>
+      const badgeCfg = {ok:{bg:"#dcfce7",color:"#166534",brd:"#bbf7d0",icon:"\u2713"},fail:{bg:"#fee2e2",color:"#991b1b",brd:"#fecaca",icon:"\u2717"},warn:{bg:"#fef3c7",color:"#92400e",brd:"#fde68a",icon:"\u26A0"}}[st];
+      const bigBadge = `<span style="display:inline-flex;align-items:center;gap:4px;padding:5px 14px;border-radius:99px;background:${badgeCfg.bg};color:${badgeCfg.color};font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border:1px solid ${badgeCfg.brd}"><span style="font-size:10px">${badgeCfg.icon}</span> ${esc(r.status)}</span>`;
+      return `<tr style="${rowBg}"><td>${esc(r.comp)}</td><td>${progressBar}</td><td>${bigBadge}</td><td style="text-align:center">${impactoDisplay}</td><td>${esc(r.relevancia)}</td><td>${esc(r.diag)}</td></tr>`;
+    }).join("")}
+    <tr style="background:linear-gradient(135deg,#203B88 0%,#2a4da6 100%)"><td colspan="6" style="text-align:center;padding:12px 16px;border-bottom:none"><span style="font-size:14px;font-weight:900;color:#fff;letter-spacing:.05em">SCORE FINAL: ${finalRating} / 10 &mdash; ${esc(decision.replace(/_/g," "))}</span></td></tr>
+    </tbody>
   </table>
 
   ${alerts&&alerts.length>0?`${subTitle("Alertas")}${alerts.map(a=>alertBox(a.message,(a.severity||"INFO") as "ALTA"|"MODERADA"|"INFO")).join("")}`:""}
+
+  ${buildCalcAlerts(p, data, alerts, fmmNum, alavancagem)}
 </div>`;
 }
 
@@ -1111,7 +1183,13 @@ function secComparativoScr(p: PDFReportParams): string {
   </div>
   <table style="${TS}">
     <thead>${row(["Metrica",`${perAnt}`,`${perAtual}`,"Variacao"],true)}</thead>
-    <tbody>${rows.map(r=>`<tr><td><strong>${esc(r.metrica)}</strong><br/><span style="font-size:8px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em">${esc(r.grupo)}</span></td><td>${r.ant}</td><td style="font-weight:700">${r.atual}</td><td style="text-align:center">${r.variacao}</td></tr>`).join("")}</tbody>
+    <tbody>${rows.map(r=>{
+      const isRisk = (r.metrica === "Vencidos" || r.metrica === "Prejuizo") && numVal(r.atual) > 0;
+      const isTotalDividas = r.metrica === "Total Dividas";
+      const rowStyle = isRisk ? "background:#fff5f5" : "";
+      const metricStyle = isTotalDividas ? "font-weight:900;font-size:12px" : "font-weight:700";
+      return `<tr style="${rowStyle}"><td><strong style="${metricStyle}">${esc(r.metrica)}</strong><br/><span style="font-size:8px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em">${esc(r.grupo)}</span></td><td>${r.ant}</td><td style="font-weight:700">${r.atual}</td><td style="text-align:center">${r.variacao}</td></tr>`;
+    }).join("")}</tbody>
   </table>
 </div>`;
 }
