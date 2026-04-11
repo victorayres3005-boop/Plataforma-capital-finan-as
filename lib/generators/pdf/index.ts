@@ -3,19 +3,15 @@
  * Entry point — builds the complete Due Diligence PDF report.
  * Public signature: buildPDFReport(params: PDFReportParams): Promise<Blob>
  *
- * Rendering order (reestruturado):
+ * Rendering order:
  *  1. Capa
  *  2. Índice
- *  ── BLOCO A — DECISÃO ──
- *  3. Síntese Executiva (+ Política do Fundo + Limite de Crédito + CNPJ + QSA)
- *  4. Parecer do Analista (subiu do final — conteúdo mais valioso)
- *  ── BLOCO B — FINANCEIRO ──
- *  5. Faturamento / SCR (+ DRE + Balanço + Curva ABC)
- *  ── BLOCO C — RISCO ──
- *  6. Risco (Protestos + Processos + CCF + Histórico Consultas)
- *  ── BLOCO D — SOCIETÁRIO ──
- *  7. IR dos Sócios
- *  8. Relatório de Visita
+ *  3. Síntese Preliminar (+ Parâmetros do Fundo + Limite de Crédito + CNPJ + QSA)
+ *  4. Faturamento / SCR (+ DRE + Balanço + Curva ABC)
+ *  5. Risco (Protestos + Processos + CCF + Histórico Consultas)
+ *  6. IR dos Sócios
+ *  7. Relatório de Visita
+ *  8. Parecer Preliminar
  *  → Footer em todas as páginas (exceto capa)
  */
 import type { PDFReportParams } from "./context";
@@ -46,8 +42,8 @@ export async function buildPDFReport(params: PDFReportParams): Promise<Blob> {
   const pageCount = { n: 0 };
   const totalPages = { n: 0 };
   const W = 210;
-  const margin = 18;
-  const contentW = W - margin * 2; // 174mm
+  const margin = 14;
+  const contentW = W - margin * 2;
   const footerDateStr = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
 
   // ── Clear dedup set for this run ──
@@ -98,20 +94,15 @@ export async function buildPDFReport(params: PDFReportParams): Promise<Blob> {
     footerDateStr,
   };
 
-  // ── Render sections (ordem reestruturada) ──
-  // 1-2: Capa + Índice
+  // ── Render sections ──
   renderCapa(ctx);
   renderIndice(ctx);
-  // Bloco A — Decisão: síntese + parecer (conteúdo mais valioso primeiro)
   renderSintese(ctx);
-  renderParecerSection(ctx);
-  // Bloco B — Financeiro
   renderFaturamento(ctx);
-  // Bloco C — Risco
   renderRisco(ctx);
-  // Bloco D — Societário
   renderSocios(ctx);
   renderVisita(ctx);
+  renderParecerSection(ctx);
 
   // ── Footer on all pages (except cover = page 1) ──
   drawFooterAllPages(ctx);

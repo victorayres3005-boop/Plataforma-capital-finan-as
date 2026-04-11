@@ -26,7 +26,7 @@ export function renderVisita(ctx: PdfCtx): void {
 
   drawSpacer(ctx, 10);
   checkPageBreak(ctx, 55);
-  drawSectionTitle(ctx, "14", "RELATORIO DE VISITA");
+  drawSectionTitle(ctx, "13", "RELATORIO DE VISITA");
   pos.y += 8;
 
   // Cabeçalho da visita

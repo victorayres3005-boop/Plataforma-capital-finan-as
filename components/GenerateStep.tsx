@@ -1489,16 +1489,16 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     <div className="w-full animate-slide-up flex gap-6 items-start">
 
       {/* ── Sidebar de navegação (desktop) ── */}
-      <nav className="hidden lg:flex flex-col gap-0.5 w-[188px] flex-shrink-0 sticky top-4 self-start">
-        <p className="text-[9px] font-bold text-cf-text-4 uppercase tracking-[0.14em] px-2.5 mb-1.5">Seções</p>
+      <nav className="hidden lg:flex flex-col gap-1 w-[220px] flex-shrink-0 sticky top-4 self-start">
+        <p className="text-xs font-bold text-cf-text-4 uppercase tracking-[0.12em] px-3 mb-2">Seções</p>
         {navItems.map(item => (
           <a
             key={item.id}
             href={`#${item.id}`}
-            className="flex items-center gap-2 py-[7px] px-2.5 rounded-lg text-xs font-medium text-cf-text-2 no-underline transition-colors hover:bg-blue-50 hover:text-cf-navy"
+            className="flex items-center gap-2.5 py-2.5 px-3 rounded-lg text-sm font-medium text-cf-text-2 no-underline transition-colors hover:bg-blue-50 hover:text-cf-navy"
             onClick={e => { e.preventDefault(); document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
           >
-            <span className="w-6 h-6 rounded-md bg-cf-surface-2 flex items-center justify-center text-[9px] font-bold text-cf-text-3 shrink-0">
+            <span className="w-8 h-8 rounded-lg bg-cf-surface-2 flex items-center justify-center text-[11px] font-bold text-cf-text-3 shrink-0">
               {item.icon}
             </span>
             <span className="leading-snug">{item.label}</span>
@@ -1620,42 +1620,48 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             )}
 
             {/* Info row 1: Empresa, CNPJ, Situação, Idade, Sócios */}
-            <div className="border-t border-gray-200 pt-4">
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-px bg-gray-100 rounded-lg overflow-hidden">
-                {([
-                  { label: "Empresa",     value: data.cnpj.razaoSocial || "—", mono: false },
-                  { label: "CNPJ",        value: data.cnpj.cnpj || "—", mono: true },
-                  { label: "Situação",    value: data.cnpj.situacaoCadastral || "—", mono: false },
-                  { label: "Idade",       value: companyAge || "—", mono: false },
-                  { label: "Sócios (QSA)", value: String(qsaCount), mono: false },
-                ] as { label: string; value: string; mono: boolean }[]).map(({ label, value, mono }) => (
-                  <div key={label} className="bg-white px-5 py-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">{label}</p>
-                    <p className={`text-[15px] font-medium text-gray-900 ${mono ? "font-mono" : ""}`}>{value}</p>
-                  </div>
-                ))}
+            <div className="border-t border-gray-200 pt-5">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-px bg-gray-200 rounded-xl overflow-hidden">
+                <div className="bg-white px-6 py-5 col-span-2">
+                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">Empresa</p>
+                  <p className="text-lg font-bold text-gray-900">{data.cnpj.razaoSocial || "—"}</p>
+                </div>
+                <div className="bg-white px-6 py-5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">CNPJ</p>
+                  <p className="text-base font-medium text-gray-900 font-mono tracking-wide">{data.cnpj.cnpj || "—"}</p>
+                </div>
+                <div className="bg-white px-6 py-5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">Situação</p>
+                  <p className="text-base font-medium text-gray-900">{data.cnpj.situacaoCadastral || "—"}</p>
+                </div>
+                <div className="bg-white px-6 py-5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">Idade</p>
+                  <p className="text-base font-medium text-gray-900">{companyAge || "—"}</p>
+                </div>
               </div>
             </div>
 
             {/* Info row 2: Capital, Fat. Anual, Em Atraso, Prejuízos */}
-            <div className="border-t border-gray-200 pt-4">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-gray-100 rounded-lg overflow-hidden">
-                <div className="bg-white px-5 py-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">Capital Social</p>
-                  <p className="text-[15px] font-medium text-gray-900 font-mono">{data.qsa.capitalSocial || data.contrato.capitalSocial || "—"}</p>
-                </div>
-                <div className="bg-white px-5 py-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">Fat. Anual</p>
-                  <p className="text-[15px] font-medium text-gray-900 font-mono">{data.faturamento.somatoriaAno ? `R$ ${data.faturamento.somatoriaAno}` : "—"}</p>
-                </div>
-                <div className="bg-white px-5 py-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">Em Atraso</p>
-                  <p className={`text-[15px] font-medium font-mono ${atraso > 0 ? "text-red-600" : "text-gray-900"}`}>{atraso > 0 ? `R$ ${data.scr.operacoesEmAtraso}` : "—"}</p>
-                </div>
-                <div className="bg-white px-5 py-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">Prejuízos</p>
-                  <p className={`text-[15px] font-medium font-mono ${prejuizosVal > 0 ? "text-red-600" : "text-gray-900"}`}>{prejuizosVal > 0 ? `R$ ${data.scr.prejuizos}` : "—"}</p>
-                </div>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-px bg-gray-200 rounded-xl overflow-hidden">
+              <div className="bg-white px-6 py-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">Sócios (QSA)</p>
+                <p className="text-base font-medium text-gray-900">{String(qsaCount)}</p>
+              </div>
+              <div className="bg-white px-6 py-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">Capital Social</p>
+                <p className="text-base font-medium text-gray-900 font-mono">{data.qsa.capitalSocial || data.contrato.capitalSocial || "—"}</p>
+              </div>
+              <div className="bg-white px-6 py-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">Fat. Anual</p>
+                <p className="text-base font-medium text-gray-900 font-mono">{data.faturamento.somatoriaAno ? `R$ ${data.faturamento.somatoriaAno}` : "—"}</p>
+              </div>
+              <div className="bg-white px-6 py-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">Em Atraso</p>
+                <p className={`text-base font-medium font-mono ${atraso > 0 ? "text-red-600" : "text-gray-900"}`}>{atraso > 0 ? `R$ ${data.scr.operacoesEmAtraso}` : "—"}</p>
+              </div>
+              <div className="bg-white px-6 py-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">Prejuízos</p>
+                <p className={`text-base font-medium font-mono ${prejuizosVal > 0 ? "text-red-600" : "text-gray-900"}`}>{prejuizosVal > 0 ? `R$ ${data.scr.prejuizos}` : "—"}</p>
               </div>
             </div>
 
@@ -1720,13 +1726,13 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             {/* Pontos fortes */}
             {pontosFortes.length > 0 && (
               <div className="px-6 py-5 bg-green-50 border border-green-200 rounded-xl">
-                <p className="text-xs font-bold uppercase tracking-[0.04em] text-green-700 mb-2.5">
+                <p className="text-sm font-bold uppercase tracking-[0.04em] text-green-700 mb-3">
                   Pontos Fortes ({pontosFortes.length})
                 </p>
                 <div className="flex flex-col gap-1.5">
                   {pontosFortes.map((p, i) => (
                     <div key={i} className="flex items-start gap-2">
-                      <CheckCircle2 size={12} className="text-green-600 shrink-0 mt-0.5" />
+                      <CheckCircle2 size={14} className="text-green-600 shrink-0 mt-0.5" />
                       <span className="text-sm text-green-700">{p}</span>
                     </div>
                   ))}
@@ -1737,13 +1743,13 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             {/* Pontos fracos */}
             {pontosFracos.length > 0 && (
               <div className="px-6 py-5 bg-red-50 border border-red-200 rounded-xl">
-                <p className="text-xs font-bold uppercase tracking-[0.04em] text-red-700 mb-2.5">
+                <p className="text-sm font-bold uppercase tracking-[0.04em] text-red-700 mb-3">
                   Pontos Fracos ({pontosFracos.length})
                 </p>
                 <div className="flex flex-col gap-1.5">
                   {pontosFracos.map((p, i) => (
                     <div key={i} className="flex items-start gap-2">
-                      <AlertTriangle size={12} className="text-red-600 shrink-0 mt-0.5" />
+                      <AlertTriangle size={14} className="text-red-600 shrink-0 mt-0.5" />
                       <span className="text-sm text-red-600">{p}</span>
                     </div>
                   ))}
@@ -1754,7 +1760,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             {/* Perguntas para visita */}
             {perguntasVisita.length > 0 && (
               <div className="px-6 py-5 bg-amber-50 border border-amber-200 rounded-xl">
-                <p className="text-xs font-bold uppercase tracking-[0.04em] text-amber-700 mb-2.5">
+                <p className="text-sm font-bold uppercase tracking-[0.04em] text-amber-700 mb-3">
                   Perguntas para Visita ({perguntasVisita.length})
                 </p>
                 <div className="flex flex-col gap-2.5">
@@ -2343,7 +2349,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
         {/* ── Sticky bottom action bar ── */}
         <div className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200">
-          <div className="max-w-[1720px] mx-auto px-5 py-3 flex items-center justify-between gap-3">
+          <div className="max-w-[1720px] mx-auto px-8 py-4 flex items-center justify-between gap-4">
             <div className="flex items-center gap-2">
               <button onClick={onBack} className="btn-secondary min-h-0 px-4 py-2 text-[13px]">
                 <ArrowLeft size={13} /> Voltar

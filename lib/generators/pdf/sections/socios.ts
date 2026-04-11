@@ -21,7 +21,7 @@ export function renderSocios(ctx: PdfCtx): void {
 
   drawSpacer(ctx, 10);
   checkPageBreak(ctx, 50);
-  drawSectionTitle(ctx, "13", "IR DOS SOCIOS");
+  drawSectionTitle(ctx, "12", "IR DOS SOCIOS");
 
   for (let idx = 0; idx < data.irSocios.length; idx++) {
     const ir = data.irSocios[idx];

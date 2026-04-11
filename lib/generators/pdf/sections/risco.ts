@@ -7,7 +7,7 @@
  */
 import type { PdfCtx } from "../context";
 import {
-  checkPageBreak, drawSectionTitle, drawSpacer,
+  newPage, drawHeader, checkPageBreak, drawSectionTitle, drawSpacer,
   drawAlertDeduped, dsMiniHeader, dsMetricCard, autoT,
   fmtMoney, fmtBR, parseMoneyToNumber,
 } from "../helpers";
@@ -25,13 +25,13 @@ export function renderRisco(ctx: PdfCtx): void {
 
 function _renderProtestos(ctx: PdfCtx): void {
   const { doc, DS, pos, data, params, margin, contentW } = ctx;
-  void DS;
+  const colors = DS.colors;
   const { protestosVigentes } = params;
   const protestosNaoConsultados = !data.protestos;
 
   drawSpacer(ctx, 10);
   checkPageBreak(ctx, 50);
-  drawSectionTitle(ctx, "10", "PROTESTOS");
+  drawSectionTitle(ctx, "05", "PROTESTOS");
 
   // ── KPI Cards ──
   {
@@ -254,23 +254,28 @@ function _renderProtestos(ctx: PdfCtx): void {
       doc.text("* Detalhes (valor, data, apresentante) nao disponiveis no plano atual do Credit Hub — confirmar diretamente nos cartorios.", margin, pos.y);
       pos.y += 7;
     } else {
-      // Top 5 por valor (unificado — evita 2 tabelas repetidas)
       drawSpacer(ctx, 4);
       checkPageBreak(ctx, 16);
-      dsMiniHeader(ctx, 'TOP 5 PROTESTOS POR VALOR');
-      const top5Valor = [...protestoDetalhes]
-        .sort((a: { valor?: string }, b: { valor?: string }) => parseProt(b.valor || "0") - parseProt(a.valor || "0"))
-        .slice(0, 5);
-      drawProtTable(top5Valor);
+      dsMiniHeader(ctx, 'TOP 10 MAIS RECENTES');
+      const top10Recentes = [...protestoDetalhes]
+        .sort((a: { data?: string }, b: { data?: string }) => {
+          const da = parseDate(a.data || "");
+          const db = parseDate(b.data || "");
+          if (!da && !db) return 0;
+          if (!da) return 1;
+          if (!db) return -1;
+          return db.getTime() - da.getTime();
+        })
+        .slice(0, 10);
+      drawProtTable(top10Recentes);
 
-      // Nota se existem mais protestos
-      if (protestoDetalhes.length > 5) {
-        doc.setFontSize(6);
-        doc.setFont("helvetica", "italic");
-        doc.setTextColor(...DS.colors.textMuted);
-        doc.text(`+ ${protestoDetalhes.length - 5} protesto(s) adicional(is) não exibido(s) — consultar detalhamento completo no bureau.`, margin, pos.y);
-        pos.y += 6;
-      }
+      drawSpacer(ctx, 4);
+      checkPageBreak(ctx, 16);
+      dsMiniHeader(ctx, 'TOP 10 POR VALOR');
+      const top10Valor = [...protestoDetalhes]
+        .sort((a: { valor?: string }, b: { valor?: string }) => parseProt(b.valor || "0") - parseProt(a.valor || "0"))
+        .slice(0, 10);
+      drawProtTable(top10Valor);
     }
   }
 }
@@ -285,32 +290,8 @@ function _renderProcessos(ctx: PdfCtx): void {
   const processosNaoConsultados = !data.processos;
 
   drawSpacer(ctx, 10);
-
-  // Se sem dados, renderiza compacto (1 linha)
-  const passivosQuick = parseInt(data.processos?.passivosTotal || '0');
-  const ativosQuick = parseInt(data.processos?.ativosTotal || '0');
-  const temDadosProc = processosNaoConsultados || passivosQuick > 0 || ativosQuick > 0
-    || !!data.processos?.temRJ || !!data.processos?.temFalencia
-    || (data.processos?.distribuicao?.length ?? 0) > 0
-    || (data.processos?.top10Valor?.length ?? 0) > 0;
-
-  if (!processosNaoConsultados && !temDadosProc) {
-    checkPageBreak(ctx, 22);
-    drawSectionTitle(ctx, "11", "PROCESSOS JUDICIAIS");
-    doc.setFillColor(240, 253, 244);
-    doc.roundedRect(margin, pos.y, contentW, 10, 1, 1, "F");
-    doc.setFillColor(22, 163, 74);
-    doc.roundedRect(margin, pos.y, 3, 10, 0.5, 0.5, "F");
-    doc.setFontSize(7.5);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(22, 163, 74);
-    doc.text("Nenhum processo judicial identificado", margin + 8, pos.y + 6.5);
-    pos.y += 14;
-    return;
-  }
-
   checkPageBreak(ctx, 50);
-  drawSectionTitle(ctx, "11", "PROCESSOS JUDICIAIS");
+  drawSectionTitle(ctx, "06", "PROCESSOS JUDICIAIS");
 
   // KPI Cards
   {
@@ -604,32 +585,14 @@ function _renderCCF(ctx: PdfCtx): void {
 
   const ccf = data.ccf;
   const ccfConsultado = !!ccf;
-
-  // Omite seção completamente se não consultado
-  if (!ccfConsultado) return;
-
   drawSpacer(ctx, 10);
-
-  // Se consultado mas sem registros, renderiza compacto (1 linha)
-  if (ccf.qtdRegistros === 0 && ccf.bancos.length === 0) {
-    checkPageBreak(ctx, 22);
-    drawSectionTitle(ctx, "12", "CCF — CHEQUES SEM FUNDO");
-    doc.setFillColor(240, 253, 244);
-    doc.roundedRect(margin, pos.y, contentW, 10, 1, 1, "F");
-    doc.setFillColor(22, 163, 74);
-    doc.roundedRect(margin, pos.y, 3, 10, 0.5, 0.5, "F");
-    doc.setFontSize(7.5);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(22, 163, 74);
-    doc.text("Nada consta — nenhum registro de cheque sem fundo", margin + 8, pos.y + 6.5);
-    pos.y += 14;
-    return;
-  }
-
   checkPageBreak(ctx, 40);
-  drawSectionTitle(ctx, "12", "CCF — CHEQUES SEM FUNDO");
+  drawSectionTitle(ctx, "07", "CCF — CHEQUES SEM FUNDO");
 
-  {
+  if (!ccfConsultado) {
+    drawSpacer(ctx, 4);
+    _drawBannerNaoConsultadoLocal(ctx, "CCF (Cheques sem Fundo)");
+  } else {
     const temCCF = ccf.qtdRegistros > 0 || ccf.bancos.length > 0;
 
     // Field row
@@ -721,7 +684,7 @@ function _renderHistoricoConsultas(ctx: PdfCtx): void {
 
   drawSpacer(ctx, 10);
   checkPageBreak(ctx, 40);
-  dsMiniHeader(ctx, "HISTORICO DE CONSULTAS AO MERCADO");
+  drawSectionTitle(ctx, "08", "HISTORICO DE CONSULTAS AO MERCADO");
 
   drawSpacer(ctx, 4);
   checkPageBreak(ctx, 8 + Math.min(hist.length, 15) * 6 + 4);

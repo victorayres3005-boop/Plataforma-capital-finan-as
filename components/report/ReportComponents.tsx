@@ -30,25 +30,25 @@ export function SectionCard({
   return (
     <div
       id={id}
-      className={`bg-white rounded-[14px] border border-gray-200 shadow-sm overflow-hidden ${className}`}
+      className={`bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden ${className}`}
     >
-      <div className="flex items-center justify-between px-8 py-5 bg-gray-50 border-b border-gray-200">
+      <div className="flex items-center justify-between px-8 py-6 bg-gray-50 border-b border-gray-200">
         <div className="flex items-center gap-4">
           <div
-            className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+            className="w-11 h-11 rounded-lg flex items-center justify-center flex-shrink-0"
             style={{ background: BADGE_BG[badgeVariant] }}
           >
-            <span className="text-sm font-bold text-white tracking-wide">{badge}</span>
+            <span className="text-[15px] font-bold text-white tracking-wide">{badge}</span>
           </div>
           <div>
-            <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-[0.08em] mb-0.5">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-[0.08em] mb-0.5">
               {sectionLabel}
             </p>
-            <p className="text-lg font-bold text-navy-900 leading-tight">{title}</p>
+            <p className="text-xl font-bold text-navy-900 leading-tight">{title}</p>
           </div>
         </div>
         {headerRight && (
-          <div className="flex items-center gap-2 flex-shrink-0">{headerRight}</div>
+          <div className="flex items-center gap-2.5 flex-shrink-0">{headerRight}</div>
         )}
       </div>
       <div>{children}</div>
@@ -77,14 +77,14 @@ export function KpiCard({ label, value, sub, variant = "default" }: KpiCardProps
   const s = KPI_STYLES[variant];
   const isMoney = /^R\$|^\d/.test(value);
   return (
-    <div className={`${s.bg} ${s.border} border rounded-xl p-5`}>
-      <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-[0.08em] mb-2.5">
+    <div className={`${s.bg} ${s.border} border rounded-2xl p-6`}>
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-[0.08em] mb-3">
         {label}
       </p>
-      <p className={`text-xl font-bold leading-tight ${s.valueColor} ${isMoney ? "font-mono" : ""}`}>
+      <p className={`text-2xl font-bold leading-tight ${s.valueColor} ${isMoney ? "font-mono" : ""}`}>
         {value}
       </p>
-      {sub && <p className="text-xs text-gray-500 mt-2">{sub}</p>}
+      {sub && <p className="text-[13px] text-gray-500 mt-2.5">{sub}</p>}
     </div>
   );
 }
@@ -108,8 +108,8 @@ export interface StatusPillProps {
 export function StatusPill({ label, variant, dot = false }: StatusPillProps) {
   const s = PILL_STYLES[variant];
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium border whitespace-nowrap ${s.bg} ${s.text} ${s.border}`}>
-      {dot && <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${s.dot}`} />}
+    <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[13px] font-medium border whitespace-nowrap ${s.bg} ${s.text} ${s.border}`}>
+      {dot && <span className={`w-2 h-2 rounded-full flex-shrink-0 ${s.dot}`} />}
       {label}
     </span>
   );
@@ -144,36 +144,36 @@ export function CriteriaItem({ status, name, eliminatorio, limit, value, detail 
   const rowBg = isError ? "bg-red-50/50" : isWarn ? "bg-amber-50/30" : "";
 
   return (
-    <div className={`grid grid-cols-[28px_1fr_1fr_1fr] items-center gap-3 px-5 py-3 ${rowBg}`}>
-      <div className={`w-6 h-6 rounded-full border flex items-center justify-center flex-shrink-0 ${iconClasses}`}>
-        {isOk      && <Check size={12} />}
-        {isWarn    && <span className="text-xs font-bold">!</span>}
-        {isError   && <X size={12} />}
-        {status === "unknown" && <span className="text-xs">?</span>}
+    <div className={`grid grid-cols-[32px_1.2fr_1fr_1fr] items-center gap-4 px-6 py-4 ${rowBg}`}>
+      <div className={`w-7 h-7 rounded-full border flex items-center justify-center flex-shrink-0 ${iconClasses}`}>
+        {isOk      && <Check size={14} />}
+        {isWarn    && <span className="text-sm font-bold">!</span>}
+        {isError   && <X size={14} />}
+        {status === "unknown" && <span className="text-sm">?</span>}
       </div>
 
       <div>
-        <p className="text-xs font-medium text-gray-900 mb-0.5">{name}</p>
+        <p className="text-sm font-medium text-gray-900 mb-0.5">{name}</p>
         {eliminatorio && isError && (
-          <span className="inline-block text-[9px] font-bold uppercase tracking-wide text-red-600 bg-red-100 px-1.5 py-0.5 rounded">
+          <span className="inline-block text-[10px] font-bold uppercase tracking-wide text-red-600 bg-red-100 px-2 py-0.5 rounded">
             ELIMINATÓRIO
           </span>
         )}
         {detail && !isError && (
-          <p className="text-[10px] text-gray-400 mt-0.5">{detail}</p>
+          <p className="text-[11px] text-gray-400 mt-0.5">{detail}</p>
         )}
       </div>
 
       <div>
-        <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-[0.04em] mb-1">Limite do Fundo</p>
-        <p className="text-xs font-medium text-gray-700">{limit}</p>
+        <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-[0.04em] mb-1">Limite do Fundo</p>
+        <p className="text-sm font-medium text-gray-700">{limit}</p>
       </div>
 
       <div>
-        <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-[0.04em] mb-1">Apurado</p>
-        <p className={`text-[13px] font-semibold ${valueColor}`}>{value}</p>
+        <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-[0.04em] mb-1">Apurado</p>
+        <p className={`text-sm font-semibold ${valueColor}`}>{value}</p>
         {detail && isError && (
-          <p className={`text-[10px] mt-0.5 ${valueColor} opacity-80`}>{detail}</p>
+          <p className={`text-[11px] mt-0.5 ${valueColor} opacity-80`}>{detail}</p>
         )}
       </div>
     </div>
@@ -191,24 +191,24 @@ export interface MetricBarItem {
 export function MetricBarChart({ items }: { items: MetricBarItem[] }) {
   const max = Math.max(...items.map(i => i.count), 1);
   return (
-    <div className="flex flex-col gap-2.5">
+    <div className="flex flex-col gap-3">
       {items.map((item, i) => (
-        <div key={i} className="flex items-center gap-3">
-          <span className="text-[11px] font-medium text-gray-700 w-40 flex-shrink-0 truncate">
+        <div key={i} className="flex items-center gap-4">
+          <span className="text-[13px] font-medium text-gray-700 w-48 flex-shrink-0 truncate">
             {item.label}
           </span>
-          <div className="flex-1 bg-gray-100 rounded-full h-[5px]">
+          <div className="flex-1 bg-gray-100 rounded-full h-[6px]">
             <div
-              className={`h-[5px] rounded-full transition-all duration-400 ${
+              className={`h-[6px] rounded-full transition-all duration-400 ${
                 item.highlight ? "bg-red-600" : "bg-navy-800"
               }`}
               style={{ width: `${(item.count / max) * 100}%` }}
             />
           </div>
-          <span className="text-[11px] font-semibold text-gray-700 w-6 text-right flex-shrink-0">
+          <span className="text-[13px] font-semibold text-gray-700 w-8 text-right flex-shrink-0">
             {item.count}
           </span>
-          <span className="text-[10px] text-gray-400 w-8 text-right flex-shrink-0">
+          <span className="text-xs text-gray-400 w-10 text-right flex-shrink-0">
             {item.pct}%
           </span>
         </div>
@@ -225,14 +225,14 @@ export interface ScrTableProps {
 
 export function ScrTable({ columns, rows }: ScrTableProps) {
   return (
-    <div className="overflow-hidden rounded-lg border border-gray-200">
+    <div className="overflow-hidden rounded-xl border border-gray-200">
       <table className="w-full border-collapse">
         <thead>
           <tr className="bg-navy-900">
             {columns.map((col, i) => (
               <th
                 key={i}
-                className="text-[10px] font-semibold text-white uppercase tracking-[0.06em] text-left px-3 py-2.5"
+                className="text-[11px] font-semibold text-white uppercase tracking-[0.06em] text-left px-4 py-3"
               >
                 {col}
               </th>
@@ -248,7 +248,7 @@ export function ScrTable({ columns, rows }: ScrTableProps) {
               {row.map((cell, ci) => (
                 <td
                   key={ci}
-                  className={`text-[12px] text-gray-900 px-3 py-2.5 ${
+                  className={`text-[13px] text-gray-900 px-4 py-3 ${
                     ri < rows.length - 1 ? "border-b border-gray-100" : ""
                   } ${ci > 0 ? "font-mono" : ""}`}
                 >
@@ -273,10 +273,10 @@ export interface AlertBannerProps {
 export function AlertBanner({ variant, label, message }: AlertBannerProps) {
   const isDanger = variant === "danger";
   return (
-    <div className={`flex items-start gap-3 px-5 py-4 rounded-xl border ${
+    <div className={`flex items-start gap-3.5 px-6 py-5 rounded-xl border ${
       isDanger ? "bg-red-50 border-red-100" : "bg-amber-50 border-amber-100"
     }`}>
-      <AlertTriangle size={16} className={`flex-shrink-0 mt-0.5 ${isDanger ? "text-red-600" : "text-amber-500"}`} />
+      <AlertTriangle size={18} className={`flex-shrink-0 mt-0.5 ${isDanger ? "text-red-600" : "text-amber-500"}`} />
       <div className="flex gap-2 flex-wrap items-baseline">
         <span className={`text-sm font-bold ${isDanger ? "text-red-600" : "text-amber-500"}`}>{label}</span>
         <span className={`text-sm ${isDanger ? "text-red-900" : "text-amber-900"}`}>{message}</span>
@@ -304,12 +304,12 @@ export interface ResultadoBoxProps {
 export function ResultadoBox({ title, sub, badge, variant }: ResultadoBoxProps) {
   const s = RESULTADO_STYLES[variant];
   return (
-    <div className={`flex items-center justify-between gap-3 px-5 py-4 rounded-lg border ${s.container}`}>
+    <div className={`flex items-center justify-between gap-4 px-6 py-5 rounded-xl border ${s.container}`}>
       <div>
-        <p className={`text-sm font-semibold ${s.text} mb-1`}>{title}</p>
-        <p className={`text-xs ${s.text} opacity-75`}>{sub}</p>
+        <p className={`text-base font-semibold ${s.text} mb-1`}>{title}</p>
+        <p className={`text-sm ${s.text} opacity-75`}>{sub}</p>
       </div>
-      <span className={`text-xs font-bold text-white rounded-sm px-3.5 py-1.5 whitespace-nowrap flex-shrink-0 uppercase tracking-wide ${s.badge}`}>
+      <span className={`text-sm font-bold text-white rounded-md px-4 py-2 whitespace-nowrap flex-shrink-0 uppercase tracking-wide ${s.badge}`}>
         {badge}
       </span>
     </div>

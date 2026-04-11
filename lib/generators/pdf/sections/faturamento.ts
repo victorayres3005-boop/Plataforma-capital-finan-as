@@ -6,7 +6,7 @@ import type { PdfCtx } from "../context";
 import type { AutoCell } from "../context";
 import {
   newPage, drawHeader, checkPageBreak, drawSectionTitle, drawSpacer,
-  drawAlertDeduped, drawDetAlerts, autoT,
+  drawAlertDeduped, drawDetAlerts, dsMiniHeader, dsMetricCard, autoT,
   fmtMoney, fmtBR, parseMoneyToNumber, normalizeTendencia,
   gerarAlertasFaturamento, gerarAlertasSCR, gerarAlertasDRE, gerarAlertasBalanco,
 } from "../helpers";
@@ -49,7 +49,7 @@ export function renderFaturamento(ctx: PdfCtx): void {
 
   newPage(ctx);
   drawHeader(ctx);
-  drawSectionTitle(ctx, "06", "FATURAMENTO / SCR");
+  drawSectionTitle(ctx, "04", "FATURAMENTO / SCR");
 
   const leftW = contentW;
   const leftX = margin;
@@ -1369,17 +1369,11 @@ function _renderCurvaABC(ctx: PdfCtx): void {
   }
 
   // Resumo de concentração
-  // Helper: garante que % não duplica
-  const safePct = (v: string | undefined | null) => {
-    if (!v) return "—";
-    const clean = v.replace(/%/g, "").trim();
-    return clean ? `${clean}%` : "—";
-  };
   const top10Txt = data.curvaABC.concentracaoTop10 && data.curvaABC.concentracaoTop10 !== "0,00"
-    ? `   |   Top 10: ${safePct(data.curvaABC.concentracaoTop10)}` : "";
+    ? `   |   Top 10: ${data.curvaABC.concentracaoTop10}%` : "";
   const classeATxt = data.curvaABC.totalClientesClasseA
     ? `   |   Classe A: ${data.curvaABC.totalClientesClasseA} clientes (R$ ${fmtMoney(data.curvaABC.receitaClasseA)})` : "";
-  const resumoTexto = `Periodo: ${data.curvaABC.periodoReferencia || "—"}   |   Top 3: ${safePct(data.curvaABC.concentracaoTop3)}   |   Top 5: ${safePct(data.curvaABC.concentracaoTop5)}${top10Txt}   |   Total clientes: ${data.curvaABC.totalClientesNaBase || "—"}${classeATxt}`;
+  const resumoTexto = `Periodo: ${data.curvaABC.periodoReferencia || "—"}   |   Top 3: ${data.curvaABC.concentracaoTop3}%   |   Top 5: ${data.curvaABC.concentracaoTop5}%${top10Txt}   |   Total clientes: ${data.curvaABC.totalClientesNaBase || "—"}${classeATxt}`;
   doc.setFontSize(7.5);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(...colors.text);
@@ -1389,33 +1383,25 @@ function _renderCurvaABC(ctx: PdfCtx): void {
 
   // Tabela de clientes
   if ((data.curvaABC.clientes?.length ?? 0) > 0) {
-    let acumPct = 0;
     const abcRows = data.curvaABC.clientes.slice(0, 20).map((c: {
       posicao: string | number; nome?: string; valorFaturado?: string;
       percentualReceita?: string; percentualAcumulado?: string; classe?: string
     }) => {
-      const pctStr = safePct(c.percentualReceita);
-      const pct = parseFloat(String(c.percentualReceita || "0").replace(/%/g, "").replace(",", "."));
+      const pct = parseFloat(String(c.percentualReceita || "0").replace(",", "."));
       const pctCell: AutoCell = pct > 30
-        ? { content: pctStr, styles: { textColor: [220, 38, 38] as [number, number, number], fontStyle: "bold" } }
-        : { content: pctStr };
+        ? { content: `${c.percentualReceita}%`, styles: { textColor: [220, 38, 38] as [number, number, number], fontStyle: "bold" } }
+        : { content: `${c.percentualReceita}%` };
       const classeCell: AutoCell = c.classe === "A"
         ? { content: "A", styles: { textColor: [21, 128, 61] as [number, number, number], fontStyle: "bold" } }
         : c.classe === "B"
           ? { content: "B", styles: { textColor: [161, 98, 7] as [number, number, number], fontStyle: "bold" } }
           : { content: c.classe || "—" };
-      // Bug 5: calcula % acumulado se vazio
-      let pctAcum = safePct(c.percentualAcumulado);
-      if (pctAcum === "—" && pct > 0) {
-        acumPct += pct;
-        pctAcum = `${acumPct.toFixed(2).replace(".", ",")}%`;
-      }
       return [
         String(c.posicao),
         c.nome || "—",
         c.valorFaturado ? fmtMoney(c.valorFaturado) : "—",
         pctCell,
-        pctAcum,
+        c.percentualAcumulado ? `${c.percentualAcumulado}%` : "—",
         classeCell,
       ] as AutoCell[];
     });

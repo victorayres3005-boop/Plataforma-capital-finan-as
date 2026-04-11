@@ -1,5 +1,5 @@
 import type { PdfCtx } from "../context";
-import { checkPageBreak } from "../helpers";
+import { newPage, drawHeader, checkPageBreak } from "../helpers";
 
 export function renderIndice(ctx: PdfCtx): void {
   const { doc, DS, pos, data, W, margin, contentW } = ctx;
@@ -12,12 +12,12 @@ export function renderIndice(ctx: PdfCtx): void {
     && !(data.processos?.temRJ)
     && (data.processos?.distribuicao || []).length === 0;
 
-  // NÃO cria nova página — continua na mesma página da capa compacta
-  // Se não couber, o checkPageBreak dentro das funções cuida da quebra
+  newPage(ctx);
+  drawHeader(ctx);
 
   // ── IDX Section Header ────────────────────────────────────────────────────
   const idxHdrH = 12;
-  doc.setFillColor(...colors.navy);
+  doc.setFillColor(30, 58, 95);
   doc.rect(margin, pos.y, contentW, idxHdrH, "F");
 
   const idxBadgeW = 14; const idxBadgeH = 6;
