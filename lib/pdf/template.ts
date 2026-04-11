@@ -75,11 +75,11 @@ function kpi(label: string, value: string, color="#111827", sub?: string, border
 
 function secHdr(num: string, title: string): string {
   return `<div style="margin-bottom:18px;page-break-inside:avoid">
-    <div style="display:flex;align-items:center;background:linear-gradient(135deg,#203B88 0%,#2a4da6 100%);border-radius:8px 8px 0 0;padding:12px 16px;gap:12px">
+    <div style="display:flex;align-items:center;background:#203B88;padding:12px 16px;gap:12px">
       <span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;background:#ffffff;color:#203B88;font-size:12px;font-weight:900;border-radius:50%;flex-shrink:0;box-shadow:0 2px 6px rgba(0,0,0,.15)">${num}</span>
-      <span style="font-family:'Bebas Neue',Impact,'Arial Black',sans-serif;font-size:17px;font-weight:800;color:#ffffff;text-transform:uppercase;letter-spacing:.08em">${esc(title)}</span>
+      <span style="font-family:'Open Sans',Arial,sans-serif;font-size:14px;font-weight:800;color:#ffffff;text-transform:uppercase;letter-spacing:.08em">${esc(title)}</span>
     </div>
-    <div style="height:3px;background:#73B815;border-radius:0 0 2px 2px"></div>
+    <div style="height:3px;background:#73B815"></div>
   </div>`;
 }
 
@@ -108,7 +108,7 @@ function grid(cols: number, items: string[]): string {
 }
 
 function subTitle(t: string): string {
-  return `<div style="font-family:'Bebas Neue',Impact,'Arial Black',sans-serif;font-size:12px;font-weight:700;color:#203B88;text-transform:uppercase;letter-spacing:.08em;border-bottom:2px solid #e5e7eb;padding-bottom:6px;margin:20px 0 12px">${esc(t)}</div>`;
+  return `<div style="font-family:'Open Sans',Arial,sans-serif;font-size:12px;font-weight:700;color:#203B88;text-transform:uppercase;letter-spacing:.08em;border-bottom:2px solid #e5e7eb;padding-bottom:6px;margin:20px 0 12px">${esc(t)}</div>`;
 }
 
 function paraBox(text: string): string {
@@ -123,8 +123,24 @@ function dataCard(label: string, value: string): string {
   </div>`;
 }
 
+/** Translate legal status to simpler Portuguese */
+function translateProcessoStatus(status: string | undefined): string {
+  if (!status) return "\u2014";
+  const upper = status.toUpperCase().trim();
+  const map: Record<string,string> = {
+    "DISTRIBUIDO": "Em Andamento",
+    "ARQUIVADO": "Arquivado",
+    "JULGADO": "Julgado",
+    "EM GRAU DE RECURSO": "Em Recurso",
+    "TRANSITADO EM JULGADO": "Transitado",
+  };
+  if (map[upper]) return map[upper];
+  // Capitalize properly
+  return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
+}
+
 // ─── SVG Brand Logo ──────────────────────────────────────────────────────────
-const COVER_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="100" height="100"><rect width="64" height="64" rx="14" fill="rgba(255,255,255,0.1)"/><circle cx="32" cy="28" r="14" stroke="#ffffff" stroke-width="3.5" fill="none"/><circle cx="32" cy="44" r="3.2" fill="#73b815"/></svg>`;
+const COVER_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="120" height="120"><defs><filter id="glow"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><rect width="64" height="64" rx="14" fill="rgba(255,255,255,0.1)" filter="url(#glow)"/><circle cx="32" cy="28" r="14" stroke="#ffffff" stroke-width="3.5" fill="none"/><circle cx="32" cy="44" r="3.2" fill="#73b815"/></svg>`;
 const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64"><rect width="64" height="64" rx="14" fill="#203b88"/><circle cx="32" cy="28" r="14" stroke="#ffffff" stroke-width="3.5" fill="none"/><circle cx="32" cy="44" r="3.2" fill="#73b815"/></svg>`;
 const LOGO_DATA_URI = `data:image/svg+xml;base64,${typeof Buffer !== "undefined" ? Buffer.from(LOGO_SVG).toString("base64") : ""}`;
 void LOGO_DATA_URI; // used in header template
@@ -137,12 +153,6 @@ function ratingGauge(rating: number, size: "large"|"small" = "large"): string {
   const color=rating>=7?"#22c55e":rating>=4?"#f59e0b":"#ef4444";
   const angle=Math.PI*(1-rating/10);
   const ex=cx+R*Math.cos(angle),ey=cy-R*Math.sin(angle);
-  // Background track
-  const trackSegs = [];
-  for (let i = 0; i <= 10; i++) {
-    const a = Math.PI * (1 - i / 10);
-    trackSegs.push(`${cx + R * Math.cos(a)},${cy - R * Math.sin(a)}`);
-  }
   return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="overflow:visible">
     <path d="M ${cx-R},${cy} A ${R},${R} 0 0 1 ${cx+R},${cy}" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="12" stroke-linecap="round"/>
     ${rating>0?`<path d="M ${cx-R},${cy} A ${R},${R} 0 0 1 ${ex.toFixed(1)},${ey.toFixed(1)}" fill="none" stroke="${color}" stroke-width="12" stroke-linecap="round"/>`:""}
@@ -157,7 +167,8 @@ function faturamentoChart(meses: FaturamentoMensal[], fmmRef?: number): string {
   if(!meses||meses.length===0) return "";
   const values=meses.map(m=>numVal(m.valor));
   const max=Math.max(...values, fmmRef||0, 1);
-  const n=meses.length, W=640, H=140, gap=4, padTop=22, padBot=20;
+  const n=meses.length, H=140, gap=4, padTop=22, padBot=20;
+  const W = Math.max(640, n * 40);
   const bw=Math.floor((W-(n-1)*gap)/n);
   const totalH = H + padTop + padBot;
 
@@ -181,9 +192,9 @@ ${label ? `<text x="${x+bw/2}" y="${y-5}" text-anchor="middle" font-size="8" fon
 <text x="${W-2}" y="${fmmY-4}" text-anchor="end" font-size="8" fill="#73B815" font-weight="700" font-family="'Open Sans',Arial">FMM ${fmtCompact(fmmRef)}</text>`;
   })() : "";
 
-  return `<div style="margin-bottom:16px;padding:18px 20px;background:linear-gradient(135deg,#f8f9fb 0%,#edf2fb 100%);border-radius:10px;border:1px solid #e0e4ec">
-    <div style="font-size:9px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px">Faturamento Mensal</div>
-    <svg width="${W}" height="${totalH}" viewBox="0 0 ${W} ${totalH}">${bars}${fmmLine}</svg>
+  return `<div style="margin-bottom:16px;padding:12px 14px;background:linear-gradient(135deg,#f8f9fb 0%,#edf2fb 100%);border-radius:10px;border:1px solid #e0e4ec">
+    <div style="font-size:9px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Faturamento Mensal</div>
+    <svg width="100%" height="${totalH}" viewBox="0 0 ${W} ${totalH}" preserveAspectRatio="xMidYMid meet">${bars}${fmmLine}</svg>
   </div>`;
 }
 
@@ -200,6 +211,16 @@ function sortMeses(meses: FaturamentoMensal[]): FaturamentoMensal[] {
   });
 }
 
+/** Compute FMM from fmm12m or last 12 months of meses[] */
+function computeFmm(faturamento: { fmm12m?: string | number; mediaAno?: string | number; meses?: FaturamentoMensal[] } | undefined): number {
+  if (!faturamento) return 0;
+  const validMeses = sortMeses(faturamento.meses || []).filter(m => m?.mes && m?.valor);
+  const fmmNum = faturamento.fmm12m
+    ? numVal(faturamento.fmm12m)
+    : validMeses.slice(-12).reduce((s, m) => s + numVal(m.valor), 0) / Math.max(validMeses.slice(-12).length, 1);
+  return fmmNum;
+}
+
 function delta(cur:string|undefined,ant:string|undefined):string{
   const c=numVal(cur),a=numVal(ant);
   if(a===0||c===0) return "";
@@ -211,7 +232,7 @@ const TS = "width:100%;border-collapse:separate;border-spacing:0;font-size:11px;
 
 // ─── CSS ──────────────────────────────────────────────────────────────────────
 const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700;800&family=Bebas+Neue&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700;800&display=swap');
 :root{--navy:#203B88;--green:#73B815;--bg-light:#edf2fb;--bg-card:#f8f9fb;--border:#e0e4ec;--text:#111827;--text-muted:#6b7280}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Open Sans','Helvetica Neue',Arial,sans-serif;font-size:12px;color:var(--text);background:#fff;line-height:1.55;-webkit-print-color-adjust:exact;print-color-adjust:exact;border-top:3px solid #73B815}
@@ -233,6 +254,9 @@ table{page-break-inside:avoid}
 .info{background:#dbeafe;color:#1d4ed8;border:1px solid #bfdbfe}
 .money{text-align:right;font-variant-numeric:tabular-nums}
 .neg{color:#dc2626;font-weight:700}
+.score-row-ok td{background:rgba(34,197,94,.06) !important}
+.score-row-fail td{background:rgba(239,68,68,.06) !important}
+.score-row-warn td{background:rgba(245,158,11,.06) !important}
 @media print{@page{margin:28mm 16mm 18mm}}
 `;
 
@@ -244,35 +268,38 @@ function secCapa(p: PDFReportParams): string {
   const hoje=new Date();
   const meses=["janeiro","fevereiro","marco","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
   const dataFormatada=`${hoje.getDate()} de ${meses[hoje.getMonth()]} de ${hoje.getFullYear()}`;
-  return `<div style="page-break-after:always;min-height:260mm;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#203B88;text-align:center;padding:40px">
+  return `<div style="page-break-after:always;min-height:260mm;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(ellipse at 50% 40%, #2a4da6 0%, #203B88 50%, #1a2f6b 100%);text-align:center;padding:40px;position:relative;overflow:hidden">
+
+  <!-- Subtle geometric pattern overlay -->
+  <div style="position:absolute;inset:0;opacity:0.04;background-image:radial-gradient(circle, #ffffff 1px, transparent 1px);background-size:24px 24px"></div>
 
   <!-- Logo + Brand -->
-  <div style="margin-bottom:8px">
+  <div style="margin-bottom:8px;position:relative;z-index:1">
     ${COVER_LOGO_SVG}
   </div>
-  <div style="font-family:'Bebas Neue',Impact,'Arial Black',sans-serif;font-size:28px;color:#fff;letter-spacing:.08em;line-height:1">capital <span style="color:#73B815">financas</span></div>
-  <div style="font-size:10px;color:rgba(255,255,255,.4);margin-top:4px;letter-spacing:.12em;text-transform:uppercase;font-family:'Open Sans',Arial,sans-serif;font-weight:600">Analise de Credito</div>
+  <div style="font-family:'Open Sans',Arial,sans-serif;font-size:28px;font-weight:800;color:#fff;letter-spacing:.08em;line-height:1;position:relative;z-index:1">CAPITAL <span style="color:#73B815">FINANCAS</span></div>
+  <div style="font-size:10px;color:rgba(255,255,255,.4);margin-top:4px;letter-spacing:.12em;text-transform:uppercase;font-family:'Open Sans',Arial,sans-serif;font-weight:600;position:relative;z-index:1">Analise de Credito</div>
 
   <!-- Divider -->
-  <div style="width:200px;height:1px;background:rgba(255,255,255,.15);margin:28px auto"></div>
+  <div style="width:200px;height:1px;background:rgba(255,255,255,.15);margin:28px auto;position:relative;z-index:1"></div>
 
   <!-- Company Info -->
-  <div style="font-family:'Bebas Neue',Impact,'Arial Black',sans-serif;font-size:34px;font-weight:700;color:#fff;line-height:1.15;margin-bottom:8px;max-width:80%;letter-spacing:.03em">${esc(c?.razaoSocial||"\u2014")}</div>
-  <div style="font-size:13px;color:rgba(255,255,255,.5);font-family:'Open Sans',Arial,sans-serif;font-weight:500;margin-bottom:32px">CNPJ: ${fmtCnpj(c?.cnpj)}</div>
+  <div style="font-family:'Open Sans',Arial,sans-serif;font-size:30px;font-weight:800;color:#fff;line-height:1.15;margin-bottom:8px;max-width:80%;letter-spacing:.03em;position:relative;z-index:1">${esc(c?.razaoSocial||"\u2014")}</div>
+  <div style="font-size:13px;color:rgba(255,255,255,.5);font-family:'Open Sans',Arial,sans-serif;font-weight:500;margin-bottom:32px;position:relative;z-index:1">CNPJ: ${fmtCnpj(c?.cnpj)}</div>
 
   <!-- Rating Gauge -->
-  <div style="margin-bottom:16px">
+  <div style="margin-bottom:16px;position:relative;z-index:1">
     ${ratingGauge(p.finalRating, "large")}
   </div>
 
   <!-- Decision Badge -->
-  <div style="margin-bottom:32px">
+  <div style="margin-bottom:32px;position:relative;z-index:1">
     ${decisaoBadge(p.decision, true)}
   </div>
 
   <!-- Date + Confidential -->
-  <div style="font-size:11px;color:rgba(255,255,255,.4);font-family:'Open Sans',Arial,sans-serif">${dataFormatada}</div>
-  <div style="font-size:9px;color:rgba(255,255,255,.25);margin-top:6px;letter-spacing:.08em;text-transform:uppercase;font-family:'Open Sans',Arial,sans-serif">Documento confidencial</div>
+  <div style="font-size:11px;color:rgba(255,255,255,.4);font-family:'Open Sans',Arial,sans-serif;position:relative;z-index:1">${dataFormatada}</div>
+  <div style="font-size:9px;color:rgba(255,255,255,.25);margin-top:6px;letter-spacing:.08em;text-transform:uppercase;font-family:'Open Sans',Arial,sans-serif;position:relative;z-index:1">Documento confidencial</div>
 
 </div>`;
 }
@@ -282,40 +309,64 @@ function secCapa(p: PDFReportParams): string {
 // ═══════════════════════════════════════════════════════════════════════════════
 function secChecklist(p: PDFReportParams): string {
   const d=p.data;
-  const docs:[string,boolean][]=[
-    ["CNPJ",!!d.cnpj],
-    ["Contrato Social",!!d.contrato],
-    ["Faturamento",!!(d.faturamento?.meses?.length)],
-    ["SCR",!!(d.scr?.periodoReferencia)],
-    ["Protestos",d.protestos?.vigentesQtd!==undefined],
-    ["Processos",d.processos?.passivosTotal!==undefined],
-    ["DRE",!!(d.dre?.anos?.length)],
-    ["Balanco",!!(d.balanco?.anos?.length)],
-    ["IR Socios",!!(d.irSocios?.length)],
-    ["Relatorio de Visita",!!(d.relatorioVisita?.dataVisita)],
-    ["Curva ABC",!!(d.curvaABC?.clientes?.length)],
-    ["CCF",d.ccf?.qtdRegistros!==undefined],
-    ["Historico Consultas",!!(d.historicoConsultas?.length)],
+
+  type CheckItem = { label: string; ok: boolean; tipo: "OBR"|"OPC" };
+
+  const frente1: CheckItem[] = [
+    { label: "Cartao CNPJ", ok: !!d.cnpj, tipo: "OBR" },
+    { label: "QSA / Quadro de Socios", ok: !!(d.qsa?.quadroSocietario?.length), tipo: "OBR" },
+    { label: "Contrato Social", ok: !!d.contrato, tipo: "OBR" },
+    { label: "Faturamento", ok: !!(d.faturamento?.meses?.length), tipo: "OBR" },
+    { label: "DRE", ok: !!(d.dre?.anos?.length), tipo: "OPC" },
+    { label: "Balanco Patrimonial", ok: !!(d.balanco?.anos?.length), tipo: "OPC" },
+    { label: "Curva ABC - Top Clientes", ok: !!(d.curvaABC?.clientes?.length), tipo: "OPC" },
+    { label: "IR dos Socios", ok: !!(d.irSocios?.length), tipo: "OPC" },
+    { label: "Relatorio de Visita", ok: !!(d.relatorioVisita?.dataVisita), tipo: "OPC" },
   ];
-  const recebidos=docs.filter(x=>x[1]).length;
-  const pct=Math.round((recebidos/docs.length)*100);
+
+  const frente2: CheckItem[] = [
+    { label: "SCR / BACEN", ok: !!(d.scr?.periodoReferencia), tipo: "OBR" },
+    { label: "SCR Periodo Anterior", ok: !!(d.scrAnterior?.periodoReferencia), tipo: "OPC" },
+    { label: "Protestos", ok: d.protestos?.vigentesQtd !== undefined, tipo: "OBR" },
+    { label: "Processos Judiciais", ok: d.processos?.passivosTotal !== undefined, tipo: "OBR" },
+    { label: "Grupo Economico", ok: !!(d.grupoEconomico?.empresas?.length), tipo: "OPC" },
+    { label: "SCR dos Socios", ok: !!(d.scrSocios?.length), tipo: "OPC" },
+    { label: "Score Bureau", ok: !!(d.score), tipo: "OPC" },
+  ];
+
+  const allDocs = [...frente1, ...frente2];
+  const recebidos = allDocs.filter(x => x.ok).length;
+  const pct = Math.round((recebidos / allDocs.length) * 100);
   const barColor = pct >= 80 ? "#73B815" : pct >= 50 ? "#f59e0b" : "#dc2626";
+
+  function renderItem(item: CheckItem): string {
+    const tipoBg = item.tipo === "OBR" ? "#203B88" : "#9ca3af";
+    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;background:${item.ok?"#f0fdf4":"#fff"};border:1px solid ${item.ok?"#bbf7d0":"#f3f4f6"};margin-bottom:6px">
+      <span style="font-size:14px;flex-shrink:0">${item.ok?"\u2705":"\u274C"}</span>
+      <span style="font-size:10.5px;font-weight:${item.ok?"700":"400"};color:${item.ok?"#111827":"#9ca3af"};flex:1">${esc(item.label)}</span>
+      <span style="display:inline-block;padding:2px 7px;border-radius:4px;background:${tipoBg};color:#fff;font-size:7.5px;font-weight:800;letter-spacing:.04em;flex-shrink:0">${item.tipo}</span>
+    </div>`;
+  }
+
   return `<div class="sec">${secHdr("02","Checklist de Documentos")}
   <div style="margin-bottom:18px;padding:18px 20px;background:linear-gradient(135deg,#f8f9fb 0%,#edf2fb 100%);border-radius:10px;border:1px solid #e0e4ec">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <span style="font-size:14px;font-weight:800;color:#111827">${recebidos} de ${docs.length} documentos coletados</span>
+      <span style="font-size:14px;font-weight:800;color:#111827">${recebidos} de ${allDocs.length} documentos coletados</span>
       <span style="display:inline-block;padding:4px 14px;border-radius:99px;background:${barColor};color:#fff;font-size:12px;font-weight:800">${pct}%</span>
     </div>
     <div style="width:100%;height:14px;background:#e5e7eb;border-radius:8px;overflow:hidden;box-shadow:inset 0 1px 3px rgba(0,0,0,.08)">
       <div style="width:${pct}%;height:100%;background:linear-gradient(90deg,${barColor},${barColor}dd);border-radius:8px"></div>
     </div>
   </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;page-break-inside:avoid">
-    ${docs.map(([label,ok])=>`<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;background:${ok?"#f0fdf4":"#fff"};border:1px solid ${ok?"#bbf7d0":"#f3f4f6"}">
-      <span style="font-size:15px">${ok?"\u2705":"\u274C"}</span>
-      <span style="font-size:11px;font-weight:${ok?"700":"400"};color:${ok?"#111827":"#9ca3af"};flex:1">${esc(label)}</span>
-      <span style="font-size:8.5px;color:${ok?"#16a34a":"#dc2626"};font-weight:700;text-transform:uppercase;letter-spacing:.04em">${ok?"Recebido":"Pendente"}</span>
-    </div>`).join("")}
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;page-break-inside:avoid">
+    <div>
+      <div style="font-size:10px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #e5e7eb">Frente 1 - Dados Financeiros e Societarios</div>
+      ${frente1.map(renderItem).join("")}
+    </div>
+    <div>
+      <div style="font-size:10px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #e5e7eb">Frente 2 - Risco e Historico</div>
+      ${frente2.map(renderItem).join("")}
+    </div>
   </div>
 </div>`;
 }
@@ -324,13 +375,21 @@ function secChecklist(p: PDFReportParams): string {
 // SECTION 3: SINTESE PRELIMINAR
 // ═══════════════════════════════════════════════════════════════════════════════
 function secSintese(p: PDFReportParams): string {
-  const {data,finalRating,decision,alerts,alavancagem}=p;
-  const fmm=data.faturamento?.fmm12m||data.faturamento?.mediaAno||"\u2014";
+  const {data,finalRating,decision,alerts}=p;
   const rc=finalRating>=7?"#16a34a":finalRating>=4?"#d97706":"#dc2626";
 
-  // Extra KPIs
-  const fatMeses = data.faturamento?.meses || [];
-  const fatMedia = fatMeses.length > 0 ? fatMeses.reduce((s, m) => s + numVal(m.valor), 0) / fatMeses.length : 0;
+  // FMM calculation - correct
+  const fmmNum = computeFmm(data.faturamento);
+
+  // Faturamento Medio - last 12 months only
+  const allMesesSorted = sortMeses(data.faturamento?.meses || []).filter(m => m?.mes && m?.valor);
+  const last12Meses = allMesesSorted.slice(-12);
+  const fatMedia = last12Meses.length > 0 ? last12Meses.reduce((s, m) => s + numVal(m.valor), 0) / last12Meses.length : 0;
+
+  // Alavancagem - calculate if not provided
+  const alavancagem = p.alavancagem != null
+    ? p.alavancagem
+    : (fmmNum > 0 ? numVal(data.scr?.totalDividasAtivas || "0") / fmmNum : null);
 
   const rv = data.relatorioVisita;
   const modalidade = rv?.modalidade || (rv?.taxaComissaria && rv?.taxaConvencional ? "Hibrida" : rv?.taxaComissaria ? "Comissaria" : rv?.taxaConvencional ? "Convencional" : "\u2014");
@@ -341,7 +400,7 @@ function secSintese(p: PDFReportParams): string {
   // Curva ABC top 3
   const abcClientes = data.curvaABC?.clientes || [];
   const top3Names = abcClientes.slice(0, 3).map(c => esc(c.nome || "")).join(", ");
-  const top3Pct = data.curvaABC?.concentracaoTop3 || (abcClientes.length >= 3 ? "\u2014" : "\u2014");
+  const top3Pct = data.curvaABC?.concentracaoTop3 || "\u2014";
 
   // Most recent protesto
   const detProtestos = data.protestos?.detalhes || [];
@@ -386,30 +445,43 @@ function secSintese(p: PDFReportParams): string {
     );
   }
 
+  /** Group label header */
+  function groupLabel(label: string): string {
+    return `<div style="font-size:9px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.1em;margin:20px 0 10px;padding:4px 10px;background:linear-gradient(90deg,#edf2fb,transparent);border-left:3px solid #73B815">${esc(label)}</div>`;
+  }
+
   return `<div class="sec">${secHdr("03","Sintese Preliminar")}
+
+  ${groupLabel("IDENTIFICACAO")}
   ${grid(4,[
     kpi("Rating",`${finalRating} / 10`,rc),
     kpi("Decisao",decision.replace(/_/g," ")),
-    kpi("FMM 12m",fmtMoney(fmm)),
-    kpi("Faturamento Medio", fatMedia > 0 ? fmtMoney(String(fatMedia)) : "\u2014"),
-  ])}
-  ${grid(4,[
-    kpi("Protestos Vigentes",String(p.protestosVigentes),p.protestosVigentes>0?"#dc2626":"#111827"),
-    kpi("Processos",`A:${procAtivo} / P:${procPassivo}`),
-    kpi("SCR Vencido",fmtMoney(data.scr?.vencidos),p.vencidosSCR>0?"#dc2626":"#111827"),
-    kpi("Alavancagem",alavancagem!=null?`${alavancagem.toFixed(1)}x`:"\u2014",alavancagem&&alavancagem>3?"#dc2626":"#111827"),
-  ])}
-  ${grid(4,[
     kpi("Tempo Empresa",esc(p.companyAge)||"\u2014"),
     kpi("Modalidade",esc(String(modalidade))),
-    kpi("Pleito",typeof pleito === "string" ? (pleito.match(/\d/) ? fmtMoney(pleito) : esc(pleito)) : fmtMoney(pleito)),
-    kpi("Grupo Economico",geCount > 0 ? `${geCount} empresa(s)` : "\u2014"),
   ])}
+
+  ${groupLabel("INDICADORES FINANCEIROS")}
   ${grid(4,[
-    kpi("Curva ABC Top 3",fmt(top3Pct), "#111827", top3Names || undefined),
-    kpi("Ult. Protesto",esc(String(lastProtesto))),
-    kpi("Ult. Processo",esc(String(lastProcesso))),
+    kpi("FMM 12m", fmmNum > 0 ? fmtMoney(String(fmmNum)) : "\u2014"),
+    kpi("Faturamento Medio", fatMedia > 0 ? fmtMoney(String(fatMedia)) : "\u2014", "#111827", last12Meses.length > 0 ? `ultimos ${last12Meses.length} meses` : undefined),
+    kpi("Alavancagem", alavancagem != null ? `${alavancagem.toFixed(1)}x` : "\u2014", alavancagem != null && alavancagem > 3 ? "#dc2626" : "#111827"),
+    kpi("Pleito",typeof pleito === "string" ? (pleito.match(/\d/) ? fmtMoney(pleito) : esc(pleito)) : fmtMoney(pleito)),
+  ])}
+
+  ${groupLabel("INDICADORES DE RISCO")}
+  ${grid(4,[
+    kpi("Protestos Vigentes",String(p.protestosVigentes),p.protestosVigentes>0?"#dc2626":"#111827", `${fmtMoney(data.protestos?.vigentesValor)} | ult: ${esc(String(lastProtesto))}`),
+    kpi("Processos",`A:${procAtivo} / P:${procPassivo}`, "#111827", `ult: ${esc(String(lastProcesso))}`),
+    kpi("SCR Vencido",fmtMoney(data.scr?.vencidos),p.vencidosSCR>0?"#dc2626":"#111827"),
     kpi("CCF", data.ccf ? (data.ccf.qtdRegistros > 0 ? `${data.ccf.qtdRegistros} ocorr.` : "Sem ocorrencias") : "\u2014", data.ccf && data.ccf.qtdRegistros > 0 ? "#dc2626" : "#111827"),
+  ])}
+
+  ${groupLabel("ESTRUTURA")}
+  ${grid(4,[
+    kpi("Grupo Economico",geCount > 0 ? `${geCount} empresa(s)` : "\u2014"),
+    kpi("Curva ABC Top 3",fmt(top3Pct), "#111827", top3Names || undefined),
+    kpi("",""),
+    kpi("",""),
   ])}
 
   ${subTitle("Composicao do Score")}
@@ -417,7 +489,10 @@ function secSintese(p: PDFReportParams): string {
     <thead>${row(["Componente","Peso","Status","Relevancia","Diagnostico"],true)}</thead>
     <tbody>${scoreRows.map(r=>{
       const st=r.status==="OK"?"ok":r.status==="ALERTA"?"fail":"warn";
-      return row([esc(r.comp),esc(r.peso),statusBadge(r.status,st),esc(r.relevancia),esc(r.diag)]);
+      const pesoNum = parseFloat(r.peso) || 0;
+      const rowClass = st === "ok" ? "score-row-ok" : st === "fail" ? "score-row-fail" : "score-row-warn";
+      const progressBar = `<div style="display:flex;align-items:center;gap:6px"><span>${esc(r.peso)}</span><div style="flex:1;height:6px;background:#e5e7eb;border-radius:3px;overflow:hidden"><div style="width:${pesoNum}%;height:100%;background:${st==="ok"?"#22c55e":st==="fail"?"#ef4444":"#f59e0b"};border-radius:3px"></div></div></div>`;
+      return `<tr class="${rowClass}"><td>${esc(r.comp)}</td><td>${progressBar}</td><td>${statusBadge(r.status,st)}</td><td>${esc(r.relevancia)}</td><td>${esc(r.diag)}</td></tr>`;
     }).join("")}</tbody>
   </table>
 
@@ -488,12 +563,23 @@ function secFaturamento(p: PDFReportParams): string {
   const fat=p.data.faturamento;
   if(!fat||!fat.meses?.length) return `<div class="sec">${secHdr("06","Faturamento")}<div style="color:#9ca3af;font-size:11px">Dados de faturamento nao disponiveis.</div></div>`;
   const meses=sortMeses(fat.meses);
-  const fmmVal = numVal(fat.fmm12m);
-  const values = meses.map(m => numVal(m.valor));
-  const total = values.reduce((s, v) => s + v, 0);
-  const media = values.length > 0 ? total / values.length : 0;
-  const lastThree = values.slice(-3);
-  const prevThree = values.slice(-6, -3);
+
+  // FMM - correct calculation
+  const fmmNum = computeFmm(fat);
+
+  // Last 12 months for media
+  const validMeses = meses.filter(m => m?.mes && m?.valor);
+  const last12 = validMeses.slice(-12);
+  const values12 = last12.map(m => numVal(m.valor));
+  const total12 = values12.reduce((s, v) => s + v, 0);
+  const media12 = values12.length > 0 ? total12 / values12.length : 0;
+
+  // Full total
+  const allValues = meses.map(m => numVal(m.valor));
+  const totalAll = allValues.reduce((s, v) => s + v, 0);
+
+  const lastThree = allValues.slice(-3);
+  const prevThree = allValues.slice(-6, -3);
   const tendencia = prevThree.length >= 3 && lastThree.length >= 3
     ? (lastThree.reduce((s,v)=>s+v,0)/3 > prevThree.reduce((s,v)=>s+v,0)/3 ? "\u25B2 Crescente" : "\u25BC Decrescente")
     : "\u2014";
@@ -501,12 +587,12 @@ function secFaturamento(p: PDFReportParams): string {
 
   return `<div class="sec">${secHdr("06","Faturamento")}
   ${grid(4,[
-    kpi("FMM 12m", fmmVal > 0 ? fmtMoney(fat.fmm12m) : "\u2014", "#203B88"),
-    kpi("Total Periodo", fmtMoney(String(total))),
-    kpi("Media Mensal", fmtMoney(String(media))),
+    kpi("FMM 12m", fmmNum > 0 ? fmtMoney(String(fmmNum)) : "\u2014", "#203B88"),
+    kpi("Total Periodo", fmtMoney(String(totalAll))),
+    kpi("Media 12m", media12 > 0 ? fmtMoney(String(media12)) : "\u2014", "#111827", `${last12.length} meses`),
     kpi("Tendencia", tendencia, tendColor),
   ])}
-  ${faturamentoChart(meses, fmmVal > 0 ? fmmVal : undefined)}
+  ${faturamentoChart(meses, fmmNum > 0 ? fmmNum : undefined)}
   <table style="${TS}">
     <thead>${row(["Mes","Faturamento (R$)"],true)}</thead>
     <tbody>${meses.map(m=>row([esc(m.mes),`<span class="money">${fmtMoney(m.valor)}</span>`])).join("")}</tbody>
@@ -527,12 +613,19 @@ function secProtestos(p: PDFReportParams): string {
   const top10Rec=detalhes.slice(0,10);
   const top10Val=[...detalhes].sort((a,b)=>numVal(b.valor)-numVal(a.valor)).slice(0,10);
 
-  // Distribuicao Temporal
+  // Distribuicao Temporal - correct date handling
   const now = new Date();
   const parseDate = (d: string | undefined): Date | null => {
     if (!d) return null;
+    // Handle DD/MM/YYYY format explicitly
     const parts = d.split("/");
-    if (parts.length === 3) return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+    if (parts.length === 3) {
+      const day = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1;
+      const year = parseInt(parts[2], 10);
+      const dt = new Date(year, month, day);
+      return isNaN(dt.getTime()) ? null : dt;
+    }
     const t = new Date(d);
     return isNaN(t.getTime()) ? null : t;
   };
@@ -541,8 +634,8 @@ function secProtestos(p: PDFReportParams): string {
   type DistTemp = { label: string; qtd: number; valor: number };
   const temporal: DistTemp[] = [
     { label: "Ultimo mes (30 dias)", qtd: 0, valor: 0 },
-    { label: "Ultimos 3 meses", qtd: 0, valor: 0 },
-    { label: "Ultimos 12 meses", qtd: 0, valor: 0 },
+    { label: "Ultimos 3 meses (90 dias)", qtd: 0, valor: 0 },
+    { label: "Ultimos 12 meses (365 dias)", qtd: 0, valor: 0 },
     { label: "Mais de 12 meses", qtd: 0, valor: 0 },
   ];
   detalhes.forEach(d => {
@@ -618,6 +711,16 @@ function secProcessos(p: PDFReportParams): string {
   const ativo=parseInt(proc.poloAtivoQtd||"0");
   const passiv=parseInt(proc.poloPassivoQtd||"0");
   const temRJ=proc.temRJ||proc.temFalencia;
+
+  function renderProcessoStatus(status: string | undefined): string {
+    const translated = translateProcessoStatus(status);
+    const lower = (status || "").toLowerCase();
+    const type: "ok"|"fail"|"warn"|"info" = lower.includes("arquivado") || lower.includes("transitado") ? "ok"
+      : lower.includes("andamento") || lower.includes("distribuido") ? "warn"
+      : "info";
+    return statusBadge(translated, type);
+  }
+
   return `<div class="sec">${secHdr("08","Processos Judiciais")}
   ${temRJ?alertBox("Pedido de RJ/Falencia identificado","ALTA"):""}
   ${grid(4,[
@@ -635,7 +738,7 @@ function secProcessos(p: PDFReportParams): string {
   }).join("")}</tbody></table>`:""}
   ${(proc.top10Recentes as ProcessoItem[]|undefined)?.length?`${subTitle("Top 10 Mais Recentes")}
   <table style="${TS}"><thead>${row(["Tipo","Distrib.","Ult. Movto.","Assunto","Valor","Status","Fase"],true)}</thead>
-  <tbody>${(proc.top10Recentes as ProcessoItem[]).slice(0,10).map(pr=>row([esc(pr.tipo),fmt(pr.data),fmt((pr as {ultimaMovimentacao?:string}).ultimaMovimentacao),esc(pr.assunto),fmtMoney(pr.valor),statusBadge(pr.status||"\u2014",(pr.status||"").toLowerCase().includes("andamento")?"warn":"info"),fmt((pr as {fase?:string}).fase)])).join("")}</tbody></table>`:""}
+  <tbody>${(proc.top10Recentes as ProcessoItem[]).slice(0,10).map(pr=>row([esc(pr.tipo),fmt(pr.data),fmt((pr as {ultimaMovimentacao?:string}).ultimaMovimentacao),esc(pr.assunto),fmtMoney(pr.valor),renderProcessoStatus(pr.status),fmt((pr as {fase?:string}).fase)])).join("")}</tbody></table>`:""}
 </div>`;
 }
 
@@ -646,9 +749,19 @@ function secProcessosTop10Valor(p: PDFReportParams): string {
   const proc=p.data.processos;
   const top=(proc?.top10Valor as ProcessoItem[]|undefined);
   if(!top?.length) return "";
+
+  function renderProcessoStatus(status: string | undefined): string {
+    const translated = translateProcessoStatus(status);
+    const lower = (status || "").toLowerCase();
+    const type: "ok"|"fail"|"warn"|"info" = lower.includes("arquivado") || lower.includes("transitado") ? "ok"
+      : lower.includes("andamento") || lower.includes("distribuido") ? "warn"
+      : "info";
+    return statusBadge(translated, type);
+  }
+
   return `<div class="sec">${secHdr("09","Processos - Top 10 por Valor")}
   <table style="${TS}"><thead>${row(["Tipo","Distrib.","Ult. Movto.","Assunto","Valor","Status","Fase"],true)}</thead>
-  <tbody>${top.slice(0,10).map(pr=>row([esc(pr.tipo),fmt(pr.data),fmt((pr as {ultimaMovimentacao?:string}).ultimaMovimentacao),esc(pr.assunto),fmtMoney(pr.valor),statusBadge(pr.status||"\u2014",(pr.status||"").toLowerCase().includes("andamento")?"warn":"info"),fmt((pr as {fase?:string}).fase)])).join("")}</tbody></table>
+  <tbody>${top.slice(0,10).map(pr=>row([esc(pr.tipo),fmt(pr.data),fmt((pr as {ultimaMovimentacao?:string}).ultimaMovimentacao),esc(pr.assunto),fmtMoney(pr.valor),renderProcessoStatus(pr.status),fmt((pr as {fase?:string}).fase)])).join("")}</tbody></table>
 </div>`;
 }
 
@@ -676,7 +789,13 @@ function secCurvaAbc(p: PDFReportParams): string {
   const abc=p.data.curvaABC;
   if(!abc||!abc.clientes?.length) return "";
   const top5=abc.clientes.slice(0,5);
+
+  // Concentration alert
+  const concTop3Num = numVal(abc.concentracaoTop3);
+  const showAlert = !!(abc as { alertaConcentracao?: boolean }).alertaConcentracao || concTop3Num > 60;
+
   return `<div class="sec">${secHdr("11","Curva ABC")}
+  ${showAlert ? alertBox(`Alta concentracao de receita: os 3 maiores clientes representam ${concTop3Num > 0 ? concTop3Num.toFixed(0) + "%" : fmt(abc.concentracaoTop3)} do faturamento total.`, "MODERADA") : ""}
   ${grid(3,[
     kpi("Top 3 Clientes %",fmt(abc.concentracaoTop3)),
     kpi("Top 5 Clientes %",fmt(abc.concentracaoTop5)),
@@ -697,7 +816,7 @@ function secCnpj(p: PDFReportParams): string {
   const cap=p.data.qsa?.capitalSocial||c.capitalSocialCNPJ||"";
   return `<div class="sec">${secHdr("12","Cartao CNPJ")}
   <div style="background:linear-gradient(135deg,#203B88 0%,#2a4da6 100%);border-radius:12px;padding:22px 26px;margin-bottom:18px;page-break-inside:avoid;box-shadow:0 4px 12px rgba(32,59,136,.2)">
-    <div style="font-family:'Bebas Neue',Impact,'Arial Black',sans-serif;font-size:22px;font-weight:700;color:#fff;margin-bottom:4px;letter-spacing:.03em">${esc(c.razaoSocial||"\u2014")}</div>
+    <div style="font-family:'Open Sans',Arial,sans-serif;font-size:22px;font-weight:800;color:#fff;margin-bottom:4px;letter-spacing:.03em">${esc(c.razaoSocial||"\u2014")}</div>
     ${c.nomeFantasia&&c.nomeFantasia!==c.razaoSocial?`<div style="font-size:11px;color:rgba(255,255,255,.45);font-style:italic;margin-bottom:4px">"${esc(c.nomeFantasia)}"</div>`:""}
     <div style="font-size:12px;color:rgba(255,255,255,.5);margin-bottom:8px">CNPJ ${fmtCnpj(c.cnpj)}</div>
     <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:6px;background:${ok?"rgba(34,197,94,.15)":"rgba(239,68,68,.15)"};color:${ok?"#4ade80":"#fca5a5"};font-size:9px;font-weight:700;letter-spacing:.04em;border:1px solid ${ok?"rgba(34,197,94,.3)":"rgba(239,68,68,.3)"}"><span style="font-size:10px">${ok?"\u2713":"\u2717"}</span> ${esc(c.situacaoCadastral||"\u2014")}</span>
@@ -717,15 +836,9 @@ function secCnpj(p: PDFReportParams): string {
   ${c.endereco?`<div style="margin-bottom:12px">${dataCard("Endereco Principal",esc(c.endereco))}</div>`:""}
   ${c.cnaePrincipal?`<div style="margin-bottom:12px">${dataCard("CNAE Principal",esc(c.cnaePrincipal))}</div>`:""}
   ${c.cnaeSecundarios?`<div style="margin-bottom:12px">${dataCard("CNAEs Secundarios",esc(c.cnaeSecundarios))}</div>`:""}
-  ${p.streetViewBase64||p.mapStaticBase64?`<div style="display:grid;grid-template-columns:${p.streetViewBase64&&p.mapStaticBase64?"1fr 1fr":"1fr"};gap:12px;margin-bottom:16px;page-break-inside:avoid">
-    ${p.streetViewBase64?`<div style="border-radius:10px;overflow:hidden;border:1px solid #e0e4ec;box-shadow:0 2px 8px rgba(0,0,0,.06)">
-      <img src="data:image/jpeg;base64,${p.streetViewBase64}" style="width:100%;height:170px;object-fit:cover;display:block"/>
-      <div style="padding:8px 12px;background:#f8f9fb;font-size:9px;color:#9ca3af;font-weight:600">Street View</div>
-    </div>`:""}
-    ${p.mapStaticBase64?`<div style="border-radius:10px;overflow:hidden;border:1px solid #e0e4ec;box-shadow:0 2px 8px rgba(0,0,0,.06)">
-      <img src="data:image/jpeg;base64,${p.mapStaticBase64}" style="width:100%;height:170px;object-fit:cover;display:block"/>
-      <div style="padding:8px 12px;background:#f8f9fb;font-size:9px;color:#9ca3af;font-weight:600">Mapa</div>
-    </div>`:""}
+  ${p.streetViewBase64||p.mapStaticBase64?`<div style="display:grid;grid-template-columns:${p.streetViewBase64&&p.mapStaticBase64?"1fr 1fr":"1fr"};gap:12px;margin-top:12px;margin-bottom:16px;page-break-inside:avoid">
+    ${p.mapStaticBase64?`<div><div style="font-size:9px;color:#6b7280;margin-bottom:4px;font-weight:700;text-transform:uppercase;letter-spacing:.04em">LOCALIZACAO</div><img src="data:image/jpeg;base64,${p.mapStaticBase64}" style="width:100%;border-radius:8px;border:1px solid #e0e4ec" /></div>`:""}
+    ${p.streetViewBase64?`<div><div style="font-size:9px;color:#6b7280;margin-bottom:4px;font-weight:700;text-transform:uppercase;letter-spacing:.04em">STREET VIEW</div><img src="data:image/jpeg;base64,${p.streetViewBase64}" style="width:100%;border-radius:8px;border:1px solid #e0e4ec" /></div>`:""}
   </div>`:""}
 </div>`;
 }
@@ -740,13 +853,20 @@ function secQsa(p: PDFReportParams): string {
   return `<div class="sec">${secHdr("13","Quadro Societario")}
   ${cap?`<div style="margin-bottom:16px;padding:14px 18px;background:linear-gradient(135deg,#f8f9fb 0%,#edf2fb 100%);border-radius:8px;border:1px solid #e0e4ec;font-size:12px;color:#374151">Capital Social: <strong style="font-size:14px;color:#203B88">${fmtMoney(cap)}</strong></div>`:""}
   <table style="${TS}">
-    <thead>${row(["Nome","CPF/CNPJ","Qualificacao","Participacao %"],true)}</thead>
-    <tbody>${qsa.quadroSocietario.filter(s=>s.nome).map(s=>row([
-      `<strong>${esc(s.nome)}</strong>`,
-      s.cpfCnpj?(s.cpfCnpj.replace(/\D/g,"").length>11?fmtCnpj(s.cpfCnpj):fmtCpf(s.cpfCnpj)):"\u2014",
-      fmt(s.qualificacao),
-      s.participacao?(String(s.participacao).includes("%")?esc(String(s.participacao)):esc(String(s.participacao))+"%"):"\u2014",
-    ])).join("")}</tbody>
+    <thead>${row(["Nome","CPF/CNPJ","Qualificacao","Participacao"],true)}</thead>
+    <tbody>${qsa.quadroSocietario.filter(s=>s.nome).map(s=>{
+      const digits = s.cpfCnpj ? s.cpfCnpj.replace(/\D/g,"") : "";
+      const docFormatted = digits.length > 11 ? fmtCnpj(s.cpfCnpj) : digits.length > 0 ? fmtCpf(s.cpfCnpj) : "\u2014";
+      const partStr = s.participacao != null
+        ? (String(s.participacao).includes("%") ? esc(String(s.participacao)) : esc(String(s.participacao)) + "%")
+        : "\u2014";
+      return row([
+        `<strong>${esc(s.nome)}</strong>`,
+        docFormatted,
+        fmt(s.qualificacao),
+        partStr,
+      ]);
+    }).join("")}</tbody>
   </table>
 </div>`;
 }
@@ -815,9 +935,9 @@ function secComparativoScr(p: PDFReportParams): string {
   addRow("CAPACIDADE","Limite Credito",prev.limiteCredito,scr.limiteCredito);
   addRow("CAPACIDADE","IFs",prev.qtdeInstituicoes,scr.qtdeInstituicoes);
   addRow("CAPACIDADE","Operacoes",prev.qtdeOperacoes,scr.qtdeOperacoes);
-  const fmm=numVal(p.data.faturamento?.fmm12m);
-  const alvAtual=fmm>0?`${(numVal(scr.totalDividasAtivas)/fmm).toFixed(1)}x`:"\u2014";
-  const alvAnt=fmm>0?`${(numVal(prev.totalDividasAtivas)/fmm).toFixed(1)}x`:"\u2014";
+  const fmmNum=computeFmm(p.data.faturamento);
+  const alvAtual=fmmNum>0?`${(numVal(scr.totalDividasAtivas)/fmmNum).toFixed(1)}x`:"\u2014";
+  const alvAnt=fmmNum>0?`${(numVal(prev.totalDividasAtivas)/fmmNum).toFixed(1)}x`:"\u2014";
   rows.push({grupo:"RESUMO",metrica:"Alavancagem",ant:alvAnt,atual:alvAtual,variacao:"\u2014"});
 
   return `<div class="sec">${secHdr("16","Comparativo SCR")}
@@ -910,7 +1030,7 @@ function secScrSocios(p: PDFReportParams): string {
 
     // Modalidades
     const mods = scr?.modalidades || [];
-    void prev; // may be used for modalidades comparison later
+    void perAnt; // may be used for display
 
     return `<div class="sec" style="margin-top:20px;padding:18px 20px;background:linear-gradient(135deg,#f8f9fb 0%,#edf2fb 100%);border-radius:10px;border:1px solid #e0e4ec;page-break-inside:avoid;box-shadow:0 2px 8px rgba(32,59,136,.04)">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
@@ -945,7 +1065,9 @@ function secScrSocios(p: PDFReportParams): string {
 function secDre(p: PDFReportParams): string {
   const dre=p.data.dre;
   if(!dre?.anos?.length) return "";
-  const anos=dre.anos.slice(-3);
+  // Deduplication by ano
+  const anosUnicos = dre.anos.filter((a, i, arr) => arr.findIndex(x => x.ano === a.ano) === i);
+  const anos=anosUnicos.slice(-3);
   type M={label:string;key:string;isMoney:boolean;isPct:boolean};
   const metricas:M[]=[
     {label:"Receita Bruta",key:"receitaBruta",isMoney:true,isPct:false},
@@ -984,7 +1106,9 @@ function secDre(p: PDFReportParams): string {
 function secBalanco(p: PDFReportParams): string {
   const bal=p.data.balanco;
   if(!bal?.anos?.length) return "";
-  const anos=bal.anos.slice(-3);
+  // Deduplication by ano
+  const anosUnicos = bal.anos.filter((a, i, arr) => arr.findIndex(x => x.ano === a.ano) === i);
+  const anos=anosUnicos.slice(-3);
   type M={label:string;key:string;isMoney:boolean;isPct:boolean};
   const metricas:M[]=[
     {label:"Ativo Total",key:"ativoTotal",isMoney:true,isPct:false},

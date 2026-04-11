@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, Suspense } from "react";
+import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { DocumentCollection } from "@/types";
@@ -252,6 +252,51 @@ function ParecerContent() {
         if (analista?.decisaoComite) setDecisaoComite(analista.decisaoComite as typeof decisaoComite);
         if (analista?.notaComite) setNotaComite(analista.notaComite as string);
 
+        // Recupera dados pendentes do localStorage (salvos no beforeunload anterior)
+        try {
+          const pendingRaw = localStorage.getItem(`cf_parecer_pending_${id}`);
+          if (pendingRaw) {
+            const pending = JSON.parse(pendingRaw);
+            // Só usa se for mais recente que os dados do Supabase (máx 1h)
+            const age = Date.now() - new Date(pending.savedAt).getTime();
+            if (age < 3600 * 1000 && pending.parecerAnalista) {
+              const p = pending.parecerAnalista;
+              // Sobrescreve com dados pendentes (são mais recentes que o Supabase)
+              if (p.limiteCredito) setLimiteCredito(p.limiteCredito);
+              if (p.concentracaoSacado) setConcentracao(p.concentracaoSacado);
+              if (p.garantias) setGarantias(p.garantias);
+              if (p.prazoRevisao) setPrazoRevisao(p.prazoRevisao);
+              if (p.taxaConvencional) setTaxaConvencional(p.taxaConvencional);
+              if (p.taxaComissaria) setTaxaComissaria(p.taxaComissaria);
+              if (p.tac) setTac(p.tac);
+              if (p.limiteTotal) setLimiteTotal(p.limiteTotal);
+              if (p.limiteConvencional) setLimiteConvencional(p.limiteConvencional);
+              if (p.limiteComissaria) setLimiteComissaria(p.limiteComissaria);
+              if (p.limitePorSacados) setLimitePorSacados(p.limitePorSacados);
+              if (p.ticketMedio) setTicketMedio(p.ticketMedio);
+              if (p.prazoRecompra) setPrazoRecompra(p.prazoRecompra);
+              if (p.prazoCartorio) setPrazoCartorio(p.prazoCartorio);
+              if (p.prazoMaximo) setPrazoMaximo(p.prazoMaximo);
+              if (p.trancheValor) setTrancheValor(p.trancheValor);
+              if (p.tranchePrazo) setTranchePrazo(p.tranchePrazo);
+              if (p.ratingAnalista != null) setRatingAnalista(p.ratingAnalista);
+              if (p.decisaoComite) setDecisaoComite(p.decisaoComite);
+              if (p.notaComite) setNotaComite(p.notaComite);
+              if (pending.decisao) setDecisao(pending.decisao);
+              if (pending.observacoes) setNotas(pending.observacoes);
+              // Envia os dados pendentes para o Supabase
+              const existingAiForPending = (data.ai_analysis as Record<string, unknown>) || {};
+              await supabase.from("document_collections").update({
+                ai_analysis: { ...existingAiForPending, parecerAnalista: p },
+                ...(pending.decisao ? { decisao: pending.decisao } : {}),
+                ...(pending.ratingAnalista != null ? { rating: pending.ratingAnalista } : {}),
+                ...(pending.observacoes ? { observacoes: pending.observacoes } : {}),
+              }).eq("id", id);
+            }
+            localStorage.removeItem(`cf_parecer_pending_${id}`);
+          }
+        } catch { /* ignore pending recovery errors */ }
+
         // Marca que o carregamento inicial terminou — libera o auto-save
         setTimeout(() => { initialLoadDone.current = true; }, 100);
       } catch {
@@ -262,57 +307,135 @@ function ParecerContent() {
     })();
   }, [id]);
 
+  // ── Auto-save helper (reutilizado no debounce e no flush ao sair) ──
+  const pendingSave = useRef(false);
+  const formRef = useRef({
+    decisao, ratingAnalista, decisaoComite, notaComite, notas,
+    limiteCredito, concentracao, garantias, prazoRevisao,
+    taxaConvencional, taxaComissaria, tac,
+    limiteTotal, limiteConvencional, limiteComissaria, limitePorSacados, ticketMedio,
+    prazoRecompra, prazoCartorio, prazoMaximo, trancheValor, tranchePrazo,
+  });
+
+  // Manter ref sempre atualizado
+  useEffect(() => {
+    formRef.current = {
+      decisao, ratingAnalista, decisaoComite, notaComite, notas,
+      limiteCredito, concentracao, garantias, prazoRevisao,
+      taxaConvencional, taxaComissaria, tac,
+      limiteTotal, limiteConvencional, limiteComissaria, limitePorSacados, ticketMedio,
+      prazoRecompra, prazoCartorio, prazoMaximo, trancheValor, tranchePrazo,
+    };
+  });
+
+  const doSave = useCallback(async () => {
+    if (!id) return;
+    try {
+      const f = formRef.current;
+      const supabase = createClient();
+      const { data: session } = await supabase.auth.getUser();
+      if (!session.user) return;
+      const { data: current } = await supabase
+        .from("document_collections").select("ai_analysis").eq("id", id).single();
+      const existingAi = (current?.ai_analysis as Record<string, unknown>) || {};
+      const parecerAnalista = {
+        limiteCredito: f.limiteCredito.trim() || null,
+        concentracaoSacado: f.concentracao.trim() || null,
+        garantias: f.garantias.trim() || null,
+        prazoRevisao: f.prazoRevisao.trim() || null,
+        taxaConvencional: f.taxaConvencional.trim() || null,
+        taxaComissaria: f.taxaComissaria.trim() || null,
+        tac: f.tac.trim() || null,
+        limiteTotal: f.limiteTotal.trim() || null,
+        limiteConvencional: f.limiteConvencional.trim() || null,
+        limiteComissaria: f.limiteComissaria.trim() || null,
+        limitePorSacados: f.limitePorSacados.trim() || null,
+        ticketMedio: f.ticketMedio.trim() || null,
+        prazoRecompra: f.prazoRecompra.trim() || null,
+        prazoCartorio: f.prazoCartorio.trim() || null,
+        prazoMaximo: f.prazoMaximo.trim() || null,
+        trancheValor: f.trancheValor.trim() || null,
+        tranchePrazo: f.tranchePrazo.trim() || null,
+        ratingAnalista: f.ratingAnalista ?? null,
+        decisaoComite: f.decisaoComite ?? null,
+        notaComite: f.notaComite.trim() || null,
+      };
+      await supabase.from("document_collections").update({
+        ai_analysis: { ...existingAi, parecerAnalista },
+        ...(f.decisao ? { decisao: f.decisao } : {}),
+        ...(f.ratingAnalista != null ? { rating: f.ratingAnalista } : {}),
+        ...(f.notas.trim() ? { observacoes: f.notas.trim() } : {}),
+      }).eq("id", id).eq("user_id", session.user.id);
+      pendingSave.current = false;
+      setAutoSaved(true);
+      setTimeout(() => setAutoSaved(false), 2000);
+    } catch { /* silently ignore auto-save errors */ }
+  }, [id]);
+
   // ── Auto-save (debounced 2s) ──────────────────────────────────────────────
   useEffect(() => {
     if (!initialLoadDone.current || !id) return;
+    pendingSave.current = true;
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    autoSaveTimer.current = setTimeout(async () => {
-      try {
-        const supabase = createClient();
-        const { data: session } = await supabase.auth.getUser();
-        if (!session.user) return;
-        const { data: current } = await supabase
-          .from("document_collections").select("ai_analysis").eq("id", id).single();
-        const existingAi = (current?.ai_analysis as Record<string, unknown>) || {};
-        const parecerAnalista = {
-          limiteCredito: limiteCredito.trim() || null,
-          concentracaoSacado: concentracao.trim() || null,
-          garantias: garantias.trim() || null,
-          prazoRevisao: prazoRevisao.trim() || null,
-          taxaConvencional: taxaConvencional.trim() || null,
-          taxaComissaria: taxaComissaria.trim() || null,
-          tac: tac.trim() || null,
-          limiteTotal: limiteTotal.trim() || null,
-          limiteConvencional: limiteConvencional.trim() || null,
-          limiteComissaria: limiteComissaria.trim() || null,
-          limitePorSacados: limitePorSacados.trim() || null,
-          ticketMedio: ticketMedio.trim() || null,
-          prazoRecompra: prazoRecompra.trim() || null,
-          prazoCartorio: prazoCartorio.trim() || null,
-          prazoMaximo: prazoMaximo.trim() || null,
-          trancheValor: trancheValor.trim() || null,
-          tranchePrazo: tranchePrazo.trim() || null,
-          ratingAnalista: ratingAnalista ?? null,
-          decisaoComite: decisaoComite ?? null,
-          notaComite: notaComite.trim() || null,
-        };
-        await supabase.from("document_collections").update({
-          ai_analysis: { ...existingAi, parecerAnalista },
-          ...(decisao ? { decisao } : {}),
-          ...(ratingAnalista != null ? { rating: ratingAnalista } : {}),
-          ...(notas.trim() ? { observacoes: notas.trim() } : {}),
-        }).eq("id", id).eq("user_id", session.user.id);
-        setAutoSaved(true);
-        setTimeout(() => setAutoSaved(false), 2000);
-      } catch { /* silently ignore auto-save errors */ }
-    }, 2000);
+    autoSaveTimer.current = setTimeout(() => { doSave(); }, 2000);
     return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [decisao, ratingAnalista, decisaoComite, notaComite, notas,
       limiteCredito, concentracao, garantias, prazoRevisao,
       taxaConvencional, taxaComissaria, tac,
       limiteTotal, limiteConvencional, limiteComissaria, limitePorSacados, ticketMedio,
-      prazoRecompra, prazoCartorio, prazoMaximo, trancheValor, tranchePrazo]);
+      prazoRecompra, prazoCartorio, prazoMaximo, trancheValor, tranchePrazo, doSave]);
+
+  // ── Flush imediato ao sair da página (beforeunload + unmount) ──
+  useEffect(() => {
+    const flushOnUnload = () => {
+      if (!pendingSave.current || !id) return;
+      // sendBeacon para garantir save mesmo durante navegação
+      const f = formRef.current;
+      const parecerAnalista = {
+        limiteCredito: f.limiteCredito.trim() || null,
+        concentracaoSacado: f.concentracao.trim() || null,
+        garantias: f.garantias.trim() || null,
+        prazoRevisao: f.prazoRevisao.trim() || null,
+        taxaConvencional: f.taxaConvencional.trim() || null,
+        taxaComissaria: f.taxaComissaria.trim() || null,
+        tac: f.tac.trim() || null,
+        limiteTotal: f.limiteTotal.trim() || null,
+        limiteConvencional: f.limiteConvencional.trim() || null,
+        limiteComissaria: f.limiteComissaria.trim() || null,
+        limitePorSacados: f.limitePorSacados.trim() || null,
+        ticketMedio: f.ticketMedio.trim() || null,
+        prazoRecompra: f.prazoRecompra.trim() || null,
+        prazoCartorio: f.prazoCartorio.trim() || null,
+        prazoMaximo: f.prazoMaximo.trim() || null,
+        trancheValor: f.trancheValor.trim() || null,
+        tranchePrazo: f.tranchePrazo.trim() || null,
+        ratingAnalista: f.ratingAnalista ?? null,
+        decisaoComite: f.decisaoComite ?? null,
+        notaComite: f.notaComite.trim() || null,
+      };
+      // Salva no localStorage como backup para ser enviado na próxima visita
+      try {
+        localStorage.setItem(`cf_parecer_pending_${id}`, JSON.stringify({
+          parecerAnalista,
+          decisao: f.decisao,
+          ratingAnalista: f.ratingAnalista,
+          observacoes: f.notas.trim() || null,
+          savedAt: new Date().toISOString(),
+        }));
+      } catch { /* ignore */ }
+    };
+    window.addEventListener("beforeunload", flushOnUnload);
+    return () => {
+      window.removeEventListener("beforeunload", flushOnUnload);
+      // No unmount (navegação SPA), faz save imediato
+      if (pendingSave.current && id) {
+        if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+        doSave();
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, doSave]);
 
   const handleConfirmar = async () => {
     if (!decisao) { toast.error("Selecione uma decisão antes de confirmar."); return; }
@@ -606,7 +729,7 @@ ${notas.trim() ? `
               </span>
             )}
             <button
-              onClick={() => { window.location.href = id ? `/?resume=${id}` : "/"; }}
+              onClick={() => { window.location.href = id ? `/?resume=${id}&step=generate` : "/"; }}
               style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 500, color: "#64748b", background: "none", border: "1px solid #e2e8f0", borderRadius: 8, padding: "6px 12px", cursor: "pointer" }}
             >
               <ArrowLeft size={13} /> Voltar ao relatório
