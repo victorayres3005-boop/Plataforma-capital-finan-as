@@ -620,19 +620,47 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate }
 }
 
 // ── GroupCard — wrapper for same-company entries ──
-function GroupCard({ group, userName, userId, highlightId, onDelete, onUpdate }: {
+function GroupCard({ group, userName, userId, highlightId, onDelete, onDeleteAll, onUpdate }: {
   group: { key: string; name: string; cnpj: string | null; cols: DocumentCollection[] };
   userName: string;
   userId?: string;
   highlightId: string | null;
   onDelete: (id: string) => void;
+  onDeleteAll: (ids: string[]) => void;
   onUpdate: (id: string, docs: CollectionDocument[]) => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
   const isGroup = group.cols.length > 1;
   const visible = showAll ? group.cols : group.cols.slice(0, 3);
   const hidden = group.cols.length - 3;
+
+  const handleDeleteAll = async () => {
+    setDeletingAll(true);
+    try {
+      const supabase = createClient();
+      const ids = group.cols.map(c => c.id);
+      // Deleta arquivos do storage
+      if (userId) {
+        const { deleteCollectionFiles } = await import("@/lib/storage");
+        for (const id of ids) {
+          await deleteCollectionFiles(userId, id).catch(() => {});
+        }
+      }
+      // Deleta do banco
+      const { error } = await supabase.from("document_collections").delete().in("id", ids);
+      if (error) throw error;
+      onDeleteAll(ids);
+      toast.success(`${ids.length} coletas de "${group.name}" excluídas`);
+    } catch {
+      toast.error("Erro ao excluir coletas");
+    } finally {
+      setDeletingAll(false);
+      setConfirmDeleteAll(false);
+    }
+  };
 
   if (!isGroup) {
     return (
@@ -662,6 +690,33 @@ function GroupCard({ group, userName, userId, highlightId, onDelete, onUpdate }:
         <span style={{ fontSize: 11, fontWeight: 700, background: "#E0E7FF", color: "#3730A3", borderRadius: 999, padding: "2px 8px", flexShrink: 0 }}>
           {group.cols.length} entradas
         </span>
+
+        {/* Botão apagar todas */}
+        <div onClick={e => e.stopPropagation()} className="flex-shrink-0">
+          {!confirmDeleteAll ? (
+            <button
+              onClick={() => setConfirmDeleteAll(true)}
+              title={`Apagar todas as ${group.cols.length} coletas de ${group.name}`}
+              className="w-7 h-7 flex items-center justify-center rounded-lg text-[#CBD5E1] hover:text-red-500 hover:bg-red-50 transition-colors"
+            >
+              <Trash2 size={13} />
+            </button>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-red-500 font-medium whitespace-nowrap">Apagar {group.cols.length}?</span>
+              <button
+                onClick={handleDeleteAll}
+                disabled={deletingAll}
+                className="h-6 text-[10px] font-bold text-white bg-red-500 hover:bg-red-600 rounded-md px-2 transition-colors"
+              >
+                {deletingAll ? <Loader2 size={10} className="animate-spin" /> : "Sim"}
+              </button>
+              <button onClick={() => setConfirmDeleteAll(false)} className="h-6 text-[10px] text-[#9CA3AF] hover:text-[#374151] px-1.5 transition-colors">
+                Não
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Rows */}
@@ -805,6 +860,10 @@ function HistoricoContent() {
     setCollections(prev => prev.filter(c => c.id !== id));
   }, []);
 
+  const handleDeleteAll = useCallback((ids: string[]) => {
+    setCollections(prev => prev.filter(c => !ids.includes(c.id)));
+  }, []);
+
   const handleUpdate = useCallback((id: string, docs: CollectionDocument[]) => {
     setCollections(prev => prev.map(c => c.id === id ? { ...c, documents: docs } : c));
   }, []);
@@ -901,17 +960,16 @@ function HistoricoContent() {
             </Link>
           </div>
 
-          {/* ── Resumo de métricas ── */}
+          {/* ── Funil de Crédito + Métricas ── */}
           {!loading && collections.length > 0 && (() => {
             const total = collections.length;
             const finalizadas = collections.filter(c => c.status === "finished").length;
             const aprovadas = collections.filter(c => c.decisao === "APROVADO").length;
             const condicionais = collections.filter(c => c.decisao === "APROVACAO_CONDICIONAL").length;
             const reprovadas = collections.filter(c => c.decisao === "REPROVADO").length;
-            const pendentes = collections.filter(c => !c.decisao || c.decisao === "PENDENTE").length;
+            const emAndamento = collections.filter(c => c.status !== "finished").length;
             const taxaAprov = finalizadas > 0 ? Math.round(((aprovadas + condicionais) / finalizadas) * 100) : 0;
 
-            // Rating médio (do parecer analista ou coluna rating)
             const ratings = collections.map(c => {
               const ai = c.ai_analysis as Record<string, unknown> | null;
               const parecer = ai?.parecerAnalista as Record<string, unknown> | null;
@@ -919,24 +977,52 @@ function HistoricoContent() {
             }).filter((r): r is number => r != null && r > 0);
             const ratingMedio = ratings.length > 0 ? (ratings.reduce((a, b) => a + b, 0) / ratings.length) : null;
 
-            const metrics = [
-              { label: "Total", value: String(total), color: "#1E3A5F", bg: "#EFF6FF", border: "#BFDBFE" },
-              { label: "Aprovadas", value: String(aprovadas), color: "#16A34A", bg: "#F0FDF4", border: "#BBF7D0" },
-              { label: "Condicionais", value: String(condicionais), color: "#7C3AED", bg: "#F5F3FF", border: "#DDD6FE" },
-              { label: "Reprovadas", value: String(reprovadas), color: "#DC2626", bg: "#FEF2F2", border: "#FECACA" },
-              { label: "Pendentes", value: String(pendentes), color: "#D97706", bg: "#FFFBEB", border: "#FDE68A" },
-              { label: "Taxa Aprovação", value: `${taxaAprov}%`, color: taxaAprov >= 60 ? "#16A34A" : taxaAprov >= 30 ? "#D97706" : "#DC2626", bg: taxaAprov >= 60 ? "#F0FDF4" : taxaAprov >= 30 ? "#FFFBEB" : "#FEF2F2", border: taxaAprov >= 60 ? "#BBF7D0" : taxaAprov >= 30 ? "#FDE68A" : "#FECACA" },
-              { label: "Rating Médio", value: ratingMedio != null ? `${ratingMedio.toFixed(1)}/10` : "—", color: ratingMedio != null ? (ratingMedio >= 7 ? "#16A34A" : ratingMedio >= 4 ? "#D97706" : "#DC2626") : "#9CA3AF", bg: ratingMedio != null ? (ratingMedio >= 7 ? "#F0FDF4" : ratingMedio >= 4 ? "#FFFBEB" : "#FEF2F2") : "#F8FAFC", border: ratingMedio != null ? (ratingMedio >= 7 ? "#BBF7D0" : ratingMedio >= 4 ? "#FDE68A" : "#FECACA") : "#E2E8F0" },
+            const funnel = [
+              { label: "Recebidas", count: total, color: "#1E3A5F", bg: "#DBEAFE" },
+              { label: "Finalizadas", count: finalizadas, color: "#2563EB", bg: "#C7D2FE" },
+              { label: "Aprovadas", count: aprovadas + condicionais, color: "#16A34A", bg: "#BBF7D0" },
             ];
 
             return (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8, marginBottom: 16 }}>
-                {metrics.map((m, i) => (
-                  <div key={i} style={{ background: m.bg, border: `1px solid ${m.border}`, borderRadius: 10, padding: "10px 14px", textAlign: "center" }}>
-                    <p style={{ fontSize: 9, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>{m.label}</p>
-                    <p style={{ fontSize: 20, fontWeight: 800, color: m.color, lineHeight: 1.1 }}>{m.value}</p>
-                  </div>
-                ))}
+              <div style={{ background: "white", borderRadius: 14, border: "1px solid #E2E8F0", padding: "16px 20px", marginBottom: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+                {/* Funil horizontal */}
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
+                  {funnel.map((s, i) => {
+                    const pct = total > 0 ? Math.max((s.count / total) * 100, 12) : 0;
+                    return (
+                      <div key={i} style={{ flex: `${pct} 0 0`, minWidth: 0 }}>
+                        <div style={{ background: s.bg, borderRadius: 8, padding: "8px 12px", borderLeft: `3px solid ${s.color}`, transition: "all 0.3s" }}>
+                          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 6 }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.06em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.label}</span>
+                            <span style={{ fontSize: 18, fontWeight: 800, color: s.color, flexShrink: 0 }}>{s.count}</span>
+                          </div>
+                          {i > 0 && total > 0 && (
+                            <div style={{ fontSize: 9, color: s.color, opacity: 0.7, fontWeight: 600, marginTop: 2 }}>
+                              {Math.round((s.count / total) * 100)}% do total
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Métricas resumidas abaixo */}
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                  {[
+                    { label: "Em andamento", value: String(emAndamento), color: "#D97706" },
+                    { label: "Condicionais", value: String(condicionais), color: "#7C3AED" },
+                    { label: "Reprovadas", value: String(reprovadas), color: "#DC2626" },
+                    { label: "Taxa aprov.", value: `${taxaAprov}%`, color: taxaAprov >= 60 ? "#16A34A" : "#D97706" },
+                    { label: "Rating médio", value: ratingMedio != null ? `${ratingMedio.toFixed(1)}/10` : "—", color: ratingMedio != null ? (ratingMedio >= 7 ? "#16A34A" : ratingMedio >= 4 ? "#D97706" : "#DC2626") : "#9CA3AF" },
+                  ].map((m, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                      <span style={{ width: 6, height: 6, borderRadius: 2, background: m.color, flexShrink: 0 }} />
+                      <span style={{ fontSize: 11, color: "#6B7280" }}>{m.label}:</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: m.color }}>{m.value}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             );
           })()}
@@ -1081,6 +1167,7 @@ function HistoricoContent() {
                 userId={user?.id}
                 highlightId={highlightId}
                 onDelete={handleDelete}
+                onDeleteAll={handleDeleteAll}
                 onUpdate={handleUpdate}
               />
             ))}
