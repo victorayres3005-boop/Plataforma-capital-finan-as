@@ -17,6 +17,14 @@ function fmtMoney(v: string | number | null | undefined): string {
   if (isNaN(n)) return esc(String(v));
   return "R$\u00a0" + n.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
 }
+function fmtPct(v: string | number | null | undefined): string {
+  if (v == null || v === "") return "\u2014";
+  const s = String(v).trim();
+  if (s.includes("%")) return esc(s);
+  const n = parseFloat(s.replace(/[^\d,.-]/g,"").replace(",","."));
+  if (isNaN(n)) return esc(s);
+  return n.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:2}) + "%";
+}
 function fmtCnpj(raw: string | null | undefined): string {
   if (!raw) return "\u2014";
   const d = raw.replace(/\D/g,"");
@@ -73,6 +81,13 @@ function kpi(label: string, value: string, color="#111827", sub?: string, border
   </div>`;
 }
 
+/** Placeholder KPI for empty grid cells */
+function kpiPlaceholder(): string {
+  return `<div style="background:#f8f9fb;border:1px dashed #e0e4ec;border-radius:8px;padding:14px 16px;min-width:0;display:flex;align-items:center;justify-content:center">
+    <span style="color:#d1d5db;font-size:14px">\u2014</span>
+  </div>`;
+}
+
 function secHdr(num: string, title: string): string {
   return `<div style="margin-bottom:18px;page-break-inside:avoid">
     <div style="display:flex;align-items:center;background:#203B88;padding:12px 16px;gap:12px">
@@ -104,7 +119,7 @@ function alertBox(msg: string, sev: "ALTA"|"MODERADA"|"INFO"): string {
 function grid(cols: number, items: string[]): string {
   const filled=items.filter(Boolean);
   if(filled.length===0) return "";
-  return `<div style="display:grid;grid-template-columns:repeat(${cols},1fr);gap:12px;margin-bottom:16px">${items.map(i=>i||"<div></div>").join("")}</div>`;
+  return `<div style="display:grid;grid-template-columns:repeat(${cols},1fr);gap:12px;margin-bottom:16px">${items.map(i=>i||kpiPlaceholder()).join("")}</div>`;
 }
 
 function subTitle(t: string): string {
@@ -211,14 +226,15 @@ function sortMeses(meses: FaturamentoMensal[]): FaturamentoMensal[] {
   });
 }
 
-/** Compute FMM from fmm12m or last 12 months of meses[] */
+/** Compute FMM from fmm12m or last 12 months of meses[] — ALWAYS divide by 12 */
 function computeFmm(faturamento: { fmm12m?: string | number; mediaAno?: string | number; meses?: FaturamentoMensal[] } | undefined): number {
   if (!faturamento) return 0;
-  const validMeses = sortMeses(faturamento.meses || []).filter(m => m?.mes && m?.valor);
-  const fmmNum = faturamento.fmm12m
-    ? numVal(faturamento.fmm12m)
-    : validMeses.slice(-12).reduce((s, m) => s + numVal(m.valor), 0) / Math.max(validMeses.slice(-12).length, 1);
-  return fmmNum;
+  if (faturamento.fmm12m) return numVal(faturamento.fmm12m);
+  const valid = sortMeses(faturamento.meses || []).filter(m => m?.mes && m?.valor);
+  const last12 = valid.slice(-12);
+  if (last12.length === 0) return 0;
+  const sum = last12.reduce((s, m) => s + numVal(m.valor), 0);
+  return sum / 12; // ALWAYS divide by 12, even if fewer months
 }
 
 function delta(cur:string|undefined,ant:string|undefined):string{
@@ -341,7 +357,7 @@ function secChecklist(p: PDFReportParams): string {
 
   function renderItem(item: CheckItem): string {
     const tipoBg = item.tipo === "OBR" ? "#203B88" : "#9ca3af";
-    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;background:${item.ok?"#f0fdf4":"#fff"};border:1px solid ${item.ok?"#bbf7d0":"#f3f4f6"};margin-bottom:6px">
+    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;background:${item.ok?"#f0fdf4":"#fff"};border:1px solid ${item.ok?"#bbf7d0":"#f3f4f6"};margin-bottom:6px${item.ok?";box-shadow:0 1px 3px rgba(34,197,94,.08)":""}">
       <span style="font-size:14px;flex-shrink:0">${item.ok?"\u2705":"\u274C"}</span>
       <span style="font-size:10.5px;font-weight:${item.ok?"700":"400"};color:${item.ok?"#111827":"#9ca3af"};flex:1">${esc(item.label)}</span>
       <span style="display:inline-block;padding:2px 7px;border-radius:4px;background:${tipoBg};color:#fff;font-size:7.5px;font-weight:800;letter-spacing:.04em;flex-shrink:0">${item.tipo}</span>
@@ -349,6 +365,11 @@ function secChecklist(p: PDFReportParams): string {
   }
 
   return `<div class="sec">${secHdr("02","Checklist de Documentos")}
+  <!-- Coverage Ribbon -->
+  <div style="margin-bottom:18px;padding:14px 20px;border-radius:10px;background:${pct >= 80 ? "linear-gradient(135deg,#f0fdf4 0%,#dcfce7 100%)" : pct >= 50 ? "linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%)" : "linear-gradient(135deg,#fff1f2 0%,#fee2e2 100%)"};border:2px solid ${barColor};text-align:center">
+    <div style="font-size:10px;font-weight:800;color:${pct >= 80 ? "#166534" : pct >= 50 ? "#92400e" : "#991b1b"};text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Cobertura da Analise</div>
+    <div style="font-size:28px;font-weight:900;color:${barColor}">${pct}%</div>
+  </div>
   <div style="margin-bottom:18px;padding:18px 20px;background:linear-gradient(135deg,#f8f9fb 0%,#edf2fb 100%);border-radius:10px;border:1px solid #e0e4ec">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
       <span style="font-size:14px;font-weight:800;color:#111827">${recebidos} de ${allDocs.length} documentos coletados</span>
@@ -393,14 +414,19 @@ function secSintese(p: PDFReportParams): string {
 
   const rv = data.relatorioVisita;
   const modalidade = rv?.modalidade || (rv?.taxaComissaria && rv?.taxaConvencional ? "Hibrida" : rv?.taxaComissaria ? "Comissaria" : rv?.taxaConvencional ? "Convencional" : "\u2014");
+  const modalidadeSub = String(modalidade).toLowerCase().includes("hibrida") ? "Convencional e Comissaria" : undefined;
   const pleito = rv?.pleito || rv?.limiteTotal || "\u2014";
 
   const geCount = data.grupoEconomico?.empresas?.length || 0;
+  const geNames = (data.grupoEconomico?.empresas || []).slice(0, 3).map(e => e.razaoSocial || "").filter(Boolean).join(", ");
 
   // Curva ABC top 3
   const abcClientes = data.curvaABC?.clientes || [];
   const top3Names = abcClientes.slice(0, 3).map(c => esc(c.nome || "")).join(", ");
   const top3Pct = data.curvaABC?.concentracaoTop3 || "\u2014";
+
+  // CCF bank names
+  const ccfBancos = (data.ccf?.bancos || []).map(b => b.banco).filter(Boolean).slice(0, 3).join(", ");
 
   // Most recent protesto
   const detProtestos = data.protestos?.detalhes || [];
@@ -445,9 +471,9 @@ function secSintese(p: PDFReportParams): string {
     );
   }
 
-  /** Group label header */
+  /** Group label header — more prominent */
   function groupLabel(label: string): string {
-    return `<div style="font-size:9px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.1em;margin:20px 0 10px;padding:4px 10px;background:linear-gradient(90deg,#edf2fb,transparent);border-left:3px solid #73B815">${esc(label)}</div>`;
+    return `<div style="font-size:11px;font-weight:900;color:#203B88;text-transform:uppercase;letter-spacing:.12em;margin:24px 0 12px;padding:8px 14px;background:linear-gradient(90deg,#edf2fb 0%,#f8f9fb 100%);border-left:4px solid #73B815;border-radius:0 6px 6px 0;border-bottom:2px solid #e0e4ec">${esc(label)}</div>`;
   }
 
   return `<div class="sec">${secHdr("03","Sintese Preliminar")}
@@ -457,7 +483,7 @@ function secSintese(p: PDFReportParams): string {
     kpi("Rating",`${finalRating} / 10`,rc),
     kpi("Decisao",decision.replace(/_/g," ")),
     kpi("Tempo Empresa",esc(p.companyAge)||"\u2014"),
-    kpi("Modalidade",esc(String(modalidade))),
+    kpi("Modalidade",esc(String(modalidade)), "#111827", modalidadeSub),
   ])}
 
   ${groupLabel("INDICADORES FINANCEIROS")}
@@ -473,15 +499,15 @@ function secSintese(p: PDFReportParams): string {
     kpi("Protestos Vigentes",String(p.protestosVigentes),p.protestosVigentes>0?"#dc2626":"#111827", `${fmtMoney(data.protestos?.vigentesValor)} | ult: ${esc(String(lastProtesto))}`),
     kpi("Processos",`A:${procAtivo} / P:${procPassivo}`, "#111827", `ult: ${esc(String(lastProcesso))}`),
     kpi("SCR Vencido",fmtMoney(data.scr?.vencidos),p.vencidosSCR>0?"#dc2626":"#111827"),
-    kpi("CCF", data.ccf ? (data.ccf.qtdRegistros > 0 ? `${data.ccf.qtdRegistros} ocorr.` : "Sem ocorrencias") : "\u2014", data.ccf && data.ccf.qtdRegistros > 0 ? "#dc2626" : "#111827"),
+    kpi("CCF", data.ccf ? (data.ccf.qtdRegistros > 0 ? `${data.ccf.qtdRegistros} ocorr.` : "Sem ocorrencias") : "\u2014", data.ccf && data.ccf.qtdRegistros > 0 ? "#dc2626" : "#111827", ccfBancos || undefined),
   ])}
 
   ${groupLabel("ESTRUTURA")}
   ${grid(4,[
-    kpi("Grupo Economico",geCount > 0 ? `${geCount} empresa(s)` : "\u2014"),
+    kpi("Grupo Economico",geCount > 0 ? `${geCount} empresa(s)` : "\u2014", "#111827", geNames || undefined),
     kpi("Curva ABC Top 3",fmt(top3Pct), "#111827", top3Names || undefined),
-    kpi("",""),
-    kpi("",""),
+    kpiPlaceholder(),
+    kpiPlaceholder(),
   ])}
 
   ${subTitle("Composicao do Score")}
@@ -501,7 +527,88 @@ function secSintese(p: PDFReportParams): string {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 4: PARAMETROS OPERACIONAIS
+// SECTION 3.5: PARECER PRELIMINAR
+// ═══════════════════════════════════════════════════════════════════════════════
+function secParecer(p: PDFReportParams): string {
+  // Resolve data from multiple possible sources
+  const parecerObj = p.aiAnalysis?.parecer;
+  const parecerIsObj = parecerObj && typeof parecerObj === "object";
+
+  const resumo = p.resumoExecutivo
+    || (parecerIsObj ? (parecerObj as { resumoExecutivo?: string }).resumoExecutivo : undefined)
+    || p.aiAnalysis?.sinteseExecutiva
+    || "";
+
+  const pontosFortes: string[] = p.pontosFortes?.length
+    ? p.pontosFortes
+    : (parecerIsObj ? ((parecerObj as { pontosFortes?: string[] }).pontosFortes || []) : []);
+
+  const pontosFracos: string[] = p.pontosFracos?.length
+    ? p.pontosFracos
+    : (parecerIsObj ? ((parecerObj as { pontosNegativosOuFracos?: string[] }).pontosNegativosOuFracos || []) : []);
+
+  const perguntasVisita: { pergunta: string; contexto: string }[] = p.perguntasVisita?.length
+    ? p.perguntasVisita
+    : (parecerIsObj ? ((parecerObj as { perguntasVisita?: { pergunta: string; contexto: string }[] }).perguntasVisita || []) : []);
+
+  // If we have nothing to show, skip section
+  if (!resumo && pontosFortes.length === 0 && pontosFracos.length === 0 && perguntasVisita.length === 0) return "";
+
+  const rc = p.finalRating >= 7 ? "#16a34a" : p.finalRating >= 4 ? "#d97706" : "#dc2626";
+
+  return `<div class="sec">${secHdr("03b","Parecer Preliminar")}
+
+  <!-- Decision banner with rating -->
+  <div style="display:flex;align-items:center;justify-content:center;gap:24px;padding:20px;margin-bottom:20px;background:linear-gradient(135deg,#f8f9fb 0%,#edf2fb 100%);border-radius:12px;border:1px solid #e0e4ec">
+    <div style="text-align:center">
+      <div style="font-size:36px;font-weight:900;color:${rc};line-height:1">${p.finalRating}</div>
+      <div style="font-size:9px;color:#9ca3af;margin-top:2px">/ 10</div>
+    </div>
+    <div style="width:1px;height:50px;background:#e0e4ec"></div>
+    <div>${decisaoBadge(p.decision, true)}</div>
+  </div>
+
+  ${resumo ? `<!-- Resumo Executivo -->
+  ${subTitle("Resumo Executivo")}
+  <div style="background:linear-gradient(135deg,#f8f9fb 0%,#edf2fb 100%);border-left:4px solid #203B88;border-radius:0 8px 8px 0;padding:16px 18px;font-size:12px;line-height:1.8;color:#374151;page-break-inside:avoid;margin-bottom:20px">${esc(resumo)}</div>` : ""}
+
+  ${pontosFortes.length > 0 ? `<!-- Pontos Fortes -->
+  ${subTitle("Pontos Fortes")}
+  <div style="margin-bottom:20px">${pontosFortes.map(pt =>
+    `<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 14px;margin-bottom:8px;background:#f0fdf4;border-left:4px solid #22c55e;border-radius:0 8px 8px 0;page-break-inside:avoid">
+      <span style="color:#22c55e;font-size:14px;font-weight:900;flex-shrink:0;line-height:1.3">\u2713</span>
+      <span style="font-size:11px;color:#166534;line-height:1.6;font-weight:500">${esc(pt)}</span>
+    </div>`
+  ).join("")}</div>` : ""}
+
+  ${pontosFracos.length > 0 ? `<!-- Pontos Fracos -->
+  ${subTitle("Pontos Fracos")}
+  <div style="margin-bottom:20px">${pontosFracos.map(pt =>
+    `<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 14px;margin-bottom:8px;background:#fff1f2;border-left:4px solid #ef4444;border-radius:0 8px 8px 0;page-break-inside:avoid">
+      <span style="color:#ef4444;font-size:14px;font-weight:900;flex-shrink:0;line-height:1.3">\u2717</span>
+      <span style="font-size:11px;color:#991b1b;line-height:1.6;font-weight:500">${esc(pt)}</span>
+    </div>`
+  ).join("")}</div>` : ""}
+
+  ${perguntasVisita.length > 0 ? `<!-- Perguntas para a Visita -->
+  ${subTitle("Perguntas para a Visita")}
+  <div style="margin-bottom:20px">${perguntasVisita.map((pv, i) =>
+    `<div style="padding:12px 14px;margin-bottom:10px;background:#fff;border:1px solid #e0e4ec;border-radius:8px;page-break-inside:avoid">
+      <div style="display:flex;align-items:flex-start;gap:10px">
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;background:#203B88;color:#fff;font-size:10px;font-weight:800;border-radius:50%;flex-shrink:0">${i + 1}</span>
+        <div>
+          <div style="font-size:11px;font-weight:700;color:#111827;line-height:1.5">${esc(pv.pergunta)}</div>
+          ${pv.contexto ? `<div style="font-size:9.5px;color:#9ca3af;margin-top:4px;line-height:1.5;font-style:italic">${esc(pv.contexto)}</div>` : ""}
+        </div>
+      </div>
+    </div>`
+  ).join("")}</div>` : ""}
+
+</div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 4: PARAMETROS OPERACIONAIS DO CEDENTE
 // ═══════════════════════════════════════════════════════════════════════════════
 function secParametros(p: PDFReportParams): string {
   const v=p.data.relatorioVisita;
@@ -522,7 +629,7 @@ function secParametros(p: PDFReportParams): string {
     ["Tranche",fmtMoney(v?.tranche)],
     ["Prazo em Tranche",fmt(v?.prazoTranche)],
   ];
-  return `<div class="sec">${secHdr("04","Parametros Operacionais")}
+  return `<div class="sec">${secHdr("04","Parametros Operacionais do Cedente")}
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
     ${params.map(([l,v2])=>dataCard(l,v2)).join("")}
   </div>
@@ -539,6 +646,10 @@ function secFundo(p: PDFReportParams): string {
   const vClr=aprov?"#166534":"#991b1b";
   const vBg=aprov?"#f0fdf4":"#fff1f2";
   const vBrd=aprov?"#86efac":"#fca5a5";
+
+  // Collect failed eliminatorio criteria for alert boxes
+  const failedEliminatorios = fv.criteria.filter((cr: FundCriterion) => cr.eliminatoria && cr.status !== "ok");
+
   return `<div class="sec">${secHdr("05","Conformidade com as Politicas do Fundo")}
   <table style="${TS}">
     <thead>${row(["Criterio","Limite","Apurado","Status"],true)}</thead>
@@ -546,9 +657,18 @@ function secFundo(p: PDFReportParams): string {
       const ok=cr.status==="ok",err=cr.status==="error";
       const st=ok?"ok":err?"fail":"warn";
       const stLabel=ok?"APROVADO":err?"REPROVADO":"ATENCAO";
-      return `<tr><td style="border-left:3px solid ${ok?"#16a34a":err?"#dc2626":"#d97706"}"><strong>${esc(cr.label)}</strong>${cr.eliminatoria?` ${statusBadge("ELIMINATORIO","fail")}`:""}</td><td>${esc(cr.threshold)}</td><td style="font-weight:700">${esc(cr.actual||"\u2014")}</td><td style="text-align:center">${statusBadge(stLabel,st)}</td></tr>`;
+      return `<tr><td style="border-left:3px solid ${ok?"#16a34a":err?"#dc2626":"#d97706"}"><strong>${esc(cr.label)}</strong></td><td>${esc(cr.threshold)}</td><td style="font-weight:700">${esc(cr.actual||"\u2014")}</td><td style="text-align:center">${statusBadge(stLabel,st)}</td></tr>`;
     }).join("")}</tbody>
   </table>
+  ${failedEliminatorios.length > 0 ? failedEliminatorios.map((cr: FundCriterion) =>
+    `<div style="display:flex;gap:12px;align-items:flex-start;background:#fff1f2;border-left:5px solid #ef4444;border-radius:0 8px 8px 0;padding:12px 16px;margin-bottom:10px;page-break-inside:avoid;box-shadow:0 1px 4px rgba(0,0,0,.04)">
+      <span style="font-size:18px;flex-shrink:0;line-height:1">\u26A0\uFE0F</span>
+      <div>
+        <div style="font-size:8.5px;font-weight:800;color:#991b1b;text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px">CRITERIO ELIMINATORIO NAO ATENDIDO</div>
+        <div style="font-size:11px;color:#991b1b;line-height:1.55">${esc(cr.label)}${cr.actual ? ". Apurado: " + esc(cr.actual) : ""}</div>
+      </div>
+    </div>`
+  ).join("") : ""}
   <div style="border-radius:10px;padding:16px 20px;background:${vBg};border:2px solid ${vBrd};page-break-inside:avoid;box-shadow:0 2px 8px rgba(0,0,0,.04)">
     <div style="font-size:14px;font-weight:800;color:${vClr}">${aprov?"\u2713 ELEGIVEL - Todos os criterios atendidos":"\u2717 NAO ELEGIVEL - Criterio(s) nao atendido(s)"}</div>
     <div style="font-size:10px;color:#9ca3af;margin-top:4px">${fv.passCount} de ${fv.criteria.length} criterios aprovados</div>
@@ -564,22 +684,18 @@ function secFaturamento(p: PDFReportParams): string {
   if(!fat||!fat.meses?.length) return `<div class="sec">${secHdr("06","Faturamento")}<div style="color:#9ca3af;font-size:11px">Dados de faturamento nao disponiveis.</div></div>`;
   const meses=sortMeses(fat.meses);
 
-  // FMM - correct calculation
+  // FMM - correct calculation (always /12)
   const fmmNum = computeFmm(fat);
 
-  // Last 12 months for media
+  // Last 12 months for media and total
   const validMeses = meses.filter(m => m?.mes && m?.valor);
   const last12 = validMeses.slice(-12);
   const values12 = last12.map(m => numVal(m.valor));
   const total12 = values12.reduce((s, v) => s + v, 0);
   const media12 = values12.length > 0 ? total12 / values12.length : 0;
 
-  // Full total
-  const allValues = meses.map(m => numVal(m.valor));
-  const totalAll = allValues.reduce((s, v) => s + v, 0);
-
-  const lastThree = allValues.slice(-3);
-  const prevThree = allValues.slice(-6, -3);
+  const lastThree = values12.slice(-3);
+  const prevThree = values12.slice(-6, -3);
   const tendencia = prevThree.length >= 3 && lastThree.length >= 3
     ? (lastThree.reduce((s,v)=>s+v,0)/3 > prevThree.reduce((s,v)=>s+v,0)/3 ? "\u25B2 Crescente" : "\u25BC Decrescente")
     : "\u2014";
@@ -588,7 +704,7 @@ function secFaturamento(p: PDFReportParams): string {
   return `<div class="sec">${secHdr("06","Faturamento")}
   ${grid(4,[
     kpi("FMM 12m", fmmNum > 0 ? fmtMoney(String(fmmNum)) : "\u2014", "#203B88"),
-    kpi("Total Periodo", fmtMoney(String(totalAll))),
+    kpi("Total do Periodo", fmtMoney(String(total12)), "#111827", `ultimos 12 meses`),
     kpi("Media 12m", media12 > 0 ? fmtMoney(String(media12)) : "\u2014", "#111827", `${last12.length} meses`),
     kpi("Tendencia", tendencia, tendColor),
   ])}
@@ -762,6 +878,19 @@ function secProcessosTop10Valor(p: PDFReportParams): string {
   return `<div class="sec">${secHdr("09","Processos - Top 10 por Valor")}
   <table style="${TS}"><thead>${row(["Tipo","Distrib.","Ult. Movto.","Assunto","Valor","Status","Fase"],true)}</thead>
   <tbody>${top.slice(0,10).map(pr=>row([esc(pr.tipo),fmt(pr.data),fmt((pr as {ultimaMovimentacao?:string}).ultimaMovimentacao),esc(pr.assunto),fmtMoney(pr.valor),renderProcessoStatus(pr.status),fmt((pr as {fase?:string}).fase)])).join("")}</tbody></table>
+
+  <!-- Glossario de Status/Fase -->
+  <div style="margin-top:12px;padding:14px 18px;background:#f8f9fb;border:1px solid #e0e4ec;border-radius:8px;page-break-inside:avoid">
+    <div style="font-size:9px;font-weight:800;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Glossario</div>
+    <div style="font-size:10px;color:#6b7280;line-height:1.8">
+      <div><strong style="color:#374151">Definitivo:</strong> Decisao transitada em julgado, sem possibilidade de recurso</div>
+      <div><strong style="color:#374151">Confirmada:</strong> Decisao mantida em instancia superior</div>
+      <div><strong style="color:#374151">Primeiro Grau:</strong> Processo em tramitacao na primeira instancia</div>
+      <div><strong style="color:#374151">Segundo Grau:</strong> Processo em fase de recurso/apelacao</div>
+      <div><strong style="color:#374151">Decurso de Prazo:</strong> Prazo processual esgotado sem manifestacao</div>
+      <div><strong style="color:#374151">Juizado Especial:</strong> Tramita no juizado de pequenas causas</div>
+    </div>
+  </div>
 </div>`;
 }
 
@@ -923,9 +1052,15 @@ function secComparativoScr(p: PDFReportParams): string {
   const perAtual=fmt(scr.periodoReferencia);
   type R={grupo:string;metrica:string;ant:string;atual:string;variacao:string};
   const rows:R[]=[];
+  /** addRow for monetary values — formats with fmtMoney */
   function addRow(grupo:string,metrica:string,antVal:string|undefined,atualVal:string|undefined){
     const v=delta(atualVal,antVal)||"\u2014";
-    rows.push({grupo,metrica,ant:fmtMoney(antVal),atual:fmtMoney(atualVal),variacao:v});
+    rows.push({grupo,metrica,ant:prev ? fmtMoney(antVal) : "\u2014",atual:fmtMoney(atualVal),variacao:v});
+  }
+  /** addRowNum for plain numeric counts — formats with fmt (no R$) */
+  function addRowNum(grupo:string,metrica:string,antVal:string|undefined,atualVal:string|undefined){
+    const v=delta(atualVal,antVal)||"\u2014";
+    rows.push({grupo,metrica,ant:prev ? fmt(antVal) : "\u2014",atual:fmt(atualVal),variacao:v});
   }
   addRow("CARTEIRA","Curto Prazo",prev.carteiraCurtoPrazo,scr.carteiraCurtoPrazo);
   addRow("CARTEIRA","Longo Prazo",prev.carteiraLongoPrazo,scr.carteiraLongoPrazo);
@@ -933,8 +1068,8 @@ function secComparativoScr(p: PDFReportParams): string {
   addRow("INADIMPLENCIA","Total Dividas",prev.totalDividasAtivas,scr.totalDividasAtivas);
   addRow("INADIMPLENCIA","Vencidos",prev.vencidos,scr.vencidos);
   addRow("CAPACIDADE","Limite Credito",prev.limiteCredito,scr.limiteCredito);
-  addRow("CAPACIDADE","IFs",prev.qtdeInstituicoes,scr.qtdeInstituicoes);
-  addRow("CAPACIDADE","Operacoes",prev.qtdeOperacoes,scr.qtdeOperacoes);
+  addRowNum("CAPACIDADE","IFs",prev.qtdeInstituicoes,scr.qtdeInstituicoes);
+  addRowNum("CAPACIDADE","Operacoes",prev.qtdeOperacoes,scr.qtdeOperacoes);
   const fmmNum=computeFmm(p.data.faturamento);
   const alvAtual=fmmNum>0?`${(numVal(scr.totalDividasAtivas)/fmmNum).toFixed(1)}x`:"\u2014";
   const alvAnt=fmmNum>0?`${(numVal(prev.totalDividasAtivas)/fmmNum).toFixed(1)}x`:"\u2014";
@@ -1086,7 +1221,7 @@ function secDre(p: PDFReportParams): string {
       const vals=anos.map(a=>{
         const v=(a as unknown as Record<string,string>)[m.key];
         if(!v||v==="0"||v==="") return "\u2014";
-        if(m.isPct) return fmt(v);
+        if(m.isPct) return fmtPct(v);
         if(m.isMoney){
           const n=numVal(v);
           return `<span class="money${n<0?" neg":""}">${fmtMoney(v)}</span>`;
@@ -1129,7 +1264,7 @@ function secBalanco(p: PDFReportParams): string {
       const vals=anos.map(a=>{
         const v=(a as unknown as Record<string,string>)[m.key];
         if(!v||v==="0"||v==="") return "\u2014";
-        if(m.isPct) return fmt(v);
+        if(m.isPct) return fmtPct(v);
         if(m.isMoney){
           const n=numVal(v);
           return `<span class="money${n<0?" neg":""}">${fmtMoney(v)}</span>`;
@@ -1255,6 +1390,7 @@ export function gerarHtmlRelatorio(p: PDFReportParams): {
   ${secCapa(p)}
   ${secChecklist(p)}
   ${secSintese(p)}
+  ${secParecer(p)}
   ${secParametros(p)}
   ${secFundo(p)}
   ${secFaturamento(p)}
