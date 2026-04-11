@@ -960,7 +960,7 @@ function HistoricoContent() {
             </Link>
           </div>
 
-          {/* ── Funil de Crédito + Métricas ── */}
+          {/* ── Funil de Crédito Profissional ── */}
           {!loading && collections.length > 0 && (() => {
             const total = collections.length;
             const finalizadas = collections.filter(c => c.status === "finished").length;
@@ -977,49 +977,113 @@ function HistoricoContent() {
             }).filter((r): r is number => r != null && r > 0);
             const ratingMedio = ratings.length > 0 ? (ratings.reduce((a, b) => a + b, 0) / ratings.length) : null;
 
-            const funnel = [
-              { label: "Recebidas", count: total, color: "#1E3A5F", bg: "#DBEAFE" },
-              { label: "Finalizadas", count: finalizadas, color: "#2563EB", bg: "#C7D2FE" },
-              { label: "Aprovadas", count: aprovadas + condicionais, color: "#16A34A", bg: "#BBF7D0" },
+            const stages = [
+              { label: "Recebidas", sub: "total de análises", count: total, color: "#1E3A5F", gradient: ["#1a3560", "#2a4db5"] },
+              { label: "Finalizadas", sub: "análise concluída", count: finalizadas, color: "#2563EB", gradient: ["#1d4ed8", "#3b82f6"] },
+              { label: "Pré-aprovadas", sub: "aprovadas + condicionais", count: aprovadas + condicionais, color: "#059669", gradient: ["#047857", "#10b981"] },
+              { label: "Aprovação plena", sub: "sem restrições", count: aprovadas, color: "#15803d", gradient: ["#166534", "#22c55e"] },
             ];
+            const VW = 320; const SH = 44; const GAP = 3; const TH = stages.length * SH + (stages.length - 1) * GAP;
 
             return (
-              <div style={{ background: "white", borderRadius: 14, border: "1px solid #E2E8F0", padding: "16px 20px", marginBottom: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
-                {/* Funil horizontal */}
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
-                  {funnel.map((s, i) => {
-                    const pct = total > 0 ? Math.max((s.count / total) * 100, 12) : 0;
-                    return (
-                      <div key={i} style={{ flex: `${pct} 0 0`, minWidth: 0 }}>
-                        <div style={{ background: s.bg, borderRadius: 8, padding: "8px 12px", borderLeft: `3px solid ${s.color}`, transition: "all 0.3s" }}>
-                          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 6 }}>
-                            <span style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.06em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.label}</span>
-                            <span style={{ fontSize: 18, fontWeight: 800, color: s.color, flexShrink: 0 }}>{s.count}</span>
-                          </div>
-                          {i > 0 && total > 0 && (
-                            <div style={{ fontSize: 9, color: s.color, opacity: 0.7, fontWeight: 600, marginTop: 2 }}>
-                              {Math.round((s.count / total) * 100)}% do total
-                            </div>
-                          )}
-                        </div>
+              <div style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8faff 100%)", borderRadius: 16, border: "1px solid #e2e8f0", padding: 0, marginBottom: 16, boxShadow: "0 2px 12px rgba(30,58,95,0.06)", overflow: "hidden" }}>
+                {/* Header */}
+                <div style={{ background: "linear-gradient(135deg, #1a3560 0%, #203b88 100%)", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.6)", textTransform: "uppercase", letterSpacing: "0.12em", margin: 0 }}>Funil de Crédito</p>
+                    <p style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", margin: "2px 0 0" }}>{total} análise{total !== 1 ? "s" : ""} no período</p>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                    <div style={{ textAlign: "right" }}>
+                      <p style={{ fontSize: 22, fontWeight: 800, color: "#fff", lineHeight: 1 }}>{taxaAprov}%</p>
+                      <p style={{ fontSize: 9, color: "rgba(255,255,255,0.5)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Taxa de aprovação</p>
+                    </div>
+                    {ratingMedio != null && (
+                      <div style={{ width: 1, height: 32, background: "rgba(255,255,255,0.15)" }} />
+                    )}
+                    {ratingMedio != null && (
+                      <div style={{ textAlign: "right" }}>
+                        <p style={{ fontSize: 22, fontWeight: 800, color: ratingMedio >= 7 ? "#86efac" : ratingMedio >= 4 ? "#fde68a" : "#fca5a5", lineHeight: 1 }}>{ratingMedio.toFixed(1)}</p>
+                        <p style={{ fontSize: 9, color: "rgba(255,255,255,0.5)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Rating médio</p>
                       </div>
-                    );
-                  })}
+                    )}
+                  </div>
                 </div>
 
-                {/* Métricas resumidas abaixo */}
-                <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                {/* Body: SVG funnel + legend */}
+                <div style={{ display: "flex", alignItems: "center", padding: "20px 24px", gap: 28 }}>
+                  {/* SVG Funnel */}
+                  <svg viewBox={`0 0 ${VW} ${TH}`} style={{ flex: "0 0 auto", width: "min(260px, 45%)", height: "auto" }} xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                      {stages.map((s, i) => (
+                        <linearGradient key={`fg-${i}`} id={`hfg-${i}`} x1="0%" y1="0%" x2="100%" y2="0%">
+                          <stop offset="0%" stopColor={s.gradient[0]} />
+                          <stop offset="100%" stopColor={s.gradient[1]} />
+                        </linearGradient>
+                      ))}
+                    </defs>
+                    {stages.map((s, i) => {
+                      const MIN_W = 0.22;
+                      const topRatio = Math.max(s.count / total, MIN_W);
+                      const nextRatio = i < stages.length - 1
+                        ? Math.max(stages[i + 1].count / total, MIN_W)
+                        : Math.max(s.count / total * 0.65, MIN_W);
+                      const topW = topRatio * VW; const botW = nextRatio * VW;
+                      const topL = (VW - topW) / 2; const topR = VW - topL;
+                      const botL = (VW - botW) / 2; const botR = VW - botL;
+                      const y = i * (SH + GAP);
+                      const r = 4;
+                      const pts = `M${topL + r},${y} L${topR - r},${y} Q${topR},${y} ${topR},${y + r} L${botR},${y + SH - r} Q${botR},${y + SH} ${botR - r},${y + SH} L${botL + r},${y + SH} Q${botL},${y + SH} ${botL},${y + SH - r} L${topL},${y + r} Q${topL},${y} ${topL + r},${y} Z`;
+                      return (
+                        <g key={i}>
+                          <path d={pts} fill={`url(#hfg-${i})`} opacity="0.9" />
+                          <text x={VW / 2} y={y + SH / 2 + 1} textAnchor="middle" dominantBaseline="middle" style={{ fontSize: 15, fontWeight: 800, fill: "#fff", textShadow: "0 1px 3px rgba(0,0,0,0.3)" }}>
+                            {s.count}
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </svg>
+
+                  {/* Legend */}
+                  <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12 }}>
+                    {stages.map((s, i) => {
+                      const pct = total > 0 ? Math.round((s.count / total) * 100) : 0;
+                      const prev = i > 0 ? stages[i - 1].count : null;
+                      const conv = prev && prev > 0 ? Math.round((s.count / prev) * 100) : null;
+                      return (
+                        <div key={i}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                            <div style={{ width: 10, height: 10, borderRadius: 3, background: `linear-gradient(135deg, ${s.gradient[0]}, ${s.gradient[1]})`, flexShrink: 0 }} />
+                            <span style={{ fontSize: 12, fontWeight: 700, color: "#1f2937", flex: 1 }}>{s.label}</span>
+                            <span style={{ fontSize: 14, fontWeight: 800, color: s.color }}>{s.count}</span>
+                            <span style={{ fontSize: 10, color: "#9ca3af", width: 32, textAlign: "right", fontWeight: 600 }}>{pct}%</span>
+                          </div>
+                          <div style={{ paddingLeft: 18, display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 10, color: "#9ca3af" }}>{s.sub}</span>
+                            {conv != null && (
+                              <span style={{ fontSize: 9, fontWeight: 700, color: conv >= 70 ? "#16a34a" : conv >= 40 ? "#d97706" : "#dc2626", background: conv >= 70 ? "#f0fdf4" : conv >= 40 ? "#fffbeb" : "#fef2f2", borderRadius: 4, padding: "1px 5px" }}>
+                                {conv}% conv.
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Footer: métricas adicionais */}
+                <div style={{ borderTop: "1px solid #f1f5f9", padding: "10px 24px", display: "flex", gap: 20, flexWrap: "wrap", background: "#fafbfd" }}>
                   {[
-                    { label: "Em andamento", value: String(emAndamento), color: "#D97706" },
-                    { label: "Condicionais", value: String(condicionais), color: "#7C3AED" },
-                    { label: "Reprovadas", value: String(reprovadas), color: "#DC2626" },
-                    { label: "Taxa aprov.", value: `${taxaAprov}%`, color: taxaAprov >= 60 ? "#16A34A" : "#D97706" },
-                    { label: "Rating médio", value: ratingMedio != null ? `${ratingMedio.toFixed(1)}/10` : "—", color: ratingMedio != null ? (ratingMedio >= 7 ? "#16A34A" : ratingMedio >= 4 ? "#D97706" : "#DC2626") : "#9CA3AF" },
+                    { label: "Em andamento", value: String(emAndamento), color: "#d97706", icon: "⏳" },
+                    { label: "Condicionais", value: String(condicionais), color: "#7c3aed", icon: "⚠" },
+                    { label: "Reprovadas", value: String(reprovadas), color: "#dc2626", icon: "✕" },
                   ].map((m, i) => (
                     <div key={i} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                      <span style={{ width: 6, height: 6, borderRadius: 2, background: m.color, flexShrink: 0 }} />
-                      <span style={{ fontSize: 11, color: "#6B7280" }}>{m.label}:</span>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: m.color }}>{m.value}</span>
+                      <span style={{ fontSize: 10 }}>{m.icon}</span>
+                      <span style={{ fontSize: 11, color: "#6b7280" }}>{m.label}</span>
+                      <span style={{ fontSize: 12, fontWeight: 800, color: m.color }}>{m.value}</span>
                     </div>
                   ))}
                 </div>
