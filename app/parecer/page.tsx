@@ -724,7 +724,7 @@ ${notas.trim() ? `
         boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
       }}>
         <div style={{ maxWidth: 880, margin: "0 auto", padding: "0 24px", height: 56, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <Logo height={24} />
+          <a href="/" style={{ textDecoration: "none" }}><Logo height={24} /></a>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             {autoSaved && (
               <span style={{ fontSize: 12, color: "#16a34a", display: "flex", alignItems: "center", gap: 4 }}>
