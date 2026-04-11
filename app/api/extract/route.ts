@@ -629,6 +629,7 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
                 temperature: 0.1,
                 maxOutputTokens,
                 responseMimeType: "application/json",
+                ...(model.includes("2.5") ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
               },
             }),
           });
@@ -1211,9 +1212,9 @@ export async function POST(request: NextRequest) {
     const _docType = docType;
     const _isImage = isImage;
     const maxOutputTokensMap: Record<string, number> = {
-      cnpj: 1024, qsa: 1024, contrato: 1024, faturamento: 1536, scr: 3072,
-      protestos: 1536, processos: 1536, grupoEconomico: 1024,
-      curva_abc: 2048, dre: 2048, balanco: 2048, ir_socio: 2048, relatorio_visita: 1024,
+      cnpj: 4096, qsa: 4096, contrato: 4096, faturamento: 8192, scr: 8192,
+      protestos: 8192, processos: 8192, grupoEconomico: 4096,
+      curva_abc: 8192, dre: 8192, balanco: 8192, ir_socio: 4096, relatorio_visita: 4096,
     };
     const _maxOutputTokens = maxOutputTokensMap[docType] ?? 2048;
 
