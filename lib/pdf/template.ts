@@ -17,7 +17,6 @@ function fmtMoney(v: string | number | null | undefined): string {
   if (isNaN(n)) return esc(String(v));
   return "R$\u00a0" + n.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
 }
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function fmtMoneyRound(v: string | number | null | undefined): string {
   if (v == null || v === "") return "\u2014";
   const n = parseFloat(String(v).replace(/[^\d,-]/g,"").replace(",","."));
@@ -812,23 +811,23 @@ function secProtestos(p: PDFReportParams): string {
   return `<div class="sec">${secHdr("07","Protestos")}
   ${grid(4,[
     kpi("Vigentes Qtd",String(vig),vig>0?"#dc2626":"#111827",undefined,vig>0?"#dc2626":"#203B88"),
-    kpi("Vigentes R$",fmtMoney(prot.vigentesValor),vig>0?"#dc2626":"#111827",undefined,vig>0?"#dc2626":"#203B88"),
+    kpi("Vigentes R$",fmtMoneyRound(prot.vigentesValor),vig>0?"#dc2626":"#111827",undefined,vig>0?"#dc2626":"#203B88"),
     kpi("Regularizados Qtd",String(reg),"#111827",undefined,"#73B815"),
-    kpi("Regularizados R$",fmtMoney(prot.regularizadosValor),"#111827",undefined,"#73B815"),
+    kpi("Regularizados R$",fmtMoneyRound(prot.regularizadosValor),"#111827",undefined,"#73B815"),
   ])}
   ${hasDistributions ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
     <div>
       ${subTitle("Distribuicao Temporal")}
       <table style="${TS}">
         <thead>${row(["Periodo","Qtd","Valor"],true)}</thead>
-        <tbody>${temporal.map(t => row([esc(t.label), String(t.qtd), fmtMoney(String(t.valor))])).join("")}</tbody>
+        <tbody>${temporal.map(t => row([esc(t.label), String(t.qtd), fmtMoneyRound(String(t.valor))])).join("")}</tbody>
       </table>
     </div>
     <div>
       ${subTitle("Distribuicao por Faixa de Valor")}
       <table style="${TS}">
         <thead>${row(["Faixa","Qtd","Valor"],true)}</thead>
-        <tbody>${faixas.map(f => row([esc(f.label), String(f.qtd), fmtMoney(String(f.valor))])).join("")}</tbody>
+        <tbody>${faixas.map(f => row([esc(f.label), String(f.qtd), fmtMoneyRound(String(f.valor))])).join("")}</tbody>
       </table>
     </div>
   </div>` : ""}

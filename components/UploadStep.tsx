@@ -7,7 +7,7 @@ import { CNPJData, QSAData, ContratoSocialData, FaturamentoData, SCRData, SCRSoc
 
 // ─── Types ───
 
-type DocKey = 'cnpj' | 'qsa' | 'contrato' | 'faturamento' | 'scr' | 'scrAnterior' | 'scr_socio' | 'dre' | 'balanco' | 'curva_abc' | 'ir_socio' | 'relatorio_visita';
+type DocKey = 'cnpj' | 'qsa' | 'contrato' | 'faturamento' | 'scr' | 'scrAnterior' | 'scr_socio' | 'scr_socio_anterior' | 'dre' | 'balanco' | 'curva_abc' | 'ir_socio' | 'relatorio_visita';
 
 interface SectionState {
   files: File[];
@@ -80,6 +80,7 @@ export interface OriginalFiles {
   scr: File[];
   scrAnterior: File[];
   scr_socio: File[];
+  scr_socio_anterior: File[];
   dre: File[];
   balanco: File[];
   curva_abc: File[];
@@ -132,7 +133,8 @@ const SECTIONS: SectionConfig[] = [
   { key: 'faturamento', title: 'Faturamento',                       description: 'Relatório de faturamento mensal — PDF ou planilha Excel (.xlsx)', icon: <TrendingUp size={19} />,       stepNumber: '4', required: true },
   { key: 'scr',         title: 'SCR / Bacen — Atual',               description: 'Relatório SCR do período mais recente',                           icon: <BarChart3 size={19} />,        stepNumber: '5', required: true },
   { key: 'scrAnterior',      title: 'SCR / Bacen — Anterior (opcional)', description: 'Relatório SCR do período anterior para comparativo',              icon: <GitCompareArrows size={19} />, stepNumber: '▿', required: false },
-  { key: 'scr_socio',        title: 'SCR dos Sócios (opcional)',          description: 'Relatório SCR dos sócios (PF) — mesmo formato SCR',              icon: <Users size={19} />,            stepNumber: '▿', required: false },
+  { key: 'scr_socio',        title: 'SCR dos Sócios — Atual',             description: 'Relatório SCR dos sócios (PF) — período mais recente',            icon: <Users size={19} />,            stepNumber: '▿', required: false },
+  { key: 'scr_socio_anterior', title: 'SCR dos Sócios — Anterior',         description: 'Relatório SCR dos sócios (PF) — período anterior para comparativo', icon: <GitCompareArrows size={19} />, stepNumber: '▿', required: false },
   { key: 'dre',              title: 'DRE — Demonstração de Resultado',   description: 'Demonstração de resultado dos últimos 2-3 anos',                 icon: <Receipt size={19} />,          stepNumber: '▿', required: false },
   { key: 'balanco',          title: 'Balanço Patrimonial',               description: 'Balanço dos últimos 2-3 anos',                                   icon: <Scale size={19} />,            stepNumber: '▿', required: false },
   { key: 'curva_abc',        title: 'Curva ABC — Top Clientes',          description: 'Carteira de clientes com concentração de receita',               icon: <PieChart size={19} />,         stepNumber: '▿', required: false },
@@ -175,7 +177,7 @@ function GroupHeader({ label, count, total, optional }: { label: string; count?:
 // Mapa de tipo de CollectionDocument para DocKey do UploadStep
 const DOC_TYPE_TO_KEY: Record<string, DocKey | null> = {
   cnpj: 'cnpj', qsa: 'qsa', contrato_social: 'contrato', faturamento: 'faturamento',
-  scr_bacen: 'scr', scr_socio: 'scr_socio', dre: 'dre', balanco: 'balanco', curva_abc: 'curva_abc',
+  scr_bacen: 'scr', scr_socio: 'scr_socio', scr_socio_anterior: 'scr_socio_anterior', dre: 'dre', balanco: 'balanco', curva_abc: 'curva_abc',
   ir_socio: 'ir_socio', relatorio_visita: 'relatorio_visita',
   protestos: null, processos: null, grupo_economico: null, outro: null,
 };
@@ -184,7 +186,7 @@ function buildInitialSections(resumedDocs: CollectionDocument[]): Record<DocKey,
   const empty = (): SectionState => ({ files: [], processing: false, processedCount: 0, errorCount: 0 });
   const sections: Record<DocKey, SectionState> = {
     cnpj: empty(), qsa: empty(), contrato: empty(), faturamento: empty(),
-    scr: empty(), scrAnterior: empty(), scr_socio: empty(), dre: empty(), balanco: empty(),
+    scr: empty(), scrAnterior: empty(), scr_socio: empty(), scr_socio_anterior: empty(), dre: empty(), balanco: empty(),
     curva_abc: empty(), ir_socio: empty(), relatorio_visita: empty(),
   };
 
@@ -229,6 +231,7 @@ export default function UploadStep({
       scr:              { files: [], processing: false, processedCount: 0, errorCount: 0 },
       scrAnterior:      { files: [], processing: false, processedCount: 0, errorCount: 0 },
       scr_socio:        { files: [], processing: false, processedCount: 0, errorCount: 0 },
+      scr_socio_anterior: { files: [], processing: false, processedCount: 0, errorCount: 0 },
       dre:              { files: [], processing: false, processedCount: 0, errorCount: 0 },
       balanco:          { files: [], processing: false, processedCount: 0, errorCount: 0 },
       curva_abc:        { files: [], processing: false, processedCount: 0, errorCount: 0 },
@@ -297,7 +300,7 @@ export default function UploadStep({
       },
     }));
 
-    const apiType = type === 'scrAnterior' || type === 'scr_socio' ? 'scr' : type;
+    const apiType = type === 'scrAnterior' || type === 'scr_socio' || type === 'scr_socio_anterior' ? 'scr' : type;
 
     for (const file of newFiles) {
       const fd = new FormData();
@@ -353,6 +356,29 @@ export default function UploadStep({
               periodoAtual: scrData,
             };
             return { ...prev, scrSocios: [...(prev.scrSocios || []), novoSocio] };
+          }
+          if (type === 'scr_socio_anterior') {
+            const scrData = json.data as SCRData;
+            // Route anterior data to the matching socio's periodoAnterior
+            const socios = [...(prev.scrSocios || [])];
+            const cpf = scrData.cpfSCR || '';
+            const nome = scrData.nomeCliente || '';
+            const idx = socios.findIndex(s =>
+              (cpf && s.cpfSocio === cpf) || (nome && s.nomeSocio === nome)
+            );
+            if (idx >= 0) {
+              socios[idx] = { ...socios[idx], periodoAnterior: scrData };
+            } else {
+              // No matching socio found — create a new entry with only periodoAnterior
+              socios.push({
+                nomeSocio: nome || cpf || 'Socio',
+                cpfSocio: cpf,
+                tipoPessoa: 'PF',
+                periodoAtual: {} as SCRData,
+                periodoAnterior: scrData,
+              });
+            }
+            return { ...prev, scrSocios: socios };
           }
           if (type === 'ir_socio') {
             return { ...prev, irSocios: [...(prev.irSocios || []), json.data as IRSocioData] };
@@ -425,7 +451,7 @@ export default function UploadStep({
       [type]: { ...prev[type], retrying: true, errorCount: 0, errorType: undefined, errorMessage: undefined },
     }));
 
-    const apiType = type === "scrAnterior" || type === "scr_socio" ? "scr" : type;
+    const apiType = type === "scrAnterior" || type === "scr_socio" || type === "scr_socio_anterior" ? "scr" : type;
     const fd = new FormData();
     fd.append("file", section.lastFailedFile);
     fd.append("type", apiType);
@@ -466,6 +492,27 @@ export default function UploadStep({
             periodoAtual: scrData,
           };
           return { ...prev, scrSocios: [...(prev.scrSocios || []), novoSocio] };
+        }
+        if (type === "scr_socio_anterior") {
+          const scrData = json.data as SCRData;
+          const socios = [...(prev.scrSocios || [])];
+          const cpf = scrData.cpfSCR || '';
+          const nome = scrData.nomeCliente || '';
+          const idx = socios.findIndex(s =>
+            (cpf && s.cpfSocio === cpf) || (nome && s.nomeSocio === nome)
+          );
+          if (idx >= 0) {
+            socios[idx] = { ...socios[idx], periodoAnterior: scrData };
+          } else {
+            socios.push({
+              nomeSocio: nome || cpf || 'Socio',
+              cpfSocio: cpf,
+              tipoPessoa: 'PF',
+              periodoAtual: {} as SCRData,
+              periodoAnterior: scrData,
+            });
+          }
+          return { ...prev, scrSocios: socios };
         }
         if (type === "ir_socio") {
           return { ...prev, irSocios: [...(prev.irSocios || []), json.data as IRSocioData] };
@@ -545,6 +592,15 @@ export default function UploadStep({
           setExtracted(e => ({ ...e, scrAnterior: null }));
         } else if (type === 'scr_socio') {
           setExtracted(e => ({ ...e, scrSocios: [] }));
+        } else if (type === 'scr_socio_anterior') {
+          // Remove periodoAnterior from all socios
+          setExtracted(e => ({
+            ...e,
+            scrSocios: (e.scrSocios || []).map(s => {
+              const { periodoAnterior: _unused, ...rest } = s; void _unused;
+              return rest as SCRSocioData;
+            }),
+          }));
         } else {
           const defaults: Record<string, unknown> = {
             cnpj: defaultCNPJ,
@@ -583,6 +639,7 @@ export default function UploadStep({
       scr: sections.scr.files,
       scrAnterior: sections.scrAnterior.files,
       scr_socio: sections.scr_socio.files,
+      scr_socio_anterior: sections.scr_socio_anterior.files,
       dre: sections.dre.files,
       balanco: sections.balanco.files,
       curva_abc: sections.curva_abc.files,

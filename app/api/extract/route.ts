@@ -193,9 +193,10 @@ async function extractExcel(buffer: Buffer): Promise<FaturamentoData> {
 
   const parseBRVal = (v: string) => parseFloat((v || "0").replace(/\./g, "").replace(",", ".")) || 0;
 
-  // somatoriaAno usa TODOS os meses
-  const valores = meses.map(m => parseBRVal(m.valor));
-  const soma = valores.reduce((a, b) => a + b, 0);
+  // somatoriaAno = soma dos ÚLTIMOS 12 meses (valor anualizado)
+  const valoresAll = meses.map(m => parseBRVal(m.valor));
+  const valores12 = mesesFMM.map(m => parseBRVal(m.valor));
+  const soma = valores12.reduce((a, b) => a + b, 0);
 
   // FMM = soma / quantidade real de meses (não fixo em 12)
   const valoresFMM = mesesFMM.map(m => parseBRVal(m.valor));
@@ -207,7 +208,7 @@ async function extractExcel(buffer: Buffer): Promise<FaturamentoData> {
     .map(m => ({ mes: m.mes, motivo: "Valor zero ou ausente" }));
 
   // Verificar alertas
-  const faturamentoZerado = valores.length === 0 || valores.every(v => v === 0);
+  const faturamentoZerado = valoresAll.length === 0 || valoresAll.every(v => v === 0);
   const ultimoMes = mesesOrdenados.length > 0 ? mesesOrdenados[mesesOrdenados.length - 1].mes : "";
 
   // Verificar se dados estão atualizados (últimos 60 dias)
@@ -298,15 +299,23 @@ Regras:
 - campos ausentes: "" ou false
 - NÃO invente dados`;
 
-const PROMPT_FATURAMENTO = `Você receberá um relatório de faturamento mensal (pode ser planilha, relatório de NF-e, extrato bancário, declaração ou tabela). Extraia TODOS os valores mensais e retorne APENAS JSON válido, sem markdown.
+const PROMPT_FATURAMENTO = `Você receberá um relatório de faturamento mensal (pode ser planilha Excel/XLSX, relatório de NF-e, extrato bancário, declaração ou tabela PDF). Extraia TODOS os valores mensais e retorne APENAS JSON válido, sem markdown.
 
 Schema:
-{"meses":[{"mes":"01/2024","valor":"1.234.567,89"}],"somatoriaTotal":"","totalMesesExtraidos":0,"faturamentoZerado":false,"dadosAtualizados":true,"ultimoMesComDados":"","anoMaisAntigo":"","anoMaisRecente":""}
+{"meses":[{"mes":"01/2024","valor":"1.234.567,89"}],"somatoriaTotal":"","totalMesesExtraidos":0,"faturamentoZerado":false,"dadosAtualizados":true,"ultimoMesComDados":"","anoMaisAntigo":"","anoMaisRecente":"","fmm12m":"","mediaAno":""}
+
+FORMATO NUMÉRICO BRASILEIRO (OBRIGATÓRIO):
+- Separador de MILHAR = ponto (.) — ex: 3.506.158
+- Separador DECIMAL = vírgula (,) — ex: 3.506.158,22
+- Exemplos corretos: "1.234.567,89", "3.506.158,22", "850.000,00", "42.300,50"
+- ERRADO: "1234567.89", "1,234,567.89", "3506158.22"
+- NUNCA use prefixo "R$"
 
 Regras:
 - Extraia TODOS os meses presentes em TODO o documento — tabelas, rodapés, cabeçalhos, múltiplas páginas
-- mes: formato MM/YYYY obrigatório (ex: "01/2024", "12/2023")
-- valor: formato brasileiro com ponto separador de milhar e vírgula decimal (ex: "1.234.567,89") — sem "R$"
+- Se o documento for uma planilha Excel/spreadsheet, extraia os valores brutos das células numéricas e converta para formato brasileiro
+- mes: formato MM/YYYY obrigatório (ex: "01/2024", "12/2023"). Aceite também "Mmm/YY" no documento (ex: "Jan/25") mas converta para MM/YYYY na saída
+- valor: formato brasileiro conforme descrito acima — sem "R$"
 - Se um mês aparecer duplicado (ex: duas linhas para JAN/2024), use o MAIOR valor
 - NÃO inclua meses futuros sem dados reais
 - NÃO inclua meses com valor zero a menos que o zero seja o faturamento real daquele mês
@@ -317,6 +326,8 @@ Regras:
 - dadosAtualizados: false se o período mais recente for anterior a 6 meses atrás
 - ultimoMesComDados: último mês com valor positivo (formato MM/YYYY)
 - anoMaisAntigo / anoMaisRecente: apenas o ano (ex: "2022", "2024")
+- fmm12m: se o documento informar "FMM" ou "Faturamento Médio Mensal" (últimos 12 meses), extraia esse valor em formato brasileiro; senão ""
+- mediaAno: se o documento informar faturamento total anual ou acumulado do ano, extraia esse valor em formato brasileiro; senão ""
 - NÃO invente dados`;
 
 const PROMPT_SCR = `Extraia dados do SCR (Sistema de Informações de Crédito do Banco Central). Retorne APENAS JSON válido, sem markdown.
@@ -326,37 +337,60 @@ Schema obrigatório:
 
 REGRAS GERAIS:
 - periodoReferencia: OBRIGATÓRIO, formato MM/AAAA (ex: "04/2025")
-- tipoPessoa: "PF" se documento mostra CPF, "PJ" se CNPJ
-- Valores monetários: formato brasileiro com pontos e vírgula (ex: "23.785,80"); ausente="0,00"
+- tipoPessoa: OBRIGATÓRIO — "PF" se o documento mostra CPF (pessoa física / indivíduo), "PJ" se mostra CNPJ (pessoa jurídica / empresa). Verifique o cabeçalho do documento: se aparecer CPF → "PF"; se aparecer CNPJ → "PJ"
+- Valores monetários: formato brasileiro com pontos para milhar e vírgula para decimais (ex: "23.785,80", "1.234.567,00"). NUNCA use prefixo "R$". Campo ausente = "0,00"
 - NÃO invente dados; NÃO copie valores de A Vencer para Vencidos ou vice-versa
 - semHistorico=true somente se totalDividasAtivas=0 E limiteCredito=0 E modalidades vazia
 
 TABELA PRINCIPAL DE MODALIDADES:
 - O documento SCR tem uma tabela com colunas: Modalidade | A Vencer | Vencidos | Prejuízos | Limite | Coobrigação | Participação
-- Para cada linha de modalidade: extraia nome, aVencer (col "A Vencer"), vencido (col "Vencidos"), total (soma ou col "Total")
+- Para CADA linha de modalidade, extraia:
+  - nome: nome exato da modalidade (ex: "Capital de Giro", "Financiamento Imobiliário")
+  - total: valor total daquela modalidade (soma de A Vencer + Vencidos + Prejuízos, ou coluna "Total" se existir)
+  - aVencer: valor da coluna "A Vencer" para esta modalidade
+  - vencido: valor da coluna "Vencidos" para esta modalidade — ATENÇÃO: NÃO confundir com A Vencer
+  - participacao: percentual de participação (ex: "45,2%") se constar no documento
+  - ehContingente: true para modalidades em "Responsabilidades Contingentes" ou "Títulos Descontados"
 - carteiraAVencer = linha "Total" da coluna "A Vencer"
 - vencidos = linha "Total" da coluna "Vencidos" — ATENÇÃO: NÃO confundir com A Vencer
 - prejuizos = linha "Total" da coluna "Prejuízos"
 - limiteCredito = linha "Total" da coluna "Limite de Crédito"
 - emDia = linha "Total" da coluna "Em Dia" (se existir)
-- ehContingente=true para modalidades em "Responsabilidades Contingentes" ou "Títulos Descontados"
 
 TABELA DE FAIXAS "A VENCER" (seção: "Discriminação A Vencer por Faixa de Prazo" ou similar):
 - ESTA tabela preenche APENAS faixasAVencer — não misture com faixasVencidos
-- Mapeamento: "Até 30 dias"/"1 a 30 dias" → ate30d | "31 a 60 dias" → d31_60 | "61 a 90 dias" → d61_90 | "91 a 180 dias" → d91_180 | "181 a 360 dias" → d181_360 | "Acima de 360 dias"/"Superior a 360 dias" → acima360d | "Prazo Indeterminado" → prazoIndeterminado | "Total" → total
+- Mapeamento de faixas:
+  - "Até 30 dias" / "1 a 30 dias" → ate30d
+  - "31 a 60 dias" → d31_60
+  - "61 a 90 dias" → d61_90
+  - "91 a 180 dias" → d91_180
+  - "181 a 360 dias" → d181_360
+  - "Acima de 360 dias" / "Superior a 360 dias" → acima360d
+  - "Prazo Indeterminado" → prazoIndeterminado
+  - "Total" → total
 - carteiraCurtoPrazo = soma das faixas até 360d de A Vencer
 - carteiraLongoPrazo = faixa acima360d de A Vencer
 
 TABELA DE FAIXAS "VENCIDOS" (seção: "Discriminação Vencido por Faixa de Prazo" ou "Discriminação dos Vencidos" ou similar):
 - ESTA tabela preenche APENAS faixasVencidos — NÃO reutilize valores de faixasAVencer
 - As faixas de vencidos NÃO têm "Prazo Indeterminado"
-- Mapeamento: "1 a 30 dias"/"Até 30 dias" → ate30d | "31 a 60 dias" → d31_60 | "61 a 90 dias" → d61_90 | "91 a 180 dias" → d91_180 | "181 a 360 dias" → d181_360 | "Acima de 360 dias" → acima360d | "Total" → total
+- Mapeamento de faixas:
+  - "1 a 30 dias" / "Até 30 dias" → ate30d
+  - "31 a 60 dias" → d31_60
+  - "61 a 90 dias" → d61_90
+  - "91 a 180 dias" → d91_180
+  - "181 a 360 dias" → d181_360
+  - "Acima de 360 dias" → acima360d
+  - "Total" → total
 - VALIDAÇÃO: faixasVencidos.total deve ser igual a vencidos (campo principal)
 - Se a seção de vencidos não existir no documento (empresa sem vencidos), todos os campos de faixasVencidos = "0,00"
 
-DOIS PERÍODOS:
-- Se o documento tiver 2 períodos: período mais recente nos campos principais, anterior em periodoAnterior (incluindo faixasAVencer e faixasVencidos completos)
-- variacoes: calcule a variação percentual de cada campo (ex: "+7,6%", "-6,5%", "0,0%" se igual, "" se ausente)
+DOIS PERÍODOS (IMPORTANTE — extraia AMBOS se presentes):
+- Muitos documentos SCR mostram dois períodos lado a lado (ex: coluna "Atual" e "Anterior", ou duas datas de referência)
+- Se o documento tiver 2 períodos: o período MAIS RECENTE vai nos campos principais do JSON, o período ANTERIOR vai em periodoAnterior
+- periodoAnterior DEVE incluir: periodoReferencia, carteiraAVencer, vencidos, prejuizos, limiteCredito, totalDividasAtivas, operacoesAVencer, operacoesEmAtraso, operacoesVencidas, carteiraCurtoPrazo, carteiraLongoPrazo, classificacaoRisco, qtdeInstituicoes, numeroIfs, emDia, semHistorico, faixasAVencer (completo), faixasVencidos (completo)
+- variacoes: calcule a variação percentual entre o período atual e o anterior para cada campo (ex: "+7,6%", "-6,5%", "0,0%" se igual, "" se ausente). Fórmula: ((atual - anterior) / |anterior|) * 100
+- Se o documento mostrar APENAS UM período, deixe periodoAnterior com todos os campos vazios/zerados
 
 NÃO invente dados`;
 
@@ -503,44 +537,75 @@ IMPORTANTE:
 - Confira a coerência: receitaLiquida deve ser aproximadamente receitaBruta - |deducoes|
 - lucroBruto deve ser aproximadamente receitaLiquida - |custoProdutosServicos|`;
 
-const PROMPT_BALANCO = `Você receberá um Balanço Patrimonial. Pode estar em formato SPED ECD, balanço simplificado, relatório gerencial ou planilha. Retorne APENAS JSON válido, sem markdown.
+const PROMPT_BALANCO = `Você receberá um Balanço Patrimonial. Pode estar em formato SPED ECD (com códigos de conta como 1.01, 2.03, etc.), balanço simplificado, relatório gerencial, planilha Excel ou PDF contábil. Retorne APENAS JSON válido, sem markdown, sem texto adicional.
 
-Schema:
+Schema EXATO (respeite todos os campos):
 {"anos":[{"ano":"2024","ativoTotal":"0,00","ativoCirculante":"0,00","caixaEquivalentes":"0,00","contasAReceber":"0,00","estoques":"0,00","outrosAtivosCirculantes":"0,00","ativoNaoCirculante":"0,00","imobilizado":"0,00","intangivel":"0,00","outrosAtivosNaoCirculantes":"0,00","passivoTotal":"0,00","passivoCirculante":"0,00","fornecedores":"0,00","emprestimosCP":"0,00","outrosPassivosCirculantes":"0,00","passivoNaoCirculante":"0,00","emprestimosLP":"0,00","outrosPassivosNaoCirculantes":"0,00","patrimonioLiquido":"0,00","capitalSocial":"0,00","reservas":"0,00","lucrosAcumulados":"0,00","liquidezCorrente":"0,00","liquidezGeral":"0,00","endividamentoTotal":"0,00","capitalDeGiroLiquido":"0,00"}],"periodoMaisRecente":"","tendenciaPatrimonio":"estavel","observacoes":""}
 
-Regras gerais:
-- Extraia dados ANUAIS — se houver vários anos, todos em ordem cronológica crescente
-- SPED ECD: use os valores da coluna "Saldo Final" (não "Saldo Inicial" ou "Movimentação")
-- Valores: formato brasileiro (ex: "1.234.567,89"); patrimônio líquido negativo mantém sinal de menos
+FORMATO NUMÉRICO BRASILEIRO (OBRIGATÓRIO):
+- Separador de MILHAR = ponto (.) — Separador DECIMAL = vírgula (,)
+- Exemplos corretos: "1.234.567,89", "850.000,00", "-45.320,10"
+- ERRADO: "1234567.89", "1,234,567.89"
+- NUNCA use prefixo "R$"
+- Valores negativos: prefixe com sinal de menos (ex: "-120.500,00" para patrimônio líquido negativo ou prejuízos acumulados)
+
+REGRAS DE EXTRAÇÃO:
+- O documento pode conter 2 ou 3 anos de dados lado a lado (ex: 2022, 2023, 2024). Extraia TODOS em ordem cronológica crescente no array "anos"
+- SPED ECD: use os valores da coluna "Saldo Final" (não "Saldo Inicial" ou "Movimentação"). Identifique contas pelo código (1.01, 2.03, etc.)
 - Se um campo não existir no documento, use "0,00"
 
-Mapeamento de contas:
-- ativoTotal → total do ativo (deve bater com passivoTotal + patrimonioLiquido)
+MAPEAMENTO DE CONTAS (SPED ECD e Balanço padrão):
+- ativoTotal → "ATIVO TOTAL" / "TOTAL DO ATIVO" / soma de ativoCirculante + ativoNaoCirculante. VALIDAÇÃO: ativoTotal deve ser aproximadamente igual a passivoCirculante + passivoNaoCirculante + patrimonioLiquido
 - ativoCirculante → grupo 1.01 / "Ativo Circulante"
-- caixaEquivalentes → "Caixa e Equivalentes de Caixa" / conta 1.01.01
+- caixaEquivalentes → "Caixa e Equivalentes de Caixa" / "Disponibilidades" / conta 1.01.01
 - contasAReceber → "Contas a Receber" / "Clientes" / "Duplicatas a Receber" / conta 1.01.03
 - estoques → "Estoques" / conta 1.01.04
-- outrosAtivosCirculantes → demais ativos circulantes não listados acima
-- ativoNaoCirculante → grupo 1.02
+- outrosAtivosCirculantes → demais ativos circulantes não listados acima (impostos a recuperar, adiantamentos, etc.)
+- ativoNaoCirculante → grupo 1.02 / "Ativo Não Circulante" / "Ativo Realizável a Longo Prazo" + "Imobilizado" + "Intangível"
 - imobilizado → "Imobilizado" / conta 1.02.03
 - intangivel → "Intangível" / conta 1.02.04
-- passivoCirculante → grupo 2.01
+- outrosAtivosNaoCirculantes → demais não circulantes (realizável a longo prazo, investimentos)
+- passivoTotal → passivoCirculante + passivoNaoCirculante (NÃO inclui patrimônio líquido)
+- passivoCirculante → grupo 2.01 / "Passivo Circulante"
 - fornecedores → "Fornecedores" / conta 2.01.01
 - emprestimosCP → "Empréstimos e Financiamentos CP" / conta 2.01.03
-- passivoNaoCirculante → grupo 2.02
+- outrosPassivosCirculantes → demais passivos circulantes (salários, impostos, provisões)
+- passivoNaoCirculante → grupo 2.02 / "Passivo Não Circulante" / "Exigível a Longo Prazo"
 - emprestimosLP → "Empréstimos e Financiamentos LP" / conta 2.02.01
-- patrimonioLiquido → grupo 2.03 / "Patrimônio Líquido"
-- capitalSocial → conta 2.03.01
-- reservas → soma de reservas de capital + reservas de lucros
-- lucrosAcumulados → "Lucros/Prejuízos Acumulados" — negativo se prejuízo
+- outrosPassivosNaoCirculantes → demais passivos não circulantes
+- patrimonioLiquido → grupo 2.03 / "Patrimônio Líquido". ATENÇÃO: pode ser NEGATIVO se a empresa tem prejuízos acumulados maiores que o capital — nesse caso, prefixe com menos (ex: "-350.000,00")
+- capitalSocial → conta 2.03.01 / "Capital Social Realizado"
+- reservas → soma de "Reservas de Capital" + "Reservas de Lucros"
+- lucrosAcumulados → "Lucros/Prejuízos Acumulados" — negativo se prejuízo (ex: "-200.000,00")
 
-Indicadores (calcule se não constarem):
-- liquidezCorrente = ativoCirculante ÷ passivoCirculante (formato "1,85")
-- liquidezGeral = (ativoCirculante + realizávelLP) ÷ (passivoCirculante + passivoNaoCirculante)
-- endividamentoTotal = (passivoCirculante + passivoNaoCirculante) ÷ ativoTotal × 100 (formato "45,2")
-- capitalDeGiroLiquido = ativoCirculante - passivoCirculante (pode ser negativo)
-- tendenciaPatrimonio: "crescimento" / "queda" / "estavel" com base no patrimonioLiquido
-- NÃO invente dados`;
+INDICADORES (CALCULE SEMPRE para cada ano):
+1. liquidezCorrente = ativoCirculante / passivoCirculante
+   - Resultado como número decimal com vírgula (ex: "1,50", "0,85", "2,30")
+   - Se passivoCirculante = 0, use "999,99"
+   - Exemplo: ativoCirculante = "500.000,00", passivoCirculante = "333.333,00" → liquidezCorrente = "1,50"
+
+2. liquidezGeral = (ativoCirculante + realizávelLP) / (passivoCirculante + passivoNaoCirculante)
+   - realizávelLP = parte do ativoNaoCirculante que é realizável a longo prazo (se não identificável, use ativoNaoCirculante - imobilizado - intangivel)
+   - Se denominador = 0, use "999,99"
+
+3. endividamentoTotal = ((passivoCirculante + passivoNaoCirculante) / ativoTotal) * 100
+   - Resultado como PERCENTUAL com vírgula (ex: "45,20", "213,52", "78,00")
+   - Exemplo: passivoCirculante = "800.000,00", passivoNaoCirculante = "200.000,00", ativoTotal = "468.350,00" → endividamentoTotal = "213,52"
+   - Pode ser maior que 100% se empresa tem PL negativo
+
+4. capitalDeGiroLiquido = ativoCirculante - passivoCirculante
+   - Resultado em formato monetário brasileiro (ex: "166.667,00", "-50.000,00")
+   - Pode ser negativo se passivo circulante > ativo circulante
+
+CAMPOS ADICIONAIS:
+- periodoMaisRecente: ano mais recente encontrado (ex: "2024")
+- tendenciaPatrimonio: "crescimento" se patrimonioLiquido aumentou nos últimos 2 anos, "queda" se diminuiu, "estavel" se variação < 5%
+- observacoes: informações relevantes (regime tributário, contador, notas explicativas relevantes)
+
+EXEMPLO DE SAÍDA (para referência):
+{"anos":[{"ano":"2023","ativoTotal":"468.350,00","ativoCirculante":"300.000,00","caixaEquivalentes":"50.000,00","contasAReceber":"150.000,00","estoques":"80.000,00","outrosAtivosCirculantes":"20.000,00","ativoNaoCirculante":"168.350,00","imobilizado":"120.000,00","intangivel":"10.000,00","outrosAtivosNaoCirculantes":"38.350,00","passivoTotal":"1.000.000,00","passivoCirculante":"800.000,00","fornecedores":"200.000,00","emprestimosCP":"400.000,00","outrosPassivosCirculantes":"200.000,00","passivoNaoCirculante":"200.000,00","emprestimosLP":"150.000,00","outrosPassivosNaoCirculantes":"50.000,00","patrimonioLiquido":"-531.650,00","capitalSocial":"100.000,00","reservas":"0,00","lucrosAcumulados":"-631.650,00","liquidezCorrente":"0,38","liquidezGeral":"0,34","endividamentoTotal":"213,52","capitalDeGiroLiquido":"-500.000,00"}],"periodoMaisRecente":"2023","tendenciaPatrimonio":"queda","observacoes":""}
+
+NÃO invente dados — use APENAS valores presentes no documento`;
 
 const PROMPT_IR_SOCIOS = `Você receberá um documento de Imposto de Renda de sócio: pode ser apenas o Recibo de Entrega (DIRPF), uma Declaração Completa ou extrato da Receita Federal. Retorne APENAS JSON válido, sem markdown.
 
@@ -755,14 +820,22 @@ async function callAI(
 // ─────────────────────────────────────────
 function parseJSON<T>(raw: string): T {
   let cleaned = raw.trim();
+  // Remove markdown code blocks
   if (cleaned.startsWith("```")) {
     cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
   }
+  // Tenta extrair JSON se resposta veio com texto antes/depois
   if (!cleaned.startsWith("{") && !cleaned.startsWith("[")) {
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (match) cleaned = match[0];
   }
-  return JSON.parse(cleaned);
+  try {
+    return JSON.parse(cleaned);
+  } catch (err) {
+    console.error("[parseJSON] Falha ao parsear resposta da IA:", (err as Error).message, "| raw (primeiros 500 chars):", raw.slice(0, 500));
+    // Retorna objeto vazio ao invés de crash — fillXxxDefaults vai preencher campos padrão
+    return {} as T;
+  }
 }
 
 // ─────────────────────────────────────────
@@ -861,7 +934,8 @@ function fillFaturamentoDefaults(data: Partial<FaturamentoData>): FaturamentoDat
     else tendencia = "estavel";
   }
 
-  const somaTotal = meses.reduce((s, m) => s + parseBR(m.valor), 0);
+  // somatoriaAno = soma dos últimos 12 meses (valor anualizado, não total histórico)
+  const soma12m = meses12.reduce((s, m) => s + parseBR(m.valor), 0);
 
   const mesesZerados = meses12
     .filter(m => parseBR(m.valor) === 0)
@@ -869,7 +943,7 @@ function fillFaturamentoDefaults(data: Partial<FaturamentoData>): FaturamentoDat
 
   return {
     meses,
-    somatoriaAno: fmtBR(somaTotal),
+    somatoriaAno: fmtBR(soma12m),
     mediaAno: fmtBR(fmm12m),
     fmm12m: fmtBR(fmm12m),
     fmmAnual: Object.fromEntries(
