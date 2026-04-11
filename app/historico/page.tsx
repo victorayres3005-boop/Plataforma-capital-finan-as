@@ -326,6 +326,23 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate }
           <span>{docs.length} doc{docs.length !== 1 ? "s" : ""}</span>
         </span>
 
+        {/* Rating do comitê / analista */}
+        {(() => {
+          const ai = col.ai_analysis as Record<string, unknown> | null;
+          const parecer = ai?.parecerAnalista as Record<string, unknown> | null;
+          const ratingVal = parecer?.ratingAnalista != null ? Number(parecer.ratingAnalista) : col.rating;
+          if (ratingVal == null) return null;
+          const rc = ratingVal >= 7 ? "#16a34a" : ratingVal >= 4 ? "#d97706" : "#dc2626";
+          const rbg = ratingVal >= 7 ? "#f0fdf4" : ratingVal >= 4 ? "#fffbeb" : "#fff1f2";
+          const rborder = ratingVal >= 7 ? "#bbf7d0" : ratingVal >= 4 ? "#fde68a" : "#fecaca";
+          return (
+            <span style={{ fontSize: 11, fontWeight: 700, color: rc, background: rbg, border: `1px solid ${rborder}`, borderRadius: 6, padding: "2px 7px", whiteSpace: "nowrap", flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 3 }}>
+              <span style={{ fontSize: 9, fontWeight: 600, opacity: 0.8 }}>Rating</span>
+              {ratingVal}/10
+            </span>
+          );
+        })()}
+
         {/* Status */}
         <span style={{ fontSize: 11, fontWeight: 600, background: status.bg, color: status.color, borderRadius: 999, padding: "2px 10px", whiteSpace: "nowrap", flexShrink: 0 }}>
           {status.label}
@@ -884,100 +901,42 @@ function HistoricoContent() {
             </Link>
           </div>
 
-          {/* ── Funil de Crédito ── */}
+          {/* ── Resumo de métricas ── */}
           {!loading && collections.length > 0 && (() => {
             const total = collections.length;
             const finalizadas = collections.filter(c => c.status === "finished").length;
-            const aprovadas = collections.filter(c => c.decisao === "APROVADO" || c.decisao === "APROVACAO_CONDICIONAL").length;
-            const aprovPuras = collections.filter(c => c.decisao === "APROVADO").length;
+            const aprovadas = collections.filter(c => c.decisao === "APROVADO").length;
+            const condicionais = collections.filter(c => c.decisao === "APROVACAO_CONDICIONAL").length;
+            const reprovadas = collections.filter(c => c.decisao === "REPROVADO").length;
+            const pendentes = collections.filter(c => !c.decisao || c.decisao === "PENDENTE").length;
+            const taxaAprov = finalizadas > 0 ? Math.round(((aprovadas + condicionais) / finalizadas) * 100) : 0;
 
-            const stages = [
-              { label: "Recebidas",       sub: "total de análises",        count: total,       color: "#1E3A5F", fill: "#DBEAFE", stroke: "#93C5FD" },
-              { label: "Finalizadas",      sub: "análise concluída",         count: finalizadas, color: "#2563EB", fill: "#C7D2FE", stroke: "#818CF8" },
-              { label: "Aprovadas",        sub: "aprovadas ou condicionais", count: aprovadas,   color: "#16A34A", fill: "#BBF7D0", stroke: "#4ADE80" },
-              { label: "Aprovação total",  sub: "sem condicionais",          count: aprovPuras,  color: "#15803D", fill: "#86EFAC", stroke: "#22C55E" },
+            // Rating médio (do parecer analista ou coluna rating)
+            const ratings = collections.map(c => {
+              const ai = c.ai_analysis as Record<string, unknown> | null;
+              const parecer = ai?.parecerAnalista as Record<string, unknown> | null;
+              return parecer?.ratingAnalista != null ? Number(parecer.ratingAnalista) : c.rating;
+            }).filter((r): r is number => r != null && r > 0);
+            const ratingMedio = ratings.length > 0 ? (ratings.reduce((a, b) => a + b, 0) / ratings.length) : null;
+
+            const metrics = [
+              { label: "Total", value: String(total), color: "#1E3A5F", bg: "#EFF6FF", border: "#BFDBFE" },
+              { label: "Aprovadas", value: String(aprovadas), color: "#16A34A", bg: "#F0FDF4", border: "#BBF7D0" },
+              { label: "Condicionais", value: String(condicionais), color: "#7C3AED", bg: "#F5F3FF", border: "#DDD6FE" },
+              { label: "Reprovadas", value: String(reprovadas), color: "#DC2626", bg: "#FEF2F2", border: "#FECACA" },
+              { label: "Pendentes", value: String(pendentes), color: "#D97706", bg: "#FFFBEB", border: "#FDE68A" },
+              { label: "Taxa Aprovação", value: `${taxaAprov}%`, color: taxaAprov >= 60 ? "#16A34A" : taxaAprov >= 30 ? "#D97706" : "#DC2626", bg: taxaAprov >= 60 ? "#F0FDF4" : taxaAprov >= 30 ? "#FFFBEB" : "#FEF2F2", border: taxaAprov >= 60 ? "#BBF7D0" : taxaAprov >= 30 ? "#FDE68A" : "#FECACA" },
+              { label: "Rating Médio", value: ratingMedio != null ? `${ratingMedio.toFixed(1)}/10` : "—", color: ratingMedio != null ? (ratingMedio >= 7 ? "#16A34A" : ratingMedio >= 4 ? "#D97706" : "#DC2626") : "#9CA3AF", bg: ratingMedio != null ? (ratingMedio >= 7 ? "#F0FDF4" : ratingMedio >= 4 ? "#FFFBEB" : "#FEF2F2") : "#F8FAFC", border: ratingMedio != null ? (ratingMedio >= 7 ? "#BBF7D0" : ratingMedio >= 4 ? "#FDE68A" : "#FECACA") : "#E2E8F0" },
             ];
 
-            const VW = 400;
-            const SH = 38;
-            const GAP = 5;
-            const TOTAL_H = stages.length * SH + (stages.length - 1) * GAP;
-            const MIN_W = 0.18; // minimum width ratio for visual clarity
-
             return (
-              <div style={{ background: "white", borderRadius: 12, border: "1px solid #E2E8F0", padding: "14px 20px 12px", marginBottom: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
-                <p style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 14 }}>Funil de Crédito</p>
-                <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
-
-                  {/* SVG Funnel */}
-                  <svg viewBox={`0 0 ${VW} ${TOTAL_H}`} style={{ flex: "0 0 auto", width: "min(340px, 55%)", height: "auto" }} xmlns="http://www.w3.org/2000/svg">
-                    <defs>
-                      {stages.map((s, i) => (
-                        <linearGradient key={i} id={`funnel-grad-${i}`} x1="0%" y1="0%" x2="100%" y2="0%">
-                          <stop offset="0%" stopColor={s.color} stopOpacity="0.08" />
-                          <stop offset="50%" stopColor={s.fill} stopOpacity="0.9" />
-                          <stop offset="100%" stopColor={s.color} stopOpacity="0.08" />
-                        </linearGradient>
-                      ))}
-                    </defs>
-
-                    {stages.map((s, i) => {
-                      const topRatio = Math.max(stages[i].count / total, MIN_W);
-                      const nextRatio = i < stages.length - 1
-                        ? Math.max(stages[i + 1].count / total, MIN_W)
-                        : Math.max(stages[i].count / total * 0.72, MIN_W);
-                      const topW = topRatio * VW;
-                      const botW = nextRatio * VW;
-                      const topL = (VW - topW) / 2;
-                      const topR = VW - topL;
-                      const botL = (VW - botW) / 2;
-                      const botR = VW - botL;
-                      const y = i * (SH + GAP);
-                      const pts = `${topL},${y} ${topR},${y} ${botR},${y + SH} ${botL},${y + SH}`;
-                      const pct = Math.round((s.count / total) * 100);
-                      return (
-                        <g key={i}>
-                          <polygon points={pts} fill={`url(#funnel-grad-${i})`} stroke={s.stroke} strokeWidth="1.2" strokeLinejoin="round" />
-                          {/* Count + percent in center */}
-                          <text x={VW / 2} y={y + SH / 2 - 1} textAnchor="middle" dominantBaseline="middle"
-                            style={{ fontSize: 12, fontWeight: "800", fill: s.color }}>
-                            {s.count}
-                          </text>
-                          <text x={VW / 2} y={y + SH / 2 + 12} textAnchor="middle" dominantBaseline="middle"
-                            style={{ fontSize: 9, fontWeight: "600", fill: s.color, opacity: 0.7 }}>
-                            {pct}%
-                          </text>
-                        </g>
-                      );
-                    })}
-                  </svg>
-
-                  {/* Legend */}
-                  <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10 }}>
-                    {stages.map((s, i) => {
-                      const pct = Math.round((s.count / total) * 100);
-                      const prevCount = i > 0 ? stages[i - 1].count : null;
-                      const convRate = prevCount && prevCount > 0 ? Math.round((s.count / prevCount) * 100) : null;
-                      return (
-                        <div key={i}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                            <div style={{ width: 8, height: 8, borderRadius: 2, background: s.color, flexShrink: 0 }} />
-                            <span style={{ fontSize: 12, fontWeight: 700, color: "#111827" }}>{s.label}</span>
-                            <span style={{ fontSize: 12, fontWeight: 800, color: s.color, marginLeft: "auto" }}>{s.count}</span>
-                            <span style={{ fontSize: 10, color: "#9CA3AF", width: 30, textAlign: "right" }}>{pct}%</span>
-                          </div>
-                          {convRate !== null && i > 0 && (
-                            <div style={{ paddingLeft: 15, marginTop: 1 }}>
-                              <span style={{ fontSize: 9, color: convRate >= 70 ? "#16A34A" : convRate >= 40 ? "#D97706" : "#DC2626", fontWeight: 600 }}>
-                                ↳ {convRate}% de conversão
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8, marginBottom: 16 }}>
+                {metrics.map((m, i) => (
+                  <div key={i} style={{ background: m.bg, border: `1px solid ${m.border}`, borderRadius: 10, padding: "10px 14px", textAlign: "center" }}>
+                    <p style={{ fontSize: 9, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>{m.label}</p>
+                    <p style={{ fontSize: 20, fontWeight: 800, color: m.color, lineHeight: 1.1 }}>{m.value}</p>
                   </div>
-                </div>
+                ))}
               </div>
             );
           })()}
