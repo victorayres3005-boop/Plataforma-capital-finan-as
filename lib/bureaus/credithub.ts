@@ -777,43 +777,42 @@ export async function consultarGrupoEconomicoSocios(
 }
 
 // ─── Consulta principal ─────────────────────────────────────────────────────
-export async function consultarCreditHub(cnpj: string): Promise<CreditHubResult> {
-  if (!CREDITHUB_API_URL || !CREDITHUB_API_KEY) {
-    return { success: false, mock: true, error: "Credit Hub não configurado" };
+export async function consultarCreditHub(cnpj: string, rawDataFromClient?: unknown): Promise<CreditHubResult> {
+  const cnpjNum = cnpj.replace(/\D/g, "");
+
+  // Se o cliente já fez fetch (client-side bypass do 402), usa esses dados
+  let d: any = null;
+  if (rawDataFromClient) {
+    const raw = rawDataFromClient as any;
+    d = raw?.data ?? raw;
+    console.log(`[credithub] Using client-side fetched data for CNPJ=${cnpjNum}`);
+    // Pula o fetch, vai direto para o parsing
+  } else {
+    if (!CREDITHUB_API_URL || !CREDITHUB_API_KEY) {
+      return { success: false, mock: true, error: "Credit Hub não configurado" };
+    }
+    const url = `${CREDITHUB_API_URL}/simples/${CREDITHUB_API_KEY}/${cnpjNum}`;
+    try {
+      const res = await fetch(url, { headers: { "Content-Type": "application/json" }, next: { revalidate: 0 } });
+      if (!res.ok) {
+        const errText = (await res.text()).substring(0, 200);
+        return { success: false, mock: false, error: `Credit Hub ${res.status}: ${errText}` };
+      }
+      const raw = await res.json();
+      d = raw?.data ?? raw;
+    } catch (err: any) {
+      return { success: false, mock: false, error: String(err?.message ?? err) };
+    }
   }
 
-  const cnpjNum = cnpj.replace(/\D/g, "");
-  const url = `${CREDITHUB_API_URL}/simples/${CREDITHUB_API_KEY}/${cnpjNum}`;
-
-  // Chamada única — Credit Hub é real-time, retries com delay não trazem mais dados
-  let d: any = null;
-  try {
-    const res = await fetch(url, { headers: { "Content-Type": "application/json" }, next: { revalidate: 0 } });
-    if (!res.ok) {
-      const errText = (await res.text()).substring(0, 200);
-      return { success: false, mock: false, error: `Credit Hub ${res.status}: ${errText}` };
-    }
-    const raw = await res.json();
-    d = raw?.data ?? raw;
+  // Logging (works both for client-side and server-side data)
+  if (d) {
     const temProtestos = !!d?.protestos;
     const temProcessos = Array.isArray(d?.processos) ? d.processos.length : 0;
     const topKeys = Object.keys(d ?? {}).join(", ");
     const temCCFKey = !!(d?.ccf ?? d?.chequesSemFundo ?? d?.cheque_sem_fundo ?? d?.ccfData ?? d?.CCF ?? d?.cheques ?? d?.ocorrencias_ccf ?? d?.chequesSemCobertura ?? d?.chequeSemFundo ?? d?.restricoes?.ccf ?? d?.negativacoes?.ccf);
     console.log(`[credithub] CNPJ=${cnpjNum} protestos=${temProtestos} processos=${temProcessos} ccf=${temCCFKey}`);
     console.log(`[credithub] API top-level keys: ${topKeys}`);
-    // Dump de segundo nível para diagnóstico — ajuda a identificar onde estão processos/ccf
-    const d2 = d ?? {};
-    const nested: Record<string,string> = {};
-    for (const k of Object.keys(d2)) {
-      const v = d2[k];
-      if (v && typeof v === "object") nested[k] = Array.isArray(v) ? `array[${v.length}]` : `obj{${Object.keys(v).slice(0,5).join(",")}}`;
-    }
-    console.log(`[credithub] API nested types: ${JSON.stringify(nested)}`);
-    // Log CCF bruto para diagnóstico
-    const ccfRaw = d?.ccf ?? d?.chequesSemFundo ?? d?.cheque_sem_fundo ?? d?.ccfData ?? d?.CCF ?? d?.cheques ?? d?.ocorrencias_ccf ?? d?.chequesSemCobertura ?? d?.chequeSemFundo ?? null;
-    console.log(`[credithub] CCF keys: ${Object.keys(ccfRaw ?? {}).join(",")} | hasData: ${ccfRaw != null}`);
-  } catch (err: any) {
-    return { success: false, mock: false, error: String(err?.message ?? err) };
   }
 
   if (!d) {

@@ -269,23 +269,44 @@ export default function UploadStep({
     bureauTriggered.current = true;
     setBureauStatus("loading");
 
-    fetch("/api/bureaus", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cnpj, data: extractedRef.current }),
-    })
-      .then(r => r.json())
-      .then(json => {
+    (async () => {
+      try {
+        // 1. Fetch CreditHub DIRECTLY from browser (uses user IP, not server IP)
+        // This bypasses the 402 challenge that blocks server-side calls
+        const cnpjNum = cnpj.replace(/\D/g, "");
+        const CREDITHUB_KEY = "9d3b1f096fe2b4c5ba9855d286c92d38";
+        let creditHubRaw: unknown = null;
+        try {
+          const chRes = await fetch(`https://irql.credithub.com.br/simples/${CREDITHUB_KEY}/${cnpjNum}`);
+          if (chRes.ok) {
+            const text = await chRes.text();
+            // Try parsing as JSON first, fallback to XML text
+            try { creditHubRaw = JSON.parse(text); } catch { creditHubRaw = text; }
+            console.log("[credithub] client-side fetch OK, length:", text.length);
+          } else {
+            console.warn("[credithub] client-side fetch failed:", chRes.status);
+          }
+        } catch (chErr) {
+          console.warn("[credithub] client-side fetch error:", chErr);
+        }
+
+        // 2. Send everything to bureaus endpoint (server parses + merges)
+        const res = await fetch("/api/bureaus", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cnpj, data: extractedRef.current, creditHubRaw }),
+        });
+        const json = await res.json();
         if (json.success && json.merged) {
           setExtracted(prev => ({ ...prev, ...json.merged }));
         }
         if (json.bureaus) setBureauDetail(json.bureaus);
         setBureauStatus(json.success ? "done" : "error");
-      })
-      .catch(err => {
+      } catch (err) {
         console.warn("[upload] erro ao consultar birôs:", err);
         setBureauStatus("error");
-      });
+      }
+    })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [extracted.cnpj?.cnpj]);
 

@@ -12,8 +12,17 @@ import { cacheGet, cacheSet, cacheClear, cacheClearAll, cacheSize } from "@/lib/
 import type { ExtractedData } from "@/types";
 import type { CreditHubResult } from "@/lib/bureaus/credithub";
 
-async function consultarCreditHubComCache(cnpj: string): Promise<CreditHubResult> {
+async function consultarCreditHubComCache(cnpj: string, rawDataFromClient?: unknown): Promise<CreditHubResult> {
   const cnpjNum = cnpj.replace(/\D/g, "");
+  // Se o cliente forneceu dados, pula cache e usa direto
+  if (rawDataFromClient) {
+    const result = await consultarCreditHub(cnpj, rawDataFromClient);
+    if (result.success && !result.mock) {
+      await cacheSet(cnpjNum, result);
+      console.log(`[bureaus] Credit Hub (client-side) — dados recebidos e cacheados para ${cnpjNum}`);
+    }
+    return result;
+  }
   const cached = await cacheGet<CreditHubResult>(cnpjNum);
   if (cached) {
     console.log(`[bureaus] Credit Hub cache HIT (Supabase) para ${cnpjNum}`);
@@ -30,7 +39,7 @@ async function consultarCreditHubComCache(cnpj: string): Promise<CreditHubResult
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { cnpj, data } = body as { cnpj: string; data: ExtractedData };
+    const { cnpj, data, creditHubRaw } = body as { cnpj: string; data: ExtractedData; creditHubRaw?: unknown };
 
     if (!cnpj) {
       return NextResponse.json({ success: false, error: "CNPJ não informado" }, { status: 400 });
@@ -61,7 +70,7 @@ export async function POST(req: NextRequest) {
     console.log(`[bureaus] Grupo econômico: ${sociosParaGrupo.length} sócio(s) PF — ${sociosIR.length} via IR, ${sociosQSA.length} via QSA`);
 
     const [credithub, serasa, spc, quod, grupoEconomico] = await Promise.allSettled([
-      consultarCreditHubComCache(cnpj),
+      consultarCreditHubComCache(cnpj, creditHubRaw),
       consultarSerasa(cnpj),
       consultarSPC(cnpj),
       consultarQuod(cnpj),
