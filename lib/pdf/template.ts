@@ -627,7 +627,104 @@ function secSintese(p: PDFReportParams): string {
       <div style="font-size:13px;color:#1a2744;line-height:1.7;font-style:italic">${esc(resumoTldr.length > 400 ? resumoTldr.substring(0, 400) + "... (ver Parecer)" : resumoTldr)}</div>
     </div>` : "";
 
+  // ── Painel de Qualidade da Extração ──
+  type QualityCheck = { doc: string; status: "ok"|"partial"|"missing"; detail: string };
+  const qualityChecks: QualityCheck[] = [];
+  const checkDoc = (label: string, exists: boolean, issues: string[]) => {
+    if (!exists) qualityChecks.push({ doc: label, status: "missing", detail: "Nao enviado/extraido" });
+    else if (issues.length > 0) qualityChecks.push({ doc: label, status: "partial", detail: issues.join(", ") });
+    else qualityChecks.push({ doc: label, status: "ok", detail: "Completo" });
+  };
+
+  // CNPJ
+  checkDoc("CNPJ", !!data.cnpj?.cnpj, [
+    !data.cnpj?.razaoSocial && "razao social",
+    !data.cnpj?.situacaoCadastral && "situacao",
+  ].filter(Boolean) as string[]);
+  // QSA
+  checkDoc("QSA", !!(data.qsa?.quadroSocietario?.length), []);
+  // SCR atual
+  const scrIssues: string[] = [];
+  if (data.scr) {
+    if (!data.scr.periodoReferencia) scrIssues.push("periodo");
+    if (!data.scr.totalDividasAtivas) scrIssues.push("total dividas");
+    if (!data.scr.faixasAVencer) scrIssues.push("faixas a vencer");
+    if (!data.scr.modalidades?.length) scrIssues.push("modalidades");
+  }
+  checkDoc("SCR Bacen (atual)", !!data.scr, scrIssues);
+  // SCR anterior
+  const scrAntIssues: string[] = [];
+  if (data.scrAnterior) {
+    if (!data.scrAnterior.periodoReferencia) scrAntIssues.push("periodo");
+    if (!data.scrAnterior.totalDividasAtivas) scrAntIssues.push("total dividas");
+  }
+  checkDoc("SCR Bacen (anterior)", !!data.scrAnterior, scrAntIssues);
+  // SCR Sócios
+  if ((data.qsa?.quadroSocietario || []).some(s => (s.cpfCnpj || "").replace(/\D/g, "").length === 11)) {
+    checkDoc("SCR Socios PF", !!(data.scrSocios?.length), []);
+  }
+  // Faturamento
+  checkDoc("Faturamento", !!(data.faturamento?.meses?.length), [
+    (data.faturamento?.meses?.length || 0) < 12 && `apenas ${data.faturamento?.meses?.length || 0} meses`,
+  ].filter(Boolean) as string[]);
+  // Protestos
+  checkDoc("Protestos", !!data.protestos, []);
+  // Processos
+  checkDoc("Processos", !!data.processos, []);
+  // CCF
+  checkDoc("CCF", !!data.ccf, []);
+  // DRE
+  checkDoc("DRE", !!(data.dre?.anos?.length), [
+    (data.dre?.anos?.length || 0) < 2 && "menos de 2 exercicios",
+  ].filter(Boolean) as string[]);
+  // Balanço
+  checkDoc("Balanco", !!(data.balanco?.anos?.length), []);
+  // Curva ABC
+  checkDoc("Curva ABC", !!(data.curvaABC?.clientes?.length), []);
+  // Visita
+  checkDoc("Relatorio Visita", !!data.relatorioVisita, []);
+  // IR Sócios
+  checkDoc("IR Socios", !!(data.irSocios?.length), []);
+
+  const qOk = qualityChecks.filter(q => q.status === "ok").length;
+  const qPartial = qualityChecks.filter(q => q.status === "partial").length;
+  const qMissing = qualityChecks.filter(q => q.status === "missing").length;
+  const qTotal = qualityChecks.length;
+  const qPct = Math.round((qOk / qTotal) * 100);
+
+  const qualityPanel = `<div style="margin-bottom:20px;padding:14px 16px;background:#f8f9fb;border:1px solid #e0e4ec;border-left:4px solid #203B88;border-radius:0 8px 8px 0;page-break-inside:avoid">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+      <div>
+        <div style="font-size:10px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.08em">Qualidade da Extracao</div>
+        <div style="font-size:9.5px;color:#6b7280;margin-top:2px">Verificacao automatica dos documentos processados</div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <div style="background:#16a34a;color:#fff;font-size:10px;font-weight:800;padding:4px 9px;border-radius:4px">${qOk} OK</div>
+        ${qPartial > 0 ? `<div style="background:#d97706;color:#fff;font-size:10px;font-weight:800;padding:4px 9px;border-radius:4px">${qPartial} PARCIAL</div>` : ""}
+        ${qMissing > 0 ? `<div style="background:#dc2626;color:#fff;font-size:10px;font-weight:800;padding:4px 9px;border-radius:4px">${qMissing} AUSENTE</div>` : ""}
+        <div style="font-size:14px;font-weight:900;color:#203B88;margin-left:4px">${qPct}%</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
+      ${qualityChecks.map(q => {
+        const c = q.status === "ok"
+          ? { bg: "#f0fdf4", brd: "#bbf7d0", text: "#166534", icon: "\u2713" }
+          : q.status === "partial"
+            ? { bg: "#fffbeb", brd: "#fde68a", text: "#92400e", icon: "\u26A0" }
+            : { bg: "#fef2f2", brd: "#fecaca", text: "#991b1b", icon: "\u2717" };
+        return `<div style="background:${c.bg};border:1px solid ${c.brd};border-radius:6px;padding:6px 9px;font-size:9px">
+          <div style="display:flex;align-items:center;gap:4px;font-weight:800;color:${c.text};line-height:1.2">
+            <span>${c.icon}</span><span style="text-transform:uppercase;letter-spacing:.03em">${esc(q.doc)}</span>
+          </div>
+          <div style="font-size:8px;color:${c.text};opacity:.85;margin-top:2px;line-height:1.3">${esc(q.detail)}</div>
+        </div>`;
+      }).join("")}
+    </div>
+  </div>`;
+
   return `<div class="sec">${secHdr("03","Sintese Preliminar")}
+
+  ${qualityPanel}
 
   ${tldrHtml}
 
@@ -1531,18 +1628,25 @@ function secComparativoScr(p: PDFReportParams): string {
   addRowNum("CAPACIDADE","IFs",prev.qtdeInstituicoes,scr.qtdeInstituicoes);
   addRowNum("CAPACIDADE","Operacoes",prev.qtdeOperacoes,scr.qtdeOperacoes);
   const fmmNum=computeFmm(p.data.faturamento);
-  const alvAtual=fmmNum>0?`${(numVal(scr.totalDividasAtivas)/fmmNum).toFixed(1)}x`:"\u2014";
-  const alvAnt=fmmNum>0?`${(numVal(prev.totalDividasAtivas)/fmmNum).toFixed(1)}x`:"\u2014";
-  rows.push({grupo:"RESUMO",metrica:"Alavancagem",ant:alvAnt,atual:alvAtual,variacao:"\u2014"});
+  const alvAtualNum = fmmNum>0 ? numVal(scr.totalDividasAtivas)/fmmNum : 0;
+  const alvAntNum = fmmNum>0 ? numVal(prev.totalDividasAtivas)/fmmNum : 0;
+  const alvAtual = fmmNum>0 ? `${alvAtualNum.toFixed(2)}x` : "\u2014";
+  const alvAnt = fmmNum>0 ? `${alvAntNum.toFixed(2)}x` : "\u2014";
+  let alvVar = "\u2014";
+  if (alvAntNum > 0 && alvAtualNum > 0) {
+    const diffPct = Math.round(((alvAtualNum - alvAntNum) / alvAntNum) * 100);
+    const up = diffPct > 0;
+    const color = up ? "#dc2626" : "#16a34a";
+    const barW = Math.min(Math.abs(diffPct), 100);
+    alvVar = `<span style="font-size:13px;font-weight:900;color:${color};margin-left:6px">${up?"\u25B2":"\u25BC"} ${Math.abs(diffPct)}%</span><span style="display:inline-block;width:${barW}px;height:6px;background:${color};border-radius:3px;margin-left:6px;vertical-align:middle"></span>`;
+  }
+  rows.push({grupo:"RESUMO",metrica:"Alavancagem",ant:alvAnt,atual:alvAtual,variacao:alvVar});
 
   // ── PJ Comparativo Table ──
   const cnpjFmt = fmtCnpj(p.data.cnpj?.cnpj);
   const razaoFmt = esc(p.data.cnpj?.razaoSocial || "Empresa");
+  void razaoFmt;
   let html = `<div class="sec">${secHdr("16","Comparativo SCR - Empresa (PJ)")}
-  <div style="padding:10px 14px;background:#fffbeb;border-left:4px solid #d97706;border-radius:0 6px 6px 0;margin-bottom:14px;font-size:11px;color:#92400e">
-    <strong>Escopo desta tabela:</strong> apenas exposicao da pessoa juridica <strong>${razaoFmt}</strong> (${cnpjFmt}).
-    Dividas dos socios pessoa fisica nao estao incluidas aqui — ver <strong>Secao 16b</strong> abaixo.
-  </div>
   <div style="font-size:10px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;padding:6px 12px;background:#edf2fb;border-radius:6px;display:inline-block">Empresa (PJ) — ${cnpjFmt}</div>
   <div style="display:flex;gap:16px;margin-bottom:16px">
     <div style="flex:1;padding:12px 16px;background:#f8f9fb;border-radius:8px;border:1px solid #e0e4ec;text-align:center">
@@ -1559,9 +1663,15 @@ function secComparativoScr(p: PDFReportParams): string {
     <tbody>${rows.map(r=>{
       const isRisk = (r.metrica === "Vencidos" || r.metrica === "Prejuizo") && numVal(r.atual) > 0;
       const isTotalDividas = r.metrica === "Total Dividas";
-      const rowStyle = isRisk ? "background:#fff5f5" : "";
-      const metricStyle = isTotalDividas ? "font-weight:900;font-size:12px" : "font-weight:700";
-      return `<tr style="${rowStyle}"><td><strong style="${metricStyle}">${esc(r.metrica)}</strong><br/><span style="font-size:8px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em">${esc(r.grupo)}</span></td><td>${r.ant}</td><td style="font-weight:700">${r.atual}</td><td style="text-align:center">${r.variacao}</td></tr>`;
+      const isAlav = r.metrica === "Alavancagem";
+      const rowStyle = isAlav
+        ? "background:linear-gradient(90deg,#edf2fb 0%,#f8f9fb 100%);border-top:2px solid #203B88"
+        : isRisk ? "background:#fff5f5" : "";
+      const metricStyle = isAlav
+        ? "font-weight:900;font-size:13px;color:#203B88"
+        : isTotalDividas ? "font-weight:900;font-size:12px" : "font-weight:700";
+      const atualStyle = isAlav ? "font-weight:900;font-size:14px;color:#203B88" : "font-weight:700";
+      return `<tr style="${rowStyle}"><td><strong style="${metricStyle}">${esc(r.metrica)}</strong><br/><span style="font-size:8px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em">${esc(r.grupo)}</span></td><td>${r.ant}</td><td style="${atualStyle}">${r.atual}</td><td style="text-align:center">${r.variacao}</td></tr>`;
     }).join("")}</tbody>
   </table>`;
 
@@ -1670,7 +1780,7 @@ function secScrSocios(p: PDFReportParams): string {
     const mods = scr?.modalidades || [];
     void perAnt; // may be used for display
 
-    return `<div class="sec" style="margin-top:20px;padding:18px 20px;background:linear-gradient(135deg,#f8f9fb 0%,#edf2fb 100%);border-radius:10px;border:1px solid #e0e4ec;page-break-inside:avoid;box-shadow:0 2px 8px rgba(32,59,136,.04)">
+    return `<div class="sec" style="margin-top:18px;padding:16px 18px;background:#fff;border-radius:8px;border:1px solid #e0e4ec;border-left:4px solid #203B88;page-break-inside:avoid">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
         <span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:linear-gradient(135deg,#203B88,#2a4da6);color:#fff;font-size:9px;font-weight:800;border-radius:8px;flex-shrink:0;box-shadow:0 2px 4px rgba(32,59,136,.2)">PF</span>
         <div>
@@ -1696,8 +1806,56 @@ function secScrSocios(p: PDFReportParams): string {
     </div>`;
   }).join("");
 
+  // Tabela consolidada — 1 linha por sócio
+  const fmmNumPf = computeFmm(p.data.faturamento);
+  const consolidRows = socios.map(s => {
+    const cur = s.periodoAtual;
+    const div = numVal(cur?.totalDividasAtivas);
+    const venc = numVal(cur?.vencidos);
+    const aVenc = numVal(cur?.carteiraAVencer);
+    const alav = fmmNumPf > 0 && div > 0 ? `${(div / fmmNumPf).toFixed(2)}x` : "\u2014";
+    return { nome: s.nomeSocio, cpf: s.cpfSocio, div, venc, aVenc, alav };
+  });
+  const totalDiv = consolidRows.reduce((s, r) => s + r.div, 0);
+  const totalVenc = consolidRows.reduce((s, r) => s + r.venc, 0);
+  const totalAVenc = consolidRows.reduce((s, r) => s + r.aVenc, 0);
+  const alavPfTotal = fmmNumPf > 0 && totalDiv > 0 ? `${(totalDiv / fmmNumPf).toFixed(2)}x` : "\u2014";
+
+  const consolidTable = `<table style="${TS}">
+    <thead>${row(["Socio","CPF","Dividas Totais","A Vencer","Vencidos","Alav. (Div/FMM)"], true)}</thead>
+    <tbody>${consolidRows.map(r => `<tr>
+      <td><strong>${esc(r.nome || "\u2014")}</strong></td>
+      <td>${fmtCpf(r.cpf)}</td>
+      <td class="money">${r.div > 0 ? fmtMoneyRound(String(r.div)) : "\u2014"}</td>
+      <td class="money">${r.aVenc > 0 ? fmtMoneyRound(String(r.aVenc)) : "\u2014"}</td>
+      <td class="money${r.venc > 0 ? " neg" : ""}">${r.venc > 0 ? fmtMoneyRound(String(r.venc)) : "\u2014"}</td>
+      <td class="money" style="font-weight:700">${r.alav}</td>
+    </tr>`).join("")}
+    <tr style="background:#edf2fb">
+      <td colspan="2"><strong style="color:#203B88">CONSOLIDADO PF (${consolidRows.length})</strong></td>
+      <td class="money" style="font-weight:900;color:#203B88">${totalDiv > 0 ? fmtMoneyRound(String(totalDiv)) : "\u2014"}</td>
+      <td class="money" style="font-weight:900">${totalAVenc > 0 ? fmtMoneyRound(String(totalAVenc)) : "\u2014"}</td>
+      <td class="money${totalVenc > 0 ? " neg" : ""}" style="font-weight:900">${totalVenc > 0 ? fmtMoneyRound(String(totalVenc)) : "\u2014"}</td>
+      <td class="money" style="font-weight:900;color:#203B88">${alavPfTotal}</td>
+    </tr>
+    </tbody>
+  </table>`;
+
+  // Mostra cards detalhados apenas para sócios com dívida relevante
+  const sociosComDivida = socios.filter(s => numVal(s.periodoAtual?.totalDividasAtivas) > 0);
+  const cardsRelevantes = sociosComDivida.length > 0 && sociosComDivida.length < socios.length
+    ? socios.filter(s => numVal(s.periodoAtual?.totalDividasAtivas) > 0).map((_, idx) => {
+        const arr = socios.filter(s => numVal(s.periodoAtual?.totalDividasAtivas) > 0);
+        return arr[idx];
+      })
+    : socios;
+  void cardsRelevantes;
+
   return `<div class="sec">${secHdr("16b","Comparativo SCR - Socios PF")}
-    <div style="font-size:11px;color:#6b7280;margin-bottom:16px">Analise de risco individual de cada socio (pessoa fisica)</div>
+    <div style="font-size:11px;color:#6b7280;margin-bottom:14px">Visao consolidada da exposicao dos socios pessoa fisica e detalhamento individual por modalidade.</div>
+    <div style="font-size:10px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">Resumo consolidado PF</div>
+    ${consolidTable}
+    <div style="font-size:10px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.08em;margin:20px 0 10px">Detalhamento por socio</div>
     ${cards}
   </div>`;
 }
@@ -1850,7 +2008,7 @@ function secBalanco(p: PDFReportParams): string {
           const pc=numVal((a as unknown as Record<string,string>).passivoCirculante);
           if(ac===0&&pc===0) return "\u2014";
           const ncg=ac-pc;
-          return `<span class="money${ncg<0?" neg":""}" title="Ativo Circ. ${fmtMoney(String(ac))} - Passivo Circ. ${fmtMoney(String(pc))}">${fmtMoney(String(ncg))}</span>`;
+          return `<span class="money${ncg<0?" neg":""}" title="Ativo Circ. ${fmtMoney(String(ac))} - Passivo Circ. ${fmtMoney(String(pc))}">${fmtMoney(String(ncg))}</span><span style="font-size:8px;color:#6b7280;font-style:italic;margin-left:4px">(calc)</span>`;
         }
         const v=(a as unknown as Record<string,string>)[m.key];
         if(!v||v==="0"||v==="") return "\u2014";
@@ -2080,9 +2238,9 @@ export function gerarHtmlRelatorio(p: PDFReportParams): {
   ${secContrato(p)}
   ${secGrupoEconomico(p)}
   ${secComparativoScr(p)}
+  ${secScrSocios(p)}
   ${secScrVencimentos(p)}
   ${secModalidadesScr(p)}
-  ${secScrSocios(p)}
   ${secDre(p)}
   ${secBalanco(p)}
   ${secHistoricoConsultas(p)}
