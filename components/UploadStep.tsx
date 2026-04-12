@@ -271,34 +271,66 @@ export default function UploadStep({
 
     (async () => {
       try {
-        // 1. Fetch CreditHub DIRECTLY from browser (uses user IP, not server IP)
-        // This bypasses the 402 challenge that blocks server-side calls
+        // 1. Fetch CreditHub DIRECTLY from browser com RETRY POLLING
+        // A API do CreditHub é assíncrona: retorna 500+402 com push=true até os dados estarem prontos
         const cnpjNum = cnpj.replace(/\D/g, "");
         const CREDITHUB_KEY = "9d3b1f096fe2b4c5ba9855d286c92d38";
+        const CH_URL = `https://irql.credithub.com.br/simples/${CREDITHUB_KEY}/${cnpjNum}`;
+        const MAX_ATTEMPTS = 15;
+        const RETRY_DELAY_MS = 2000;
         let creditHubRaw: unknown = null;
-        try {
-          const chRes = await fetch(`https://irql.credithub.com.br/simples/${CREDITHUB_KEY}/${cnpjNum}`, {
-            headers: { "Accept": "application/json", "Content-Type": "application/json" },
-          });
-          if (chRes.ok) {
+        const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+        console.log(`[credithub] iniciando polling (${MAX_ATTEMPTS} tentativas, ${RETRY_DELAY_MS}ms entre)`);
+        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+          try {
+            const chRes = await fetch(CH_URL);
             const text = await chRes.text();
-            const contentType = chRes.headers.get("content-type") || "";
-            console.log("[credithub] client-side fetch OK, length:", text.length, "content-type:", contentType);
-            // Parse estritamente como JSON — se falhar, é erro (CreditHub deve retornar JSON)
-            try {
-              creditHubRaw = JSON.parse(text);
-              const topKeys = creditHubRaw && typeof creditHubRaw === "object" ? Object.keys(creditHubRaw).join(",") : "(não é objeto)";
-              console.log("[credithub] parsed JSON OK — top keys:", topKeys);
-            } catch (parseErr) {
-              console.error("[credithub] JSON parse falhou — primeiros 200 chars:", text.slice(0, 200));
-              console.error("[credithub] parse error:", parseErr);
-              creditHubRaw = null;
+            const ct = chRes.headers.get("content-type") || "";
+            // Tenta parsear JSON mesmo se status não for 2xx
+            // (CreditHub usa 500 para avisar "em processamento" com push=true)
+            if (text.trim().startsWith("{") || ct.includes("json")) {
+              try {
+                const parsed = JSON.parse(text);
+                // Sucesso: JSON válido com dados
+                if (parsed && (parsed.data || parsed.cnpj || parsed.razaoSocial || parsed.protestos || parsed.processos || parsed.completed !== undefined)) {
+                  creditHubRaw = parsed;
+                  console.log(`[credithub] ✓ tentativa ${attempt}: JSON recebido | completed=${parsed.completed ?? parsed.data?.completed} | keys=${Object.keys(parsed).slice(0, 10).join(",")}`);
+                  // Se a consulta está completa, para o polling
+                  if (parsed.completed === true || parsed.data?.completed === true) {
+                    console.log("[credithub] ✓ consulta COMPLETED — parando polling");
+                    break;
+                  }
+                }
+              } catch {
+                // JSON parse falhou — continua polling
+              }
             }
-          } else {
-            console.warn("[credithub] client-side fetch failed:", chRes.status);
+            // Se recebeu XML com push=true → consulta em processamento, tenta de novo
+            if (text.includes("push=\"true\"")) {
+              if (attempt < MAX_ATTEMPTS) {
+                console.log(`[credithub] tentativa ${attempt}/${MAX_ATTEMPTS}: consulta em processamento, aguardando ${RETRY_DELAY_MS}ms...`);
+                await sleep(RETRY_DELAY_MS);
+                continue;
+              }
+            }
+            // Status 500 sem push=true = erro real, para de tentar
+            if (!chRes.ok && !text.includes("push=\"true\"")) {
+              console.error(`[credithub] erro definitivo status=${chRes.status}:`, text.substring(0, 200));
+              break;
+            }
+            // Se chegou aqui sem creditHubRaw definido ainda, continua tentando
+            if (!creditHubRaw && attempt < MAX_ATTEMPTS) {
+              await sleep(RETRY_DELAY_MS);
+            }
+          } catch (fetchErr) {
+            console.warn(`[credithub] tentativa ${attempt} exception:`, fetchErr);
+            if (attempt < MAX_ATTEMPTS) await sleep(RETRY_DELAY_MS);
           }
-        } catch (chErr) {
-          console.warn("[credithub] client-side fetch error:", chErr);
+        }
+
+        if (!creditHubRaw) {
+          console.warn("[credithub] ⚠ nenhum dado retornado após", MAX_ATTEMPTS, "tentativas");
         }
 
         // 2. Send everything to bureaus endpoint (server parses + merges)
