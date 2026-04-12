@@ -17,6 +17,12 @@ export async function GET(req: Request) {
     const supaKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     if (supaUrl && supaKey) {
       const db = createClient(supaUrl, supaKey, { auth: { persistSession: false } });
+      // Count total cache entries
+      const { count } = await db.from("bureau_cache").select("*", { count: "exact", head: true });
+      result.totalCachedEntries = count;
+      // Get most recent entries
+      const { data: recent } = await db.from("bureau_cache").select("cnpj, created_at, expires_at").order("created_at", { ascending: false }).limit(5);
+      result.recentCached = recent;
       const { data: cached } = await db.from("bureau_cache").select("result, expires_at, created_at").eq("cnpj", cnpj).single();
       if (cached) {
         const r = cached.result as { protestos?: unknown; processos?: unknown; ccf?: unknown };
