@@ -241,7 +241,14 @@ async function extractExcel(buffer: Buffer): Promise<FaturamentoData> {
 const PROMPT_CNPJ = `Você receberá um Cartão CNPJ emitido pela Receita Federal do Brasil (PDF, imagem ou texto extraído). Extraia os dados e retorne APENAS JSON válido, sem markdown, sem texto adicional.
 
 Schema:
-{"razaoSocial":"","nomeFantasia":"","cnpj":"","dataAbertura":"","situacaoCadastral":"","dataSituacaoCadastral":"","motivoSituacao":"","naturezaJuridica":"","cnaePrincipal":"","cnaeSecundarios":"","porte":"","capitalSocialCNPJ":"","endereco":"","telefone":"","email":"","tipoEmpresa":"","funcionarios":""}
+{"razaoSocial":"","nomeFantasia":"","cnpj":"","dataAbertura":"","situacaoCadastral":"","dataSituacaoCadastral":"","motivoSituacao":"","naturezaJuridica":"","cnaePrincipal":"","cnaeSecundarios":"","porte":"","capitalSocialCNPJ":"","endereco":"","telefone":"","email":"","tipoEmpresa":"","funcionarios":"","qsaDetectado":[{"nome":"","cpfCnpj":"","qualificacao":"","dataEntrada":""}]}
+
+IMPORTANTE: se o Cartão CNPJ tiver seção "QUADRO DE SÓCIOS E ADMINISTRADORES" (QSA), extraia TAMBÉM todos os sócios em "qsaDetectado[]" preservando:
+- nome completo como aparece
+- cpfCnpj (mesmo se mascarado: "***.456.789-**")
+- qualificacao com código (ex: "49-Sócio-Administrador")
+- dataEntrada em DD/MM/YYYY se houver
+Esse é um BONUS — mesmo sem QSA, preencha os outros campos. Se não encontrar QSA, qsaDetectado=[].
 
 Regras de extração:
 - razaoSocial e nomeFantasia: PRESERVE acentos, cedilha e pontuação exatamente como no documento (ex: "Alimentação & Cia Ltda")
@@ -262,30 +269,99 @@ Regras de extração:
 - Campos ausentes: ""
 - NÃO invente dados. NÃO preencha campos com "N/A" ou "Não informado" — use "" direto.`;
 
-const PROMPT_QSA = `Você receberá um Quadro de Sócios e Administradores (QSA) ou documento equivalente da Receita Federal. Extraia os dados e retorne APENAS JSON válido, sem markdown.
+const PROMPT_QSA = `Você receberá um documento com o Quadro de Sócios e Administradores (QSA). O documento pode ser:
+(A) Cartão CNPJ da Receita Federal — contém seção "QUADRO DE SÓCIOS E ADMINISTRADORES" no final
+(B) Contrato Social — contém cláusulas de sócios com participação em cotas
+(C) Relatório CreditHub/Serasa — tabela de sócios
+(D) Quadro Societário extraído de bureau de crédito
+(E) Ata de reunião ou alteração contratual
 
-Schema:
+Retorne APENAS JSON válido, sem markdown.
+
+Schema OBRIGATÓRIO (preencha TODOS os campos que encontrar):
 {"capitalSocial":"","quadroSocietario":[{"nome":"","cpfCnpj":"","qualificacao":"","participacao":"","dataEntrada":""}]}
 
-Regras:
-- Liste TODOS os sócios, administradores e representantes constantes do QSA
-- nome: preserve acentos exatamente como no documento (ex: "João da Silva Júnior")
-- cpfCnpj: use formato automático — se 11 dígitos → CPF "XXX.XXX.XXX-XX"; se 14 dígitos → CNPJ "XX.XXX.XXX/XXXX-XX". CPFs parcialmente mascarados (ex: "***.123.456-**") mantenha como aparece.
-- qualificacao: código + descrição exato (ex: "49 - Sócio-Administrador", "22 - Sócio", "10 - Diretor", "05 - Administrador")
-- participacao: percentual com vírgula decimal (ex: "50,00%", "33,33%"). Se não informado, "".
-- dataEntrada: data de entrada na sociedade em DD/MM/YYYY. Se não informada, "".
-- capitalSocial: em reais com formatação brasileira e prefixo "R$" (ex: "R$ 500.000,00")
+═══ COMO ENCONTRAR OS SÓCIOS ═══
 
-EXCLUSÕES — NÃO inclua:
-- Testemunhas, advogados, contadores ou procuradores
-- Representantes legais que NÃO sejam sócios (ex: "Procurador" isolado)
-- Pessoas que aparecem apenas como cônjuge sem participação societária
+No CARTÃO CNPJ da Receita Federal, procure por:
+- "QUADRO DE SÓCIOS E ADMINISTRADORES"
+- "QSA"
+- "Nome/Nome Empresarial" seguido de "Qualificação"
+- Tabela com colunas: Nome | Qualificação | [CPF parcial]
+- Os CPFs aparecem MASCARADOS no cartão CNPJ (ex: "***.456.789-**")
 
-Deduplicação: se o mesmo CPF/CNPJ aparecer mais de uma vez (ex: sócio + administrador), inclua APENAS UMA VEZ com a qualificação mais abrangente (preferir "Sócio-Administrador" a "Sócio" ou "Administrador" isolado).
+No CONTRATO SOCIAL, procure por:
+- Cláusulas "Dos Sócios" / "Do Capital Social" / "Da Administração"
+- Nome completo + CPF + quantidade de cotas + %
+- "JOÃO DA SILVA, brasileiro, [...], CPF 123.456.789-00, titular de 500.000 cotas, representando 50% do capital"
 
-VALIDAÇÃO: a soma das participações % deve ser ≤ 100%. Se ultrapassar, verifique se há sócio PJ com capital estrangeiro ou duplicação.
+No QSA de BUREAU, procure por tabelas com colunas:
+- Sócio | CPF/CNPJ | Qualificação | Participação | Data de Entrada
 
-NÃO invente dados — campos ausentes = "".`;
+═══ REGRAS DE EXTRAÇÃO (OBRIGATÓRIO) ═══
+
+1. EXTRAIA TODOS os sócios encontrados, SEM EXCEÇÃO. Mesmo que faltem alguns campos.
+2. Se o documento tem 2 sócios, retorne 2 objetos em quadroSocietario[]. Se tem 5, retorne 5.
+3. NUNCA retorne quadroSocietario: [] se há QUALQUER menção a sócios no documento.
+4. Se encontrar apenas o nome do sócio sem CPF, AINDA ASSIM inclua com cpfCnpj="".
+5. Se encontrar "***.456.789-**", retorne como está (CPF mascarado é válido).
+
+═══ CAMPOS ═══
+
+nome: Nome completo EXATAMENTE como no documento, preservando acentos, cedilhas, maiúsculas/minúsculas.
+  - CORRETO: "João da Silva Júnior" ou "JOAO DA SILVA JUNIOR" (copie o original)
+  - Se o nome for empresa, use a razão social (ex: "Empresa Holding Ltda")
+
+cpfCnpj: Documento do sócio.
+  - CPF completo: "XXX.XXX.XXX-XX" (11 dígitos)
+  - CNPJ completo: "XX.XXX.XXX/XXXX-XX" (14 dígitos)
+  - CPF mascarado (cartão CNPJ): mantenha como "***.456.789-**" ou "***.XXX.XXX-**"
+  - Se não encontrar, "" (vazio)
+
+qualificacao: Função/tipo de participação
+  - Formatos comuns: "49 - Sócio-Administrador", "22 - Sócio", "05 - Administrador", "10 - Diretor", "Sócio", "Sócio-Administrador", "Administrador"
+  - Copie EXATAMENTE como aparece no documento (com código numérico se houver)
+
+participacao: Percentual de participação no capital social
+  - Formato: "50,00%" ou "33,33%" (com vírgula decimal e símbolo %)
+  - Se o documento mostrar em cotas (ex: "500.000 cotas de R$1,00"), calcule o % sobre o capital total
+  - Se não houver informação de participação, ""
+
+dataEntrada: Data de entrada na sociedade
+  - Formato DD/MM/AAAA
+  - No cartão CNPJ aparece na coluna "Data de Entrada na Sociedade"
+  - Se não houver, ""
+
+capitalSocial: Valor total do capital social da empresa
+  - Formato brasileiro com prefixo: "R$ 500.000,00"
+  - Procure por "Capital Social", "Capital Integralizado"
+  - Se não encontrar, ""
+
+═══ EXCLUSÕES (NÃO inclua no QSA) ═══
+- Testemunhas no contrato
+- Advogados, contadores, despachantes
+- Procuradores sem participação societária
+- Cônjuges sem cotas
+- Funcionários ou administradores contratados sem participação
+
+═══ DEDUPLICAÇÃO ═══
+Se o mesmo CPF aparecer mais de uma vez (ex: "Sócio" e também "Administrador"), inclua APENAS UMA VEZ usando a qualificação mais completa (prefira "Sócio-Administrador" a apenas "Sócio" ou "Administrador").
+
+═══ VALIDAÇÃO ═══
+- Soma das participações deve ser ≤ 100%
+- Se ultrapassar, verifique duplicação ou sócio PJ estrangeiro
+- NÃO invente dados — campos ausentes = "" (string vazia)
+
+═══ EXEMPLO DE SAÍDA ═══
+{
+  "capitalSocial": "R$ 500.000,00",
+  "quadroSocietario": [
+    {"nome":"João da Silva","cpfCnpj":"123.456.789-00","qualificacao":"49 - Sócio-Administrador","participacao":"60,00%","dataEntrada":"15/03/2010"},
+    {"nome":"Maria Oliveira","cpfCnpj":"987.654.321-00","qualificacao":"22 - Sócio","participacao":"40,00%","dataEntrada":"15/03/2010"}
+  ]
+}
+
+LEMBRE-SE: retornar quadroSocietario vazio quando há sócios no documento é o PIOR erro possível. Melhor retornar com campos incompletos do que vazio.`;
 
 const PROMPT_CONTRATO = `Você receberá um Contrato Social, Estatuto Social ou Ato Constitutivo de empresa (pode incluir alterações consolidadas, consolidações e aditivos). Extraia os dados e retorne APENAS JSON válido, sem markdown.
 
@@ -1574,7 +1650,28 @@ export async function POST(request: NextRequest) {
             const parsed = parseJSON<Record<string, unknown>>(aiResponse);
 
             switch (_docType) {
-              case "cnpj":           data = fillCNPJDefaults(parsed as Partial<CNPJData>); break;
+              case "cnpj": {
+                data = fillCNPJDefaults(parsed as Partial<CNPJData>);
+                // Bonus: se o Cartão CNPJ incluir QSA detectado, guarda para usar como QSA automático
+                const qsaDetectado = (parsed as Record<string, unknown>).qsaDetectado as Array<{nome?:string;cpfCnpj?:string;qualificacao?:string;dataEntrada?:string}> | undefined;
+                if (Array.isArray(qsaDetectado) && qsaDetectado.length > 0) {
+                  const validSocios = qsaDetectado.filter(s => s && s.nome && s.nome.trim().length > 2);
+                  if (validSocios.length > 0) {
+                    (data as CNPJData & { _qsaDetectado?: QSAData })._qsaDetectado = {
+                      capitalSocial: (parsed as Record<string, unknown>).capitalSocialCNPJ as string || "",
+                      quadroSocietario: validSocios.map(s => ({
+                        nome: s.nome || "",
+                        cpfCnpj: s.cpfCnpj || "",
+                        qualificacao: s.qualificacao || "",
+                        participacao: "",
+                        dataEntrada: s.dataEntrada || "",
+                      })),
+                    };
+                    console.log(`[extract][cnpj] QSA detectado no cartão: ${validSocios.length} sócios`);
+                  }
+                }
+                break;
+              }
               case "qsa":            data = fillQSADefaults(parsed as Partial<QSAData>); break;
               case "contrato":       data = fillContratoDefaults(parsed as Partial<ContratoSocialData>); break;
               case "faturamento":    data = fillFaturamentoDefaults(parsed as Partial<FaturamentoData>); break;
@@ -1647,10 +1744,16 @@ export async function POST(request: NextRequest) {
             delete (data as SCRData & { _scrAnterior?: SCRData })._scrAnterior;
             delete (data as SCRData & { _variacoes?: Record<string, string> })._variacoes;
           }
+          // QSA detectado automaticamente no Cartão CNPJ
+          const qsaDetectadoExtra = (data as CNPJData & { _qsaDetectado?: QSAData })._qsaDetectado;
+          if (qsaDetectadoExtra) {
+            delete (data as CNPJData & { _qsaDetectado?: QSAData })._qsaDetectado;
+          }
 
           _send(controller, "result", {
             success: true, data,
             ...(scrAnteriorExtra ? { scrAnterior: scrAnteriorExtra, variacoes: variacoesExtra } : {}),
+            ...(qsaDetectadoExtra ? { qsaDetectado: qsaDetectadoExtra } : {}),
             meta: { rawTextLength: _textContent.length, filledFields: filled, isScanned: _isImage, aiPowered: true },
           });
         } catch (err) {

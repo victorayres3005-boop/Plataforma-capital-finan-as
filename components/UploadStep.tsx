@@ -435,12 +435,23 @@ export default function UploadStep({
           };
           const field = (fieldMap[type] ?? type) as keyof ExtractedData;
           const currentData = prev[field];
-          return {
+          const updated: Record<string, unknown> = {
             ...prev,
             [field]: currentData
               ? mergeData(currentData as unknown as Record<string, unknown>, json.data as Record<string, unknown>)
               : json.data,
           };
+          // QSA auto-detectado no Cartão CNPJ: popula o QSA se ainda vazio
+          if (type === 'cnpj' && json.qsaDetectado) {
+            const qsaDetectado = json.qsaDetectado as QSAData;
+            const qsaAtual = prev.qsa;
+            const temQsa = qsaAtual && Array.isArray(qsaAtual.quadroSocietario) && qsaAtual.quadroSocietario.filter((s) => s.nome).length > 0;
+            if (!temQsa) {
+              updated.qsa = qsaDetectado;
+              console.log('[upload] QSA auto-detectado no Cartão CNPJ:', qsaDetectado.quadroSocietario.length, 'sócios');
+            }
+          }
+          return updated as unknown as typeof prev;
         });
 
         setSections(prev => ({
