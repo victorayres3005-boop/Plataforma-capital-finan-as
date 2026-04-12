@@ -141,19 +141,6 @@ function kpiPlaceholder(): string {
   </div>`;
 }
 
-/** Group divider — separates major report blocks (Identification, SCR, Risk, etc) */
-function groupDivider(roman: string, title: string): string {
-  return `<div style="page-break-before:always;margin-top:40px;margin-bottom:24px;page-break-inside:avoid">
-    <div style="display:flex;align-items:center;gap:14px;padding:18px 20px;background:linear-gradient(135deg,#203B88 0%,#2a4da6 100%);border-radius:10px;box-shadow:0 4px 12px rgba(32,59,136,.18)">
-      <div style="display:inline-flex;align-items:center;justify-content:center;min-width:48px;height:48px;padding:0 14px;background:#73B815;color:#fff;font-size:18px;font-weight:900;border-radius:8px;letter-spacing:.05em;box-shadow:0 2px 6px rgba(0,0,0,.15)">${esc(roman)}</div>
-      <div style="flex:1">
-        <div style="font-size:9px;font-weight:700;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.12em;margin-bottom:2px">Bloco ${esc(roman)}</div>
-        <div style="font-size:18px;font-weight:800;color:#fff;letter-spacing:.02em">${esc(title)}</div>
-      </div>
-    </div>
-  </div>`;
-}
-
 function secHdr(num: string, title: string): string {
   return `<div style="margin-bottom:18px;page-break-inside:avoid">
     <div style="display:flex;align-items:center;background:#203B88;padding:12px 16px;gap:12px">
@@ -635,10 +622,6 @@ function secSintese(p: PDFReportParams): string {
   }
 
   const resumoTldr = p.aiAnalysis?.sinteseExecutiva || p.resumoExecutivo || "";
-  const tldrHtml = resumoTldr ? `
-    <div style="background:#edf2fb;border-left:4px solid #203B88;border-radius:0 8px 8px 0;padding:14px 18px;margin-bottom:20px;page-break-inside:avoid">
-      <div style="font-size:13px;color:#1a2744;line-height:1.7;font-style:italic">${esc(resumoTldr.length > 400 ? resumoTldr.substring(0, 400) + "... (ver Parecer)" : resumoTldr)}</div>
-    </div>` : "";
 
   // ── Painel de Qualidade da Extração ──
   type QualityCheck = { doc: string; status: "ok"|"partial"|"missing"; detail: string };
@@ -764,11 +747,86 @@ function secSintese(p: PDFReportParams): string {
     </div>
   </div>`;
 
+  // ── Parecer da IA — extrai pontos fortes/fracos/contexto pra renderizar inline ──
+  const _aiParecerObj = (typeof p.aiAnalysis?.parecer === "object" && p.aiAnalysis?.parecer !== null)
+    ? p.aiAnalysis.parecer as { resumoExecutivo?: string; textoCompleto?: string; pontosFortes?: string[]; pontosNegativosOuFracos?: string[]; contexto?: string }
+    : null;
+  const aiPontosFortes: string[] = (p.pontosFortes && p.pontosFortes.length > 0)
+    ? p.pontosFortes
+    : (_aiParecerObj?.pontosFortes || []);
+  const aiPontosFracos: string[] = (p.pontosFracos && p.pontosFracos.length > 0)
+    ? p.pontosFracos
+    : (_aiParecerObj?.pontosNegativosOuFracos || []);
+  const aiContexto: string = _aiParecerObj?.contexto
+    || _aiParecerObj?.resumoExecutivo
+    || p.aiAnalysis?.sinteseExecutiva
+    || resumoTldr
+    || "";
+  const hasAiInsights = aiPontosFortes.length > 0 || aiPontosFracos.length > 0 || !!aiContexto;
+
+  // ── Hero limpo: rating + decisão + razão social ──
+  const razaoHero = esc(data.cnpj?.razaoSocial || "Cedente");
+  const cnpjHero = fmtCnpj(data.cnpj?.cnpj);
+  const heroHtml = `<div style="display:flex;align-items:center;gap:20px;padding:22px 26px;margin-bottom:22px;background:linear-gradient(135deg,#203B88 0%,#2a4da6 100%);border-radius:12px;box-shadow:0 4px 16px rgba(32,59,136,.15);page-break-inside:avoid">
+    <div style="text-align:center;flex-shrink:0;padding-right:20px;border-right:1px solid rgba(255,255,255,.18)">
+      <div style="font-size:9px;font-weight:700;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px">Rating Final</div>
+      <div style="font-size:42px;font-weight:900;color:${rc};line-height:1;text-shadow:0 2px 8px rgba(0,0,0,.2)">${finalRating}</div>
+      <div style="font-size:10px;color:rgba(255,255,255,.5);margin-top:2px">de 10</div>
+    </div>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:10px;font-weight:700;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px">Cedente Analisado</div>
+      <div style="font-size:18px;font-weight:800;color:#fff;line-height:1.25;margin-bottom:6px;word-wrap:break-word">${razaoHero}</div>
+      <div style="font-size:11px;color:rgba(255,255,255,.65);font-variant-numeric:tabular-nums">${cnpjHero}</div>
+    </div>
+    <div style="flex-shrink:0">${decisaoBadge(decision, true)}</div>
+  </div>`;
+
+  // ── Bloco do parecer da IA: pontos fortes / fracos / contexto inline ──
+  const parecerInline = hasAiInsights ? `<div style="margin-bottom:24px;page-break-inside:avoid">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+      <div style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;background:#203B88;color:#fff;border-radius:6px;font-size:11px;font-weight:900">IA</div>
+      <div style="font-size:12px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.08em">Parecer Automatico</div>
+      <div style="flex:1;height:1px;background:linear-gradient(to right,#e0e4ec,transparent)"></div>
+    </div>
+    ${aiContexto ? `<div style="background:#f8f9fb;border-left:4px solid #203B88;border-radius:0 8px 8px 0;padding:14px 18px;margin-bottom:14px;font-size:12px;line-height:1.7;color:#374151">
+      <div style="font-size:9px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Contexto</div>
+      ${esc(aiContexto.length > 600 ? aiContexto.substring(0, 600) + "..." : aiContexto)}
+    </div>` : ""}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px 16px">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;background:#22c55e;color:#fff;border-radius:50%;font-size:10px;font-weight:900">\u2713</span>
+          <div style="font-size:10px;font-weight:800;color:#166534;text-transform:uppercase;letter-spacing:.06em">Pontos Fortes</div>
+        </div>
+        ${aiPontosFortes.length > 0
+          ? `<ul style="list-style:none;padding:0;margin:0">${aiPontosFortes.slice(0, 5).map(pt => `<li style="font-size:10.5px;color:#166534;line-height:1.6;padding:4px 0 4px 14px;position:relative">
+              <span style="position:absolute;left:0;top:7px;width:5px;height:5px;background:#22c55e;border-radius:50%"></span>${esc(pt)}
+            </li>`).join("")}</ul>`
+          : `<div style="font-size:10px;color:#9ca3af;font-style:italic">Nenhum ponto forte identificado.</div>`}
+      </div>
+      <div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:14px 16px">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;background:#ef4444;color:#fff;border-radius:50%;font-size:10px;font-weight:900">!</span>
+          <div style="font-size:10px;font-weight:800;color:#991b1b;text-transform:uppercase;letter-spacing:.06em">Pontos de Atencao</div>
+        </div>
+        ${aiPontosFracos.length > 0
+          ? `<ul style="list-style:none;padding:0;margin:0">${aiPontosFracos.slice(0, 5).map(pt => `<li style="font-size:10.5px;color:#991b1b;line-height:1.6;padding:4px 0 4px 14px;position:relative">
+              <span style="position:absolute;left:0;top:7px;width:5px;height:5px;background:#ef4444;border-radius:50%"></span>${esc(pt)}
+            </li>`).join("")}</ul>`
+          : `<div style="font-size:10px;color:#9ca3af;font-style:italic">Nenhum ponto de atencao identificado.</div>`}
+      </div>
+    </div>
+  </div>` : `<div style="padding:14px 18px;margin-bottom:20px;background:#fffbeb;border-left:4px solid #d97706;border-radius:0 8px 8px 0;font-size:11px;color:#92400e">
+    <strong>Parecer automatico nao gerado.</strong> Aguarde a analise da IA terminar ou clique em <em>Analisar com IA</em> para gerar pontos fortes, pontos de atencao e contexto.
+  </div>`;
+
   return `<div class="sec">${secHdr("03","Sintese Preliminar")}
 
-  ${qualityPanel}
+  ${heroHtml}
 
-  ${tldrHtml}
+  ${parecerInline}
+
+  ${qualityPanel}
 
   ${groupLabel("IDENTIFICACAO")}
   ${grid(4,[
@@ -1197,7 +1255,7 @@ function secParametros(p: PDFReportParams): string {
     ["Tranche",fmtMoney(v?.tranche)],
     ["Prazo em Tranche",fmt(v?.prazoTranche)],
   ];
-  return `<div class="sec">${secHdr("09","Parametros Operacionais do Cedente")}
+  return `<div class="sec">${secHdr("04","Parametros Operacionais do Cedente")}
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
     ${params.map(([l,v2])=>dataCard(l,v2)).join("")}
   </div>
@@ -1218,7 +1276,7 @@ function secFundo(p: PDFReportParams): string {
   // Collect failed eliminatorio criteria for alert boxes
   const failedEliminatorios = fv.criteria.filter((cr: FundCriterion) => cr.eliminatoria && cr.status !== "ok");
 
-  return `<div class="sec">${secHdr("10","Conformidade com as Politicas do Fundo")}
+  return `<div class="sec">${secHdr("05","Conformidade com as Politicas do Fundo")}
   <table style="${TS}">
     <thead>${row(["Criterio","Limite","Apurado","Status"],true)}</thead>
     <tbody>${fv.criteria.map((cr: FundCriterion)=>{
@@ -1249,7 +1307,7 @@ function secFundo(p: PDFReportParams): string {
 // ═══════════════════════════════════════════════════════════════════════════════
 function secFaturamento(p: PDFReportParams): string {
   const fat=p.data.faturamento;
-  if(!fat||!fat.meses?.length) return `<div class="sec">${secHdr("13","Faturamento")}<div style="color:#9ca3af;font-size:11px">Dados de faturamento nao disponiveis.</div></div>`;
+  if(!fat||!fat.meses?.length) return `<div class="sec">${secHdr("06","Faturamento")}<div style="color:#9ca3af;font-size:11px">Dados de faturamento nao disponiveis.</div></div>`;
   const meses=sortMeses(fat.meses);
 
   // FMM - correct calculation (always /12)
@@ -1295,7 +1353,7 @@ function secFaturamento(p: PDFReportParams): string {
     </div>`;
   })();
 
-  return `<div class="sec">${secHdr("13","Faturamento")}
+  return `<div class="sec">${secHdr("06","Faturamento")}
   ${grid(4,[
     kpi("FMM 12m", fmmNum > 0 ? fmtMoneyRound(String(fmmNum)) : "\u2014", "#203B88", "media mensal"),
     kpi("Total (12m)", fmtMoneyRound(String(total12)), "#111827", `soma ultimos 12 meses`),
@@ -1384,7 +1442,7 @@ function secProtestos(p: PDFReportParams): string {
 
   const hasDistributions = detalhes.length > 0;
 
-  return `<div class="sec">${secHdr("20","Protestos")}
+  return `<div class="sec">${secHdr("07","Protestos")}
   ${grid(4,[
     kpi("Vigentes Qtd",String(vig),vig>0?"#dc2626":"#111827",undefined,vig>0?"#dc2626":"#203B88"),
     kpi("Vigentes R$",fmtMoneyRound(prot.vigentesValor),vig>0?"#dc2626":"#111827",undefined,vig>0?"#dc2626":"#203B88"),
@@ -1421,7 +1479,7 @@ function secProtestos(p: PDFReportParams): string {
 // ═══════════════════════════════════════════════════════════════════════════════
 function secProcessos(p: PDFReportParams): string {
   const proc=p.data.processos;
-  if(!proc) return `<div class="sec">${secHdr("22","Processos Judiciais")}<div style="color:#9ca3af;font-size:11px">Dados nao disponiveis.</div></div>`;
+  if(!proc) return `<div class="sec">${secHdr("08","Processos Judiciais")}<div style="color:#9ca3af;font-size:11px">Dados nao disponiveis.</div></div>`;
   const total=parseInt(proc.passivosTotal||"0");
   const ativo=parseInt(proc.poloAtivoQtd||"0");
   const passiv=parseInt(proc.poloPassivoQtd||"0");
@@ -1436,7 +1494,7 @@ function secProcessos(p: PDFReportParams): string {
     return statusBadge(translated, type);
   }
 
-  return `<div class="sec">${secHdr("22","Processos Judiciais")}
+  return `<div class="sec">${secHdr("08","Processos Judiciais")}
   ${temRJ?alertBox("Pedido de RJ/Falencia identificado","ALTA"):""}
   ${grid(4,[
     kpi("Total Processos",String(total),total>20?"#dc2626":"#111827"),
@@ -1474,7 +1532,7 @@ function secProcessosTop10Valor(p: PDFReportParams): string {
     return statusBadge(translated, type);
   }
 
-  return `<div class="sec">${secHdr("23","Processos - Top 10 por Valor")}
+  return `<div class="sec">${secHdr("09","Processos - Top 10 por Valor")}
   <table style="${TS}"><thead>${row(["Tipo","Distrib.","Ult. Movto.","Assunto","Valor","Status","Fase"],true)}</thead>
   <tbody>${top.slice(0,10).map(pr=>row([esc(pr.tipo),fmt(pr.data),fmt((pr as {ultimaMovimentacao?:string}).ultimaMovimentacao),esc(pr.assunto),fmtMoney(pr.valor),renderProcessoStatus(pr.status),fmt((pr as {fase?:string}).fase)])).join("")}</tbody></table>
 
@@ -1499,7 +1557,7 @@ function secProcessosTop10Valor(p: PDFReportParams): string {
 function secCcf(p: PDFReportParams): string {
   const ccf=p.data.ccf;
   if(!ccf||ccf.qtdRegistros===0) return "";
-  return `<div class="sec">${secHdr("21","CCF - Cheques Sem Fundo")}
+  return `<div class="sec">${secHdr("10","CCF - Cheques Sem Fundo")}
   ${grid(3,[
     kpi("Total Ocorrencias",String(ccf.qtdRegistros||0),"#dc2626"),
     kpi("Bancos Registrados",String(ccf.bancos?.length||0)),
@@ -1522,7 +1580,7 @@ function secCurvaAbc(p: PDFReportParams): string {
   const concTop3Num = numVal(abc.concentracaoTop3);
   const showAlert = !!(abc as { alertaConcentracao?: boolean }).alertaConcentracao || concTop3Num > 60;
 
-  return `<div class="sec">${secHdr("14","Curva ABC")}
+  return `<div class="sec">${secHdr("11","Curva ABC")}
   ${showAlert ? alertBox(`Alta concentracao de receita: os 3 maiores clientes representam ${concTop3Num > 0 ? concTop3Num.toFixed(0) + "%" : fmt(abc.concentracaoTop3)} do faturamento total.`, "MODERADA") : ""}
   ${grid(3,[
     kpi("Top 3 Clientes %",fmt(abc.concentracaoTop3)),
@@ -1542,7 +1600,7 @@ function secCnpj(p: PDFReportParams): string {
   if(!c) return "";
   const ok=(c.situacaoCadastral||"").toUpperCase().includes("ATIVA");
   const cap=p.data.qsa?.capitalSocial||c.capitalSocialCNPJ||"";
-  return `<div class="sec">${secHdr("04","Cartao CNPJ")}
+  return `<div class="sec">${secHdr("12","Cartao CNPJ")}
   <div style="background:linear-gradient(135deg,#203B88 0%,#2a4da6 100%);border-radius:12px;padding:22px 26px;margin-bottom:18px;page-break-inside:avoid;box-shadow:0 4px 12px rgba(32,59,136,.2)">
     <div style="font-family:'Open Sans',Arial,sans-serif;font-size:22px;font-weight:800;color:#fff;margin-bottom:4px;letter-spacing:.03em">${esc(c.razaoSocial||"\u2014")}</div>
     ${c.nomeFantasia&&c.nomeFantasia!==c.razaoSocial?`<div style="font-size:11px;color:rgba(255,255,255,.45);font-style:italic;margin-bottom:4px">"${esc(c.nomeFantasia)}"</div>`:""}
@@ -1578,7 +1636,7 @@ function secQsa(p: PDFReportParams): string {
   const qsa=p.data.qsa;
   if(!qsa?.quadroSocietario?.length) return "";
   const cap=qsa.capitalSocial||p.data.cnpj?.capitalSocialCNPJ||"";
-  return `<div class="sec">${secHdr("06","Quadro Societario")}
+  return `<div class="sec">${secHdr("13","Quadro Societario")}
   ${cap?`<div style="margin-bottom:16px;padding:14px 18px;background:linear-gradient(135deg,#f8f9fb 0%,#edf2fb 100%);border-radius:8px;border:1px solid #e0e4ec;font-size:12px;color:#374151">Capital Social: <strong style="font-size:14px;color:#203B88">${fmtMoney(cap)}</strong></div>`:""}
   <table style="${TS}">
     <thead>${row(["Nome","CPF/CNPJ","Qualificacao","Participacao"],true)}</thead>
@@ -1605,7 +1663,7 @@ function secQsa(p: PDFReportParams): string {
 function secContrato(p: PDFReportParams): string {
   const ct=p.data.contrato;
   if(!ct) return "";
-  return `<div class="sec">${secHdr("07","Contrato Social")}
+  return `<div class="sec">${secHdr("14","Contrato Social")}
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
     ${ct.capitalSocial?dataCard("Capital Social",fmtMoney(ct.capitalSocial)):""}
     ${ct.dataConstituicao?dataCard("Data de Constituicao",fmt(ct.dataConstituicao)):""}
@@ -1623,7 +1681,7 @@ function secContrato(p: PDFReportParams): string {
 function secGrupoEconomico(p: PDFReportParams): string {
   const ge=p.data.grupoEconomico;
   if(!ge?.empresas?.length) return "";
-  return `<div class="sec">${secHdr("08","Gestao e Grupo Economico")}
+  return `<div class="sec">${secHdr("15","Gestao e Grupo Economico")}
   <table style="${TS}">
     <thead>${row(["Empresa","CNPJ","Relacao","Situacao"],true)}</thead>
     <tbody>${ge.empresas.map(e=>row([
@@ -1688,7 +1746,7 @@ function secComparativoScr(p: PDFReportParams): string {
   const cnpjFmt = fmtCnpj(p.data.cnpj?.cnpj);
   const razaoFmt = esc(p.data.cnpj?.razaoSocial || "Empresa");
   void razaoFmt;
-  let html = `<div class="sec">${secHdr("17","Comparativo SCR - Empresa (PJ)")}
+  let html = `<div class="sec">${secHdr("16","Comparativo SCR - Empresa (PJ)")}
   <div style="font-size:10px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;padding:6px 12px;background:#edf2fb;border-radius:6px;display:inline-block">Empresa (PJ) — ${cnpjFmt}</div>
   <div style="display:flex;gap:16px;margin-bottom:16px">
     <div style="flex:1;padding:12px 16px;background:#f8f9fb;border-radius:8px;border:1px solid #e0e4ec;text-align:center">
@@ -1736,7 +1794,7 @@ function secScrVencimentos(p: PDFReportParams): string {
   ];
   const vals=ordem.map(o=>({l:o.l,v:numVal((faixas as unknown as Record<string,string>)[o.k])})).filter(x=>x.v>0);
   if(vals.length===0) return "";
-  return `<div class="sec">${secHdr("18","SCR Vencimentos")}
+  return `<div class="sec">${secHdr("17","SCR Vencimentos")}
   <table style="${TS}">
     <thead>${row(["Faixa","Valor"],true)}</thead>
     <tbody>${vals.map(v=>row([v.l,fmtMoney(String(v.v))])).join("")}</tbody>
@@ -1752,7 +1810,7 @@ function secModalidadesScr(p: PDFReportParams): string {
   if(!scr?.modalidades?.length) return "";
   const prev=p.data.scrAnterior;
   const prevMods=prev?.modalidades||[];
-  return `<div class="sec">${secHdr("19","Modalidades SCR")}
+  return `<div class="sec">${secHdr("18","Modalidades SCR")}
   <table style="${TS}">
     <thead><tr><th rowspan="2">Modalidade</th>${prev?`<th colspan="4" style="text-align:center">${fmt(prev.periodoReferencia)} (ant.)</th>`:""}<th colspan="4" style="text-align:center">${fmt(scr.periodoReferencia)} (atual)</th></tr>
     <tr>${prev?"<th>Total</th><th>A Vencer</th><th>Vencido</th><th>Part%</th>":""}<th>Total</th><th>A Vencer</th><th>Vencido</th><th>Part%</th></tr></thead>
@@ -1779,7 +1837,7 @@ function secScrSocios(p: PDFReportParams): string {
   // Vazio: renderiza placeholder com lista do QSA pra ficar visível o gap
   if (!socios || socios.length === 0) {
     if (sociosQsa.length === 0) return "";
-    return `<div class="sec">${secHdr("17b","Comparativo SCR - Socios PF")}
+    return `<div class="sec">${secHdr("16b","Comparativo SCR - Socios PF")}
       <div style="padding:14px 18px;background:#fffbeb;border-left:4px solid #d97706;border-radius:0 8px 8px 0;margin-bottom:16px">
         <div style="font-size:12px;font-weight:800;color:#92400e;margin-bottom:6px">SCR dos socios nao foi enviado/extraido</div>
         <div style="font-size:11px;color:#78350f;line-height:1.6">A analise FIDC ideal exige o SCR de cada socio pessoa fisica para mensurar a exposicao consolidada (alavancagem total = divida PJ + divida PF). Sem esses dados, a alavancagem reportada cobre apenas a empresa.</div>
@@ -1893,11 +1951,14 @@ function secScrSocios(p: PDFReportParams): string {
     : socios;
   void cardsRelevantes;
 
-  return `<div class="sec">${secHdr("17b","Comparativo SCR - Socios PF")}
-    <div style="font-size:11px;color:#6b7280;margin-bottom:14px">Visao consolidada da exposicao dos socios pessoa fisica e detalhamento individual por modalidade.</div>
-    <div style="font-size:10px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">Resumo consolidado PF</div>
+  return `<div class="sec" style="page-break-before:always">${secHdr("16b","Comparativo SCR - Socios PF (TABELA SEPARADA)")}
+    <div style="padding:12px 16px;background:#edf2fb;border-left:4px solid #203B88;border-radius:0 8px 8px 0;margin-bottom:18px">
+      <div style="font-size:12px;font-weight:800;color:#203B88;margin-bottom:4px">Tabela exclusiva da exposicao bancaria dos socios pessoa fisica</div>
+      <div style="font-size:10px;color:#374151;line-height:1.6">Esta secao e <strong>independente</strong> da tabela SCR PJ (secao 16). Mostra o resumo consolidado dos ${socios.length} socio(s) e o detalhamento individual de cada um por modalidade bancaria.</div>
+    </div>
+    <div style="font-size:10px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">Resumo consolidado PF (${socios.length} socio${socios.length !== 1 ? "s" : ""})</div>
     ${consolidTable}
-    <div style="font-size:10px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.08em;margin:20px 0 10px">Detalhamento por socio</div>
+    <div style="font-size:10px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.08em;margin:24px 0 10px">Detalhamento individual por socio</div>
     ${cards}
   </div>`;
 }
@@ -1989,7 +2050,7 @@ function secDre(p: PDFReportParams): string {
     {label:"Lucro Liquido",key:"lucroLiquido",isMoney:true,isPct:false},
     {label:"Margem Liquida",key:"margemLiquida",isMoney:false,isPct:true},
   ];
-  return `<div class="sec">${secHdr("15","DRE")}
+  return `<div class="sec">${secHdr("19","DRE")}
   ${anyHasCalc ? `<div style="font-size:10px;color:#6b7280;margin-bottom:10px;padding:8px 12px;background:#f8f9fb;border-left:3px solid #203B88;border-radius:0 6px 6px 0">
     <strong>Nota:</strong> Valores marcados com <em>(calc)</em> foram reconstruidos a partir dos campos disponiveis (Receita Bruta, Lucro Liquido, Custo, etc) quando o extrator nao identificou diretamente. Verificar com a DRE original.
   </div>` : ""}
@@ -2039,7 +2100,7 @@ function secBalanco(p: PDFReportParams): string {
     {label:"Capital de Giro Liq.",key:"capitalDeGiroLiquido",isMoney:true,isPct:false},
     {label:"NCG (Necess. Cap. Giro)",key:"_ncg",isMoney:true,isPct:false},
   ];
-  return `<div class="sec">${secHdr("16","Balanco Patrimonial")}
+  return `<div class="sec">${secHdr("20","Balanco Patrimonial")}
   <table style="${TS}">
     <thead>${row(["Metrica",...anos.map(a=>`<strong>${esc(a.ano)}</strong>`)],true)}</thead>
     <tbody>${metricas.map(m=>{
@@ -2078,7 +2139,7 @@ function secBalanco(p: PDFReportParams): string {
 function secHistoricoConsultas(p: PDFReportParams): string {
   const hist=p.data.historicoConsultas;
   if(!hist?.length) return "";
-  return `<div class="sec">${secHdr("24","Historico de Consultas")}
+  return `<div class="sec">${secHdr("21","Historico de Consultas")}
   <table style="${TS}">
     <thead>${row(["Instituicao","Data da Consulta"],true)}</thead>
     <tbody>${hist.map(h=>row([esc(h.usuario||"\u2014"),fmt(h.ultimaConsulta)])).join("")}</tbody>
@@ -2100,7 +2161,7 @@ function secIrSocios(p: PDFReportParams): string {
   // Vazio: renderiza placeholder com sócios pendentes
   if (!socios?.length) {
     if (sociosQsa.length === 0) return "";
-    return `<div class="sec">${secHdr("25","IR dos Socios")}
+    return `<div class="sec">${secHdr("22","IR dos Socios")}
       <div style="padding:14px 18px;background:#fffbeb;border-left:4px solid #d97706;border-radius:0 8px 8px 0;margin-bottom:16px">
         <div style="font-size:12px;font-weight:800;color:#92400e;margin-bottom:6px">IR dos socios nao foi coletado/extraido</div>
         <div style="font-size:11px;color:#78350f;line-height:1.6">A declaracao de IR dos socios PF e o instrumento mais confiavel para validar capacidade financeira pessoal, patrimonio liquido individual, dividas/onus declarados e participacao em outras sociedades. Recomenda-se solicitar a Receita Federal ou o documento "Recibo de Entrega" da DIRPF.</div>
@@ -2117,7 +2178,7 @@ function secIrSocios(p: PDFReportParams): string {
       </table>
     </div>`;
   }
-  return `<div class="sec">${secHdr("25","IR dos Socios")}
+  return `<div class="sec">${secHdr("22","IR dos Socios")}
   ${socios.map(s=>{
     return `<div style="border:1px solid #e0e4ec;border-left:5px solid #203B88;border-radius:0 10px 10px 0;padding:16px 18px;margin-bottom:16px;page-break-inside:avoid;box-shadow:0 2px 8px rgba(32,59,136,.04)">
       <div style="font-size:15px;font-weight:800;color:#111827;margin-bottom:3px">${esc(s.nomeSocio)}</div>
@@ -2145,7 +2206,7 @@ function secVisita(p: PDFReportParams): string {
   if(!v) return "";
   const pontosPositivos=(v.pontosPositivos||[]) as string[];
   const pontosNegativos=(v.pontosAtencao||[]) as string[];
-  return `<div class="sec">${secHdr("12","Relatorio de Visita")}
+  return `<div class="sec">${secHdr("23","Relatorio de Visita")}
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
     ${v.dataVisita?dataCard("Data",fmt(v.dataVisita)):""}
     ${v.responsavelVisita?dataCard("Responsavel",fmt(v.responsavelVisita)):""}
@@ -2179,7 +2240,7 @@ function secDadosEmpresa(p: PDFReportParams): string {
     ["Prazo Medio Entrega",v.prazoMedioEntrega?v.prazoMedioEntrega+" dias":"\u2014"],
     ["Referencias Comerciais",fmt(v.referenciasFornecedores)],
   ];
-  return `<div class="sec">${secHdr("05","Dados da Empresa")}
+  return `<div class="sec">${secHdr("24","Dados da Empresa")}
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
     ${params.map(([l,val])=>dataCard(l,val)).join("")}
   </div>
@@ -2224,7 +2285,7 @@ function secHistoricoOperacoes(p: PDFReportParams): string {
   const ativas = sorted.filter(o => o.status === "ativa").length;
   const inadimplentes = sorted.filter(o => o.status === "inadimplente").length;
 
-  return `<div class="sec">${secHdr("11","Historico de Operacoes com o Fundo")}
+  return `<div class="sec">${secHdr("25","Historico de Operacoes com o Fundo")}
   ${grid(4, [
     kpi("Total Operacoes", String(totalOps)),
     kpi("Volume Total", fmtMoneyRound(String(totalValor))),
@@ -2266,43 +2327,29 @@ export function gerarHtmlRelatorio(p: PDFReportParams): {
   ${secChecklist(p)}
   ${secSintese(p)}
   ${secParecer(p)}
-
-  ${groupDivider("I", "Identificacao da Empresa")}
+  ${secParametros(p)}
+  ${secHistoricoOperacoes(p)}
+  ${secFundo(p)}
+  ${secFaturamento(p)}
+  ${secProtestos(p)}
+  ${secProcessos(p)}
+  ${secProcessosTop10Valor(p)}
+  ${secCcf(p)}
+  ${secCurvaAbc(p)}
   ${secCnpj(p)}
-  ${secDadosEmpresa(p)}
   ${secQsa(p)}
   ${secContrato(p)}
   ${secGrupoEconomico(p)}
-
-  ${groupDivider("II", "Operacao e Politica Comercial")}
-  ${secParametros(p)}
-  ${secFundo(p)}
-  ${secHistoricoOperacoes(p)}
-  ${secVisita(p)}
-
-  ${groupDivider("III", "Performance Comercial")}
-  ${secFaturamento(p)}
-  ${secCurvaAbc(p)}
-
-  ${groupDivider("IV", "Demonstracoes Financeiras")}
-  ${secDre(p)}
-  ${secBalanco(p)}
-
-  ${groupDivider("V", "Exposicao Bancaria (SCR)")}
   ${secComparativoScr(p)}
   ${secScrSocios(p)}
   ${secScrVencimentos(p)}
   ${secModalidadesScr(p)}
-
-  ${groupDivider("VI", "Restritivos e Risco Judicial")}
-  ${secProtestos(p)}
-  ${secCcf(p)}
-  ${secProcessos(p)}
-  ${secProcessosTop10Valor(p)}
+  ${secDre(p)}
+  ${secBalanco(p)}
   ${secHistoricoConsultas(p)}
-
-  ${groupDivider("VII", "Socios — Pessoa Fisica")}
   ${secIrSocios(p)}
+  ${secVisita(p)}
+  ${secDadosEmpresa(p)}
 </body></html>`;
 
   const headerTemplate=`<div style="width:100%;font-family:'Open Sans','Helvetica Neue',Arial,sans-serif">
