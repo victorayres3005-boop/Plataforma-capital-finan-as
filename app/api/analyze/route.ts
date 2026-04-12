@@ -142,7 +142,13 @@ async function callGemini(prompt: string, data: string): Promise<string> {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 contents: [{ parts }],
-                generationConfig: { temperature: 0.3, maxOutputTokens: 8192, responseMimeType: "application/json" },
+                generationConfig: {
+                  temperature: 0.3,
+                  maxOutputTokens: 16384,
+                  responseMimeType: "application/json",
+                  // Desativa "thinking" do gemini-2.5-flash para não consumir tokens
+                  ...(model.includes("2.5") ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
+                },
               }),
               signal: controller.signal,
             });
