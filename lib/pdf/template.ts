@@ -953,12 +953,35 @@ function secParecer(p: PDFReportParams): string {
     ? p.perguntasVisita
     : (parecerIsObj ? ((parecerObj as { perguntasVisita?: { pergunta: string; contexto: string }[] }).perguntasVisita || []) : []);
 
-  // If we have nothing to show, skip section
-  if (!resumo && !textoCompleto && pontosFortes.length === 0 && pontosFracos.length === 0 && perguntasVisita.length === 0) return "";
-
   const rc = p.finalRating >= 7 ? "#16a34a" : p.finalRating >= 4 ? "#d97706" : "#dc2626";
 
+  // Diagnostico: lista o que veio do Gemini e o que nao veio
+  const aiOk = !!p.aiAnalysis;
+  const fieldsStatus = [
+    { label: "Resumo executivo", ok: !!resumo },
+    { label: "Análise completa", ok: !!textoCompleto },
+    { label: "Pontos fortes", ok: pontosFortes.length > 0 },
+    { label: "Pontos fracos", ok: pontosFracos.length > 0 },
+    { label: "Perguntas para visita", ok: perguntasVisita.length > 0 },
+  ];
+  const allEmpty = !resumo && !textoCompleto && pontosFortes.length === 0 && pontosFracos.length === 0 && perguntasVisita.length === 0;
+
+  // Banner placeholder quando o parecer nao foi gerado/veio vazio
+  const placeholderBanner = allEmpty ? `<div style="padding:16px 20px;background:#fffbeb;border-left:4px solid #d97706;border-radius:0 8px 8px 0;margin-bottom:20px">
+    <div style="font-size:13px;font-weight:800;color:#92400e;margin-bottom:8px">${aiOk ? "Parecer da IA veio vazio" : "Parecer ainda não foi gerado pela IA"}</div>
+    <div style="font-size:11px;color:#78350f;line-height:1.7;margin-bottom:10px">${aiOk
+      ? "O endpoint /api/analyze foi chamado mas o Gemini não retornou nenhum dos campos esperados (resumo, pontos fortes/fracos, análise completa, perguntas de visita). Provavel falha de parsing JSON ou rate limit. Tente clicar em <strong>Analisar com IA</strong> novamente."
+      : "Antes de gerar o relatório, clique no botão <strong>Analisar com IA</strong> para que o Gemini produza o parecer (resumo executivo, pontos fortes, pontos fracos, análise completa e perguntas de visita)."}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:10px">
+      ${fieldsStatus.map(f => `<div style="padding:6px 8px;background:${f.ok ? '#dcfce7' : '#fee2e2'};border:1px solid ${f.ok ? '#bbf7d0' : '#fecaca'};border-radius:6px;text-align:center">
+        <div style="font-size:9px;font-weight:700;color:${f.ok ? '#166534' : '#991b1b'}">${f.ok ? '✓' : '✗'} ${esc(f.label)}</div>
+      </div>`).join("")}
+    </div>
+  </div>` : "";
+
   return `<div class="sec">${secHdr("03b","Parecer Preliminar")}
+  ${placeholderBanner}
 
   <!-- Decision banner with rating -->
   <div style="display:flex;align-items:center;justify-content:center;gap:24px;padding:20px;margin-bottom:20px;background:linear-gradient(135deg,#f8f9fb 0%,#edf2fb 100%);border-radius:12px;border:1px solid #e0e4ec">
