@@ -45,8 +45,45 @@ function fmtCpf(raw: string | null | undefined): string {
 }
 function numVal(v: string | number | null | undefined): number {
   if (v == null) return 0;
-  const n = parseFloat(String(v).replace(/[^\d,-]/g,"").replace(",","."));
-  return isNaN(n) ? 0 : n;
+  if (typeof v === "number") return isNaN(v) ? 0 : v;
+  const cleaned = String(v).trim().replace(/[^\d.,\-]/g, "");
+  if (!cleaned) return 0;
+  const hasComma = cleaned.includes(",");
+  const hasDot = cleaned.includes(".");
+  let num: number;
+  if (hasComma && hasDot) {
+    // Ambos: o que vem depois é o decimal
+    const lastComma = cleaned.lastIndexOf(",");
+    const lastDot = cleaned.lastIndexOf(".");
+    if (lastComma > lastDot) {
+      // BR: 1.234.567,89
+      num = parseFloat(cleaned.replace(/\./g, "").replace(",", "."));
+    } else {
+      // US: 1,234,567.89
+      num = parseFloat(cleaned.replace(/,/g, ""));
+    }
+  } else if (hasComma) {
+    const parts = cleaned.split(",");
+    if (parts.length === 2 && parts[1].length <= 2) {
+      // BR decimal: 123456,78
+      num = parseFloat(cleaned.replace(",", "."));
+    } else {
+      // US thousands: 1,234,567
+      num = parseFloat(cleaned.replace(/,/g, ""));
+    }
+  } else if (hasDot) {
+    const parts = cleaned.split(".");
+    if (parts.length === 2 && parts[1].length <= 2) {
+      // Decimal: 123.45
+      num = parseFloat(cleaned);
+    } else {
+      // BR thousands: 1.234.567
+      num = parseFloat(cleaned.replace(/\./g, ""));
+    }
+  } else {
+    num = parseFloat(cleaned);
+  }
+  return isNaN(num) ? 0 : num;
 }
 function fmtCompact(v: number): string {
   if (v >= 1000000) return (v / 1000000).toFixed(1).replace(".", ",") + "M";

@@ -325,6 +325,39 @@ const PROMPT_FATURAMENTO = `Você receberá um relatório de faturamento mensal 
 Schema:
 {"meses":[{"mes":"01/2024","valor":"1.234.567,89"}],"somatoriaTotal":"","totalMesesExtraidos":0,"faturamentoZerado":false,"dadosAtualizados":true,"ultimoMesComDados":"","anoMaisAntigo":"","anoMaisRecente":"","fmm12m":"","mediaAno":""}
 
+═══ REGRA CRÍTICA ANTI-CONFUSAO DE SEPARADORES ═══
+ATENÇÃO: o separador brasileiro usa PONTO para milhar e VÍRGULA para decimal.
+NUNCA confunda com formato americano (vírgula para milhar, ponto para decimal).
+
+CORRETOS (formato brasileiro):
+- R$ 3.506.158,22  (três milhões e meio)
+- R$ 850.000,00    (oitocentos e cinquenta mil)
+- R$ 42.300,50     (quarenta e dois mil trezentos)
+
+ERRADOS (interpretação americana do brasileiro):
+- 3,506,158.22 (NÃO USE — formato americano)
+- 3506158.22   (NÃO USE — sem separador de milhar)
+
+REGRA DE OURO: se você vê "3.506.158,22" em um documento brasileiro:
+- São 3 milhões 506 mil 158 reais e 22 centavos
+- NÃO é "3.506.158,22 milhões" (isso seria 3 trilhões)
+- NÃO é 3,506 (três mil e quinhentos)
+
+VALIDAÇÃO DE ORDEM DE GRANDEZA:
+- Um faturamento mensal normal de PME fica entre R$ 50.000 e R$ 50.000.000 (50K a 50M)
+- Um faturamento mensal > R$ 100.000.000 (100 milhões) é EXCEPCIONAL — confira o documento
+- Um faturamento mensal < R$ 10.000 (10 mil) pode ser um erro de parse
+- Se o valor extraído parecer 10x ou 100x maior que o razoável, REINTERPRETE o separador
+
+EXEMPLO PRÁTICO de armadilha:
+- Documento: "3.506.158,22"
+- Interpretação CERTA: 3506158.22 reais (3,5 milhões)
+- Interpretação ERRADA: 3506158220 (confundindo com "3,506,158.22")
+- Interpretação ERRADA: 350615822 (removendo tudo sem entender separador)
+
+Ao extrair, SEMPRE pergunte: "este valor faz sentido para um faturamento mensal?"
+Se você viu "FATURAMENTO: 3.506.158,22" em uma planilha mensal de PME, são 3,5M, não 3,5B.
+
 FORMATO NUMÉRICO BRASILEIRO (OBRIGATÓRIO):
 - Separador de MILHAR = ponto (.)  —  Separador DECIMAL = vírgula (,)
 - CORRETO: "1.234.567,89" | "3.506.158,22" | "850.000,00" | "42.300,50"
@@ -366,6 +399,12 @@ const PROMPT_SCR = `Extraia dados do SCR (Sistema de Informações de Crédito d
 
 Schema obrigatório:
 {"periodoReferencia":"MM/AAAA","tipoPessoa":"PJ","cnpjSCR":"","nomeCliente":"","cpfSCR":"","pctDocumentosProcessados":"","pctVolumeProcessado":"","carteiraAVencer":"","vencidos":"","prejuizos":"","limiteCredito":"","qtdeInstituicoes":"","qtdeOperacoes":"","totalDividasAtivas":"","operacoesAVencer":"","operacoesEmAtraso":"","operacoesVencidas":"","tempoAtraso":"","coobrigacoes":"","classificacaoRisco":"","carteiraCurtoPrazo":"","carteiraLongoPrazo":"","emDia":"","semHistorico":false,"numeroIfs":"","faixasAVencer":{"ate30d":"0,00","d31_60":"0,00","d61_90":"0,00","d91_180":"0,00","d181_360":"0,00","acima360d":"0,00","prazoIndeterminado":"0,00","total":"0,00"},"faixasVencidos":{"ate30d":"0,00","d31_60":"0,00","d61_90":"0,00","d91_180":"0,00","d181_360":"0,00","acima360d":"0,00","total":"0,00"},"faixasPrejuizos":{"ate12m":"0,00","acima12m":"0,00","total":"0,00"},"faixasLimite":{"ate360d":"0,00","acima360d":"0,00","total":"0,00"},"outrosValores":{"carteiraCredito":"0,00","repasses":"0,00","coobrigacoes":"0,00","responsabilidadeTotal":"0,00","creditosALiberar":"0,00","riscoTotal":"0,00"},"modalidades":[{"nome":"","total":"","aVencer":"","vencido":"","participacao":"","ehContingente":false}],"instituicoes":[{"nome":"","valor":""}],"valoresMoedaEstrangeira":"","historicoInadimplencia":"","periodoAnterior":{"periodoReferencia":"","carteiraAVencer":"","vencidos":"","prejuizos":"","limiteCredito":"","totalDividasAtivas":"","operacoesAVencer":"","operacoesEmAtraso":"","operacoesVencidas":"","carteiraCurtoPrazo":"","carteiraLongoPrazo":"","classificacaoRisco":"","qtdeInstituicoes":"","numeroIfs":"","emDia":"","semHistorico":false,"faixasAVencer":{"ate30d":"0,00","d31_60":"0,00","d61_90":"0,00","d91_180":"0,00","d181_360":"0,00","acima360d":"0,00","prazoIndeterminado":"0,00","total":"0,00"},"faixasVencidos":{"ate30d":"0,00","d31_60":"0,00","d61_90":"0,00","d91_180":"0,00","d181_360":"0,00","acima360d":"0,00","total":"0,00"}},"variacoes":{"emDia":"","carteiraCurtoPrazo":"","carteiraLongoPrazo":"","totalDividasAtivas":"","vencidos":"","prejuizos":"","limiteCredito":"","numeroIfs":""}}
+
+VALIDAÇÃO DE ORDEM DE GRANDEZA:
+- Valores do SCR devem estar em reais (formato brasileiro com ponto milhar, vírgula decimal)
+- totalDividasAtivas de PME: tipicamente entre R$ 10k e R$ 100M
+- Se um valor parecer > R$ 10 bilhões, provavelmente errou o separador
+- SEMPRE interprete "3.506.158,22" como 3,5 milhões, NÃO como 3,5 bilhões
 
 ═══ REGRAS GERAIS ═══
 - periodoReferencia: OBRIGATÓRIO, formato MM/AAAA (ex: "04/2025")
@@ -659,6 +698,30 @@ const PROMPT_BALANCO = `Você receberá um Balanço Patrimonial. Pode estar em f
 Schema EXATO (respeite todos os campos):
 {"anos":[{"ano":"2024","ativoTotal":"0,00","ativoCirculante":"0,00","caixaEquivalentes":"0,00","contasAReceber":"0,00","estoques":"0,00","outrosAtivosCirculantes":"0,00","ativoNaoCirculante":"0,00","imobilizado":"0,00","intangivel":"0,00","outrosAtivosNaoCirculantes":"0,00","passivoTotal":"0,00","passivoCirculante":"0,00","fornecedores":"0,00","emprestimosCP":"0,00","outrosPassivosCirculantes":"0,00","passivoNaoCirculante":"0,00","emprestimosLP":"0,00","outrosPassivosNaoCirculantes":"0,00","patrimonioLiquido":"0,00","capitalSocial":"0,00","reservas":"0,00","lucrosAcumulados":"0,00","liquidezCorrente":"0,00","liquidezGeral":"0,00","endividamentoTotal":"0,00","capitalDeGiroLiquido":"0,00"}],"periodoMaisRecente":"","tendenciaPatrimonio":"estavel","observacoes":""}
 
+═══ REGRA CRÍTICA ANTI-CONFUSAO DE SEPARADORES ═══
+ATENÇÃO: o separador brasileiro usa PONTO para milhar e VÍRGULA para decimal.
+NUNCA confunda com formato americano (vírgula para milhar, ponto para decimal).
+
+CORRETOS (formato brasileiro):
+- R$ 3.506.158,22  (três milhões e meio)
+- R$ 850.000,00    (oitocentos e cinquenta mil)
+- R$ 42.300,50     (quarenta e dois mil trezentos)
+
+ERRADOS (interpretação americana do brasileiro):
+- 3,506,158.22 (NÃO USE — formato americano)
+- 3506158.22   (NÃO USE — sem separador de milhar)
+
+REGRA DE OURO: se você vê "3.506.158,22" em um documento brasileiro:
+- São 3 milhões 506 mil 158 reais e 22 centavos
+- NÃO é "3.506.158,22 milhões" (isso seria 3 trilhões)
+- NÃO é 3,506 (três mil e quinhentos)
+
+VALIDAÇÃO DE ORDEM DE GRANDEZA para PME:
+- Ativo Total: tipicamente R$ 500k a R$ 500M
+- Patrimônio Líquido: pode ser negativo, mas raramente > R$ 100M
+- Capital Social: geralmente R$ 10k a R$ 10M
+Se extrair um Ativo Total > R$ 1 bilhão para uma PME, PROVAVELMENTE errou o separador.
+
 FORMATO NUMÉRICO BRASILEIRO (OBRIGATÓRIO):
 - Separador de MILHAR = ponto (.) — Separador DECIMAL = vírgula (,)
 - Exemplos corretos: "1.234.567,89", "850.000,00", "-45.320,10"
@@ -800,9 +863,46 @@ Regras gerais:
 - observacoesLivres: bloco de texto com observações gerais do visitante (máximo 500 caracteres)
 - descricaoEstrutura: descrição física do local (área, organização, condições — máximo 300 caracteres)
 
+═══ REGRA CRÍTICA ANTI-CONFUSAO DE SEPARADORES (valores operacionais: taxas, limites, pleito, ticket) ═══
+ATENÇÃO: o separador brasileiro usa PONTO para milhar e VÍRGULA para decimal.
+NUNCA confunda com formato americano (vírgula para milhar, ponto para decimal).
+
+CORRETOS (formato brasileiro):
+- R$ 3.506.158,22  (três milhões e meio)
+- R$ 850.000,00    (oitocentos e cinquenta mil)
+- R$ 42.300,50     (quarenta e dois mil trezentos)
+
+ERRADOS (interpretação americana do brasileiro):
+- 3,506,158.22 (NÃO USE — formato americano)
+- 3506158.22   (NÃO USE — sem separador de milhar)
+
+REGRA DE OURO: se você vê "3.506.158,22" em um documento brasileiro:
+- São 3 milhões 506 mil 158 reais e 22 centavos
+- NÃO é "3.506.158,22 milhões" (isso seria 3 trilhões)
+
+Se um limite ou pleito extraído parecer 10x ou 100x maior que o razoável, REINTERPRETE o separador.
+
 Pleito e modalidade:
 - pleito: valor em R$ sugerido pelo cedente (ex: "150000,00"). Buscar por "pleito", "valor solicitado", "limite sugerido", "crédito pleiteado"
-- modalidade: "comissaria" (cedente mantém relação com sacado, faz cobrança) | "convencional" (cessão plena, FIDC assume risco) | "hibrida" | "outra"
+
+═══ MODALIDADE — ATENÇÃO CRÍTICA ═══
+A modalidade descreve COMO o FIDC opera com o cedente:
+
+- "convencional": FIDC assume o risco total. Cedente cede os recebíveis e NÃO faz cobrança.
+  Palavras-chave: "cessão plena", "risco do FIDC", "sem recompra", "convencional"
+
+- "comissaria": Cedente mantém o relacionamento, faz a cobrança. FIDC desconta os títulos.
+  Palavras-chave: "comissária", "cobrança pelo cedente", "recompra obrigatória", "mandato"
+
+- "hibrida": O cedente opera em AMBAS as modalidades (algumas operações convencional, outras comissária).
+  Palavras-chave: "híbrida", "mista", "ambas", "os dois formatos"
+  Sinal decisivo: se o documento tem TANTO taxaConvencional QUANTO taxaComissaria, é hibrida.
+
+REGRAS DE DEDUÇÃO:
+- Se documento menciona APENAS "convencional" OU só taxaConvencional → "convencional"
+- Se documento menciona APENAS "comissária" OU só taxaComissaria → "comissaria"
+- Se documento menciona AMBAS ou "híbrida" → "hibrida"
+- Se não há menção clara → "" (vazio, NUNCA invente)
 
 Parâmetros operacionais (buscar em tabelas, campos rotulados ou seção de "parâmetros/condições"):
 - taxaConvencional: taxa % para modalidade convencional (ex: "2,5%")

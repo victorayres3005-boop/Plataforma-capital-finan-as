@@ -31,19 +31,52 @@ export function sanitizeDescricaoDebitos(raw: string | undefined): string {
 }
 
 /** Garante que valor monetário BR está no formato correto ("1.234,56"). */
-export function sanitizeMoney(raw: string | undefined | null): string {
-  if (!raw) return "0,00";
-  const trimmed = raw.trim();
-  // Aceita "0,00", "1.234,56", "-500,00"
-  if (/^-?\d{1,3}(\.\d{3})*(,\d{2})?$/.test(trimmed)) return trimmed;
-  // Tenta converter formato americano "1,234.56" → "1.234,56"
-  const americanFmt = /^-?\d{1,3}(,\d{3})*(\.\d{2})?$/.test(trimmed);
-  if (americanFmt) {
-    return trimmed.replace(/,/g, "X").replace(/\./g, ",").replace(/X/g, ".");
+export function sanitizeMoney(v: string | undefined | null): string {
+  if (!v) return "0,00";
+  const cleaned = String(v).trim().replace(/[^\d.,\-]/g, "");
+  if (!cleaned) return "0,00";
+
+  // Detect American format (1,234,567.89) vs Brazilian (1.234.567,89)
+  const hasComma = cleaned.includes(",");
+  const hasDot = cleaned.includes(".");
+  let num: number;
+
+  if (hasComma && hasDot) {
+    // Both separators - check which is decimal
+    const lastComma = cleaned.lastIndexOf(",");
+    const lastDot = cleaned.lastIndexOf(".");
+    if (lastComma > lastDot) {
+      // Brazilian: 1.234.567,89
+      num = parseFloat(cleaned.replace(/\./g, "").replace(",", "."));
+    } else {
+      // American: 1,234,567.89
+      num = parseFloat(cleaned.replace(/,/g, ""));
+    }
+  } else if (hasComma) {
+    // Only comma - assume Brazilian decimal
+    const parts = cleaned.split(",");
+    if (parts.length === 2 && parts[1].length <= 2) {
+      num = parseFloat(cleaned.replace(",", "."));
+    } else {
+      // Multiple commas - probably thousand separators (American without cents)
+      num = parseFloat(cleaned.replace(/,/g, ""));
+    }
+  } else if (hasDot) {
+    // Only dot - could be Brazilian thousand or American decimal
+    const parts = cleaned.split(".");
+    if (parts.length === 2 && parts[1].length <= 2) {
+      // Likely decimal: 123.45
+      num = parseFloat(cleaned);
+    } else {
+      // Likely thousand: 1.234.567
+      num = parseFloat(cleaned.replace(/\./g, ""));
+    }
+  } else {
+    num = parseFloat(cleaned);
   }
-  // Remove caracteres inválidos e retorna como está se reconhecível
-  const cleaned = trimmed.replace(/[^\d,.\-]/g, "");
-  return cleaned || "0,00";
+
+  if (isNaN(num)) return "0,00";
+  return num.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /** Valida enum de string, retorna fallback se valor inválido. */
