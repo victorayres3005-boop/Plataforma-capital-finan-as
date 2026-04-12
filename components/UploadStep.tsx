@@ -517,6 +517,47 @@ export default function UploadStep({
     }));
   }, []);
 
+  const handleReprocess = useCallback(async (type: DocKey) => {
+    const section = sections[type];
+    if (!section || section.files.length === 0) return;
+
+    // Limpa dados antigos do tipo correspondente para evitar duplicação no merge
+    setExtracted(prev => {
+      const cleared = { ...prev };
+      if (type === 'scrAnterior') cleared.scrAnterior = null;
+      else if (type === 'scr_socio') cleared.scrSocios = [];
+      else if (type === 'scr_socio_anterior') {
+        cleared.scrSocios = (cleared.scrSocios || []).map(s => {
+          const { periodoAnterior: _u, ...rest } = s; void _u;
+          return rest as SCRSocioData;
+        });
+      }
+      else if (type === 'ir_socio') cleared.irSocios = [];
+      else if (type === 'scr') {
+        cleared.scr = {} as SCRData;
+        cleared.scrAnterior = null;
+      }
+      else {
+        const fieldMap: Partial<Record<DocKey, keyof ExtractedData>> = {
+          curva_abc: 'curvaABC',
+          relatorio_visita: 'relatorioVisita',
+        };
+        const field = (fieldMap[type] ?? type) as keyof ExtractedData;
+        (cleared as unknown as Record<string, unknown>)[field] = undefined;
+      }
+      return cleared;
+    });
+
+    // Reseta contadores e re-roda processFiles com os arquivos existentes
+    const filesToReprocess = [...section.files];
+    setSections(prev => ({
+      ...prev,
+      [type]: { ...prev[type], files: [], processedCount: 0, errorCount: 0, errorType: undefined, errorMessage: undefined, lastFailedFile: undefined },
+    }));
+    await processFiles(type, filesToReprocess);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sections]);
+
   const handleRetry = useCallback(async (type: DocKey) => {
     const section = sections[type];
     if (!section?.lastFailedFile) return;
@@ -797,6 +838,8 @@ export default function UploadStep({
                 errorCount={sections[section.key].errorCount}
                 errorType={sections[section.key].errorType}
                 onRetry={sections[section.key].lastFailedFile ? () => handleRetry(section.key) : undefined}
+                onReprocess={() => handleReprocess(section.key)}
+                reprocessing={sections[section.key].processing && sections[section.key].processedCount === 0 && sections[section.key].files.length > 0 && sections[section.key].errorCount === 0}
                 resumedFilenames={sections[section.key].resumedFilenames}
               />
             ))}
@@ -822,6 +865,8 @@ export default function UploadStep({
                 errorCount={sections[section.key].errorCount}
                 errorType={sections[section.key].errorType}
                 onRetry={sections[section.key].lastFailedFile ? () => handleRetry(section.key) : undefined}
+                onReprocess={() => handleReprocess(section.key)}
+                reprocessing={sections[section.key].processing && sections[section.key].processedCount === 0 && sections[section.key].files.length > 0 && sections[section.key].errorCount === 0}
                 resumedFilenames={sections[section.key].resumedFilenames}
               />
             ))}

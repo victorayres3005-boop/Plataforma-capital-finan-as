@@ -194,6 +194,13 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate }
   const visitaDoc = docs.find(d => d.type === "relatorio_visita");
   const pleito = visitaDoc?.extracted_data?.pleito as string | undefined;
 
+  // Detecta coletas incompletas: sócios PF no QSA sem SCR correspondente
+  const qsaDoc = docs.find(d => d.type === "qsa");
+  const qsaSocios = (qsaDoc?.extracted_data?.quadroSocietario as Array<{ nome?: string; cpfCnpj?: string }> | undefined) || [];
+  const sociosPfCount = qsaSocios.filter(s => ((s.cpfCnpj || "").replace(/\D/g, "")).length === 11).length;
+  const scrPfDocsCount = docs.filter(d => d.type === "scr_bacen" && (d.extracted_data?.tipoPessoa as string) === "PF").length;
+  const needsRevision = sociosPfCount > 0 && scrPfDocsCount === 0;
+
   const grade = getGrade(col.rating);
   const status = getStatusDisplay(col);
   const isFinished = col.status === "finished";
@@ -347,6 +354,16 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate }
         <span style={{ fontSize: 11, fontWeight: 600, background: status.bg, color: status.color, borderRadius: 999, padding: "2px 10px", whiteSpace: "nowrap", flexShrink: 0 }}>
           {status.label}
         </span>
+
+        {/* Badge "REVISAR" — coleta com socios PF no QSA mas sem SCR de socios */}
+        {needsRevision && (
+          <span
+            title={`${sociosPfCount} socio(s) PF no QSA sem SCR correspondente. Reabra a coleta e envie os SCRs dos socios.`}
+            style={{ fontSize: 10, fontWeight: 700, background: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A", borderRadius: 999, padding: "2px 8px", whiteSpace: "nowrap", flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 3 }}
+          >
+            <span style={{ fontSize: 10 }}>⚠</span> REVISAR
+          </span>
+        )}
 
         {/* Spacer */}
         <div className="flex-1" />

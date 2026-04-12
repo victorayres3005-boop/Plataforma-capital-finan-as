@@ -54,6 +54,8 @@ export interface UploadAreaProps {
   errorCount: number;
   errorType?: string;
   onRetry?: () => void;
+  onReprocess?: () => void;
+  reprocessing?: boolean;
   icon: React.ReactNode;
   docKey: string;
   resumedFilenames?: string[];
@@ -62,7 +64,7 @@ export interface UploadAreaProps {
 export default function UploadArea({
   title, description, files, onAddFiles, onRemoveFile,
   processing, doneCount, errorCount, errorType,
-  onRetry, icon, docKey, resumedFilenames,
+  onRetry, onReprocess, reprocessing, icon, docKey, resumedFilenames,
 }: UploadAreaProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -252,6 +254,20 @@ export default function UploadArea({
               <RefreshCw size={10} /> Tentar novamente
             </button>
           )}
+        </div>
+      )}
+
+      {/* ── Reprocess button — visible after successful extraction ── */}
+      {onReprocess && isDone && !hasError && !processing && (hasFiles || hasResumed) && (
+        <div className="px-4 pb-3">
+          <button
+            onClick={e => { e.stopPropagation(); onReprocess(); }}
+            disabled={reprocessing}
+            className="inline-flex items-center gap-1 text-[10px] font-semibold text-cf-navy border border-cf-border rounded-lg px-2.5 py-1.5 hover:bg-blue-50 hover:border-blue-300 transition-colors disabled:opacity-50"
+          >
+            {reprocessing ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
+            {reprocessing ? "Reextraindo..." : "Reprocessar extracao"}
+          </button>
         </div>
       )}
 
