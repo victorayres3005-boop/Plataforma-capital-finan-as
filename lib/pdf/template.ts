@@ -279,17 +279,22 @@ function sortMeses(meses: FaturamentoMensal[]): FaturamentoMensal[] {
   });
 }
 
-/** Compute FMM from meses[] (preferred) or fallback to pre-calculated fields */
+/** Compute FMM from meses[] — sempre recalcula do array (nunca confia em fmm12m gravado, que pode estar com escala errada). */
 function computeFmm(faturamento: { fmm12m?: string | number; mediaAno?: string | number; meses?: FaturamentoMensal[] } | undefined): number {
   if (!faturamento) return 0;
-  // Always prefer calculating from meses (most reliable)
-  const valid = sortMeses(faturamento.meses || []).filter(m => m?.mes && m?.valor);
+  // Filtra meses válidos com valor numérico positivo (descarta zerados pra não puxar média pra baixo)
+  const valid = sortMeses(faturamento.meses || []).filter(m => {
+    if (!m?.mes || !m?.valor) return false;
+    const v = numVal(m.valor);
+    return isFinite(v) && v > 0;
+  });
   const last12 = valid.slice(-12);
   if (last12.length > 0) {
     const sum = last12.reduce((s, m) => s + numVal(m.valor), 0);
-    return sum / 12;
+    // Divide pela QTD REAL de meses com valor (não fixo em 12) — evita subestimar quando faltam meses
+    return sum / last12.length;
   }
-  // Fallback to pre-calculated values
+  // Sem série mensal: cai pra valores pré-calculados (último recurso)
   if (faturamento.fmm12m) return numVal(faturamento.fmm12m);
   if (faturamento.mediaAno) return numVal(faturamento.mediaAno);
   return 0;
@@ -409,7 +414,18 @@ function secChecklist(p: PDFReportParams): string {
     { label: "Balanco Patrimonial", ok: !!(d.balanco?.anos?.length), tipo: "OPC" },
     { label: "Curva ABC - Top Clientes", ok: !!(d.curvaABC?.clientes?.length), tipo: "OPC" },
     { label: "IR dos Socios", ok: !!(d.irSocios?.length), tipo: "OPC" },
-    { label: "Relatorio de Visita", ok: !!(d.relatorioVisita?.dataVisita), tipo: "OPC" },
+    { label: "Relatorio de Visita", ok: !!(d.relatorioVisita && (
+      d.relatorioVisita.dataVisita ||
+      d.relatorioVisita.responsavelVisita ||
+      d.relatorioVisita.localVisita ||
+      d.relatorioVisita.descricaoEstrutura ||
+      d.relatorioVisita.observacoesLivres ||
+      (d.relatorioVisita.pontosPositivos && d.relatorioVisita.pontosPositivos.length > 0) ||
+      (d.relatorioVisita.pontosAtencao && d.relatorioVisita.pontosAtencao.length > 0) ||
+      d.relatorioVisita.recomendacaoVisitante ||
+      d.relatorioVisita.estruturaFisicaConfirmada !== undefined ||
+      d.relatorioVisita.funcionariosObservados
+    )), tipo: "OPC" },
   ];
 
   const frente2: CheckItem[] = [
@@ -525,11 +541,21 @@ function secSintese(p: PDFReportParams): string {
   const last12Meses = allMesesSorted.slice(-12);
   const fatTotal = last12Meses.length > 0 ? last12Meses.reduce((s, m) => s + numVal(m.valor), 0) : 0;
 
-  // Alavancagem uses ONLY company (PJ) SCR, not socios
+  // ─── Exposição de crédito: PJ + Sócios PF separadamente ───
   const scrPjDivida = numVal(data.scr?.totalDividasAtivas || "0");
-  const alavancagem = p.alavancagem != null
-    ? p.alavancagem
-    : (fmmNum > 0 ? scrPjDivida / fmmNum : null);
+  const scrPjVencido = numVal(data.scr?.vencidos || "0");
+  const scrSociosArr = data.scrSocios || [];
+  const scrPfDivida = scrSociosArr.reduce((s, sc) => s + numVal(sc.periodoAtual?.totalDividasAtivas || "0"), 0);
+  const scrPfVencido = scrSociosArr.reduce((s, sc) => s + numVal(sc.periodoAtual?.vencidos || "0"), 0);
+  const scrTotalDivida = scrPjDivida + scrPfDivida;
+  const scrTotalVencido = scrPjVencido + scrPfVencido;
+
+  // Alavancagens separadas
+  const alavancagemPj = fmmNum > 0 ? scrPjDivida / fmmNum : null;
+  const alavancagemPf = fmmNum > 0 && scrPfDivida > 0 ? scrPfDivida / fmmNum : null;
+  const alavancagemTotal = fmmNum > 0 ? scrTotalDivida / fmmNum : null;
+  // Mantém compat com calcAlerts (usa alavancagem da empresa)
+  const alavancagem = p.alavancagem != null ? p.alavancagem : alavancagemPj;
 
   const rv = data.relatorioVisita;
   const modalidade = rv?.modalidade || (rv?.taxaComissaria && rv?.taxaConvencional ? "Hibrida" : rv?.taxaComissaria ? "Comissaria" : rv?.taxaConvencional ? "Convencional" : "\u2014");
@@ -615,11 +641,37 @@ function secSintese(p: PDFReportParams): string {
 
   ${groupLabel("INDICADORES FINANCEIROS")}
   ${grid(4,[
-    kpi("FMM 12m", fmmNum > 0 ? fmtMoneyRound(String(fmmNum)) : "\u2014", "#111827", "media mensal"),
+    kpi("FMM 12m", fmmNum > 0 ? fmtMoneyRound(String(fmmNum)) : "\u2014", "#111827", "media mensal recalculada"),
     kpi("Faturamento Total", fatTotal > 0 ? fmtMoneyRound(String(fatTotal)) : "\u2014", "#111827", last12Meses.length > 0 ? `soma ${last12Meses.length} meses` : undefined),
-    kpi("Alavancagem", alavancagem != null ? `${alavancagem.toFixed(1)}x` : "\u2014", alavancagem != null && alavancagem > 3 ? "#dc2626" : "#111827"),
+    kpi("Alavancagem Total", alavancagemTotal != null ? `${alavancagemTotal.toFixed(1)}x` : "\u2014", alavancagemTotal != null && alavancagemTotal > 3 ? "#dc2626" : "#111827", "PJ + Socios"),
     kpi("Pleito",typeof pleito === "string" ? (pleito.match(/\d/) ? fmtMoneyRound(pleito) : esc(pleito)) : fmtMoneyRound(pleito)),
   ])}
+
+  ${groupLabel("EXPOSICAO DE CREDITO — EMPRESA vs SOCIOS")}
+  <div style="font-size:10px;color:#6b7280;margin-bottom:10px">Separa dividas da pessoa juridica (CNPJ ${fmtCnpj(data.cnpj?.cnpj)}) das dividas dos socios pessoa fisica. Alavancagem usa o FMM 12m da empresa como denominador.</div>
+  <table style="${TS}">
+    <thead>${row(["Titular","Dividas Totais","Vencidos","Alavancagem (Div/FMM)"], true)}</thead>
+    <tbody>
+      <tr>
+        <td><strong>Empresa (PJ)</strong><br/><span style="font-size:8px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em">${fmtCnpj(data.cnpj?.cnpj)}</span></td>
+        <td class="money">${scrPjDivida > 0 ? fmtMoneyRound(String(scrPjDivida)) : "\u2014"}</td>
+        <td class="money${scrPjVencido > 0 ? " neg" : ""}">${scrPjVencido > 0 ? fmtMoneyRound(String(scrPjVencido)) : "\u2014"}</td>
+        <td class="money" style="${alavancagemPj != null && alavancagemPj > 3 ? "color:#dc2626;font-weight:800" : "font-weight:700"}">${alavancagemPj != null ? alavancagemPj.toFixed(2) + "x" : "\u2014"}</td>
+      </tr>
+      <tr>
+        <td><strong>Socios (PF)</strong><br/><span style="font-size:8px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em">${scrSociosArr.length > 0 ? scrSociosArr.length + " socio(s) com SCR" : "Sem SCR de socios"}</span></td>
+        <td class="money">${scrPfDivida > 0 ? fmtMoneyRound(String(scrPfDivida)) : "\u2014"}</td>
+        <td class="money${scrPfVencido > 0 ? " neg" : ""}">${scrPfVencido > 0 ? fmtMoneyRound(String(scrPfVencido)) : "\u2014"}</td>
+        <td class="money" style="${alavancagemPf != null && alavancagemPf > 3 ? "color:#dc2626;font-weight:800" : "font-weight:700"}">${alavancagemPf != null ? alavancagemPf.toFixed(2) + "x" : "\u2014"}</td>
+      </tr>
+      <tr style="background:#edf2fb !important">
+        <td><strong style="color:#203B88">TOTAL CONSOLIDADO</strong></td>
+        <td class="money" style="font-weight:900;color:#203B88">${scrTotalDivida > 0 ? fmtMoneyRound(String(scrTotalDivida)) : "\u2014"}</td>
+        <td class="money${scrTotalVencido > 0 ? " neg" : ""}" style="font-weight:900">${scrTotalVencido > 0 ? fmtMoneyRound(String(scrTotalVencido)) : "\u2014"}</td>
+        <td class="money" style="font-weight:900;${alavancagemTotal != null && alavancagemTotal > 3 ? "color:#dc2626" : "color:#203B88"}">${alavancagemTotal != null ? alavancagemTotal.toFixed(2) + "x" : "\u2014"}</td>
+      </tr>
+    </tbody>
+  </table>
 
   ${groupLabel("INDICADORES DE RISCO")}
   ${grid(4,[
@@ -634,16 +686,166 @@ function secSintese(p: PDFReportParams): string {
     // NCG = Ativo Circulante - Passivo Circulante (último ano do balanço)
     const balAnos = data.balanco?.anos || [];
     const ultimoAno = balAnos.length > 0 ? balAnos[balAnos.length - 1] : null;
-    const ncgVal = ultimoAno ? numVal(ultimoAno.ativoCirculante) - numVal(ultimoAno.passivoCirculante) : 0;
+    const acVal = ultimoAno ? numVal(ultimoAno.ativoCirculante) : 0;
+    const pcVal = ultimoAno ? numVal(ultimoAno.passivoCirculante) : 0;
+    const ncgVal = acVal - pcVal;
+    // Sanity check: AC ou PC > 100x do FMM12 indica provavel erro de escala na extracao
+    const escalaSuspeita = fmmNum > 0 && (acVal > fmmNum * 200 || pcVal > fmmNum * 200);
     const ncgStr = ultimoAno ? fmtMoneyRound(String(ncgVal)) : "\u2014";
-    const ncgColor = ncgVal < 0 ? "#dc2626" : "#16a34a";
-    const ncgSub = ncgVal < 0 ? "Deficit \u2014 necessita financiamento" : "Superavit";
+    const ncgColor = escalaSuspeita ? "#d97706" : ncgVal < 0 ? "#dc2626" : "#16a34a";
+    const ncgSub = escalaSuspeita
+      ? "ESCALA SUSPEITA — verificar"
+      : ncgVal < 0 ? "Deficit \u2014 necessita financiamento" : "Superavit";
     return grid(4,[
       kpi("Grupo Economico",geCount > 0 ? `${geCount} empresa(s)` : "\u2014", "#111827", geNames || undefined),
       kpi("Curva ABC Top 3",fmt(top3Pct), "#111827", top3Names || undefined),
       kpi("NCG (Cap. Giro)", ncgStr, ncgColor, ncgSub),
       kpiPlaceholder(),
-    ]);
+    ]) + (escalaSuspeita ? `<div style="margin-top:-8px;margin-bottom:14px;padding:8px 12px;background:#fffbeb;border-left:3px solid #d97706;border-radius:0 6px 6px 0;font-size:10px;color:#92400e">
+      <strong>Atencao:</strong> Ativo Circulante (${fmtMoneyRound(String(acVal))}) ou Passivo Circulante (${fmtMoneyRound(String(pcVal))}) parecem desproporcionais ao FMM (${fmtMoneyRound(String(fmmNum))}). Possivel erro de escala na extracao do balanco — recomenda-se conferencia manual.
+    </div>` : "");
+  })()}
+
+  ${groupLabel("ANALISE FIDC CRITICA")}
+  ${(() => {
+    type Flag = { label: string; value: string; level: "ok"|"warn"|"crit"; detail: string };
+    const flags: Flag[] = [];
+
+    // 1. Concentracao Curva ABC
+    const top3Num = parseFloat(String(data.curvaABC?.concentracaoTop3 || "0").replace(",", "."));
+    if (top3Num > 0) {
+      flags.push({
+        label: "Concentracao Top 3",
+        value: top3Num.toFixed(1) + "%",
+        level: top3Num > 50 ? "crit" : top3Num > 30 ? "warn" : "ok",
+        detail: top3Num > 50 ? "Risco severo de dependencia" : top3Num > 30 ? "Acima do limite FIDC (30%)" : "Dentro do limite",
+      });
+    }
+
+    // 2. Alavancagem Total (PJ + PF)
+    if (alavancagemTotal != null) {
+      flags.push({
+        label: "Alavancagem Total",
+        value: alavancagemTotal.toFixed(2) + "x",
+        level: alavancagemTotal > 5 ? "crit" : alavancagemTotal > 3 ? "warn" : "ok",
+        detail: alavancagemTotal > 5 ? "Sobrealavancado" : alavancagemTotal > 3 ? "Acima do conservador (3x)" : "Saudavel",
+      });
+    }
+
+    // 3. Margem Liquida (DRE mais recente)
+    const dreAnos = data.dre?.anos || [];
+    if (dreAnos.length > 0) {
+      const last = dreAnos[dreAnos.length - 1] as unknown as Record<string, string>;
+      let mlNum = parseFloat(String(last.margemLiquida || "0").replace(",", "."));
+      // Fallback se margem nao veio mas lucro e receita vieram
+      if (mlNum === 0) {
+        const ll = numVal(last.lucroLiquido);
+        const rl = numVal(last.receitaLiquida) || numVal(last.receitaBruta);
+        if (rl > 0 && ll !== 0) mlNum = (ll / rl) * 100;
+      }
+      if (mlNum !== 0) {
+        flags.push({
+          label: "Margem Liquida",
+          value: mlNum.toFixed(1) + "%",
+          level: mlNum < 2 ? "crit" : mlNum < 5 ? "warn" : "ok",
+          detail: mlNum < 0 ? "Prejuizo" : mlNum < 2 ? "Margem critica" : mlNum < 5 ? "Margem apertada" : "Margem confortavel",
+        });
+      }
+    }
+
+    // 4. SCR Vencido (PJ + PF)
+    if (scrTotalVencido > 0) {
+      flags.push({
+        label: "SCR Vencidos",
+        value: fmtMoneyRound(String(scrTotalVencido)),
+        level: "crit",
+        detail: `Empresa: ${fmtMoneyRound(String(scrPjVencido))} | Socios: ${fmtMoneyRound(String(scrPfVencido))}`,
+      });
+    } else {
+      flags.push({
+        label: "SCR Vencidos",
+        value: "\u2014",
+        level: "ok",
+        detail: "Sem inadimplencia bancaria",
+      });
+    }
+
+    // 5. Processos passivos
+    const passivosNum = parseInt(data.processos?.passivosTotal || "0");
+    if (passivosNum > 0 || data.processos) {
+      flags.push({
+        label: "Processos Passivos",
+        value: String(passivosNum),
+        level: passivosNum > 20 ? "crit" : passivosNum > 10 ? "warn" : "ok",
+        detail: passivosNum > 20 ? "Volume alto" : passivosNum > 10 ? "Volume moderado" : "Volume normal",
+      });
+    }
+
+    // 6. PL negativo (passivo a descoberto)
+    const balAnos = data.balanco?.anos || [];
+    if (balAnos.length > 0) {
+      const lastBal = balAnos[balAnos.length - 1];
+      const pl = numVal(lastBal.patrimonioLiquido);
+      if (pl !== 0) {
+        flags.push({
+          label: "Patrimonio Liquido",
+          value: fmtMoneyRound(String(pl)),
+          level: pl < 0 ? "crit" : "ok",
+          detail: pl < 0 ? "Passivo a descoberto" : "Positivo",
+        });
+      }
+    }
+
+    // 7. Protestos vigentes
+    if (p.protestosVigentes >= 0) {
+      const pvVal = numVal(data.protestos?.vigentesValor);
+      flags.push({
+        label: "Protestos Vigentes",
+        value: String(p.protestosVigentes),
+        level: p.protestosVigentes > 0 ? (pvVal > fmmNum * 0.1 ? "crit" : "warn") : "ok",
+        detail: p.protestosVigentes > 0 ? `${fmtMoneyRound(String(pvVal))} em aberto` : "Sem protestos",
+      });
+    }
+
+    if (flags.length === 0) return "";
+
+    const colorMap = {
+      ok: { bg: "#f0fdf4", border: "#bbf7d0", text: "#166534", icon: "\u2713", label: "OK" },
+      warn: { bg: "#fffbeb", border: "#fde68a", text: "#92400e", icon: "\u26A0", label: "ATENCAO" },
+      crit: { bg: "#fef2f2", border: "#fecaca", text: "#991b1b", icon: "\u2717", label: "CRITICO" },
+    };
+
+    const cardsHtml = flags.map(f => {
+      const c = colorMap[f.level];
+      return `<div style="background:${c.bg};border:1px solid ${c.border};border-radius:8px;padding:12px 14px;page-break-inside:avoid">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <span style="font-size:9px;font-weight:700;color:${c.text};text-transform:uppercase;letter-spacing:.04em">${esc(f.label)}</span>
+          <span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:99px;background:${c.text};color:#fff;font-size:8px;font-weight:800;letter-spacing:.04em">${c.icon} ${c.label}</span>
+        </div>
+        <div style="font-size:18px;font-weight:900;color:${c.text};line-height:1.1;margin-bottom:4px">${esc(f.value)}</div>
+        <div style="font-size:9.5px;color:${c.text};opacity:.8;line-height:1.4">${esc(f.detail)}</div>
+      </div>`;
+    }).join("");
+
+    const critCount = flags.filter(f => f.level === "crit").length;
+    const warnCount = flags.filter(f => f.level === "warn").length;
+    const okCount = flags.filter(f => f.level === "ok").length;
+    const veredito = critCount > 0
+      ? { txt: `${critCount} alerta(s) CRITICO(s) — Operacao requer aprovacao especial do comite`, bg: "#fef2f2", color: "#991b1b", border: "#dc2626" }
+      : warnCount > 0
+        ? { txt: `${warnCount} ponto(s) de atencao — Aprovacao condicional recomendada`, bg: "#fffbeb", color: "#92400e", border: "#d97706" }
+        : { txt: "Todos os criterios criticos do FIDC dentro do esperado", bg: "#f0fdf4", color: "#166534", border: "#16a34a" };
+
+    return `<div style="font-size:10px;color:#6b7280;margin-bottom:12px">Avaliacao critica sob otica FIDC: red flags em concentracao, alavancagem, margens, inadimplencia bancaria e judicial.</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">${cardsHtml}</div>
+    <div style="padding:12px 16px;background:${veredito.bg};border:2px solid ${veredito.border};border-radius:8px;display:flex;align-items:center;gap:12px;page-break-inside:avoid">
+      <div style="display:flex;gap:8px;flex-shrink:0">
+        <div style="background:#16a34a;color:#fff;font-size:10px;font-weight:800;padding:4px 8px;border-radius:4px">${okCount} OK</div>
+        ${warnCount > 0 ? `<div style="background:#d97706;color:#fff;font-size:10px;font-weight:800;padding:4px 8px;border-radius:4px">${warnCount} ATENCAO</div>` : ""}
+        ${critCount > 0 ? `<div style="background:#dc2626;color:#fff;font-size:10px;font-weight:800;padding:4px 8px;border-radius:4px">${critCount} CRITICO</div>` : ""}
+      </div>
+      <div style="font-size:12px;font-weight:700;color:${veredito.color};flex:1">${esc(veredito.txt)}</div>
+    </div>`;
   })()}
 
   ${(() => {
@@ -1311,9 +1513,14 @@ function secComparativoScr(p: PDFReportParams): string {
   rows.push({grupo:"RESUMO",metrica:"Alavancagem",ant:alvAnt,atual:alvAtual,variacao:"\u2014"});
 
   // ── PJ Comparativo Table ──
+  const cnpjFmt = fmtCnpj(p.data.cnpj?.cnpj);
+  const razaoFmt = esc(p.data.cnpj?.razaoSocial || "Empresa");
   let html = `<div class="sec">${secHdr("16","Comparativo SCR - Empresa (PJ)")}
-  <div style="font-size:11px;color:#6b7280;margin-bottom:12px">Evolucao da exposicao de credito da empresa (pessoa juridica) entre os dois periodos</div>
-  <div style="font-size:10px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;padding:6px 12px;background:#edf2fb;border-radius:6px;display:inline-block">Empresa (PJ)</div>
+  <div style="padding:10px 14px;background:#fffbeb;border-left:4px solid #d97706;border-radius:0 6px 6px 0;margin-bottom:14px;font-size:11px;color:#92400e">
+    <strong>Escopo desta tabela:</strong> apenas exposicao da pessoa juridica <strong>${razaoFmt}</strong> (${cnpjFmt}).
+    Dividas dos socios pessoa fisica nao estao incluidas aqui — ver <strong>Secao 16b</strong> abaixo.
+  </div>
+  <div style="font-size:10px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;padding:6px 12px;background:#edf2fb;border-radius:6px;display:inline-block">Empresa (PJ) — ${cnpjFmt}</div>
   <div style="display:flex;gap:16px;margin-bottom:16px">
     <div style="flex:1;padding:12px 16px;background:#f8f9fb;border-radius:8px;border:1px solid #e0e4ec;text-align:center">
       <div style="font-size:8px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Periodo Anterior</div>
@@ -1388,7 +1595,33 @@ function secModalidadesScr(p: PDFReportParams): string {
 // ═══════════════════════════════════════════════════════════════════════════════
 function secScrSocios(p: PDFReportParams): string {
   const socios = p.data.scrSocios;
-  if (!socios || socios.length === 0) return "";
+  // Sócios PF do QSA — pra mostrar quem está na empresa quando não há SCR
+  const sociosQsa = (p.data.qsa?.quadroSocietario || []).filter(s => {
+    const digits = (s.cpfCnpj || "").replace(/\D/g, "");
+    return digits.length === 11; // somente PF
+  });
+
+  // Vazio: renderiza placeholder com lista do QSA pra ficar visível o gap
+  if (!socios || socios.length === 0) {
+    if (sociosQsa.length === 0) return "";
+    return `<div class="sec">${secHdr("16b","Comparativo SCR - Socios PF")}
+      <div style="padding:14px 18px;background:#fffbeb;border-left:4px solid #d97706;border-radius:0 8px 8px 0;margin-bottom:16px">
+        <div style="font-size:12px;font-weight:800;color:#92400e;margin-bottom:6px">SCR dos socios nao foi enviado/extraido</div>
+        <div style="font-size:11px;color:#78350f;line-height:1.6">A analise FIDC ideal exige o SCR de cada socio pessoa fisica para mensurar a exposicao consolidada (alavancagem total = divida PJ + divida PF). Sem esses dados, a alavancagem reportada cobre apenas a empresa.</div>
+      </div>
+      <div style="font-size:10px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">Socios PF identificados (${sociosQsa.length}) - SCR pendente</div>
+      <table style="${TS}">
+        <thead>${row(["Socio","CPF","Qualificacao","Participacao","Status SCR"], true)}</thead>
+        <tbody>${sociosQsa.map(s => `<tr>
+          <td><strong>${esc(s.nome || "\u2014")}</strong></td>
+          <td>${fmtCpf(s.cpfCnpj)}</td>
+          <td>${esc(s.qualificacao || "\u2014")}</td>
+          <td>${esc(s.participacao || "\u2014")}</td>
+          <td><span class="badge fail">PENDENTE</span></td>
+        </tr>`).join("")}</tbody>
+      </table>
+    </div>`;
+  }
 
   const cards = socios.map((socio) => {
     const scr = socio.periodoAtual;
@@ -1449,13 +1682,79 @@ function secScrSocios(p: PDFReportParams): string {
 // ═══════════════════════════════════════════════════════════════════════════════
 // SECTION 19: DRE
 // ═══════════════════════════════════════════════════════════════════════════════
+/** Reconstrói campos faltantes do DRE quando o extrator não pegou (margens, receita líquida, lucro bruto). */
+function enrichDreAno(a: Record<string, string>): Record<string, string> & { _calcFlags?: Set<string> } {
+  const out: Record<string, string> & { _calcFlags?: Set<string> } = { ...a };
+  const calcFlags = new Set<string>();
+  const toBR = (n: number) => n.toFixed(2).replace(".", ",");
+
+  const rb = numVal(a.receitaBruta);
+  const ded = numVal(a.deducoes); // tipicamente negativo
+  const cps = numVal(a.custoProdutosServicos); // tipicamente negativo
+  const ll = numVal(a.lucroLiquido);
+  const eb = numVal(a.ebitda);
+
+  // Receita Liquida: prefere extraida, senao RB - |Deducoes|
+  let rl = numVal(a.receitaLiquida);
+  if (rl === 0 && rb > 0) {
+    rl = ded !== 0 ? rb + ded : rb; // se ded ja vier negativo a soma reduz
+    if (rl > 0 && rl <= rb) {
+      out.receitaLiquida = toBR(rl);
+      calcFlags.add("receitaLiquida");
+    } else if (rb > 0) {
+      // sem deducoes, assume RL = RB para nao mostrar zero
+      rl = rb;
+      out.receitaLiquida = toBR(rl);
+      calcFlags.add("receitaLiquida");
+    }
+  }
+
+  // Lucro Bruto: prefere extraido, senao RL - |CPS|
+  let lb = numVal(a.lucroBruto);
+  if (lb === 0 && rl > 0 && cps !== 0) {
+    lb = rl + cps;
+    if (lb !== 0) {
+      out.lucroBruto = toBR(lb);
+      calcFlags.add("lucroBruto");
+    }
+  }
+
+  // Margem Bruta
+  if (numVal(a.margemBruta) === 0 && lb > 0 && rl > 0) {
+    out.margemBruta = toBR((lb / rl) * 100);
+    calcFlags.add("margemBruta");
+  }
+
+  // Margem EBITDA
+  if (numVal(a.margemEbitda) === 0 && eb > 0 && rl > 0) {
+    out.margemEbitda = toBR((eb / rl) * 100);
+    calcFlags.add("margemEbitda");
+  }
+
+  // Margem Liquida — base preferida: receita liquida; fallback: receita bruta
+  if (numVal(a.margemLiquida) === 0 && ll !== 0) {
+    const base = rl > 0 ? rl : rb;
+    if (base > 0) {
+      out.margemLiquida = toBR((ll / base) * 100);
+      calcFlags.add("margemLiquida");
+    }
+  }
+
+  if (calcFlags.size > 0) out._calcFlags = calcFlags;
+  return out;
+}
+
 function secDre(p: PDFReportParams): string {
   const dre=p.data.dre;
   if(!dre?.anos?.length) return "";
   // Deduplication by ano + chronological sort
   const anosUnicos = dre.anos.filter((a, i, arr) => arr.findIndex(x => x.ano === a.ano) === i);
   const anosOrdenados = [...anosUnicos].sort((a, b) => parseInt(a.ano || "0") - parseInt(b.ano || "0"));
-  const anos=anosOrdenados.slice(-3);
+  const anosRaw = anosOrdenados.slice(-3);
+  // Enriquece cada ano com fallbacks calculados
+  const anos = anosRaw.map(a => enrichDreAno(a as unknown as Record<string, string>));
+  const anyHasCalc = anos.some(a => a._calcFlags && a._calcFlags.size > 0);
+
   type M={label:string;key:string;isMoney:boolean;isPct:boolean};
   const metricas:M[]=[
     {label:"Receita Bruta",key:"receitaBruta",isMoney:true,isPct:false},
@@ -1468,18 +1767,23 @@ function secDre(p: PDFReportParams): string {
     {label:"Margem Liquida",key:"margemLiquida",isMoney:false,isPct:true},
   ];
   return `<div class="sec">${secHdr("19","DRE")}
+  ${anyHasCalc ? `<div style="font-size:10px;color:#6b7280;margin-bottom:10px;padding:8px 12px;background:#f8f9fb;border-left:3px solid #203B88;border-radius:0 6px 6px 0">
+    <strong>Nota:</strong> Valores marcados com <em>(calc)</em> foram reconstruidos a partir dos campos disponiveis (Receita Bruta, Lucro Liquido, Custo, etc) quando o extrator nao identificou diretamente. Verificar com a DRE original.
+  </div>` : ""}
   <table style="${TS}">
     <thead>${row(["Metrica",...anos.map(a=>`<strong>${esc(a.ano)}</strong>`)],true)}</thead>
     <tbody>${metricas.map(m=>{
       const vals=anos.map(a=>{
-        const v=(a as unknown as Record<string,string>)[m.key];
+        const v=(a as Record<string,string>)[m.key];
         if(!v||v==="0"||v==="") return "\u2014";
-        if(m.isPct) return fmtPct(v);
+        const wasCalc = a._calcFlags?.has(m.key) === true;
+        const calcMark = wasCalc ? `<span style="font-size:8px;color:#6b7280;font-style:italic;margin-left:4px">(calc)</span>` : "";
+        if(m.isPct) return fmtPct(v) + calcMark;
         if(m.isMoney){
           const n=numVal(v);
-          return `<span class="money${n<0?" neg":""}">${fmtMoney(v)}</span>`;
+          return `<span class="money${n<0?" neg":""}">${fmtMoney(v)}</span>` + calcMark;
         }
-        return fmt(v);
+        return fmt(v) + calcMark;
       });
       if(vals.every(v=>v==="\u2014")) return "";
       return row([`<strong>${esc(m.label)}</strong>`,...vals]);
@@ -1563,8 +1867,33 @@ function secHistoricoConsultas(p: PDFReportParams): string {
 // SECTION 22: IR DOS SOCIOS
 // ═══════════════════════════════════════════════════════════════════════════════
 function secIrSocios(p: PDFReportParams): string {
-  const socios=p.data.irSocios;
-  if(!socios?.length) return "";
+  const socios = p.data.irSocios;
+  // Sócios PF do QSA — para mostrar pendências quando IR não foi extraído
+  const sociosQsa = (p.data.qsa?.quadroSocietario || []).filter(s => {
+    const digits = (s.cpfCnpj || "").replace(/\D/g, "");
+    return digits.length === 11;
+  });
+
+  // Vazio: renderiza placeholder com sócios pendentes
+  if (!socios?.length) {
+    if (sociosQsa.length === 0) return "";
+    return `<div class="sec">${secHdr("22","IR dos Socios")}
+      <div style="padding:14px 18px;background:#fffbeb;border-left:4px solid #d97706;border-radius:0 8px 8px 0;margin-bottom:16px">
+        <div style="font-size:12px;font-weight:800;color:#92400e;margin-bottom:6px">IR dos socios nao foi coletado/extraido</div>
+        <div style="font-size:11px;color:#78350f;line-height:1.6">A declaracao de IR dos socios PF e o instrumento mais confiavel para validar capacidade financeira pessoal, patrimonio liquido individual, dividas/onus declarados e participacao em outras sociedades. Recomenda-se solicitar a Receita Federal ou o documento "Recibo de Entrega" da DIRPF.</div>
+      </div>
+      <table style="${TS}">
+        <thead>${row(["Socio","CPF","Qualificacao","Participacao","Status IR"], true)}</thead>
+        <tbody>${sociosQsa.map(s => `<tr>
+          <td><strong>${esc(s.nome || "\u2014")}</strong></td>
+          <td>${fmtCpf(s.cpfCnpj)}</td>
+          <td>${esc(s.qualificacao || "\u2014")}</td>
+          <td>${esc(s.participacao || "\u2014")}</td>
+          <td><span class="badge fail">PENDENTE</span></td>
+        </tr>`).join("")}</tbody>
+      </table>
+    </div>`;
+  }
   return `<div class="sec">${secHdr("22","IR dos Socios")}
   ${socios.map(s=>{
     return `<div style="border:1px solid #e0e4ec;border-left:5px solid #203B88;border-radius:0 10px 10px 0;padding:16px 18px;margin-bottom:16px;page-break-inside:avoid;box-shadow:0 2px 8px rgba(32,59,136,.04)">
