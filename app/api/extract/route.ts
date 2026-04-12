@@ -238,27 +238,29 @@ async function extractExcel(buffer: Buffer): Promise<FaturamentoData> {
 // Prompts
 // ─────────────────────────────────────────
 
-const PROMPT_CNPJ = `Você receberá um Cartão CNPJ emitido pela Receita Federal do Brasil (pode ser PDF, imagem ou texto extraído). Extraia os dados e retorne APENAS JSON válido, sem markdown, sem texto adicional.
+const PROMPT_CNPJ = `Você receberá um Cartão CNPJ emitido pela Receita Federal do Brasil (PDF, imagem ou texto extraído). Extraia os dados e retorne APENAS JSON válido, sem markdown, sem texto adicional.
 
 Schema:
 {"razaoSocial":"","nomeFantasia":"","cnpj":"","dataAbertura":"","situacaoCadastral":"","dataSituacaoCadastral":"","motivoSituacao":"","naturezaJuridica":"","cnaePrincipal":"","cnaeSecundarios":"","porte":"","capitalSocialCNPJ":"","endereco":"","telefone":"","email":"","tipoEmpresa":"","funcionarios":""}
 
 Regras de extração:
-- cnpj: formato XX.XXX.XXX/XXXX-XX obrigatório
+- razaoSocial e nomeFantasia: PRESERVE acentos, cedilha e pontuação exatamente como no documento (ex: "Alimentação & Cia Ltda")
+- cnpj: formato XX.XXX.XXX/XXXX-XX obrigatório (com pontos, barra e hífen)
 - dataAbertura e dataSituacaoCadastral: formato DD/MM/YYYY
-- situacaoCadastral: exatamente como consta ("ATIVA", "BAIXADA", "INAPTA", "SUSPENSA", "NULA")
-- motivoSituacao: apenas preencha se houver motivo explícito (ex: "Omissa no período", "Extinção por encerramento")
-- naturezaJuridica: incluir código + descrição (ex: "206-2 - Sociedade Empresária Limitada")
-- cnaePrincipal: incluir código + descrição (ex: "46.59-4-99 - Comércio atacadista de outros equipamentos")
-- cnaeSecundarios: lista separada por " ; " — inclua código e descrição de cada um
-- porte: "MICRO EMPRESA", "EMPRESA DE PEQUENO PORTE", "DEMAIS" ou "MEI"
-- capitalSocialCNPJ: em reais com formato brasileiro (ex: "R$ 220.000,00")
-- endereco: concatenar logradouro + número + complemento + bairro + município + UF + CEP em uma linha
-- telefone: incluir DDD (ex: "(11) 3333-4444"); se houver mais de um, separar por " / "
-- tipoEmpresa: "LTDA", "S/A", "MEI", "EIRELI", "SLU", "SS", "COOPERATIVA" ou conforme natureza jurídica
-- funcionarios: número de funcionários se constar no documento, senão ""
-- campos ausentes ou não encontrados: ""
-- NÃO invente dados`;
+- situacaoCadastral: exatamente como consta — valores possíveis: "ATIVA" | "BAIXADA" | "INAPTA" | "SUSPENSA" | "NULA"
+- motivoSituacao: SOMENTE se houver motivo explícito após o status (ex: "Omissa no período", "Extinção por encerramento"). Para ATIVA, deixe "".
+- naturezaJuridica: código + descrição (ex: "206-2 - Sociedade Empresária Limitada")
+- cnaePrincipal: código + descrição (ex: "46.59-4-99 - Comércio atacadista de outros equipamentos")
+- cnaeSecundarios: separe por " ; " — inclua código e descrição de cada um. Se vazio, "".
+- porte: valores possíveis — "MICRO EMPRESA" | "EMPRESA DE PEQUENO PORTE" | "DEMAIS" | "MEI"
+- capitalSocialCNPJ: em reais com formato brasileiro COM prefixo "R$" (ex: "R$ 220.000,00"). Separador de milhar ponto, decimal vírgula.
+- endereco: concatene em UMA linha — logradouro + número + complemento + bairro + município + UF + CEP (ex: "Av. Paulista, 1578, Sala 12, Bela Vista, São Paulo/SP, CEP 01310-200")
+- telefone: incluir DDD (ex: "(11) 3333-4444"). Múltiplos: separe por " / "
+- email: apenas o endereço, sem "mailto:" (ex: "contato@empresa.com.br")
+- tipoEmpresa: derive da natureza jurídica — "LTDA" | "S/A" | "MEI" | "EIRELI" | "SLU" | "SS" | "COOPERATIVA"
+- funcionarios: número como string se constar, senão ""
+- Campos ausentes: ""
+- NÃO invente dados. NÃO preencha campos com "N/A" ou "Não informado" — use "" direto.`;
 
 const PROMPT_QSA = `Você receberá um Quadro de Sócios e Administradores (QSA) ou documento equivalente da Receita Federal. Extraia os dados e retorne APENAS JSON válido, sem markdown.
 
@@ -266,221 +268,325 @@ Schema:
 {"capitalSocial":"","quadroSocietario":[{"nome":"","cpfCnpj":"","qualificacao":"","participacao":"","dataEntrada":""}]}
 
 Regras:
-- Liste TODOS os sócios, administradores e representantes listados
-- CPF: formato XXX.XXX.XXX-XX | CNPJ (sócio PJ): formato XX.XXX.XXX/XXXX-XX
-- qualificacao: código + descrição exatamente como consta (ex: "49 - Sócio-Administrador", "22 - Sócio", "10 - Diretor")
-- participacao: percentual exatamente como consta (ex: "50,00%") — se não informado, ""
-- dataEntrada: data de entrada na sociedade em DD/MM/YYYY — se não informada, ""
-- capitalSocial: em reais com formatação brasileira (ex: "R$ 500.000,00")
-- NÃO inclua testemunhas, advogados, contadores ou procuradores — apenas sócios e administradores
-- Se o mesmo CPF/CNPJ aparecer mais de uma vez (ex: sócio + administrador), inclua apenas uma vez com a qualificação mais completa
-- NÃO invente dados`;
+- Liste TODOS os sócios, administradores e representantes constantes do QSA
+- nome: preserve acentos exatamente como no documento (ex: "João da Silva Júnior")
+- cpfCnpj: use formato automático — se 11 dígitos → CPF "XXX.XXX.XXX-XX"; se 14 dígitos → CNPJ "XX.XXX.XXX/XXXX-XX". CPFs parcialmente mascarados (ex: "***.123.456-**") mantenha como aparece.
+- qualificacao: código + descrição exato (ex: "49 - Sócio-Administrador", "22 - Sócio", "10 - Diretor", "05 - Administrador")
+- participacao: percentual com vírgula decimal (ex: "50,00%", "33,33%"). Se não informado, "".
+- dataEntrada: data de entrada na sociedade em DD/MM/YYYY. Se não informada, "".
+- capitalSocial: em reais com formatação brasileira e prefixo "R$" (ex: "R$ 500.000,00")
 
-const PROMPT_CONTRATO = `Você receberá um Contrato Social, Estatuto Social ou Ato Constitutivo de empresa (pode incluir alterações e consolidações). Extraia os dados e retorne APENAS JSON válido, sem markdown.
+EXCLUSÕES — NÃO inclua:
+- Testemunhas, advogados, contadores ou procuradores
+- Representantes legais que NÃO sejam sócios (ex: "Procurador" isolado)
+- Pessoas que aparecem apenas como cônjuge sem participação societária
+
+Deduplicação: se o mesmo CPF/CNPJ aparecer mais de uma vez (ex: sócio + administrador), inclua APENAS UMA VEZ com a qualificação mais abrangente (preferir "Sócio-Administrador" a "Sócio" ou "Administrador" isolado).
+
+VALIDAÇÃO: a soma das participações % deve ser ≤ 100%. Se ultrapassar, verifique se há sócio PJ com capital estrangeiro ou duplicação.
+
+NÃO invente dados — campos ausentes = "".`;
+
+const PROMPT_CONTRATO = `Você receberá um Contrato Social, Estatuto Social ou Ato Constitutivo de empresa (pode incluir alterações consolidadas, consolidações e aditivos). Extraia os dados e retorne APENAS JSON válido, sem markdown.
 
 Schema:
 {"socios":[{"nome":"","cpf":"","participacao":"","qualificacao":"","cotas":""}],"capitalSocial":"","objetoSocial":"","dataConstituicao":"","temAlteracoes":false,"ultimaAlteracao":"","prazoDuracao":"","administracao":"","foro":"","sede":""}
 
-Regras:
-- socios: liste TODOS os sócios com participação no capital — CPF formato XXX.XXX.XXX-XX
-- participacao: percentual (ex: "50%") ou valor em cotas (ex: "R$ 110.000,00")
-- cotas: número de cotas se mencionado, senão ""
-- qualificacao: "Sócio", "Sócio-Administrador", "Administrador" conforme o contrato
-- NÃO inclua testemunhas, advogados, cônjuges (a menos que sejam sócios), notários
-- capitalSocial: valor total em reais (ex: "R$ 220.000,00")
-- objetoSocial: extraia as atividades da cláusula de objeto social e reescreva em Título Case (não MAIÚSCULAS), texto corrido, separando atividades por vírgula, sem ponto-e-vírgula — máximo 300 caracteres. Ex: "Comércio atacadista de produtos alimentícios, fabricação de alimentos congelados, transporte de cargas"
-- dataConstituicao: data de constituição/registro em DD/MM/YYYY
-- temAlteracoes: true se o documento for uma Alteração Contratual ou Consolidação (não o contrato original)
-- ultimaAlteracao: data da última alteração em DD/MM/YYYY (se temAlteracoes=true)
-- prazoDuracao: "indeterminado" ou prazo específico conforme contrato
-- administracao: quem administra a empresa conforme cláusula de administração
-- foro: cidade do foro de eleição conforme última cláusula
-- sede: endereço completo da sede social
-- campos ausentes: "" ou false
-- NÃO invente dados`;
+CONSOLIDAÇÕES E ALTERAÇÕES — IMPORTANTE:
+- Se o documento for uma "Alteração Contratual Consolidada" ou "Consolidação": extraia o quadro societário FINAL (após a alteração), não o original
+- Se há múltiplas alterações listadas, use a MAIS RECENTE como ultimaAlteracao
+- temAlteracoes = true se o título do documento contém "Alteração", "Aditivo", "Consolidação" ou "Reforma"
+- dataConstituicao: SEMPRE a data original de fundação da empresa (não a data da alteração)
 
-const PROMPT_FATURAMENTO = `Você receberá um relatório de faturamento mensal (pode ser planilha Excel/XLSX, relatório de NF-e, extrato bancário, declaração ou tabela PDF). Extraia TODOS os valores mensais e retorne APENAS JSON válido, sem markdown.
+Sócios:
+- Liste TODOS os sócios com participação no capital final (após última alteração)
+- nome: preserve acentos exatamente como no documento
+- cpf: formato XXX.XXX.XXX-XX (mesmo que parcialmente mascarado no documento)
+- participacao: percentual com vírgula (ex: "50,00%") OU valor em cotas em reais se não houver %
+- cotas: número absoluto de cotas se mencionado (ex: "110000"), senão ""
+- qualificacao: "Sócio" | "Sócio-Administrador" | "Administrador" | "Acionista" — use a descrição exata do contrato
+
+EXCLUSÕES — NÃO inclua: testemunhas, advogados, contadores, cônjuges sem participação, notários, procuradores.
+
+Outros campos:
+- capitalSocial: valor total em reais com prefixo "R$" (ex: "R$ 220.000,00")
+- objetoSocial: extraia a cláusula de objeto social e reescreva em Título Case (não MAIÚSCULAS), texto corrido, atividades separadas por vírgula (sem ponto-e-vírgula). Máximo 300 caracteres. Ex: "Comércio atacadista de produtos alimentícios, fabricação de alimentos congelados, transporte rodoviário de cargas"
+- dataConstituicao: DD/MM/YYYY — data original da 1ª constituição
+- ultimaAlteracao: DD/MM/YYYY — data da alteração mais recente (se temAlteracoes=true)
+- prazoDuracao: "indeterminado" ou prazo específico (ex: "10 anos")
+- administracao: nome(s) do(s) administrador(es) conforme cláusula de administração (ex: "João da Silva (Administrador)")
+- foro: cidade do foro de eleição (última cláusula — ex: "São Paulo/SP")
+- sede: endereço completo da sede social em uma linha
+
+Campos ausentes: "" ou false. NÃO invente dados.`;
+
+const PROMPT_FATURAMENTO = `Você receberá um relatório de faturamento mensal (planilha Excel/XLSX, relatório de NF-e, extrato bancário, declaração contábil ou tabela PDF). Extraia TODOS os valores mensais e retorne APENAS JSON válido, sem markdown.
 
 Schema:
 {"meses":[{"mes":"01/2024","valor":"1.234.567,89"}],"somatoriaTotal":"","totalMesesExtraidos":0,"faturamentoZerado":false,"dadosAtualizados":true,"ultimoMesComDados":"","anoMaisAntigo":"","anoMaisRecente":"","fmm12m":"","mediaAno":""}
 
 FORMATO NUMÉRICO BRASILEIRO (OBRIGATÓRIO):
-- Separador de MILHAR = ponto (.) — ex: 3.506.158
-- Separador DECIMAL = vírgula (,) — ex: 3.506.158,22
-- Exemplos corretos: "1.234.567,89", "3.506.158,22", "850.000,00", "42.300,50"
-- ERRADO: "1234567.89", "1,234,567.89", "3506158.22"
+- Separador de MILHAR = ponto (.)  —  Separador DECIMAL = vírgula (,)
+- CORRETO: "1.234.567,89" | "3.506.158,22" | "850.000,00" | "42.300,50"
+- ERRADO: "1234567.89" | "1,234,567.89" | "3506158.22" | "R$ 1.234,00"
 - NUNCA use prefixo "R$"
+- Se o documento usar formato americano (ponto decimal), CONVERTA para brasileiro
 
-Regras:
-- Extraia TODOS os meses presentes em TODO o documento — tabelas, rodapés, cabeçalhos, múltiplas páginas
-- Se o documento for uma planilha Excel/spreadsheet, extraia os valores brutos das células numéricas e converta para formato brasileiro
-- mes: formato MM/YYYY obrigatório (ex: "01/2024", "12/2023"). Aceite também "Mmm/YY" no documento (ex: "Jan/25") mas converta para MM/YYYY na saída
-- valor: formato brasileiro conforme descrito acima — sem "R$"
-- Se um mês aparecer duplicado (ex: duas linhas para JAN/2024), use o MAIOR valor
-- NÃO inclua meses futuros sem dados reais
-- NÃO inclua meses com valor zero a menos que o zero seja o faturamento real daquele mês
-- Se houver coluna de "Total" ou "Acumulado", use-a como somatoriaTotal
-- somatoriaTotal: soma de todos os meses extraídos, formato brasileiro
-- totalMesesExtraidos: contagem numérica dos meses no array meses
-- faturamentoZerado: true se TODOS os meses tiverem valor zero ou ausente
-- dadosAtualizados: false se o período mais recente for anterior a 6 meses atrás
+Regras de extração:
+- Extraia TODOS os meses presentes em TODAS as páginas — tabelas, rodapés, cabeçalhos, resumos anuais
+- Se for planilha Excel, extraia valores BRUTOS das células numéricas (não formatos de exibição) e converta para brasileiro
+- mes: formato MM/YYYY obrigatório (ex: "01/2024", "12/2023")
+- Formatos aceitos no documento (converta para MM/YYYY na saída):
+  * "Jan/25", "Janeiro 2025", "JAN/2025" → "01/2025"
+  * "01-2024", "2024-01", "01.2024" → "01/2024"
+  * "01/24" (ano curto) → "01/2024" (assuma século atual)
+- valor: formato brasileiro sem "R$"
+- DEDUPLICAÇÃO: se um mês aparecer duplicado, use o MAIOR valor (ex: se há JAN/2024 = 1.000.000 e JAN/2024 = 1.050.000, use 1.050.000)
+- NÃO inclua meses futuros (posteriores ao mês atual) sem dados reais
+- NÃO inclua meses com valor zero A MENOS QUE o zero seja o faturamento real daquele mês (não um campo vazio)
+- Se houver linha "Total Geral" / "Acumulado" / "Subtotal": use como somatoriaTotal, NÃO adicione ao array meses
+- Ordene meses cronologicamente na saída (mais antigo primeiro)
+
+Campos derivados:
+- somatoriaTotal: soma de todos os meses extraídos em formato brasileiro (ou valor da linha Total do documento)
+- totalMesesExtraidos: contagem numérica de entradas em meses[]
+- faturamentoZerado: true se TODOS os valores = 0
+- dadosAtualizados: false se o ultimoMesComDados for anterior a 6 meses da data atual
 - ultimoMesComDados: último mês com valor positivo (formato MM/YYYY)
 - anoMaisAntigo / anoMaisRecente: apenas o ano (ex: "2022", "2024")
-- fmm12m: se o documento informar "FMM" ou "Faturamento Médio Mensal" (últimos 12 meses), extraia esse valor em formato brasileiro; senão ""
-- mediaAno: se o documento informar faturamento total anual ou acumulado do ano, extraia esse valor em formato brasileiro; senão ""
-- NÃO invente dados`;
+
+Campos específicos de FMM e Média Anual:
+- fmm12m: se o documento EXPLICITAMENTE informar "FMM", "Faturamento Médio Mensal (12 meses)" ou "Média dos últimos 12", extraia ESSE valor. Senão deixe "".
+- mediaAno: se o documento informar "Total Anual", "Faturamento Anual Acumulado" ou "Soma do Exercício", extraia ESSE valor. Senão deixe "".
+- ATENÇÃO: NÃO calcule fmm12m nem mediaAno — extraia apenas se vier explicitamente no documento. O backend faz o cálculo.
+
+NÃO invente dados. Campos ausentes = "" ou 0 ou false.`;
 
 const PROMPT_SCR = `Extraia dados do SCR (Sistema de Informações de Crédito do Banco Central). Retorne APENAS JSON válido, sem markdown.
 
 Schema obrigatório:
 {"periodoReferencia":"MM/AAAA","tipoPessoa":"PJ","cnpjSCR":"","nomeCliente":"","cpfSCR":"","pctDocumentosProcessados":"","pctVolumeProcessado":"","carteiraAVencer":"","vencidos":"","prejuizos":"","limiteCredito":"","qtdeInstituicoes":"","qtdeOperacoes":"","totalDividasAtivas":"","operacoesAVencer":"","operacoesEmAtraso":"","operacoesVencidas":"","tempoAtraso":"","coobrigacoes":"","classificacaoRisco":"","carteiraCurtoPrazo":"","carteiraLongoPrazo":"","emDia":"","semHistorico":false,"numeroIfs":"","faixasAVencer":{"ate30d":"0,00","d31_60":"0,00","d61_90":"0,00","d91_180":"0,00","d181_360":"0,00","acima360d":"0,00","prazoIndeterminado":"0,00","total":"0,00"},"faixasVencidos":{"ate30d":"0,00","d31_60":"0,00","d61_90":"0,00","d91_180":"0,00","d181_360":"0,00","acima360d":"0,00","total":"0,00"},"faixasPrejuizos":{"ate12m":"0,00","acima12m":"0,00","total":"0,00"},"faixasLimite":{"ate360d":"0,00","acima360d":"0,00","total":"0,00"},"outrosValores":{"carteiraCredito":"0,00","repasses":"0,00","coobrigacoes":"0,00","responsabilidadeTotal":"0,00","creditosALiberar":"0,00","riscoTotal":"0,00"},"modalidades":[{"nome":"","total":"","aVencer":"","vencido":"","participacao":"","ehContingente":false}],"instituicoes":[{"nome":"","valor":""}],"valoresMoedaEstrangeira":"","historicoInadimplencia":"","periodoAnterior":{"periodoReferencia":"","carteiraAVencer":"","vencidos":"","prejuizos":"","limiteCredito":"","totalDividasAtivas":"","operacoesAVencer":"","operacoesEmAtraso":"","operacoesVencidas":"","carteiraCurtoPrazo":"","carteiraLongoPrazo":"","classificacaoRisco":"","qtdeInstituicoes":"","numeroIfs":"","emDia":"","semHistorico":false,"faixasAVencer":{"ate30d":"0,00","d31_60":"0,00","d61_90":"0,00","d91_180":"0,00","d181_360":"0,00","acima360d":"0,00","prazoIndeterminado":"0,00","total":"0,00"},"faixasVencidos":{"ate30d":"0,00","d31_60":"0,00","d61_90":"0,00","d91_180":"0,00","d181_360":"0,00","acima360d":"0,00","total":"0,00"}},"variacoes":{"emDia":"","carteiraCurtoPrazo":"","carteiraLongoPrazo":"","totalDividasAtivas":"","vencidos":"","prejuizos":"","limiteCredito":"","numeroIfs":""}}
 
-REGRAS GERAIS:
+═══ REGRAS GERAIS ═══
 - periodoReferencia: OBRIGATÓRIO, formato MM/AAAA (ex: "04/2025")
-- tipoPessoa: OBRIGATÓRIO — "PF" se o documento mostra CPF (pessoa física / indivíduo), "PJ" se mostra CNPJ (pessoa jurídica / empresa). Verifique o cabeçalho do documento: se aparecer CPF → "PF"; se aparecer CNPJ → "PJ"
-- Valores monetários: formato brasileiro com pontos para milhar e vírgula para decimais (ex: "23.785,80", "1.234.567,00"). NUNCA use prefixo "R$". Campo ausente = "0,00"
-- NÃO invente dados; NÃO copie valores de A Vencer para Vencidos ou vice-versa
-- semHistorico=true somente se totalDividasAtivas=0 E limiteCredito=0 E modalidades vazia
+- tipoPessoa: OBRIGATÓRIO — "PF" se cabeçalho mostra CPF (pessoa física); "PJ" se mostra CNPJ (empresa). Olhe o cabeçalho do documento.
+- Valores monetários: formato brasileiro — pontos no milhar, vírgula nos decimais (ex: "23.785,80", "1.234.567,00"). SEM "R$". Campo ausente = "0,00".
+- NÃO invente dados. NÃO copie valores entre colunas (A Vencer ≠ Vencidos ≠ Prejuízos).
+- semHistorico = true SOMENTE se totalDividasAtivas="0,00" E limiteCredito="0,00" E modalidades=[].
 
-TABELA PRINCIPAL DE MODALIDADES:
-- O documento SCR tem uma tabela com colunas: Modalidade | A Vencer | Vencidos | Prejuízos | Limite | Coobrigação | Participação
-- Para CADA linha de modalidade, extraia:
-  - nome: nome exato da modalidade (ex: "Capital de Giro", "Financiamento Imobiliário")
-  - total: valor total daquela modalidade (soma de A Vencer + Vencidos + Prejuízos, ou coluna "Total" se existir)
-  - aVencer: valor da coluna "A Vencer" para esta modalidade
-  - vencido: valor da coluna "Vencidos" para esta modalidade — ATENÇÃO: NÃO confundir com A Vencer
-  - participacao: percentual de participação (ex: "45,2%") se constar no documento
-  - ehContingente: true para modalidades em "Responsabilidades Contingentes" ou "Títulos Descontados"
-- carteiraAVencer = linha "Total" da coluna "A Vencer"
-- vencidos = linha "Total" da coluna "Vencidos" — ATENÇÃO: NÃO confundir com A Vencer
-- prejuizos = linha "Total" da coluna "Prejuízos"
-- limiteCredito = linha "Total" da coluna "Limite de Crédito"
-- emDia = linha "Total" da coluna "Em Dia" (se existir)
+═══ TABELA PRINCIPAL DE MODALIDADES ═══
+Colunas típicas: Modalidade | A Vencer | Vencidos | Prejuízos | Limite | Coobrigação | Participação
 
-TABELA DE FAIXAS "A VENCER" (seção: "Discriminação A Vencer por Faixa de Prazo" ou similar):
-- ESTA tabela preenche APENAS faixasAVencer — não misture com faixasVencidos
-- Mapeamento de faixas:
-  - "Até 30 dias" / "1 a 30 dias" → ate30d
-  - "31 a 60 dias" → d31_60
-  - "61 a 90 dias" → d61_90
-  - "91 a 180 dias" → d91_180
-  - "181 a 360 dias" → d181_360
-  - "Acima de 360 dias" / "Superior a 360 dias" → acima360d
-  - "Prazo Indeterminado" → prazoIndeterminado
-  - "Total" → total
-- carteiraCurtoPrazo = soma das faixas até 360d de A Vencer
-- carteiraLongoPrazo = faixa acima360d de A Vencer
+Para CADA linha de modalidade em modalidades[]:
+- nome: nome exato (ex: "Capital de Giro", "Financiamento Imobiliário", "Desconto de Duplicatas")
+- total: soma A Vencer + Vencidos + Prejuízos, OU valor da coluna "Total" se existir
+- aVencer: coluna "A Vencer" desta linha
+- vencido: coluna "Vencidos" desta linha (CUIDADO: NÃO confundir com A Vencer)
+- participacao: % de participação se constar (ex: "45,2%")
+- ehContingente: true para modalidades listadas em "Responsabilidades Contingentes" ou "Títulos Descontados"
 
-TABELA DE FAIXAS "VENCIDOS" (seção: "Discriminação Vencido por Faixa de Prazo" ou "Discriminação dos Vencidos" ou similar):
-- ESTA tabela preenche APENAS faixasVencidos — NÃO reutilize valores de faixasAVencer
-- As faixas de vencidos NÃO têm "Prazo Indeterminado"
-- Mapeamento de faixas:
-  - "1 a 30 dias" / "Até 30 dias" → ate30d
-  - "31 a 60 dias" → d31_60
-  - "61 a 90 dias" → d61_90
-  - "91 a 180 dias" → d91_180
-  - "181 a 360 dias" → d181_360
-  - "Acima de 360 dias" → acima360d
-  - "Total" → total
-- VALIDAÇÃO: faixasVencidos.total deve ser igual a vencidos (campo principal)
-- Se a seção de vencidos não existir no documento (empresa sem vencidos), todos os campos de faixasVencidos = "0,00"
+Campos totais (da linha "Total" da tabela de modalidades):
+- carteiraAVencer = Total coluna "A Vencer"
+- vencidos = Total coluna "Vencidos"
+- prejuizos = Total coluna "Prejuízos"
+- limiteCredito = Total coluna "Limite de Crédito"
+- emDia = Total coluna "Em Dia" (se existir)
 
-DOIS PERÍODOS (IMPORTANTE — extraia AMBOS se presentes):
-- Muitos documentos SCR mostram dois períodos lado a lado (ex: coluna "Atual" e "Anterior", ou duas datas de referência)
-- Se o documento tiver 2 períodos: o período MAIS RECENTE vai nos campos principais do JSON, o período ANTERIOR vai em periodoAnterior
-- periodoAnterior DEVE incluir: periodoReferencia, carteiraAVencer, vencidos, prejuizos, limiteCredito, totalDividasAtivas, operacoesAVencer, operacoesEmAtraso, operacoesVencidas, carteiraCurtoPrazo, carteiraLongoPrazo, classificacaoRisco, qtdeInstituicoes, numeroIfs, emDia, semHistorico, faixasAVencer (completo), faixasVencidos (completo)
-- variacoes: calcule a variação percentual entre o período atual e o anterior para cada campo (ex: "+7,6%", "-6,5%", "0,0%" se igual, "" se ausente). Fórmula: ((atual - anterior) / |anterior|) * 100
-- Se o documento mostrar APENAS UM período, deixe periodoAnterior com todos os campos vazios/zerados
+═══ FAIXAS A VENCER ═══
+Seção: "Discriminação A Vencer por Faixa de Prazo" ou similar.
+Preenche APENAS faixasAVencer — NÃO misture com faixasVencidos.
 
-NÃO invente dados`;
+Mapeamento:
+- "Até 30 dias" / "1 a 30 dias" → ate30d
+- "31 a 60 dias" → d31_60
+- "61 a 90 dias" → d61_90
+- "91 a 180 dias" → d91_180
+- "181 a 360 dias" → d181_360
+- "Acima de 360 dias" / "Superior a 360 dias" → acima360d
+- "Prazo Indeterminado" → prazoIndeterminado
+- "Total" → total
+
+Derivados:
+- carteiraCurtoPrazo = soma das faixas até 360d (ate30d + d31_60 + d61_90 + d91_180 + d181_360)
+- carteiraLongoPrazo = acima360d
+
+═══ FAIXAS VENCIDOS ═══
+Seção: "Discriminação Vencido por Faixa de Prazo" ou "Discriminação dos Vencidos".
+Preenche APENAS faixasVencidos — NÃO reutilize valores de faixasAVencer.
+NÃO tem "Prazo Indeterminado" (não existe nesta tabela).
+
+Mapeamento (idêntico a A Vencer, sem prazoIndeterminado):
+- "1 a 30 dias" / "Até 30 dias" → ate30d
+- "31 a 60 dias" → d31_60
+- ... (mesma lógica)
+
+VALIDAÇÃO: faixasVencidos.total deve ser IGUAL a vencidos (campo principal).
+Se a seção não existir (empresa sem vencidos), todos os campos de faixasVencidos = "0,00".
+
+═══ DOIS PERÍODOS (IMPORTANTE) ═══
+Muitos SCRs mostram 2 períodos lado a lado (ex: coluna "Atual" + "Anterior", ou 2 datas de referência).
+
+Se houver 2 períodos:
+- Período MAIS RECENTE → campos principais do JSON
+- Período ANTERIOR → objeto periodoAnterior
+
+periodoAnterior DEVE incluir:
+periodoReferencia, carteiraAVencer, vencidos, prejuizos, limiteCredito, totalDividasAtivas, operacoesAVencer, operacoesEmAtraso, operacoesVencidas, carteiraCurtoPrazo, carteiraLongoPrazo, classificacaoRisco, qtdeInstituicoes, numeroIfs, emDia, semHistorico, faixasAVencer (completo), faixasVencidos (completo)
+
+variacoes — calcule variação % de cada campo:
+Fórmula: ((atual - anterior) / |anterior|) * 100
+Formato: "+7,6%" | "-6,5%" | "0,0%" | "" (se ausente)
+
+Se APENAS 1 período: deixe periodoAnterior com campos vazios/zerados.
+
+═══ MOEDA ESTRANGEIRA ═══
+valoresMoedaEstrangeira: se o documento mencionar exposições em USD, EUR ou outras moedas (ex: "US$ 50.000,00 em financiamento"), descreva aqui em uma linha. Senão "".
+
+NÃO invente dados.`;
 
 
-const PROMPT_PROTESTOS = `Você receberá uma certidão de protestos (SERASA, cartório, CRC ou similar). Extraia os dados e retorne APENAS JSON válido, sem markdown.
+const PROMPT_PROTESTOS = `Você receberá uma certidão de protestos (SERASA, cartório, CRC, IEPTB ou similar). Extraia os dados e retorne APENAS JSON válido, sem markdown.
 
 Schema:
 {"vigentesQtd":"","vigentesValor":"","regularizadosQtd":"","regularizadosValor":"","detalhes":[{"data":"","credor":"","valor":"","numero":"","cartorio":"","cidade":"","regularizado":false}]}
 
-Regras:
-- vigentesQtd: número total de protestos ATIVOS (não regularizados) — string (ex: "3")
-- vigentesValor: valor total dos protestos ativos em reais formato brasileiro (ex: "15.432,00")
-- regularizadosQtd: número de protestos regularizados/pagos — string
-- regularizadosValor: valor total dos regularizados em reais formato brasileiro
-- detalhes: liste TODOS os protestos individualmente, tanto vigentes quanto regularizados
-  - data: data do protesto em DD/MM/AAAA
-  - credor: nome do credor/apresentante como consta no documento
-  - valor: valor em reais formato brasileiro (ex: "2.340,00") — sem "R$"
-  - numero: número do título/protocolo se disponível, senão ""
-  - cartorio: nome ou número do cartório se disponível, senão ""
-  - cidade: cidade do cartório se disponível, senão ""
-  - regularizado: true se constar como "REGULARIZADO", "PAGO", "CANCELADO" ou similar
-- Se o documento indicar "SEM RESTRIÇÕES" ou "NADA CONSTA": vigentesQtd="0", vigentesValor="0,00", detalhes=[]
-- NÃO invente dados`;
+CLASSIFICAÇÃO — ATENÇÃO aos status:
+- VIGENTES (ativos): protestos que ainda constam registrados e NÃO foram pagos nem cancelados
+- REGULARIZADOS: status "PAGO", "CANCELADO", "BAIXADO", "QUITADO", "SUSTADO", "RETIRADO" ou similar
+- Um protesto "CANCELADO" por ordem judicial continua sendo regularizado (não vigente)
 
-const PROMPT_PROCESSOS = `Você receberá um relatório de processos judiciais (Credit Bureau, SERASA, Jusbrasil, relatório próprio ou similar). Extraia os dados e retorne APENAS JSON válido, sem markdown.
+Regras:
+- vigentesQtd: número de protestos com status ativo como string (ex: "3")
+- vigentesValor: soma dos valores vigentes em formato brasileiro (ex: "15.432,00"). SEM prefixo "R$".
+- regularizadosQtd: número de protestos regularizados como string
+- regularizadosValor: soma dos valores regularizados em formato brasileiro
+
+Array detalhes — liste TODOS os protestos individualmente (vigentes E regularizados):
+- data: DD/MM/AAAA — data de registro do protesto
+- credor: nome do credor/apresentante/portador exatamente como consta
+- valor: em reais formato brasileiro (ex: "2.340,00") — SEM "R$"
+- numero: número do título, protocolo ou cártula — senão ""
+- cartorio: nome ou número do cartório (ex: "1º Tabelionato de Protesto de Títulos") — senão ""
+- cidade: cidade do cartório no formato "Cidade/UF" (ex: "São Paulo/SP") — senão ""
+- regularizado: true SE status indica pagamento, cancelamento, baixa ou quitação; false se vigente/ativo
+
+Documentos negativos:
+- Se certidão indicar "SEM RESTRIÇÕES", "NADA CONSTA", "NÃO CONSTAM PROTESTOS" ou similar:
+  * vigentesQtd = "0"
+  * vigentesValor = "0,00"
+  * regularizadosQtd = "0"
+  * regularizadosValor = "0,00"
+  * detalhes = []
+
+NÃO invente dados. Valores/campos ausentes = "".`;
+
+const PROMPT_PROCESSOS = `Você receberá um relatório de processos judiciais (Credit Bureau, SERASA, Jusbrasil, Escavador, relatório de advogado ou similar). Extraia os dados e retorne APENAS JSON válido, sem markdown.
 
 Schema:
 {"passivosTotal":"","ativosTotal":"","valorTotalEstimado":"","temRJ":false,"temRecuperacaoExtrajudicial":false,"distribuicao":[{"tipo":"","qtd":"","pct":""}],"bancarios":[{"banco":"","assunto":"","status":"","data":"","valor":"","numero":"","tribunal":""}],"fiscais":[{"contraparte":"","valor":"","status":"","data":"","numero":"","tribunal":""}],"fornecedores":[{"contraparte":"","assunto":"","valor":"","status":"","data":"","numero":"","tribunal":""}],"outros":[{"contraparte":"","assunto":"","valor":"","status":"","data":"","numero":"","tribunal":""}]}
 
-Regras:
-- passivosTotal: total de processos onde a empresa é RÉ/EXECUTADA/REQUERIDA — string (ex: "12")
-- ativosTotal: total de processos onde a empresa é AUTORA/EXEQUENTE/REQUERENTE — string
-- valorTotalEstimado: valor total estimado de TODOS os processos passivos em reais (ex: "R$ 450.000,00")
-- temRJ: true se houver qualquer menção a "Recuperação Judicial", "RJ" como processo
-- temRecuperacaoExtrajudicial: true se houver "Recuperação Extrajudicial"
-- distribuicao: agrupe por tipo — tipos válidos: "TRABALHISTA", "BANCÁRIO", "FISCAL", "FORNECEDOR", "CÍVEL", "OUTROS"
-  - qtd: quantidade de processos daquele tipo (string)
-  - pct: percentual aproximado (ex: "45%")
-- bancarios: processos com bancos/financeiras como contraparte — NÃO liste trabalhistas aqui
-- fiscais: execuções fiscais, dívida ativa, PGFN, Receita Federal
-- fornecedores: ações de fornecedores ou clientes
-- outros: tudo que não se encaixa nas categorias acima (cível, indenizações, etc.)
-- Para processos trabalhistas: NÃO liste individualmente — apenas contabilize em distribuicao
-- status válidos: "EM ANDAMENTO", "ARQUIVADO", "JULGADO", "EM RECURSO", "SUSPENSO", "DISTRIBUÍDO"
-- numero: número CNJ do processo (ex: "0000000-00.0000.0.00.0000") se disponível
-- tribunal: sigla (ex: "TJSP", "TRT2", "TRF3") se disponível
-- Se não há processos: passivosTotal="0", ativosTotal="0", distribuicao=[], demais arrays vazios
-- NÃO invente dados`;
+Totais:
+- passivosTotal: processos onde a empresa é RÉ / EXECUTADA / REQUERIDA / PACIENTE — string numérica (ex: "12")
+- ativosTotal: processos onde a empresa é AUTORA / EXEQUENTE / REQUERENTE / IMPETRANTE — string numérica
+- valorTotalEstimado: valor total em reais com prefixo "R$" (ex: "R$ 450.000,00")
 
-const PROMPT_GRUPO_ECONOMICO = `Você receberá um relatório de grupo econômico (Credit Bureau, SERASA, relatório próprio ou similar). Extraia os dados e retorne APENAS JSON válido, sem markdown.
+Flags críticos:
+- temRJ: true se houver menção a "Recuperação Judicial", "RJ", "Deferimento de Processamento de RJ"
+- temRecuperacaoExtrajudicial: true se "Recuperação Extrajudicial" ou "Homologação de Plano Extrajudicial"
+
+Categorias (distribuicao — use EXATAMENTE estes tipos):
+- "TRABALHISTA": reclamações trabalhistas, ações sindicais, execuções trabalhistas
+- "BANCÁRIO": ações com bancos, financeiras, cooperativas de crédito como contraparte
+- "FISCAL": execuções fiscais, dívida ativa, PGFN, Receita Federal, Fazenda Estadual/Municipal, INSS
+- "FORNECEDOR": ações de cobrança movidas por fornecedores ou prestadores
+- "CÍVEL": ações cíveis gerais (indenização, danos morais, contratos, responsabilidade civil, consumidor)
+- "OUTROS": o que não se encaixa — criminais, ambientais, regulatórios, especiais
+
+Detalhamento por array — NÃO duplique um processo entre arrays:
+- bancarios[]: processos BANCÁRIOS individualizados
+- fiscais[]: processos FISCAIS individualizados
+- fornecedores[]: processos de FORNECEDOR individualizados
+- outros[]: processos CÍVEIS + OUTROS individualizados
+- TRABALHISTAS: NÃO liste individualmente por sigilo — apenas conte em distribuicao
+
+Campos dos processos individuais:
+- contraparte / banco: nome da parte adversa
+- assunto: resumo em uma linha (ex: "Cobrança de duplicata", "Dano moral", "Execução de título")
+- status: "EM ANDAMENTO" | "ARQUIVADO" | "JULGADO" | "EM RECURSO" | "SUSPENSO" | "DISTRIBUÍDO" | "TRANSITADO EM JULGADO"
+- data: DD/MM/YYYY — data de distribuição
+- valor: em reais formato brasileiro com "R$" (ex: "R$ 50.000,00") ou "" se indefinido
+- numero: número CNJ completo (ex: "0000000-00.0000.0.00.0000") se disponível
+- tribunal: sigla (ex: "TJSP", "TRT2", "TRF3", "STJ") se disponível
+
+Documentos negativos:
+- "NADA CONSTA" / "NÃO FORAM ENCONTRADOS PROCESSOS": passivosTotal="0", ativosTotal="0", distribuicao=[], arrays vazios
+
+NÃO invente dados.`;
+
+const PROMPT_GRUPO_ECONOMICO = `Você receberá um relatório de grupo econômico (Credit Bureau, SERASA, Escavador, relatório próprio ou similar). Extraia os dados e retorne APENAS JSON válido, sem markdown.
 
 Schema:
 {"empresas":[{"razaoSocial":"","cnpj":"","relacao":"","participacaoSocio":"","scrTotal":"","protestos":"","processos":"","situacaoCadastral":""}]}
 
 Regras:
-- Liste TODAS as empresas vinculadas ao grupo econômico, exceto a empresa principal que está sendo analisada
-- razaoSocial: nome completo conforme consta
+- Liste TODAS as empresas vinculadas ao grupo econômico — EXCETO a empresa principal que está sendo analisada
+- INCLUA empresas com status "BAIXADA", "INAPTA" ou "SUSPENSA" — elas são importantes para análise de histórico do grupo (sinalize no campo situacaoCadastral)
+- razaoSocial: nome completo exatamente como consta, preservando acentos
 - cnpj: formato XX.XXX.XXX/XXXX-XX
-- relacao: tipo de vínculo — use exatamente: "via Sócio", "Controlada", "Coligada", "Controladora", "Participação" ou o que constar no documento
-- participacaoSocio: percentual de participação do sócio comum nessa empresa (ex: "50%") — se disponível
-- scrTotal: exposição SCR total dessa empresa se constar (ex: "R$ 1.200.000,00"), senão ""
-- protestos: número de protestos dessa empresa se constar (ex: "2"), senão ""
-- processos: número de processos se constar (ex: "5"), senão ""
-- situacaoCadastral: "ATIVA", "BAIXADA", "INAPTA" se disponível, senão ""
-- Se o documento indicar que não há grupo econômico ou não foram encontradas empresas vinculadas: retorne {"empresas":[]}
-- NÃO invente dados`;
+- relacao: tipo de vínculo — use UM dos valores:
+  * "Controladora" — empresa que controla a analisada
+  * "Controlada" — empresa controlada pela analisada
+  * "Coligada" — participação relevante sem controle
+  * "via Sócio" — mesmo sócio PF em ambas
+  * "via QSA" — sócio PJ em comum
+  * "Participação" — outra forma de vínculo societário
+- participacaoSocio: percentual % do sócio comum na empresa vinculada (ex: "50%") — senão ""
+- scrTotal: exposição SCR total se constar, formato "R$ 1.200.000,00" — senão ""
+- protestos: quantidade de protestos da empresa vinculada (ex: "2") — senão ""
+- processos: quantidade de processos (ex: "5") — senão ""
+- situacaoCadastral: "ATIVA" | "BAIXADA" | "INAPTA" | "SUSPENSA" | "NULA" — senão ""
 
-const PROMPT_CURVA_ABC = `Você receberá um relatório de Curva ABC de clientes. As colunas são: Cliente, Peso (kg), Valor Total, Ticket Médio, % Participação, % Acumulado, Classe ABC.
+Ordenação: coloque empresas ATIVAS primeiro, depois as baixadas/inaptas/suspensas.
+
+Se não houver grupo econômico: retorne {"empresas":[]}.
+
+NÃO invente dados.`;
+
+const PROMPT_CURVA_ABC = `Você receberá um relatório de Curva ABC de clientes (de ERP, planilha ou sistema contábil). Colunas típicas: Cliente, Peso (kg), Valor Total, Ticket Médio, % Participação, % Acumulado, Classe ABC.
 
 Retorne APENAS JSON válido, sem markdown, sem texto adicional:
 
 {"clientes":[{"posicao":1,"nome":"","cnpjCpf":"","valorFaturado":"0,00","percentualReceita":"0.00","percentualAcumulado":"0.00","classe":"A"}],"totalClientesNaBase":0,"totalClientesExtraidos":0,"periodoReferencia":"","receitaTotalBase":"0,00","concentracaoTop3":"0.00","concentracaoTop5":"0.00","concentracaoTop10":"0.00","totalClientesClasseA":0,"receitaClasseA":"0,00","maiorCliente":"","maiorClientePct":"0.00","alertaConcentracao":false}
 
-Regras obrigatórias:
-1. Extraia TODOS os clientes do documento em ordem decrescente de valor
-2. percentualReceita e percentualAcumulado: número sem % e sem vírgula (ex: 36.35, não "36,35%")
-3. valorFaturado e receitaTotalBase: formato brasileiro com vírgula (ex: "4.664.989,95")
-4. concentracaoTop3 = soma dos percentualReceita dos 3 maiores clientes
-5. concentracaoTop5 = soma dos percentualReceita dos 5 maiores clientes
-6. concentracaoTop10 = soma dos percentualReceita dos 10 maiores clientes
-7. totalClientesClasseA = quantidade de linhas com Classe "A"
-8. receitaClasseA = soma do valorFaturado de todos os clientes classe A
-9. maiorCliente = nome do cliente com maior valor
-10. maiorClientePct = percentualReceita do maior cliente
-11. alertaConcentracao = true se maiorClientePct > 30
-12. receitaTotalBase = valor da linha "Total Geral" do documento
-13. totalClientesNaBase = total de clientes no documento (excluindo linha Total Geral)
-14. Se o nome do cliente vier com CPF/número no início (ex: "59.580.931 MARIA LUIZA"), separe: cnpjCpf = "59.580.931", nome = "MARIA LUIZA DA SILVA MACEDO"
-15. NÃO invente dados — use apenas o que está no documento`;
+FORMATOS NUMÉRICOS (ATENÇÃO à mistura):
+- valorFaturado / receitaTotalBase / receitaClasseA: formato BRASILEIRO com vírgula decimal (ex: "4.664.989,95")
+- percentualReceita / percentualAcumulado / concentracaoTopN / maiorClientePct: número com PONTO decimal, SEM % (ex: "36.35", NÃO "36,35%")
+
+Regras de extração:
+1. Extraia TODOS os clientes em ordem decrescente de valorFaturado
+2. posicao: ranking iniciando em 1
+3. nome: nome do cliente preservando acentos
+4. cnpjCpf: se o documento separar por coluna, use o formato identificado. Se o nome vier com CPF/CNPJ no início (ex: "59.580.931 MARIA LUIZA DA SILVA"), SEPARE:
+   * cnpjCpf = "59.580.931" (apenas os dígitos/pontos)
+   * nome = "MARIA LUIZA DA SILVA"
+   Se não houver CPF/CNPJ identificável, cnpjCpf = ""
+5. classe: "A" | "B" | "C" exatamente como no documento
+6. periodoReferencia: período dos dados (ex: "Jan-Dez/2024", "2024", "Últimos 12 meses") se constar, senão ""
+
+Campos calculados:
+7. totalClientesNaBase: total de clientes na base de dados (linha "Total Geral" / "Total de Clientes" — exclui a própria linha de total)
+8. totalClientesExtraidos: contagem do array "clientes" retornado (pode ser menor que totalClientesNaBase se o doc truncar a lista)
+9. receitaTotalBase: valor da linha "Total Geral" do documento
+10. concentracaoTop3: soma dos percentualReceita dos 3 primeiros clientes (ex: "52.10")
+11. concentracaoTop5: idem para os 5 primeiros
+12. concentracaoTop10: idem para os 10 primeiros
+13. totalClientesClasseA: quantidade de clientes com classe "A"
+14. receitaClasseA: soma dos valorFaturado de clientes classe A
+15. maiorCliente: nome do cliente na posição 1
+16. maiorClientePct: percentualReceita do cliente na posição 1
+17. alertaConcentracao: true SE maiorClientePct > 30 (concentração crítica)
+
+NÃO invente dados.`;
 
 const PROMPT_DRE = `Você receberá uma Demonstração de Resultado do Exercício (DRE). Pode estar em formato SPED ECD/ECF, DRE simplificada, relatório gerencial, planilha Excel ou PDF contábil. Retorne APENAS JSON válido, sem markdown, sem texto adicional.
 
@@ -531,11 +637,22 @@ Campos adicionais:
 - periodoMaisRecente: ano mais recente encontrado (ex: "2024")
 - observacoes: informações relevantes não capturadas (regime tributário, notas do contador, etc.)
 
+TRATAMENTO POR REGIME TRIBUTÁRIO:
+- Simples Nacional: DREs do Simples costumam ser simplificadas — lucroBruto pode não aparecer. Nesse caso calcule: lucroBruto = receitaLiquida - custoProdutosServicos. Se não há CPV/CMV separado, use "0,00" em custoProdutosServicos e lucroBruto = receitaLiquida.
+- Lucro Presumido: pode omitir deduções detalhadas. Se apenas receitaBruta aparecer, receitaLiquida = receitaBruta - estimativa_imposto (use 0 se não especificado).
+- Lucro Real: DRE completo — use o mapeamento padrão acima.
+- MEI: DRE simplificada, geralmente apenas receitaBruta e lucroLiquido. Outros campos = "0,00".
+
+VALIDAÇÕES DE COERÊNCIA (obrigatórias — marque em observacoes se alguma falhar):
+- receitaLiquida ≈ receitaBruta + deducoes (deducoes negativo)
+- lucroBruto ≈ receitaLiquida + custoProdutosServicos (custo negativo)
+- ebitda ≈ lucroBruto + despesasOperacionais (despesas negativas)
+- Se discrepância > 5%, anote em observacoes: "DRE com incoerência em X"
+
 IMPORTANTE:
 - NÃO invente dados — use APENAS valores presentes no documento
 - Se o documento estiver ilegível ou vazio em algum campo, use "0,00"
-- Confira a coerência: receitaLiquida deve ser aproximadamente receitaBruta - |deducoes|
-- lucroBruto deve ser aproximadamente receitaLiquida - |custoProdutosServicos|`;
+- Preserve acentos e formatação textual em observacoes`;
 
 const PROMPT_BALANCO = `Você receberá um Balanço Patrimonial. Pode estar em formato SPED ECD (com códigos de conta como 1.01, 2.03, etc.), balanço simplificado, relatório gerencial, planilha Excel ou PDF contábil. Retorne APENAS JSON válido, sem markdown, sem texto adicional.
 
@@ -602,10 +719,17 @@ CAMPOS ADICIONAIS:
 - tendenciaPatrimonio: "crescimento" se patrimonioLiquido aumentou nos últimos 2 anos, "queda" se diminuiu, "estavel" se variação < 5%
 - observacoes: informações relevantes (regime tributário, contador, notas explicativas relevantes)
 
+VALIDAÇÕES CRUZADAS (obrigatórias — anote em observacoes se falhar):
+1. Equação fundamental: ativoTotal ≈ passivoCirculante + passivoNaoCirculante + patrimonioLiquido (diferença < 1% é aceitável)
+2. ativoCirculante + ativoNaoCirculante ≈ ativoTotal
+3. passivoCirculante + passivoNaoCirculante ≈ passivoTotal
+4. Se endividamentoTotal > 100, o patrimonioLiquido DEVE ser negativo — valide essa relação
+5. Se alguma validação falhar, anote em observacoes: "Incoerência detectada: [descrição]"
+
 EXEMPLO DE SAÍDA (para referência):
 {"anos":[{"ano":"2023","ativoTotal":"468.350,00","ativoCirculante":"300.000,00","caixaEquivalentes":"50.000,00","contasAReceber":"150.000,00","estoques":"80.000,00","outrosAtivosCirculantes":"20.000,00","ativoNaoCirculante":"168.350,00","imobilizado":"120.000,00","intangivel":"10.000,00","outrosAtivosNaoCirculantes":"38.350,00","passivoTotal":"1.000.000,00","passivoCirculante":"800.000,00","fornecedores":"200.000,00","emprestimosCP":"400.000,00","outrosPassivosCirculantes":"200.000,00","passivoNaoCirculante":"200.000,00","emprestimosLP":"150.000,00","outrosPassivosNaoCirculantes":"50.000,00","patrimonioLiquido":"-531.650,00","capitalSocial":"100.000,00","reservas":"0,00","lucrosAcumulados":"-631.650,00","liquidezCorrente":"0,38","liquidezGeral":"0,34","endividamentoTotal":"213,52","capitalDeGiroLiquido":"-500.000,00"}],"periodoMaisRecente":"2023","tendenciaPatrimonio":"queda","observacoes":""}
 
-NÃO invente dados — use APENAS valores presentes no documento`;
+NÃO invente dados — use APENAS valores presentes no documento.`;
 
 const PROMPT_IR_SOCIOS = `Você receberá um documento de Imposto de Renda de sócio: pode ser apenas o Recibo de Entrega (DIRPF), uma Declaração Completa ou extrato da Receita Federal. Retorne APENAS JSON válido, sem markdown.
 
@@ -627,9 +751,16 @@ Situação fiscal:
 - debitosEmAberto: true se mencionar débitos, parcelamentos ativos ou pendências financeiras
 - descricaoDebitos: descrição resumida dos débitos se debitosEmAberto=true, senão ""
 
-Valores (apenas para declaração completa — recibo simples: deixe "0,00"):
+RECIBO DE ENTREGA (DIRPF) — documento simples, geralmente 1 página:
+- tipoDocumento = "recibo"
+- Extraia APENAS: nomeSocio, cpf, anoBase, numeroRecibo, dataEntrega
+- TODOS os valores monetários = "0,00" (o recibo não contém valores detalhados)
+- temSociedades = false, sociedades = [] (não aparecem no recibo)
+- situacaoMalhas e debitosEmAberto = false (não constam no recibo)
+
+DECLARAÇÃO COMPLETA — extraia valores em formato brasileiro:
 - rendimentosTributaveis: total de rendimentos tributáveis (salário, pró-labore, aluguéis, etc.)
-- rendimentosIsentos: rendimentos isentos e não tributáveis (FGTS, lucros e dividendos, etc.)
+- rendimentosIsentos: rendimentos isentos e não tributáveis (FGTS, lucros e dividendos, poupança, etc.)
 - rendimentoTotal: soma dos dois anteriores
 - impostoDefinido: imposto apurado/devido total (buscar "Imposto Devido", "Total do Imposto Apurado")
 - valorQuota: valor de cada parcela se houver parcelamento, senão "0,00"
@@ -650,33 +781,52 @@ Sociedades:
 - observacoes: informações relevantes não capturadas acima
 - NÃO invente dados`;
 
-const PROMPT_RELATORIO_VISITA = `Extraia dados do Relatório de Visita (texto livre, formulário ou template). Retorne APENAS JSON, sem markdown:
-{"dataVisita":"","responsavelVisita":"","localVisita":"","duracaoVisita":"","estruturaFisicaConfirmada":true,"funcionariosObservados":0,"estoqueVisivel":false,"estimativaEstoque":"","operacaoCompativelFaturamento":true,"maquinasEquipamentos":false,"descricaoEstrutura":"","pontosPositivos":[],"pontosAtencao":[],"recomendacaoVisitante":"aprovado","nivelConfiancaVisita":"alto","presencaSocios":false,"sociosPresentes":[],"documentosVerificados":[],"observacoesLivres":"","pleito":"","modalidade":"","taxaConvencional":"","taxaComissaria":"","limiteTotal":"","limiteConvencional":"","limiteComissaria":"","limitePorSacado":"","ticketMedio":"","valorCobrancaBoleto":"","prazoRecompraCedente":"","prazoEnvioCartorio":"","prazoMaximoOp":"","cobrancaTAC":"","tranche":"","prazoTranche":"","folhaPagamento":"","endividamentoBanco":"","endividamentoFactoring":"","vendasCheque":"","vendasDuplicata":"","vendasOutras":"","prazoMedioFaturamento":"","prazoMedioEntrega":"","referenciaComercial":""}
-Regras gerais: dataVisita=DD/MM/YYYY, recomendacaoVisitante="aprovado"/"condicional"/"reprovado", nivelConfiancaVisita="alto"/"medio"/"baixo", campos ausentes="" ou false, NÃO invente dados.
-pleito=valor em R$ sugerido pelo cedente (ex: "150000,00") — buscar por "pleito", "valor solicitado", "limite sugerido", "crédito pleiteado"; se não encontrado deixe "".
-modalidade=tipo de operação — "comissaria" (cedente mantém relação com sacado, faz cobrança), "convencional" (cessão plena, FIDC assume risco), "hibrida", "outra"; buscar por "comissária", "convencional", "modalidade", "tipo de operação"; se não encontrado deixe "".
-Parâmetros operacionais (buscar em tabelas, campos rotulados, seção de parâmetros/condições):
+const PROMPT_RELATORIO_VISITA = `Você receberá um Relatório de Visita (texto livre, formulário estruturado, template, ata ou PDF de inspeção presencial). Extraia os dados e retorne APENAS JSON válido, sem markdown, sem texto adicional.
+
+Schema:
+{"dataVisita":"","responsavelVisita":"","localVisita":"","duracaoVisita":"","estruturaFisicaConfirmada":true,"funcionariosObservados":0,"estoqueVisivel":false,"estimativaEstoque":"","operacaoCompativelFaturamento":true,"maquinasEquipamentos":false,"descricaoEstrutura":"","pontosPositivos":[],"pontosAtencao":[],"recomendacaoVisitante":"aprovado","nivelConfiancaVisita":"alto","presencaSocios":false,"sociosPresentes":[],"documentosVerificados":[],"observacoesLivres":"","pleito":"","modalidade":"","taxaConvencional":"","taxaComissaria":"","limiteTotal":"","limiteConvencional":"","limiteComissaria":"","limitePorSacado":"","ticketMedio":"","valorCobrancaBoleto":"","prazoRecompraCedente":"","prazoEnvioCartorio":"","prazoMaximoOp":"","cobrancaTAC":"","tranche":"","prazoTranche":"","folhaPagamento":"","endividamentoBanco":"","endividamentoFactoring":"","vendasCheque":"","vendasDuplicata":"","vendasOutras":"","prazoMedioFaturamento":"","prazoMedioEntrega":"","referenciasFornecedores":""}
+
+ATENÇÃO: o campo de referências comerciais DEVE ser chamado "referenciasFornecedores" (NÃO "referenciaComercial" ou "referencias"). Use exatamente esse nome.
+
+Regras gerais:
+- dataVisita: formato DD/MM/YYYY
+- recomendacaoVisitante: "aprovado" | "condicional" | "reprovado"
+- nivelConfiancaVisita: "alto" | "medio" | "baixo"
+- Campos ausentes: "" para strings, false para booleans, 0 para números, [] para arrays
+- NÃO invente dados — se não há informação explícita, deixe vazio
+- pontosPositivos e pontosAtencao: listas de strings curtas (1 frase cada)
+- sociosPresentes: lista de nomes dos sócios presentes na visita
+- documentosVerificados: lista de docs confirmados fisicamente ("Contrato Social", "Alvará", "Notas fiscais", etc.)
+- observacoesLivres: bloco de texto com observações gerais do visitante (máximo 500 caracteres)
+- descricaoEstrutura: descrição física do local (área, organização, condições — máximo 300 caracteres)
+
+Pleito e modalidade:
+- pleito: valor em R$ sugerido pelo cedente (ex: "150000,00"). Buscar por "pleito", "valor solicitado", "limite sugerido", "crédito pleiteado"
+- modalidade: "comissaria" (cedente mantém relação com sacado, faz cobrança) | "convencional" (cessão plena, FIDC assume risco) | "hibrida" | "outra"
+
+Parâmetros operacionais (buscar em tabelas, campos rotulados ou seção de "parâmetros/condições"):
 - taxaConvencional: taxa % para modalidade convencional (ex: "2,5%")
 - taxaComissaria: taxa % para modalidade comissária (ex: "1,8%")
 - limiteTotal: limite total aprovado em R$ (ex: "500000,00")
-- limiteConvencional/limiteComissaria: limites por modalidade
+- limiteConvencional / limiteComissaria: limites por modalidade
 - limitePorSacado: limite máximo por sacado em R$
 - ticketMedio: valor médio por duplicata/título em R$
-- valorCobrancaBoleto: valor cobrado por emissão/cobrança de boleto em R$
-- prazoRecompraCedente: prazo em dias para recompra pelo cedente (buscar "prazo de recompra", "recompra em X dias")
-- prazoEnvioCartorio: dias até envio para cartório (buscar "cartório em X dias", "envio para cartório")
+- valorCobrancaBoleto: valor cobrado por emissão/cobrança de boleto
+- prazoRecompraCedente: prazo em dias para recompra pelo cedente
+- prazoEnvioCartorio: dias até envio para cartório
 - prazoMaximoOp: prazo máximo da operação em dias
 - cobrancaTAC: valor ou "Sim"/"Não" para cobrança de TAC
 - tranche: valor da tranche em R$
 - prazoTranche: prazo da tranche em dias
-Dados da empresa (coletados na visita — buscar em campos rotulados):
-- folhaPagamento: folha de pagamento mensal em R$ (ex: "230000,00")
-- endividamentoBanco: endividamento bancário total em R$ (use "—" se não há endividamento)
+
+Dados da empresa (coletados na visita):
+- folhaPagamento: folha de pagamento mensal em R$
+- endividamentoBanco: endividamento bancário total em R$ (use "—" se não há endividamento declarado)
 - endividamentoFactoring: endividamento com factoring/FIDC em R$
-- vendasCheque/vendasDuplicata/vendasOutras: % de vendas por forma de recebimento (ex: "10%", "70%", "20%")
-- prazoMedioFaturamento: prazo médio em dias (ex: "50")
-- prazoMedioEntrega: prazo médio de entrega em dias (ex: "3")
-- referenciaComercial: lista de referências comerciais/fornecedores informadas na visita (texto separado por vírgula ou ";" — ex: "Banco do Brasil, Fornecedor X, Cliente Y")`;
+- vendasCheque / vendasDuplicata / vendasOutras: % de vendas por forma de recebimento
+- prazoMedioFaturamento: prazo médio em dias
+- prazoMedioEntrega: prazo médio de entrega em dias
+- referenciasFornecedores: lista de referências comerciais/fornecedores informadas na visita, separadas por vírgula ou ";" (ex: "Banco do Brasil, Fornecedor X, Cliente Y")`;
 
 // ─────────────────────────────────────────
 // PROVEDOR 1: Gemini (primário — melhor qualidade)
