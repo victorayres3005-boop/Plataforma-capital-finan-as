@@ -43,16 +43,23 @@ export async function GET(req: Request) {
     result.cacheError = String(e);
   }
 
+  // Also get our outbound IP
+  try {
+    const ipRes = await fetch("https://api.ipify.org?format=json");
+    const ipData = await ipRes.json();
+    result.ourIp = ipData.ip;
+  } catch {}
+
   // 2. Test direct API call
   if (apiUrl && apiKey) {
     try {
       const testUrl = `${apiUrl}/simples/${apiKey}/${cnpj}`;
-      const res = await fetch(testUrl, { headers: { "Content-Type": "application/json" } });
+      const res = await fetch(testUrl, { headers: { "Content-Type": "application/json", "User-Agent": "Mozilla/5.0 (compatible; CapitalFinancas/1.0)" } });
       const text = await res.text();
       result.api = {
         status: res.status,
         ok: res.ok,
-        bodyPreview: text.substring(0, 300),
+        bodyPreview: text.substring(0, 500),
         contentType: res.headers.get("content-type"),
       };
     } catch (e) {
