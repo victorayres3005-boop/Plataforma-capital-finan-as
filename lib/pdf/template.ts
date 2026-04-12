@@ -46,13 +46,16 @@ function fmtCpf(raw: string | null | undefined): string {
 function numVal(v: string | number | null | undefined): number {
   if (v == null) return 0;
   if (typeof v === "number") return isNaN(v) ? 0 : v;
-  const cleaned = String(v).trim().replace(/[^\d.,\-]/g, "");
+  // Preserve sign
+  const rawStr = String(v).trim();
+  const isNegative = rawStr.startsWith("-") || rawStr.includes("(");
+  const cleaned = rawStr.replace(/[^\d.,\-]/g, "").replace(/^-/, "");
   if (!cleaned) return 0;
   const hasComma = cleaned.includes(",");
   const hasDot = cleaned.includes(".");
   let num: number;
   if (hasComma && hasDot) {
-    // Ambos: o que vem depois é o decimal
+    // Ambos separadores: o último é o decimal
     const lastComma = cleaned.lastIndexOf(",");
     const lastDot = cleaned.lastIndexOf(".");
     if (lastComma > lastDot) {
@@ -77,13 +80,15 @@ function numVal(v: string | number | null | undefined): number {
       // Decimal: 123.45
       num = parseFloat(cleaned);
     } else {
-      // BR thousands: 1.234.567
+      // BR thousands: 1.234.567 (sem decimal)
       num = parseFloat(cleaned.replace(/\./g, ""));
     }
   } else {
+    // Sem separador: 35061582 - pode ser valor completo
     num = parseFloat(cleaned);
   }
-  return isNaN(num) ? 0 : num;
+  if (isNaN(num)) return 0;
+  return isNegative ? -Math.abs(num) : num;
 }
 function fmtCompact(v: number): string {
   if (v >= 1000000) return (v / 1000000).toFixed(1).replace(".", ",") + "M";
@@ -512,10 +517,10 @@ function secSintese(p: PDFReportParams): string {
   // FMM calculation - correct
   const fmmNum = computeFmm(data.faturamento);
 
-  // Faturamento Medio - last 12 months only
+  // Faturamento Total - last 12 months SUM (NOT average)
   const allMesesSorted = sortMeses(data.faturamento?.meses || []).filter(m => m?.mes && m?.valor);
   const last12Meses = allMesesSorted.slice(-12);
-  const fatMedia = last12Meses.length > 0 ? last12Meses.reduce((s, m) => s + numVal(m.valor), 0) / last12Meses.length : 0;
+  const fatTotal = last12Meses.length > 0 ? last12Meses.reduce((s, m) => s + numVal(m.valor), 0) : 0;
 
   // Alavancagem uses ONLY company (PJ) SCR, not socios
   const scrPjDivida = numVal(data.scr?.totalDividasAtivas || "0");
@@ -607,8 +612,8 @@ function secSintese(p: PDFReportParams): string {
 
   ${groupLabel("INDICADORES FINANCEIROS")}
   ${grid(4,[
-    kpi("FMM 12m", fmmNum > 0 ? fmtMoneyRound(String(fmmNum)) : "\u2014"),
-    kpi("Faturamento Medio", fatMedia > 0 ? fmtMoneyRound(String(fatMedia)) : "\u2014", "#111827", last12Meses.length > 0 ? `ultimos ${last12Meses.length} meses` : undefined),
+    kpi("FMM 12m", fmmNum > 0 ? fmtMoneyRound(String(fmmNum)) : "\u2014", "#111827", "media mensal"),
+    kpi("Faturamento Total", fatTotal > 0 ? fmtMoneyRound(String(fatTotal)) : "\u2014", "#111827", last12Meses.length > 0 ? `soma ${last12Meses.length} meses` : undefined),
     kpi("Alavancagem", alavancagem != null ? `${alavancagem.toFixed(1)}x` : "\u2014", alavancagem != null && alavancagem > 3 ? "#dc2626" : "#111827"),
     kpi("Pleito",typeof pleito === "string" ? (pleito.match(/\d/) ? fmtMoneyRound(pleito) : esc(pleito)) : fmtMoneyRound(pleito)),
   ])}
@@ -925,9 +930,9 @@ function secFaturamento(p: PDFReportParams): string {
 
   return `<div class="sec">${secHdr("06","Faturamento")}
   ${grid(4,[
-    kpi("FMM 12m", fmmNum > 0 ? fmtMoneyRound(String(fmmNum)) : "\u2014", "#203B88"),
-    kpi("Total do Periodo", fmtMoneyRound(String(total12)), "#111827", `ultimos 12 meses`),
-    kpi("Media 12m", media12 > 0 ? fmtMoneyRound(String(media12)) : "\u2014", "#111827", `${last12.length} meses`),
+    kpi("FMM 12m", fmmNum > 0 ? fmtMoneyRound(String(fmmNum)) : "\u2014", "#203B88", "media mensal"),
+    kpi("Total (12m)", fmtMoneyRound(String(total12)), "#111827", `soma ultimos 12 meses`),
+    kpi("Meses", String(last12.length), "#111827", media12 > 0 ? `media ${fmtMoneyRound(String(media12))}` : undefined),
     kpi("Tendencia", tendencia, tendColor),
   ])}
   ${trendHtml}
@@ -1299,7 +1304,8 @@ function secComparativoScr(p: PDFReportParams): string {
   rows.push({grupo:"RESUMO",metrica:"Alavancagem",ant:alvAnt,atual:alvAtual,variacao:"\u2014"});
 
   // ── PJ Comparativo Table ──
-  let html = `<div class="sec">${secHdr("16","Comparativo SCR")}
+  let html = `<div class="sec">${secHdr("16","Comparativo SCR - Empresa (PJ)")}
+  <div style="font-size:11px;color:#6b7280;margin-bottom:12px">Evolucao da exposicao de credito da empresa (pessoa juridica) entre os dois periodos</div>
   <div style="font-size:10px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;padding:6px 12px;background:#edf2fb;border-radius:6px;display:inline-block">Empresa (PJ)</div>
   <div style="display:flex;gap:16px;margin-bottom:16px">
     <div style="flex:1;padding:12px 16px;background:#f8f9fb;border-radius:8px;border:1px solid #e0e4ec;text-align:center">
@@ -1322,55 +1328,7 @@ function secComparativoScr(p: PDFReportParams): string {
     }).join("")}</tbody>
   </table>`;
 
-  // ── Socios (PF) Comparativo Tables ──
-  const scrSocios = p.data.scrSocios || [];
-  if (scrSocios.length > 0) {
-    html += `<div style="font-size:10px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.08em;margin:24px 0 14px;padding:6px 12px;background:#edf2fb;border-radius:6px;display:inline-block">Socios (PF)</div>`;
-    scrSocios.forEach(socio => {
-      const scrPF = socio.periodoAtual;
-      const prevPF = socio.periodoAnterior;
-      const perAtualPF = fmt(scrPF?.periodoReferencia);
-      const perAntPF = prevPF ? fmt(prevPF.periodoReferencia) : "";
-      type RPF = { metrica: string; ant: string; atual: string; variacao: string };
-      const rowsPF: RPF[] = [];
-      function addRowPF(metrica: string, antVal: string | undefined, atualVal: string | undefined) {
-        const v = prevPF ? (delta(atualVal, antVal) || "\u2014") : "\u2014";
-        rowsPF.push({ metrica, ant: prevPF ? fmtMoney(antVal) : "\u2014", atual: fmtMoney(atualVal), variacao: v });
-      }
-      function addRowNumPF(metrica: string, antVal: string | undefined, atualVal: string | undefined) {
-        const v = prevPF ? (delta(atualVal, antVal) || "\u2014") : "\u2014";
-        rowsPF.push({ metrica, ant: prevPF ? fmt(antVal) : "\u2014", atual: fmt(atualVal), variacao: v });
-      }
-      if (scrPF) {
-        addRowPF("Total Dividas", prevPF?.totalDividasAtivas, scrPF.totalDividasAtivas);
-        addRowPF("Vencidos", prevPF?.vencidos, scrPF.vencidos);
-        addRowPF("A Vencer", prevPF?.carteiraAVencer, scrPF.carteiraAVencer);
-        addRowPF("Limite Credito", prevPF?.limiteCredito, scrPF.limiteCredito);
-        addRowNumPF("IFs", prevPF?.qtdeInstituicoes, scrPF.qtdeInstituicoes);
-        addRowNumPF("Operacoes", prevPF?.qtdeOperacoes, scrPF.qtdeOperacoes);
-      }
-      html += `<div style="margin-top:14px;padding:14px 16px;background:#f8f9fb;border-radius:8px;border:1px solid #e0e4ec;page-break-inside:avoid">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-          <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;background:#203B88;color:#fff;font-size:8px;font-weight:800;border-radius:6px">PF</span>
-          <div>
-            <div style="font-size:12px;font-weight:800;color:#111827">${esc(socio.nomeSocio)}</div>
-            <div style="font-size:9px;color:#6b7280">CPF ${fmtCpf(socio.cpfSocio)}${perAntPF ? ` &middot; ${perAntPF} vs ${perAtualPF}` : ` &middot; Ref: ${perAtualPF}`}</div>
-          </div>
-        </div>
-        ${rowsPF.length > 0 ? `<table style="${TS}">
-          <thead>${row(prevPF ? ["Metrica", perAntPF, perAtualPF, "Var."] : ["Metrica", perAtualPF], true)}</thead>
-          <tbody>${rowsPF.map(r => {
-            const isRiskPF = r.metrica === "Vencidos" && numVal(r.atual) > 0;
-            const rowStylePF = isRiskPF ? "background:#fff5f5" : "";
-            return prevPF
-              ? `<tr style="${rowStylePF}"><td><strong>${esc(r.metrica)}</strong></td><td>${r.ant}</td><td style="font-weight:700">${r.atual}</td><td style="text-align:center">${r.variacao}</td></tr>`
-              : `<tr style="${rowStylePF}"><td><strong>${esc(r.metrica)}</strong></td><td style="font-weight:700">${r.atual}</td></tr>`;
-          }).join("")}</tbody>
-        </table>` : `<div style="color:#9ca3af;font-size:10px">Sem dados SCR disponíveis</div>`}
-      </div>`;
-    });
-  }
-
+  // Note: Socios (PF) are rendered separately by secScrSocios() to keep PJ and PF as 2 distinct sections.
   html += `</div>`;
   return html;
 }
@@ -1425,7 +1383,7 @@ function secScrSocios(p: PDFReportParams): string {
   const socios = p.data.scrSocios;
   if (!socios || socios.length === 0) return "";
 
-  return socios.map((socio) => {
+  const cards = socios.map((socio) => {
     const scr = socio.periodoAtual;
     const prev = socio.periodoAnterior;
     const perAtual = fmt(scr?.periodoReferencia);
@@ -1474,6 +1432,11 @@ function secScrSocios(p: PDFReportParams): string {
       </table>` : ""}
     </div>`;
   }).join("");
+
+  return `<div class="sec">${secHdr("16b","Comparativo SCR - Socios PF")}
+    <div style="font-size:11px;color:#6b7280;margin-bottom:16px">Analise de risco individual de cada socio (pessoa fisica)</div>
+    ${cards}
+  </div>`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1482,9 +1445,10 @@ function secScrSocios(p: PDFReportParams): string {
 function secDre(p: PDFReportParams): string {
   const dre=p.data.dre;
   if(!dre?.anos?.length) return "";
-  // Deduplication by ano
+  // Deduplication by ano + chronological sort
   const anosUnicos = dre.anos.filter((a, i, arr) => arr.findIndex(x => x.ano === a.ano) === i);
-  const anos=anosUnicos.slice(-3);
+  const anosOrdenados = [...anosUnicos].sort((a, b) => parseInt(a.ano || "0") - parseInt(b.ano || "0"));
+  const anos=anosOrdenados.slice(-3);
   type M={label:string;key:string;isMoney:boolean;isPct:boolean};
   const metricas:M[]=[
     {label:"Receita Bruta",key:"receitaBruta",isMoney:true,isPct:false},
@@ -1523,9 +1487,10 @@ function secDre(p: PDFReportParams): string {
 function secBalanco(p: PDFReportParams): string {
   const bal=p.data.balanco;
   if(!bal?.anos?.length) return "";
-  // Deduplication by ano
+  // Deduplication by ano + chronological sort
   const anosUnicos = bal.anos.filter((a, i, arr) => arr.findIndex(x => x.ano === a.ano) === i);
-  const anos=anosUnicos.slice(-3);
+  const anosOrdenados = [...anosUnicos].sort((a, b) => parseInt(a.ano || "0") - parseInt(b.ano || "0"));
+  const anos=anosOrdenados.slice(-3);
   type M={label:string;key:string;isMoney:boolean;isPct:boolean};
   const metricas:M[]=[
     {label:"Ativo Total",key:"ativoTotal",isMoney:true,isPct:false},

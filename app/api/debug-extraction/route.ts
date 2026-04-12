@@ -76,14 +76,38 @@ export async function GET(req: Request) {
   // Sanity check on Balanço
   const balDoc = docs.find((d: Doc) => d.type === "balanco");
   if (balDoc?.extracted_data) {
-    const bal = balDoc.extracted_data as { anos?: Array<{ ano: string; ativoTotal?: string; patrimonioLiquido?: string }> };
+    const bal = balDoc.extracted_data as { anos?: Array<{ ano: string; ativoTotal?: string; ativoCirculante?: string; passivoCirculante?: string; patrimonioLiquido?: string; capitalDeGiroLiquido?: string }> };
     if (bal.anos && bal.anos.length > 0) {
       summary.sanityChecks.push(`[Balanço] ${bal.anos.length} anos: ${bal.anos.map(a => a.ano).join(", ")}`);
       const duplicateAnos = bal.anos.map(a => a.ano).filter((a, i, arr) => arr.indexOf(a) !== i);
       if (duplicateAnos.length > 0) {
         summary.sanityChecks.push(`⚠️ [Balanço] anos duplicados: ${duplicateAnos.join(", ")}`);
       }
+      // Mostra valores brutos do último ano para NCG
+      const ult = bal.anos[bal.anos.length - 1];
+      summary.sanityChecks.push(`[Balanço ${ult.ano}] AC=${ult.ativoCirculante} | PC=${ult.passivoCirculante} | PL=${ult.patrimonioLiquido} | CGL=${ult.capitalDeGiroLiquido}`);
     }
+  }
+
+  // Sanity check DRE
+  const dreDoc = docs.find((d: Doc) => d.type === "dre");
+  if (dreDoc?.extracted_data) {
+    const dre = dreDoc.extracted_data as { anos?: Array<{ ano: string; receitaBruta?: string; receitaLiquida?: string; lucroLiquido?: string; margemLiquida?: string }> };
+    if (dre.anos && dre.anos.length > 0) {
+      summary.sanityChecks.push(`[DRE] ${dre.anos.length} anos: ${dre.anos.map(a => a.ano).join(", ")}`);
+      const ult = dre.anos[dre.anos.length - 1];
+      summary.sanityChecks.push(`[DRE ${ult.ano}] ReceitaBruta=${ult.receitaBruta} | ReceitaLiq=${ult.receitaLiquida} | LucroLiq=${ult.lucroLiquido} | MargemLiq=${ult.margemLiquida}`);
+    }
+  }
+
+  // Sanity check IR Sócios
+  const irDocs = docs.filter((d: Doc) => d.type === "ir_socio");
+  if (irDocs.length > 0) {
+    summary.sanityChecks.push(`[IR Sócios] ${irDocs.length} documento(s)`);
+    irDocs.forEach((d, i) => {
+      const ir = d.extracted_data as { nomeSocio?: string; anoBase?: string; rendimentosTributaveis?: string; rendimentoTotal?: string; totalBensDireitos?: string; patrimonioLiquido?: string };
+      summary.sanityChecks.push(`[IR #${i + 1}] nome=${ir.nomeSocio} | ano=${ir.anoBase} | rendTotal=${ir.rendimentoTotal} | bens=${ir.totalBensDireitos} | PL=${ir.patrimonioLiquido}`);
+    });
   }
 
   // Sanity check on SCR

@@ -464,10 +464,19 @@ Campos derivados:
 - ultimoMesComDados: último mês com valor positivo (formato MM/YYYY)
 - anoMaisAntigo / anoMaisRecente: apenas o ano (ex: "2022", "2024")
 
-Campos específicos de FMM e Média Anual:
-- fmm12m: se o documento EXPLICITAMENTE informar "FMM", "Faturamento Médio Mensal (12 meses)" ou "Média dos últimos 12", extraia ESSE valor. Senão deixe "".
-- mediaAno: se o documento informar "Total Anual", "Faturamento Anual Acumulado" ou "Soma do Exercício", extraia ESSE valor. Senão deixe "".
-- ATENÇÃO: NÃO calcule fmm12m nem mediaAno — extraia apenas se vier explicitamente no documento. O backend faz o cálculo.
+Campos derivados (IMPORTANTE — conceitos):
+- fmm12m: FATURAMENTO MÉDIO MENSAL dos últimos 12 meses
+  = soma dos últimos 12 meses / 12
+  = valor em torno de R$ 100k a R$ 10M para PME
+  Se encontrar um campo "FMM" ou "Faturamento Médio Mensal" no documento, use ESSE valor.
+  Se NÃO encontrar, deixe fmm12m="" (o backend calcula).
+
+- mediaAno: FATURAMENTO ANUAL TOTAL (soma dos 12 meses)
+  = valor em torno de R$ 1M a R$ 100M para PME
+  Se encontrar "Total Anual" ou "Soma do Exercício", use esse valor.
+  Se NÃO encontrar, deixe mediaAno="" (o backend calcula).
+
+ATENÇÃO: se o documento tem apenas meses individuais (sem totais), deixe AMBOS vazios. O backend calculará a partir do array meses[]. NÃO confunda fmm (média) com mediaAno (soma) — a diferença é 12x.
 
 NÃO invente dados. Campos ausentes = "" ou 0 ou false.`;
 
@@ -708,6 +717,26 @@ const PROMPT_DRE = `Você receberá uma Demonstração de Resultado do Exercíci
 Schema EXATO (respeite todos os campos):
 {"anos":[{"ano":"2024","receitaBruta":"0,00","deducoes":"0,00","receitaLiquida":"0,00","custoProdutosServicos":"0,00","lucroBruto":"0,00","margemBruta":"0,00","despesasOperacionais":"0,00","ebitda":"0,00","margemEbitda":"0,00","depreciacaoAmortizacao":"0,00","resultadoFinanceiro":"0,00","lucroAntesIR":"0,00","impostoRenda":"0,00","lucroLiquido":"0,00","margemLiquida":"0,00"}],"crescimentoReceita":"0,00","tendenciaLucro":"estavel","periodoMaisRecente":"","observacoes":""}
 
+═══ REGRA ABSOLUTA: LER VALORES COM ATENÇÃO ═══
+O Gemini costuma errar valores de DRE. Você DEVE:
+
+1. LER o documento número por número, sem chutar
+2. Preservar EXATAMENTE a quantidade de dígitos que aparece
+3. NUNCA mover vírgulas ou pontos
+4. Se o documento mostra "R$ 3.506.158,22", você escreve "3.506.158,22"
+5. NÃO some zeros a mais. NÃO corte zeros.
+6. Valores de PME brasileira:
+   - Receita Bruta mensal: R$ 10k a R$ 50M (raramente >100M)
+   - Receita Bruta ANUAL: R$ 100k a R$ 500M (raramente >1B)
+   - Se você extrair R$ 10 bilhões de receita, PARE e releia o documento
+
+═══ REGRA CRÍTICA ANTI-CONFUSAO DE SEPARADORES ═══
+Separador brasileiro: PONTO para milhar, VÍRGULA para decimal.
+- "3.506.158,22" = 3,5 milhões (NÃO 3,5 bilhões, NÃO 3 mil e quinhentos)
+- "850.000,00" = 850 mil
+- NUNCA use formato americano "3,506,158.22" na saída
+Se o valor extraído parecer 10x/100x maior que o razoável, REINTERPRETE o separador.
+
 REGRAS OBRIGATÓRIAS DE FORMATO:
 1. TODOS os valores monetários DEVEM estar em formato brasileiro: ponto como separador de milhar, vírgula para decimais
    - CORRETO: "1.234.567,89", "456.789,00", "-12.345,67"
@@ -773,6 +802,26 @@ const PROMPT_BALANCO = `Você receberá um Balanço Patrimonial. Pode estar em f
 
 Schema EXATO (respeite todos os campos):
 {"anos":[{"ano":"2024","ativoTotal":"0,00","ativoCirculante":"0,00","caixaEquivalentes":"0,00","contasAReceber":"0,00","estoques":"0,00","outrosAtivosCirculantes":"0,00","ativoNaoCirculante":"0,00","imobilizado":"0,00","intangivel":"0,00","outrosAtivosNaoCirculantes":"0,00","passivoTotal":"0,00","passivoCirculante":"0,00","fornecedores":"0,00","emprestimosCP":"0,00","outrosPassivosCirculantes":"0,00","passivoNaoCirculante":"0,00","emprestimosLP":"0,00","outrosPassivosNaoCirculantes":"0,00","patrimonioLiquido":"0,00","capitalSocial":"0,00","reservas":"0,00","lucrosAcumulados":"0,00","liquidezCorrente":"0,00","liquidezGeral":"0,00","endividamentoTotal":"0,00","capitalDeGiroLiquido":"0,00"}],"periodoMaisRecente":"","tendenciaPatrimonio":"estavel","observacoes":""}
+
+═══ REGRA ABSOLUTA: LER VALORES COM ATENÇÃO ═══
+O Gemini costuma errar valores de Balanço. Você DEVE:
+
+1. LER o documento número por número, sem chutar
+2. Preservar EXATAMENTE a quantidade de dígitos que aparece
+3. NUNCA mover vírgulas ou pontos
+4. Se o documento mostra "R$ 3.506.158,22", você escreve "3.506.158,22"
+5. NÃO some zeros a mais. NÃO corte zeros.
+6. Valores de PME brasileira:
+   - Ativo Total: R$ 500k a R$ 500M (raramente >1B)
+   - Patrimônio Líquido: raramente >R$ 100M em valor absoluto
+   - Se você extrair R$ 10 bilhões de ativo, PARE e releia o documento
+
+═══ CUIDADO COM DIVISÃO ENTRE AC/PC ═══
+NCG (Necessidade de Capital de Giro) = Ativo Circulante - Passivo Circulante
+Se o AC ou PC estiver 10x maior que o real, o NCG fica 10x errado.
+
+Valores de Ativo Circulante para PME: R$ 50k a R$ 100M
+Se extrair Ativo Circulante > R$ 1 bilhão para uma PME, PROVAVELMENTE errou o separador.
 
 ═══ REGRA CRÍTICA ANTI-CONFUSAO DE SEPARADORES ═══
 ATENÇÃO: o separador brasileiro usa PONTO para milhar e VÍRGULA para decimal.
@@ -874,6 +923,42 @@ const PROMPT_IR_SOCIOS = `Você receberá um documento de Imposto de Renda de s�
 
 Schema:
 {"nomeSocio":"","cpf":"","anoBase":"","tipoDocumento":"recibo","numeroRecibo":"","dataEntrega":"","situacaoMalhas":false,"debitosEmAberto":false,"descricaoDebitos":"","rendimentosTributaveis":"0,00","rendimentosIsentos":"0,00","rendimentoTotal":"0,00","impostoDefinido":"0,00","valorQuota":"0,00","bensImoveis":"0,00","bensVeiculos":"0,00","aplicacoesFinanceiras":"0,00","outrosBens":"0,00","totalBensDireitos":"0,00","dividasOnus":"0,00","patrimonioLiquido":"0,00","impostoPago":"0,00","impostoRestituir":"0,00","temSociedades":false,"sociedades":[],"coerenciaComEmpresa":true,"observacoes":""}
+
+═══ REGRA ABSOLUTA: LER VALORES COM ATENÇÃO ═══
+O Gemini costuma errar valores de DIRPF. Você DEVE:
+1. LER o documento número por número, sem chutar
+2. Preservar EXATAMENTE a quantidade de dígitos que aparece
+3. NUNCA mover vírgulas ou pontos
+4. Se o documento mostra "R$ 45.000,00", você escreve "45.000,00" (são 45 mil, NÃO 45 milhões)
+5. NÃO some zeros a mais. NÃO corte zeros.
+
+═══ REGRA CRÍTICA ANTI-CONFUSAO DE SEPARADORES ═══
+Separador brasileiro: PONTO para milhar, VÍRGULA para decimal.
+- "R$ 45.000,00" = quarenta e cinco mil reais (NÃO 45 milhões, NÃO 45)
+- "R$ 1.234.567,89" = um milhão duzentos e trinta e quatro mil
+- "850.000,00" = oitocentos e cinquenta mil
+NUNCA interprete como formato americano "1,234,567.89".
+
+Valores típicos de Pessoa Física no Brasil:
+- Rendimento tributável anual de um sócio de PME: R$ 30k a R$ 3M (raramente >R$ 5M)
+- Salário mensal registrado em DIRPF (anualizado): R$ 24k a R$ 1M
+- Patrimônio líquido declarado: R$ 50k a R$ 20M (raramente >R$ 50M)
+
+Se rendimentoTotal > R$ 10.000.000 para pessoa física, provavelmente errou o separador.
+Se bensImoveis > R$ 100.000.000 para PF, releia o documento — provavelmente errou.
+
+Campos comuns em documentos de DIRPF (nomes típicos que você verá):
+- "Total de Rendimentos Tributáveis Recebidos de PJ" → rendimentosTributaveis
+- "Rendimentos Isentos e Não Tributáveis" → rendimentosIsentos
+- "Total Geral dos Rendimentos" / "Rendimento Bruto" → rendimentoTotal
+- "Imposto Devido" / "Total do Imposto Apurado" → impostoDefinido
+- "Imposto Pago/Retido" / "IRRF" → impostoPago
+- "Imposto a Restituir" / "Restituição" → impostoRestituir
+- "Bens Imóveis" / "Imóveis e Terrenos" → bensImoveis
+- "Veículos Automotores Terrestres" → bensVeiculos
+- "Aplicações Financeiras" / "Investimentos" → aplicacoesFinanceiras
+- "Total de Bens e Direitos" → totalBensDireitos
+- "Dívidas e Ônus Reais" → dividasOnus
 
 Regras críticas:
 - nomeSocio e anoBase são OBRIGATÓRIOS — não retorne JSON sem eles
