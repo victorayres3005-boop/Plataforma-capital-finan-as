@@ -277,12 +277,23 @@ export default function UploadStep({
         const CREDITHUB_KEY = "9d3b1f096fe2b4c5ba9855d286c92d38";
         let creditHubRaw: unknown = null;
         try {
-          const chRes = await fetch(`https://irql.credithub.com.br/simples/${CREDITHUB_KEY}/${cnpjNum}`);
+          const chRes = await fetch(`https://irql.credithub.com.br/simples/${CREDITHUB_KEY}/${cnpjNum}`, {
+            headers: { "Accept": "application/json", "Content-Type": "application/json" },
+          });
           if (chRes.ok) {
             const text = await chRes.text();
-            // Try parsing as JSON first, fallback to XML text
-            try { creditHubRaw = JSON.parse(text); } catch { creditHubRaw = text; }
-            console.log("[credithub] client-side fetch OK, length:", text.length);
+            const contentType = chRes.headers.get("content-type") || "";
+            console.log("[credithub] client-side fetch OK, length:", text.length, "content-type:", contentType);
+            // Parse estritamente como JSON — se falhar, é erro (CreditHub deve retornar JSON)
+            try {
+              creditHubRaw = JSON.parse(text);
+              const topKeys = creditHubRaw && typeof creditHubRaw === "object" ? Object.keys(creditHubRaw).join(",") : "(não é objeto)";
+              console.log("[credithub] parsed JSON OK — top keys:", topKeys);
+            } catch (parseErr) {
+              console.error("[credithub] JSON parse falhou — primeiros 200 chars:", text.slice(0, 200));
+              console.error("[credithub] parse error:", parseErr);
+              creditHubRaw = null;
+            }
           } else {
             console.warn("[credithub] client-side fetch failed:", chRes.status);
           }

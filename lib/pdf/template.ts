@@ -87,7 +87,10 @@ function numVal(v: string | number | null | undefined): number {
     // Sem separador: 35061582 - pode ser valor completo
     num = parseFloat(cleaned);
   }
-  if (isNaN(num)) return 0;
+  if (isNaN(num) || !isFinite(num)) return 0;
+  // Sanity check: valor individual maior que R$ 100 bilhões é absurdo
+  // Provavelmente erro de parsing - zera pra não poluir a soma
+  if (Math.abs(num) > 100_000_000_000) return 0;
   return isNegative ? -Math.abs(num) : num;
 }
 function fmtCompact(v: number): string {
@@ -984,13 +987,15 @@ function secProtestos(p: PDFReportParams): string {
   ];
   detalhes.forEach(d => {
     const dt = parseDate(d.data);
-    const v = numVal(d.valor);
-    if (!dt) { temporal[3].qtd++; temporal[3].valor += v; return; }
+    const v = Number(numVal(d.valor)) || 0;
+    // Sanity: ignora valores absurdos
+    if (!isFinite(v) || Math.abs(v) > 100_000_000_000) return;
+    if (!dt) { temporal[3].qtd++; temporal[3].valor = Number(temporal[3].valor) + v; return; }
     const days = daysDiff(dt);
-    if (days <= 30) { temporal[0].qtd++; temporal[0].valor += v; }
-    else if (days <= 90) { temporal[1].qtd++; temporal[1].valor += v; }
-    else if (days <= 365) { temporal[2].qtd++; temporal[2].valor += v; }
-    else { temporal[3].qtd++; temporal[3].valor += v; }
+    if (days <= 30) { temporal[0].qtd++; temporal[0].valor = Number(temporal[0].valor) + v; }
+    else if (days <= 90) { temporal[1].qtd++; temporal[1].valor = Number(temporal[1].valor) + v; }
+    else if (days <= 365) { temporal[2].qtd++; temporal[2].valor = Number(temporal[2].valor) + v; }
+    else { temporal[3].qtd++; temporal[3].valor = Number(temporal[3].valor) + v; }
   });
 
   // Distribuicao por Faixa de Valor
@@ -1003,12 +1008,14 @@ function secProtestos(p: PDFReportParams): string {
     { label: "Acima de R$ 100.000", qtd: 0, valor: 0 },
   ];
   detalhes.forEach(d => {
-    const v = numVal(d.valor);
-    if (v < 1000) { faixas[0].qtd++; faixas[0].valor += v; }
-    else if (v < 10000) { faixas[1].qtd++; faixas[1].valor += v; }
-    else if (v < 50000) { faixas[2].qtd++; faixas[2].valor += v; }
-    else if (v < 100000) { faixas[3].qtd++; faixas[3].valor += v; }
-    else { faixas[4].qtd++; faixas[4].valor += v; }
+    const v = Number(numVal(d.valor)) || 0;
+    // Sanity: ignora valores absurdos (> R$ 100 bilhões)
+    if (!isFinite(v) || Math.abs(v) > 100_000_000_000) return;
+    if (v < 1000) { faixas[0].qtd++; faixas[0].valor = Number(faixas[0].valor) + v; }
+    else if (v < 10000) { faixas[1].qtd++; faixas[1].valor = Number(faixas[1].valor) + v; }
+    else if (v < 50000) { faixas[2].qtd++; faixas[2].valor = Number(faixas[2].valor) + v; }
+    else if (v < 100000) { faixas[3].qtd++; faixas[3].valor = Number(faixas[3].valor) + v; }
+    else { faixas[4].qtd++; faixas[4].valor = Number(faixas[4].valor) + v; }
   });
 
   const hasDistributions = detalhes.length > 0;

@@ -42,7 +42,71 @@ export interface CreditHubResult {
 }
 
 function fmtBRL(n: number): string {
+  if (!isFinite(n) || isNaN(n)) return "0,00";
   return n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/**
+ * Parse robusto de valores monetários que podem vir em formatos variados do CreditHub:
+ * - number: 622 ou 622.5 (direto)
+ * - string BR: "622,00" ou "1.234,56"
+ * - string US: "622.00" ou "1,234.56"
+ * - string sem separador: "622"
+ * Retorna número seguro (não NaN, não Infinity) + sanity check.
+ */
+function parseMoneyRobust(v: unknown): number {
+  if (v == null) return 0;
+  if (typeof v === "number") {
+    if (!isFinite(v) || isNaN(v)) return 0;
+    return v;
+  }
+  const s = String(v).trim();
+  if (!s) return 0;
+  // Remove tudo que não é dígito, ponto, vírgula ou menos
+  const cleaned = s.replace(/[^\d.,\-]/g, "");
+  if (!cleaned) return 0;
+  const hasComma = cleaned.includes(",");
+  const hasDot = cleaned.includes(".");
+  let num: number;
+  if (hasComma && hasDot) {
+    // Ambos separadores: o que aparece por último é o decimal
+    const lastComma = cleaned.lastIndexOf(",");
+    const lastDot = cleaned.lastIndexOf(".");
+    if (lastComma > lastDot) {
+      // BR: 1.234.567,89
+      num = parseFloat(cleaned.replace(/\./g, "").replace(",", "."));
+    } else {
+      // US: 1,234,567.89
+      num = parseFloat(cleaned.replace(/,/g, ""));
+    }
+  } else if (hasComma) {
+    const parts = cleaned.split(",");
+    if (parts.length === 2 && parts[1].length <= 2) {
+      // BR decimal: 123456,78
+      num = parseFloat(cleaned.replace(",", "."));
+    } else {
+      // US thousands: 1,234,567
+      num = parseFloat(cleaned.replace(/,/g, ""));
+    }
+  } else if (hasDot) {
+    const parts = cleaned.split(".");
+    if (parts.length === 2 && parts[1].length <= 2) {
+      // Decimal: 123.45
+      num = parseFloat(cleaned);
+    } else {
+      // BR thousands: 1.234.567
+      num = parseFloat(cleaned.replace(/\./g, ""));
+    }
+  } else {
+    num = parseFloat(cleaned);
+  }
+  if (!isFinite(num) || isNaN(num)) return 0;
+  // Sanity: valor individual de protesto/processo > R$ 10 bilhões é absurdo
+  if (Math.abs(num) > 10_000_000_000) {
+    console.warn(`[credithub] parseMoneyRobust: valor absurdo detectado=${num} input="${s}" — zerando`);
+    return 0;
+  }
+  return num;
 }
 
 function parseDate(s: string): Date | null {
@@ -118,9 +182,14 @@ function parseProtestos(d: any): ProtestosData {
 
     if (protestosInner.length > 0) {
       protestosInner.forEach((p: any) => {
+        const rawValor = p.valor ?? p.valorProtestado ?? p.valorTitulo ?? 0;
+        const valor = parseMoneyRobust(rawValor);
+        if (valor > 1_000_000) {
+          console.log(`[credithub][protestos] valor alto: raw="${rawValor}" parsed=${valor} data=${p.data ?? p.dataProtesto}`);
+        }
         todos.push({
           data:             p.dataProtesto ?? p.data ?? p.dataOcorrencia ?? "",
-          valor:            Number(p.valor ?? p.valorProtestado ?? p.valorTitulo ?? 0),
+          valor,
           nomeCedente:      p.nomeCedente ?? p.cedente ?? p.credor ?? "",
           nomeApresentante: p.nomeApresentante ?? p.apresentante ?? "",
           cartorioNome, municipio, uf,
@@ -129,9 +198,10 @@ function parseProtestos(d: any): ProtestosData {
       });
     } else {
       // Cartório sem array interno — o próprio objeto do cartório é o protesto
+      const rawValor = c.valor ?? c.valorProtestado ?? 0;
       todos.push({
         data:             c.data ?? c.dataProtesto ?? "",
-        valor:            Number(c.valor ?? c.valorProtestado ?? 0),
+        valor:            parseMoneyRobust(rawValor),
         nomeCedente:      c.nomeCedente ?? c.cedente ?? c.credor ?? "",
         nomeApresentante: c.nomeApresentante ?? c.apresentante ?? "",
         cartorioNome, municipio, uf,
@@ -344,13 +414,14 @@ function parseProcessos(d: any): ProcessosData {
       ? `${statusRaw} — ${faseRaw}`
       : statusRaw || faseRaw || "—";
 
+    const valorNum = parseMoneyRobust(p.valor ?? p.valorCausa ?? p.valorAcao ?? p.valorDaCausa ?? 0);
     return {
       numero,
       tipo,
       assunto: String(assunto),
       data: data ? data.substring(0, 10) : "",
-      valor: fmtBRL(Number(p.valor ?? p.valorCausa ?? p.valorAcao ?? p.valorDaCausa ?? 0)),
-      valorNum: Number(p.valor ?? p.valorCausa ?? p.valorAcao ?? p.valorDaCausa ?? 0),
+      valor: fmtBRL(valorNum),
+      valorNum,
       status,
       partes: ativos || (p.polo_ativo ?? p.parteAtiva ?? p.autor ?? p.requerente ?? ""),
       tribunal,
@@ -362,17 +433,20 @@ function parseProcessos(d: any): ProcessosData {
     };
   };
 
-  const divNorm = (dv: any): ProcessoItem => ({
-    numero: dv.numero ?? dv.contrato ?? "",
-    tipo: "DÍVIDA",
-    assunto: dv.descricao ?? dv.produto ?? dv.modalidade ?? "",
-    data: dv.dataVencimento ?? dv.data ?? dv.dataAbertura ?? "",
-    valor: fmtBRL(Number(dv.valor ?? dv.valorDivida ?? 0)),
-    valorNum: Number(dv.valor ?? dv.valorDivida ?? 0),
-    status: dv.status ?? "VENCIDA",
-    partes: dv.credor ?? dv.instituicao ?? "",
-    tribunal: "",
-  });
+  const divNorm = (dv: any): ProcessoItem => {
+    const valorNum = parseMoneyRobust(dv.valor ?? dv.valorDivida ?? 0);
+    return {
+      numero: dv.numero ?? dv.contrato ?? "",
+      tipo: "DÍVIDA",
+      assunto: dv.descricao ?? dv.produto ?? dv.modalidade ?? "",
+      data: dv.dataVencimento ?? dv.data ?? dv.dataAbertura ?? "",
+      valor: fmtBRL(valorNum),
+      valorNum,
+      status: dv.status ?? "VENCIDA",
+      partes: dv.credor ?? dv.instituicao ?? "",
+      tribunal: "",
+    };
+  };
 
   const todosNorm: ProcessoItem[] = [
     ...processos.map(normItem),
