@@ -1474,18 +1474,46 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     }
   };
 
+  // Helper: busca Street View + Static Map do Google Maps
+  const fetchGoogleMapsImages = async (): Promise<{ streetViewBase64?: string; mapStaticBase64?: string }> => {
+    const endereco = data.cnpj?.endereco;
+    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+    if (!endereco || !apiKey) return {};
+    const fetchAsBase64 = async (url: string): Promise<string | undefined> => {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) return undefined;
+        const blob = await res.blob();
+        return new Promise<string>(resolve => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve((reader.result as string).split(",")[1]);
+          reader.readAsDataURL(blob);
+        });
+      } catch { return undefined; }
+    };
+    const loc = encodeURIComponent(endereco);
+    const [sv, mp] = await Promise.all([
+      fetchAsBase64(`https://maps.googleapis.com/maps/api/streetview?size=600x300&location=${loc}&key=${apiKey}`),
+      fetchAsBase64(`https://maps.googleapis.com/maps/api/staticmap?center=${loc}&zoom=16&size=600x300&maptype=hybrid&markers=color:red|${loc}&key=${apiKey}`),
+    ]);
+    return { streetViewBase64: sv, mapStaticBase64: mp };
+  };
+
   // ═══════════════════════════════════════════════════
   // HTML View (abre relatório visual em nova aba)
   // ═══════════════════════════════════════════════════
   const generateHTMLView = async () => {
     setGeneratingFormat("html");
     try {
+      const maps = await fetchGoogleMapsImages();
       const payload = {
         data, aiAnalysis, decision, finalRating, alerts, alertsHigh,
         pontosFortes, pontosFracos, perguntasVisita, resumoExecutivo,
         companyAge, protestosVigentes, vencidosSCR, vencidas, prejuizosVal,
         dividaAtiva, atraso, riskScore: riskScore as "alto" | "medio" | "baixo", decisionColor, decisionBg, decisionBorder,
         observacoes: analystNotes.trim() || undefined,
+        streetViewBase64: maps.streetViewBase64,
+        mapStaticBase64: maps.mapStaticBase64,
         fundValidation,
         creditLimit,
         committeMembers: committeMembers.trim() || undefined,
