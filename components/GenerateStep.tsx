@@ -1002,8 +1002,39 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     if (data.qsa.quadroSocietario.some(s => s.nome)) docs.push({ type: "qsa", filename: "qsa.pdf", extracted_data: asRec(data.qsa), uploaded_at: new Date().toISOString() });
     if (data.contrato.capitalSocial || data.contrato.socios.some(s => s.nome)) docs.push({ type: "contrato_social", filename: "contrato-social.pdf", extracted_data: asRec(data.contrato), uploaded_at: new Date().toISOString() });
     if (data.faturamento.meses.length > 0 || data.faturamento.somatoriaAno) docs.push({ type: "faturamento", filename: "faturamento.pdf", extracted_data: asRec(data.faturamento), uploaded_at: new Date().toISOString() });
-    if (data.scr.totalDividasAtivas || data.scr.operacoesEmAtraso) docs.push({ type: "scr_bacen", filename: "scr-bacen.pdf", extracted_data: asRec(data.scr), uploaded_at: new Date().toISOString() });
-    if (data.scrAnterior) docs.push({ type: "scr_bacen", filename: "scr-anterior.pdf", extracted_data: asRec(data.scrAnterior), uploaded_at: new Date().toISOString() });
+    if (data.scr.totalDividasAtivas || data.scr.operacoesEmAtraso) docs.push({ type: "scr_bacen", filename: "scr-bacen.pdf", extracted_data: asRec({ ...data.scr, tipoPessoa: "PJ" }), uploaded_at: new Date().toISOString() });
+    if (data.scrAnterior) docs.push({ type: "scr_bacen", filename: "scr-anterior.pdf", extracted_data: asRec({ ...data.scrAnterior, tipoPessoa: "PJ" }), uploaded_at: new Date().toISOString() });
+    // Persist SCR de sócios PF — sem isso, ao recarregar a coleção do histórico os sócios somem
+    if (data.scrSocios && data.scrSocios.length > 0) {
+      data.scrSocios.forEach((socio, i) => {
+        if (socio.periodoAtual) {
+          docs.push({
+            type: "scr_bacen",
+            filename: `scr-socio-${i + 1}.pdf`,
+            extracted_data: asRec({
+              ...socio.periodoAtual,
+              tipoPessoa: "PF",
+              nomeCliente: socio.periodoAtual.nomeCliente || socio.nomeSocio,
+              cpfSCR: socio.periodoAtual.cpfSCR || socio.cpfSocio,
+            }),
+            uploaded_at: new Date().toISOString(),
+          });
+        }
+        if (socio.periodoAnterior) {
+          docs.push({
+            type: "scr_bacen",
+            filename: `scr-socio-${i + 1}-anterior.pdf`,
+            extracted_data: asRec({
+              ...socio.periodoAnterior,
+              tipoPessoa: "PF",
+              nomeCliente: socio.periodoAnterior.nomeCliente || socio.nomeSocio,
+              cpfSCR: socio.periodoAnterior.cpfSCR || socio.cpfSocio,
+            }),
+            uploaded_at: new Date().toISOString(),
+          });
+        }
+      });
+    }
     if (data.protestos && (parseInt(data.protestos.vigentesQtd) > 0 || parseInt(data.protestos.regularizadosQtd) > 0 || data.protestos.detalhes.length > 0)) docs.push({ type: "protestos", filename: "protestos.pdf", extracted_data: asRec(data.protestos), uploaded_at: new Date().toISOString() });
     if (data.processos && (data.processos.passivosTotal || data.processos.ativosTotal || data.processos.distribuicao.length > 0)) docs.push({ type: "processos", filename: "processos.pdf", extracted_data: asRec(data.processos), uploaded_at: new Date().toISOString() });
     if (data.grupoEconomico && data.grupoEconomico.empresas.length > 0) docs.push({ type: "grupo_economico", filename: "grupo-economico.pdf", extracted_data: asRec(data.grupoEconomico), uploaded_at: new Date().toISOString() });
