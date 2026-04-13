@@ -90,7 +90,9 @@ export function mergeBureauResults(
     // Enriquecer QSA com dados do Credit Hub
     if (results.credithub.qsaEnrichment) {
       const q = results.credithub.qsaEnrichment;
-      const qsaVazia = !data.qsa?.quadroSocietario?.length;
+      // QSA é considerada vazia se não tem sócios OU se todos os sócios são entradas vazias
+      const sociosReais = (data.qsa?.quadroSocietario || []).filter(s => s.nome || s.cpfCnpj);
+      const qsaVazia = sociosReais.length === 0;
       if (qsaVazia && q.quadroSocietario.length > 0) {
         merged.qsa = {
           capitalSocial: data.qsa?.capitalSocial || q.capitalSocial,

@@ -858,10 +858,25 @@ export async function consultarCreditHub(cnpj: string, rawDataFromClient?: unkno
   let d: any = null;
   if (rawDataFromClient) {
     const raw = rawDataFromClient as any;
-    d = raw?.data ?? raw;
-    console.log(`[credithub] Using client-side fetched data for CNPJ=${cnpjNum}`);
-    // Pula o fetch, vai direto para o parsing
-  } else {
+    const candidate = raw?.data ?? raw;
+    // Valida que o CNPJ dos dados crus bate com o CNPJ do request — evita
+    // contaminacao cruzada entre empresas quando o frontend manda raw stale.
+    const rawCnpjCandidates: unknown[] = [
+      candidate?.cnpj, candidate?.documento, candidate?.cnpjCpf, candidate?.cnpj_cpf,
+      raw?.cnpj, raw?.documento,
+    ];
+    const rawCnpj = rawCnpjCandidates
+      .map(v => (v == null ? "" : String(v).replace(/\D/g, "")))
+      .find(v => v.length === 14);
+    if (rawCnpj && rawCnpj !== cnpjNum) {
+      console.warn(`[credithub] REJEITANDO rawDataFromClient — CNPJ nos dados (${rawCnpj}) nao bate com o request (${cnpjNum}). Fazendo fetch fresco.`);
+      // Fall through para o fetch server-side
+    } else {
+      d = candidate;
+      console.log(`[credithub] Using client-side fetched data for CNPJ=${cnpjNum} (raw CNPJ=${rawCnpj || "nao encontrado"})`);
+    }
+  }
+  if (!d) {
     if (!CREDITHUB_API_URL || !CREDITHUB_API_KEY) {
       return { success: false, mock: true, error: "Credit Hub não configurado" };
     }
