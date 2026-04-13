@@ -484,25 +484,16 @@ function secChecklist(p: PDFReportParams): string {
 // SECTION 3: SINTESE PRELIMINAR
 // ═══════════════════════════════════════════════════════════════════════════════
 function secSintese(p: PDFReportParams): string {
-  const { data, finalRating, decision, alerts, alertsHigh, pontosFortes, pontosFracos, resumoExecutivo, companyAge } = p;
+  const { data, finalRating, decision, pontosFortes, pontosFracos, resumoExecutivo, companyAge } = p;
 
-  // Rating color + label
+  // Rating color
   const rc = finalRating >= 7.5 ? "#16a34a" : finalRating >= 6 ? "#d97706" : "#dc2626";
-  const nivelLabel = finalRating >= 8 ? "EXCELENTE"
-    : finalRating >= 6.5 ? "SATISFATORIO"
-    : finalRating >= 5 ? "MODERADO"
-    : "ALTO RISCO";
 
   // Faturamento series
   const allMesesSorted = sortMeses(data.faturamento?.meses || []).filter(m => m?.mes && m?.valor);
   const last12 = allMesesSorted.slice(-12);
   const fmmNum = computeFmm(data.faturamento);
   const fatTotal12 = last12.reduce((s, m) => s + numVal(m.valor), 0);
-  const tendenciaRaw = data.faturamento?.tendencia || "indefinido";
-  const tendLabel = tendenciaRaw === "crescimento" ? "\u2191 Crescimento"
-    : tendenciaRaw === "queda" ? "\u2193 Queda"
-    : tendenciaRaw === "estavel" ? "\u2192 Estavel"
-    : "\u2014";
 
   // Risco
   const protQtd = p.protestosVigentes || 0;
@@ -512,259 +503,262 @@ function secSintese(p: PDFReportParams): string {
   const scrVenc = p.vencidosSCR || 0;
   const scrTotal = numVal(data.scr?.totalDividasAtivas || "0");
   const scrVencPct = scrTotal > 0 ? (scrVenc / scrTotal) * 100 : 0;
+  const alav = p.alavancagem ?? 0;
 
-  // Pleito
-  const rv = data.relatorioVisita;
-  const modLabel = rv?.modalidade ? rv.modalidade.charAt(0).toUpperCase() + rv.modalidade.slice(1) : "\u2014";
-
-  // Curva ABC top 5 — recompute % acumulado (known bug)
-  const abc = data.curvaABC;
-  const clientes = abc?.clientes || [];
-  const receitaTotalNum = numVal(abc?.receitaTotalBase || "0");
-  const top5 = clientes.slice(0, 5);
-  let acum = 0;
-  const top5Rows = top5.map((c, i) => {
-    const valor = numVal(c.valorFaturado);
-    const pctReceita = receitaTotalNum > 0
-      ? (valor / receitaTotalNum) * 100
-      : parseFloat(String(c.percentualReceita || "0").replace(",", ".")) || 0;
-    acum += pctReceita;
-    return { pos: c.posicao || i + 1, nome: c.nome || "\u2014", valor: c.valorFaturado, pctReceita, acum, classe: c.classe || "\u2014" };
-  });
-  const firstPct = top5Rows[0]?.pctReceita || 0;
-  const totalClientes = abc?.totalClientesNaBase || abc?.totalClientesExtraidos || clientes.length;
-
-  // ── BLOCO 1 — Header strip ────────────────────────────────────────────
+  // ── BLOCO A — Header compacto ─────────────────────────────────────────
   const razao = esc(data.cnpj?.razaoSocial || "\u2014");
-  const fantasia = data.cnpj?.nomeFantasia ? esc(data.cnpj.nomeFantasia) : "";
   const cnpjFmt = fmtCnpj(data.cnpj?.cnpj);
-  const situacao = (data.cnpj?.situacaoCadastral || "").toUpperCase();
-  const sitBadge = situacao
-    ? `<span style="display:inline-block;padding:2px 8px;border-radius:99px;background:${situacao.includes("ATIVA") ? "#dcfce7" : "#fef3c7"};color:${situacao.includes("ATIVA") ? "#166534" : "#854d0e"};font-size:9px;font-weight:800;letter-spacing:.04em;margin-top:6px">${esc(situacao)}</span>`
-    : "";
+  const situacao = (data.cnpj?.situacaoCadastral || "\u2014").toUpperCase();
+  const situAtiva = situacao.includes("ATIVA");
+  const situColor = situAtiva ? "#16a34a" : situacao === "\u2014" ? "#9ca3af" : "#d97706";
   const decFmt = esc((decision || "\u2014").replace(/_/g, " "));
+  const decColor = /APROV/i.test(decFmt) && !/CONDIC/i.test(decFmt) ? "#16a34a"
+    : /REPROV/i.test(decFmt) ? "#dc2626"
+    : "#d97706";
 
-  const block1 = `<div style="display:flex;gap:10px;margin-bottom:14px;page-break-inside:avoid">
-    <div style="flex:2;background:linear-gradient(135deg,#203B88 0%,#2a4da6 100%);border-left:4px solid #73B815;border-radius:8px;padding:16px 18px;color:#fff">
-      <div style="font-size:18px;font-weight:900;line-height:1.2">${razao}</div>
-      ${fantasia ? `<div style="font-size:10px;color:rgba(255,255,255,.7);margin-top:2px">${fantasia}</div>` : ""}
-      <div style="font-family:'Courier New',monospace;font-size:10px;color:rgba(255,255,255,.85);margin-top:6px;letter-spacing:.02em">CNPJ  ${cnpjFmt}</div>
-      ${sitBadge}
-    </div>
-    <div style="flex:1;background:#fff;border:1px solid #e0e4ec;border-left:4px solid ${rc};border-radius:8px;padding:14px 16px;display:flex;flex-direction:column;justify-content:space-between">
-      <div>
-        <div style="font-size:9px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em">Rating</div>
-        <div style="font-size:32px;font-weight:900;color:${rc};line-height:1">${finalRating}<span style="font-size:12px;color:#9ca3af;font-weight:600">/10</span></div>
-        <div style="font-size:9px;font-weight:800;color:${rc};margin-top:2px;letter-spacing:.05em">${nivelLabel}</div>
-      </div>
-      <div style="text-align:right;margin-top:6px">${decisaoBadge(decision)}</div>
-    </div>
-  </div>`;
-
-  // ── BLOCO 2 — Fundação & idade ────────────────────────────────────────
-  const info3 = (label: string, value: string) => `<div style="background:#edf2fb;border-radius:6px;padding:8px 12px">
-    <div style="font-size:8px;font-weight:800;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">${label}</div>
-    <div style="font-size:11px;font-weight:800;color:#111827;margin-top:2px">${value}</div>
-  </div>`;
-  const block2 = `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;page-break-inside:avoid">
-    ${info3("Fundacao", esc(data.cnpj?.dataAbertura) || "\u2014")}
-    ${info3("Idade", esc(companyAge) || "\u2014")}
-    ${info3("Natureza Juridica", esc(data.cnpj?.naturezaJuridica) || "\u2014")}
-  </div>`;
-
-  // ── BLOCO 3 — Segmento ────────────────────────────────────────────────
-  const principal = data.cnpj?.cnaePrincipal;
-  const secundarios = data.cnpj?.cnaeSecundarios;
-  const objeto = data.contrato?.objetoSocial;
-  const block3 = (principal || secundarios || objeto) ? `<div style="background:#fff;border:1px solid #e0e4ec;border-left:4px solid #2563eb;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:10.5px;line-height:1.55;page-break-inside:avoid">
-    ${principal ? `<div><span style="font-weight:800;color:#6b7280;font-size:9px;text-transform:uppercase;letter-spacing:.05em">CNAE Principal</span> <span style="color:#111827">${esc(principal)}</span></div>` : ""}
-    ${secundarios ? `<div style="margin-top:3px"><span style="font-weight:800;color:#6b7280;font-size:9px;text-transform:uppercase;letter-spacing:.05em">Secundarios</span> <span style="color:#374151;font-size:9.5px">${esc(secundarios).substring(0, 180)}</span></div>` : ""}
-    ${objeto ? `<div style="margin-top:4px;font-style:italic;color:#4b5563;font-size:10px">${esc(objeto).substring(0, 220)}${objeto.length > 220 ? "\u2026" : ""}</div>` : ""}
-  </div>` : "";
-
-  // ── BLOCO 4 — Street View + endereço ──────────────────────────────────
-  const svImg = p.streetViewBase64;
-  const block4 = (svImg && data.cnpj?.endereco) ? `<div style="display:flex;gap:12px;margin-bottom:14px;page-break-inside:avoid">
-    <img src="${svImg}" style="width:260px;height:150px;object-fit:cover;border-radius:8px;border:1px solid #e0e4ec"/>
-    <div style="flex:1;padding:6px 0">
-      <div style="font-size:9px;font-weight:800;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">Endereco</div>
-      <div style="font-size:10.5px;color:#111827;line-height:1.55;margin-top:4px">${esc(data.cnpj.endereco)}</div>
-      ${data.cnpj.telefone ? `<div style="font-size:9px;color:#9ca3af;margin-top:6px">Tel.: ${esc(data.cnpj.telefone)}</div>` : ""}
-    </div>
-  </div>` : "";
-
-  // ── BLOCO 5 — Estrutura societária + grupo econômico ──────────────────
-  const socios = (data.qsa?.quadroSocietario || []).filter(s => s?.nome).slice(0, 6);
-  const capSoc = data.qsa?.capitalSocial || data.contrato?.capitalSocial;
-  const geCount = data.grupoEconomico?.empresas?.length || 0;
-  const footerParts: string[] = [];
-  if (capSoc) footerParts.push(`<strong>Capital Social:</strong> R$ ${fmtMoneyRound(capSoc)}`);
-  if (geCount > 0) footerParts.push(`<strong>Grupo economico:</strong> ${geCount} empresa(s) vinculada(s)`);
-  const block5 = (socios.length > 0 || geCount > 0) ? `<div style="margin-bottom:14px;page-break-inside:avoid">
-    ${subTitle("Estrutura Societaria")}
-    ${socios.length > 0 ? `<table style="${TS}">
-      <thead>${row(["Nome", "CPF/CNPJ", "Qualificacao", "Partic."], true)}</thead>
-      <tbody>${socios.map(s => {
-        const digits = (s.cpfCnpj || "").replace(/\D/g, "");
-        const docFmt = digits.length > 11 ? fmtCnpj(s.cpfCnpj) : digits.length > 0 ? fmtCpf(s.cpfCnpj) : "\u2014";
-        return `<tr><td><strong>${esc(s.nome || "\u2014")}</strong></td><td>${docFmt}</td><td>${esc(s.qualificacao || "\u2014")}</td><td>${esc(s.participacao || "\u2014")}</td></tr>`;
-      }).join("")}</tbody>
-    </table>` : ""}
-    ${footerParts.length ? `<div style="font-size:10px;color:#4b5563;padding:6px 4px">${footerParts.join("   \u2022   ")}</div>` : ""}
-  </div>` : "";
-
-  // ── BLOCO 6 — Risco consolidado ───────────────────────────────────────
-  const block6 = `${groupLabelLocal("Risco Consolidado")}
-  ${grid(4, [
-    kpi("Protestos", String(protQtd),
-      protQtd > 0 ? "#dc2626" : "#16a34a",
-      protQtd > 0 ? `R$ ${fmtMoneyRound(String(protVal))}` : "sem ocorrencias"),
-    kpi("CCF",
-      ccfQtd == null ? "\u2014" : String(ccfQtd),
-      ccfQtd == null ? "#9ca3af" : ccfQtd > 0 ? "#dc2626" : "#16a34a",
-      ccfQtd == null ? "nao consultado" : ccfQtd > 0 ? "ocorrencias" : "sem cheques"),
-    kpi("Processos", String(procPass),
-      procPass > 10 ? "#dc2626" : procPass > 0 ? "#d97706" : "#16a34a",
-      "polo passivo"),
-    kpi("SCR Venc.",
-      scrVenc > 0 ? `R$ ${fmtMoneyRound(String(scrVenc))}` : "\u2014",
-      scrVenc > 0 ? "#dc2626" : "#16a34a",
-      scrVenc > 0 ? `${scrVencPct.toFixed(1)}% do total` : "em dia"),
-  ])}`;
-
-  // Alerts (max 4, dedupe)
-  const seenAlerts = new Set<string>();
-  const selAlerts: Array<{ msg: string; sev: "ALTA"|"MODERADA"|"INFO" }> = [];
-  const pushAlert = (msg: string, sev: "ALTA"|"MODERADA"|"INFO") => {
-    const k = msg.trim().toLowerCase().substring(0, 80);
-    if (seenAlerts.has(k) || selAlerts.length >= 4) return;
-    seenAlerts.add(k);
-    selAlerts.push({ msg, sev });
+  // Helpers locais
+  const extractLocal = (endereco: string | undefined): string => {
+    if (!endereco) return "\u2014";
+    const m = endereco.match(/([A-Za-zÁÂÃÇÉÍÓÔÚáâãçéíóôú \-']{3,})[\s/-]+([A-Z]{2})\b/);
+    if (m) return `${m[1].trim()}/${m[2]}`;
+    const parts = endereco.split(/[,\-/]/).map(s => s.trim()).filter(Boolean);
+    return parts.slice(-2).join("/") || endereco.substring(0, 22);
   };
-  (alertsHigh || []).forEach(a => pushAlert(a.message, "ALTA"));
-  (alerts || []).filter(a => a.severity === "ALTA").forEach(a => pushAlert(a.message, "ALTA"));
-  (alerts || []).filter(a => a.severity === "MODERADA").forEach(a => pushAlert(a.message, "MODERADA"));
-  const block6Alerts = selAlerts.length > 0
-    ? `<div style="margin-bottom:14px">${selAlerts.map(a => alertBox(a.msg, a.sev)).join("")}</div>`
-    : "";
 
-  // ── BLOCO 7 — Faturamento mini-chart ──────────────────────────────────
+  const blockA = `<div style="margin-bottom:8px;page-break-inside:avoid">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:16px;background:#1e3a5f;color:#fff;font-size:9px;font-weight:900;border-radius:3px">00</span>
+        <span style="font-size:14px;font-weight:900;color:#1e3a5f;letter-spacing:.06em">SÍNTESE PRELIMINAR</span>
+      </div>
+      <span style="display:inline-block;padding:4px 14px;border-radius:14px;background:${rc};color:#fff;font-size:12px;font-weight:900;min-width:48px;text-align:center">${finalRating}/10</span>
+    </div>
+    <div style="border-top:1px solid #e0e4ec;margin-top:4px;padding-top:3px">
+      <span style="font-size:9px;color:#9ca3af">Cliente: ${razao}</span>
+    </div>
+  </div>`;
+
+  // ── BLOCO B — Info strip (6 colunas) ──────────────────────────────────
+  const today = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" });
+  const capSocRaw = data.cnpj?.capitalSocialCNPJ || data.qsa?.capitalSocial || "";
+  const capSocStr = capSocRaw ? fmtMoneyRound(capSocRaw) : "\u2014";
+  const infoCol = (label: string, value: string, color?: string) => `<div style="flex:1;padding:6px 10px;border-right:1px solid #dce1eb">
+    <div style="font-size:7px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em">${label}</div>
+    <div style="font-size:9.5px;font-weight:800;color:${color || "#111827"};margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${value}</div>
+  </div>`;
+  const blockB = `<div style="display:flex;background:#edf2fb;border-radius:4px;margin-bottom:8px;page-break-inside:avoid;overflow:hidden">
+    ${infoCol("Data", esc(today))}
+    ${infoCol("CNPJ", esc(cnpjFmt))}
+    ${infoCol("Local", esc(extractLocal(data.cnpj?.endereco)))}
+    ${infoCol("Idade", esc(companyAge) || "\u2014")}
+    ${infoCol("Cap. Social", esc(capSocStr))}
+    <div style="flex:1;padding:6px 10px">
+      <div style="font-size:7px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em">Situação</div>
+      <div style="font-size:9.5px;font-weight:800;color:${situColor};margin-top:2px">${esc(situacao.substring(0, 12))}</div>
+    </div>
+  </div>`;
+
+  // ── BLOCO C — Alertas strip ───────────────────────────────────────────
+  const alertCell = (label: string, value: string, sub: string, accent: string) => `<div style="flex:1;background:#fff;border:1px solid #e0e4ec;border-left:3px solid ${accent};border-radius:3px;padding:5px 8px;min-width:0">
+    <div style="font-size:7px;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em">${label}</div>
+    <div style="font-size:10px;font-weight:900;color:${accent};margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${value}</div>
+    <div style="font-size:7px;color:#9ca3af;margin-top:1px">${sub}</div>
+  </div>`;
+
+  const alavColor = alav > 5 ? "#dc2626" : alav > 3 ? "#d97706" : alav > 0 ? "#16a34a" : "#9ca3af";
+  const blockC = `<div style="margin-bottom:8px;page-break-inside:avoid">
+    <div style="background:#1e3a5f;color:#fff;font-size:8px;font-weight:800;letter-spacing:.08em;padding:3px 8px;margin-bottom:4px">ALERTAS</div>
+    <div style="display:flex;gap:4px">
+      ${alertCell("Protestos",
+        protQtd > 0 ? `R$ ${fmtMoneyRound(String(protVal))}` : "\u2014",
+        protQtd > 0 ? `${protQtd} ocorr.` : "sem ocorrências",
+        protQtd > 0 ? "#dc2626" : "#16a34a")}
+      ${alertCell("CCF",
+        ccfQtd == null ? "\u2014" : String(ccfQtd),
+        ccfQtd == null ? "não consultado" : ccfQtd > 0 ? "ocorrências" : "sem cheques",
+        ccfQtd == null ? "#9ca3af" : ccfQtd > 0 ? "#dc2626" : "#16a34a")}
+      ${alertCell("Processos",
+        String(procPass),
+        "polo passivo",
+        procPass > 10 ? "#dc2626" : procPass > 0 ? "#d97706" : "#16a34a")}
+      ${alertCell("SCR Venc.",
+        scrVenc > 0 ? `R$ ${fmtMoneyRound(String(scrVenc))}` : "\u2014",
+        scrTotal > 0 ? `${scrVencPct.toFixed(1)}% do total` : "em dia",
+        scrVenc > 0 ? "#dc2626" : "#16a34a")}
+      ${alertCell("Alavancagem",
+        alav > 0 ? `${alav.toFixed(2)}x` : "\u2014",
+        alav > 5 ? "risco alto" : alav > 3 ? "atenção" : alav > 0 ? "saudável" : "s/ dados",
+        alavColor)}
+    </div>
+  </div>`;
+
+  // ── BLOCO D — Gestão & Grupo Econômico ────────────────────────────────
+  const socios = (data.qsa?.quadroSocietario || []).filter(s => s?.nome || s?.cpfCnpj);
+  const empresas = data.grupoEconomico?.empresas || [];
+  const hasDBlock = socios.length > 0 || empresas.length > 0;
+
+  const socioRows = socios.map(s => {
+    const digits = (s.cpfCnpj || "").replace(/\D/g, "");
+    const docFmt = digits.length > 11 ? fmtCnpj(s.cpfCnpj) : digits.length > 0 ? fmtCpf(s.cpfCnpj) : "\u2014";
+    const scrSocio = data.scrSocios?.find(sc =>
+      (sc.cpfSocio && sc.cpfSocio === s.cpfCnpj) ||
+      (sc.nomeSocio && s.nome && sc.nomeSocio.toLowerCase() === s.nome.toLowerCase())
+    );
+    const scrTot = scrSocio?.periodoAtual?.totalDividasAtivas;
+    const prej = scrSocio?.periodoAtual?.prejuizos;
+    return `<tr>
+      <td><strong>${esc(s.nome || "\u2014")}</strong></td>
+      <td>${docFmt}</td>
+      <td style="text-align:center">\u2014</td>
+      <td class="money">${scrTot ? `R$ ${fmtMoneyRound(scrTot)}` : "\u2014"}</td>
+      <td class="money">${prej ? `R$ ${fmtMoneyRound(prej)}` : "\u2014"}</td>
+      <td style="text-align:center">\u2014</td>
+    </tr>`;
+  }).join("");
+
+  const empresaRows = empresas.map(e => `<tr>
+    <td><strong>${esc(e.razaoSocial || "\u2014")}</strong></td>
+    <td>${fmtCnpj(e.cnpj)}</td>
+    <td style="text-align:center">\u2014</td>
+    <td class="money">${e.scrTotal ? `R$ ${fmtMoneyRound(e.scrTotal)}` : "\u2014"}</td>
+    <td class="money">\u2014</td>
+    <td style="text-align:center">${esc(e.processos || "\u2014")}</td>
+  </tr>`).join("");
+
+  const blockD = hasDBlock ? `<div style="margin-bottom:8px;page-break-inside:avoid">
+    <div style="background:#1e3a5f;color:#fff;font-size:8px;font-weight:800;letter-spacing:.08em;padding:3px 8px;margin-bottom:2px">GESTÃO &amp; GRUPO ECONÔMICO</div>
+    <table style="${TS};margin-bottom:0;font-size:9px">
+      <thead>${row(["Nome / Razão Social", "CPF/CNPJ", "Idade", "SCR", "Prejuízo", "Proc."], true)}</thead>
+      <tbody>${socioRows}${empresaRows}</tbody>
+    </table>
+  </div>` : "";
+
+  // ── BLOCO E — Faturamento + SCR comparativo (side-by-side) ────────────
+  const scr = data.scr;
+  const scrAnt = data.scrAnterior;
+  const hasScrE = !!(scr && scr.periodoReferencia);
+  const hasFatE = last12.length > 0;
+
+  // Faturamento chart
   const maxVal = Math.max(...last12.map(m => numVal(m.valor)), 1);
   const bars = last12.map((m, i) => {
     const v = numVal(m.valor);
-    const prev = i > 0 ? numVal(last12[i - 1].valor) : v;
-    const c = v === 0 ? "#9ca3af"
-      : v > prev * 1.05 ? "#16a34a"
-      : v < prev * 0.95 ? "#dc2626"
-      : "#203B88";
+    const isHi = i >= last12.length - 3;
+    const c = v === 0 ? "#9ca3af" : isHi ? "#73B815" : "#203B88";
     const hPct = (v / maxVal) * 100;
-    return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:3px">
-      <div style="width:100%;background:${c};height:${hPct}%;min-height:2px;border-radius:2px 2px 0 0"></div>
-      <div style="font-size:7.5px;color:#9ca3af;text-transform:uppercase">${esc(m.mes)}</div>
+    return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px">
+      <div style="width:100%;background:${c};height:${hPct}%;min-height:1px"></div>
+      <div style="font-size:6.5px;color:#9ca3af">${esc(m.mes.substring(0, 3))}</div>
     </div>`;
   }).join("");
-  const block7 = last12.length > 0 ? `<div style="margin-bottom:14px;padding:12px 14px;background:#fff;border:1px solid #e0e4ec;border-radius:8px;page-break-inside:avoid">
-    <div style="font-size:9px;font-weight:800;color:#6b7280;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Faturamento \u2014 Ultimos 12 Meses</div>
-    <div style="display:flex;align-items:flex-end;gap:3px;height:80px">${bars}</div>
-    <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:10px;color:#374151;border-top:1px solid #edf2fb;padding-top:6px">
-      <span><strong>FMM 12M:</strong> R$ ${fmtMoneyRound(String(fmmNum))}</span>
-      <span><strong>Total 12M:</strong> R$ ${fmtMoneyRound(String(fatTotal12))}</span>
-      <span><strong>Tendencia:</strong> ${tendLabel}</span>
+
+  let varPct = 0;
+  if (last12.length >= 6) {
+    const values = last12.map(m => numVal(m.valor));
+    const rec = values.slice(-3).reduce((a, b) => a + b, 0);
+    const ant = values.slice(-6, -3).reduce((a, b) => a + b, 0);
+    if (ant > 0) varPct = ((rec - ant) / ant) * 100;
+  }
+  const trendArrow = varPct > 2 ? "\u2191" : varPct < -2 ? "\u2193" : "\u2192";
+
+  const fatPanel = hasFatE ? `<div style="flex:1;background:#fff;border:1px solid #e0e4ec;border-radius:4px;padding:6px 8px;min-width:0">
+    <div style="font-size:8px;font-weight:800;color:#1e3a5f;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">Faturamento / 12M</div>
+    <div style="display:flex;align-items:flex-end;gap:2px;height:52px">${bars}</div>
+    <div style="font-size:7.5px;color:#374151;margin-top:4px;border-top:1px solid #edf2fb;padding-top:3px">
+      FMM R$ ${fmtMoneyRound(String(fmmNum))} · Total R$ ${fmtMoneyRound(String(fatTotal12))} · ${trendArrow} ${varPct.toFixed(0)}%
     </div>
   </div>` : "";
 
-  // ── BLOCO 8 — Curva ABC top 5 ─────────────────────────────────────────
-  const block8 = top5Rows.length > 0 ? `<div style="margin-bottom:14px;page-break-inside:avoid">
-    ${subTitle("Curva ABC \u2014 Top 5 Clientes")}
-    <table style="${TS}">
-      <thead>${row(["#", "Cliente", "Faturamento", "% Receita", "% Acum.", "Cl."], true)}</thead>
-      <tbody>${top5Rows.map(r => `<tr>
-        <td>${r.pos}</td>
-        <td><strong>${esc(r.nome)}</strong></td>
-        <td class="money">R$ ${fmtMoneyRound(r.valor)}</td>
-        <td class="money">${r.pctReceita.toFixed(2)}%</td>
-        <td class="money">${r.acum.toFixed(2)}%</td>
-        <td style="text-align:center"><strong>${esc(r.classe)}</strong></td>
-      </tr>`).join("")}</tbody>
+  // SCR comparativo
+  const sr = (k: string) => numVal(String((scr as unknown as Record<string, string>)?.[k] || "0"));
+  const srAnt = (k: string) => numVal(String((scrAnt as unknown as Record<string, string> | null)?.[k] || "0"));
+  const scrRowsData: Array<{ label: string; cur: number; prev: number; bold?: boolean }> = [
+    { label: "Em Dia",   cur: sr("carteiraAVencer"),    prev: srAnt("carteiraAVencer") },
+    { label: "CP",       cur: sr("carteiraCurtoPrazo"), prev: srAnt("carteiraCurtoPrazo") },
+    { label: "LP",       cur: sr("carteiraLongoPrazo"), prev: srAnt("carteiraLongoPrazo") },
+    { label: "TOTAL",    cur: sr("totalDividasAtivas"), prev: srAnt("totalDividasAtivas"), bold: true },
+    { label: "Vencidos", cur: sr("vencidos"),           prev: srAnt("vencidos") },
+    { label: "Limite",   cur: sr("limiteCredito"),      prev: srAnt("limiteCredito") },
+  ];
+  const hasAnterior = !!scrAnt && !!scrAnt.periodoReferencia;
+  const scrTitleTxt = hasAnterior
+    ? `SCR ${esc(scrAnt!.periodoReferencia)} × ${esc(scr?.periodoReferencia || "\u2014")}`
+    : `SCR ${esc(scr?.periodoReferencia || "\u2014")}`;
+  const scrRowsHtml = scrRowsData.map(r => {
+    const fw = r.bold ? "800" : "400";
+    let varHtml = "";
+    if (hasAnterior) {
+      if (r.prev > 0 && r.cur > 0) {
+        const pct = ((r.cur - r.prev) / r.prev) * 100;
+        const vColor = pct > 2 ? "#dc2626" : pct < -2 ? "#16a34a" : "#9ca3af";
+        varHtml = `<td style="color:${vColor};font-weight:700">${pct > 0 ? "+" : ""}${pct.toFixed(0)}%</td>`;
+      } else {
+        varHtml = `<td style="color:#9ca3af">\u2014</td>`;
+      }
+    }
+    return `<tr style="font-weight:${fw}">
+      <td>${r.label}</td>
+      <td class="money">${r.cur > 0 ? `R$ ${fmtMoneyRound(r.cur)}` : "\u2014"}</td>
+      ${hasAnterior ? `<td class="money">${r.prev > 0 ? `R$ ${fmtMoneyRound(r.prev)}` : "\u2014"}</td>` : ""}
+      ${varHtml}
+    </tr>`;
+  }).join("");
+  const scrHeader = hasAnterior
+    ? row(["Métrica", "Atual", "Ant.", "Var."], true)
+    : row(["Métrica", "Atual"], true);
+
+  const scrPanel = hasScrE ? `<div style="flex:1;background:#fff;border:1px solid #e0e4ec;border-radius:4px;padding:6px 8px;min-width:0">
+    <div style="font-size:8px;font-weight:800;color:#1e3a5f;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">${scrTitleTxt}</div>
+    <table style="width:100%;font-size:8px;border-collapse:collapse">
+      <thead>${scrHeader}</thead>
+      <tbody>${scrRowsHtml}</tbody>
     </table>
-    <div style="font-size:10px;color:#4b5563;padding:2px 4px 6px">
-      <strong>Total:</strong> ${totalClientes} cliente(s)
-      ${abc?.concentracaoTop3 ? `   \u2022   <strong>Top 3:</strong> ${esc(abc.concentracaoTop3)}` : ""}
-      ${abc?.concentracaoTop5 ? `   \u2022   <strong>Top 5:</strong> ${esc(abc.concentracaoTop5)}` : ""}
-    </div>
-    ${firstPct > 30 ? alertBox(`Concentracao elevada: maior cliente representa ${firstPct.toFixed(1)}% da receita`, "MODERADA") : ""}
+    <div style="font-size:7px;color:#9ca3af;margin-top:3px">IFs: ${esc(scr?.qtdeInstituicoes || "\u2014")}${alav > 0 ? ` · Alav ${alav.toFixed(2)}x` : ""}</div>
   </div>` : "";
 
-  // ── BLOCO 9 — Pleito ──────────────────────────────────────────────────
-  const hasPleito = rv && (rv.pleito || rv.limiteTotal || rv.modalidade || rv.prazoMaximoOp || rv.taxaConvencional);
-  const block9 = hasPleito ? `${groupLabelLocal("Pleito")}
-  ${grid(4, [
-    kpi("Valor Pleito",
-      rv!.pleito ? `R$ ${fmtMoneyRound(rv!.pleito)}` : rv!.limiteTotal ? `R$ ${fmtMoneyRound(rv!.limiteTotal)}` : "\u2014"),
-    kpi("Modalidade", modLabel),
-    kpi("Prazo Maximo", rv!.prazoMaximoOp ? `${esc(rv!.prazoMaximoOp)} dias` : "\u2014"),
-    kpi("Taxa Conv.", rv!.taxaConvencional ? `${esc(rv!.taxaConvencional)}% a.m.` : "\u2014"),
-  ])}` : "";
-
-  // ── BLOCO 10 — Tri-card ───────────────────────────────────────────────
-  const triItems = (items: string[]) => items.length === 0
-    ? `<div style="font-size:9.5px;color:#9ca3af;font-style:italic">\u2014 nenhum \u2014</div>`
-    : `<ul style="list-style:none;padding:0;margin:0">${items.slice(0, 5).map(it => `<li style="font-size:9.5px;line-height:1.45;padding:3px 0 3px 10px;position:relative"><span style="position:absolute;left:0;top:7px;width:4px;height:4px;background:currentColor;border-radius:50%"></span>${esc(it)}</li>`).join("")}</ul>`;
-  const alertasMod = (alerts || []).filter(a => a.severity === "MODERADA").map(a => a.message);
-  const pf = pontosFortes || [];
-  const pfr = pontosFracos || [];
-  const block10 = (pf.length + pfr.length + alertasMod.length > 0) ? `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;page-break-inside:avoid">
-    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px 14px;color:#166534">
-      <div style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Pontos Fortes</div>
-      ${triItems(pf)}
-    </div>
-    <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px 14px;color:#991b1b">
-      <div style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Pontos Fracos</div>
-      ${triItems(pfr)}
-    </div>
-    <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 14px;color:#854d0e">
-      <div style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Alertas</div>
-      ${triItems(alertasMod)}
-    </div>
+  const blockE = (hasFatE || hasScrE) ? `<div style="display:flex;gap:6px;margin-bottom:8px;page-break-inside:avoid">
+    ${fatPanel}
+    ${scrPanel}
   </div>` : "";
 
-  // ── BLOCO 11 — Percepção do analista ──────────────────────────────────
+  // ── BLOCO F — Parecer inline ──────────────────────────────────────────
   const parecerObj = typeof p.aiAnalysis?.parecer === "object" && p.aiAnalysis?.parecer !== null
     ? p.aiAnalysis.parecer as { resumoExecutivo?: string; textoCompleto?: string }
     : null;
-  let abstractTxt = resumoExecutivo
-    || parecerObj?.resumoExecutivo
+  let parecerTxt = resumoExecutivo
     || parecerObj?.textoCompleto
+    || parecerObj?.resumoExecutivo
     || p.aiAnalysis?.sinteseExecutiva
     || "";
-  if (abstractTxt.length > 600) abstractTxt = abstractTxt.substring(0, 600).trimEnd() + "\u2026";
-  const block11 = abstractTxt ? `<div style="margin-bottom:14px;background:#edf2fb;border-left:4px solid #203B88;border-radius:0 8px 8px 0;padding:12px 16px;page-break-inside:avoid">
-    <div style="font-size:9px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Percepcao do Analista</div>
-    <div style="font-size:10.5px;line-height:1.6;color:#1f2937">${esc(abstractTxt)}</div>
-    <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:9px">
-      <span style="font-weight:800;color:#374151">Recomendacao: ${decFmt}</span>
-      <span style="font-style:italic;color:#9ca3af">Ver parecer completo na secao 02.</span>
-    </div>
-  </div>` : "";
+  if (parecerTxt.length > 700) parecerTxt = parecerTxt.substring(0, 700).trimEnd() + "\u2026";
 
-  return `<div class="sec">${secHdr("00", "Sintese Preliminar")}
-  ${block1}
-  ${block2}
-  ${block3}
-  ${block4}
-  ${block5}
-  ${block6}
-  ${block6Alerts}
-  ${block7}
-  ${block8}
-  ${block9}
-  ${block10}
-  ${block11}
+  const pf = (pontosFortes || []).slice(0, 5);
+  const pfr = (pontosFracos || []).slice(0, 5);
+  const perguntas = (p.perguntasVisita || []).slice(0, 5);
+
+  const bulletList = (items: string[], color: string) =>
+    `<ul style="list-style:none;padding:0;margin:4px 0 0 0">${items.map(it => `<li style="font-size:9px;line-height:1.45;padding:1px 0 1px 10px;position:relative;color:#1f2937"><span style="position:absolute;left:0;top:4px;color:${color};font-weight:900">•</span>${esc(it)}</li>`).join("")}</ul>`;
+
+  const numberedList = (items: { pergunta: string; contexto: string }[]) =>
+    `<ol style="list-style:none;padding:0;margin:4px 0 0 0">${items.map((q, i) => `<li style="font-size:9px;line-height:1.45;padding:1px 0 1px 14px;position:relative;color:#1f2937"><span style="position:absolute;left:0;top:1px;color:#1e3a5f;font-weight:800">${i + 1}.</span>${esc(q.pergunta)}</li>`).join("")}</ol>`;
+
+  const blockF = `<div style="margin-bottom:8px;page-break-inside:avoid">
+    <div style="background:#1e3a5f;color:#fff;font-size:8px;font-weight:800;letter-spacing:.08em;padding:3px 8px;margin-bottom:4px">PARECER PRELIMINAR</div>
+    <div style="background:${decColor};color:#fff;font-size:10px;font-weight:900;letter-spacing:.05em;padding:4px 10px;border-radius:3px;margin-bottom:5px">DECISÃO PRELIMINAR: ${decFmt}</div>
+    ${parecerTxt ? `<div style="font-size:9.5px;line-height:1.5;color:#1f2937;margin-bottom:6px">${esc(parecerTxt)}</div>` : ""}
+    ${pf.length ? `<div style="margin-bottom:4px"><div style="font-size:8px;font-weight:800;color:#16a34a;text-transform:uppercase;letter-spacing:.05em">Pontos Fortes</div>${bulletList(pf, "#16a34a")}</div>` : ""}
+    ${pfr.length ? `<div style="margin-bottom:4px"><div style="font-size:8px;font-weight:800;color:#dc2626;text-transform:uppercase;letter-spacing:.05em">Pontos Fracos</div>${bulletList(pfr, "#dc2626")}</div>` : ""}
+    ${perguntas.length ? `<div><div style="font-size:8px;font-weight:800;color:#1e3a5f;text-transform:uppercase;letter-spacing:.05em">Perguntas à Visita</div>${numberedList(perguntas)}</div>` : ""}
+  </div>`;
+
+  return `<div class="sec" style="padding:8px 14px">
+  ${blockA}
+  ${blockB}
+  ${blockC}
+  ${blockD}
+  ${blockE}
+  ${blockF}
 </div>`;
-}
-
-function groupLabelLocal(label: string): string {
-  return `<div style="font-size:10px;font-weight:900;color:#203B88;text-transform:uppercase;letter-spacing:.1em;margin:14px 0 8px;padding:6px 12px;background:linear-gradient(90deg,#edf2fb 0%,#f8f9fb 100%);border-left:4px solid #73B815;border-radius:0 6px 6px 0">${esc(label)}</div>`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

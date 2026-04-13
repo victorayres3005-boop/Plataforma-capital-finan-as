@@ -3,13 +3,38 @@
  * Contém toda a lógica do bloco sintético inicial do relatório.
  */
 import type { PdfCtx, RGB } from "../context";
-import type { ClienteCurvaABC } from "@/types";
 import {
   newPage, drawHeader, drawHeaderCompact, checkPageBreak, drawSectionTitle, drawSpacer,
-  drawAlert, drawAlertDeduped, drawDetAlerts, drawTable, autoT, dsMiniHeader,
-  dsMetricCard, drawKpiGrid, fmtMoney, fmtBR, parseMoneyToNumber,
+  drawAlertDeduped, drawDetAlerts, drawTable, autoT, dsMiniHeader,
+  dsMetricCard, fmtMoney, fmtBR, parseMoneyToNumber,
   gerarAlertasQSA,
 } from "../helpers";
+
+// ───────────────────────────────────────────────────────────────────────────
+// Local formatters (compact money + percent) for the synthesis body
+function fmtMoneyRound(val: string | number | undefined | null): string {
+  if (val == null || val === "") return "—";
+  const n = typeof val === "number" ? val : parseMoneyToNumber(String(val));
+  if (!isFinite(n) || n === 0) return "—";
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000) return `R$ ${fmtBR(n / 1_000_000, 1)}M`;
+  if (abs >= 1_000) return `R$ ${fmtBR(Math.round(n / 1_000), 0)}k`;
+  return `R$ ${fmtBR(Math.round(n), 0)}`;
+}
+
+function fmtPct(v: number, decimals = 1): string {
+  if (!isFinite(v)) return "—";
+  return fmtBR(v, decimals) + "%";
+}
+
+function extractLocal(endereco: string | undefined): string {
+  if (!endereco) return "—";
+  // Tenta extrair "CIDADE/UF" ou ", CIDADE - UF," etc.
+  const ufMatch = endereco.match(/([A-ZÁÂÃÇÉÍÓÔÚ][A-Za-zÁÂÃÇÉÍÓÔÚáâãçéíóôú \-']{2,})[\s/-]+([A-Z]{2})\b/);
+  if (ufMatch) return `${ufMatch[1].trim()}/${ufMatch[2]}`;
+  const parts = endereco.split(/[,\-/]/).map(s => s.trim()).filter(Boolean);
+  return parts.slice(-2).join("/") || endereco.substring(0, 22);
+}
 // ───────────────────────────────────────────────────────────────────────────
 // helper: sort faturamento meses ascending
 function sortMesesAsc<T extends { mes: string; valor: string }>(ms: T[]): T[] {
@@ -35,18 +60,16 @@ function truncateText(s: string, max: number): string {
 export function renderSintese(ctx: PdfCtx): void {
   const { doc, DS, pos, params, data, margin, contentW } = ctx;
   const {
-    decision, finalRating, alerts, alertsHigh,
-    resumoExecutivo, companyAge, streetViewBase64: svParam,
-    vencidosSCR, protestosVigentes,
+    decision, finalRating, companyAge, resumoExecutivo,
+    protestosVigentes, vencidosSCR, alavancagem,
   } = params;
 
   const colors = DS.colors;
 
   newPage(ctx);
   drawHeader(ctx);
-  drawSectionTitle(ctx, "00", "Síntese Preliminar");
 
-  // ── Pre-compute faturamento data ──────────────────────────────────────
+  // Pré-computa faturamento (reutilizado pelo downstream renderParametrosFundo)
   const validMeses = sortMesesAsc((data.faturamento?.meses || []).filter(m => m?.mes && m?.valor));
   const last12 = validMeses.slice(-12);
   const fmm12m = data.faturamento?.fmm12m
@@ -54,565 +77,531 @@ export function renderSintese(ctx: PdfCtx): void {
     : (last12.length > 0 ? last12.reduce((s, m) => s + parseMoneyToNumber(m.valor), 0) / last12.length : 0);
   const fatTotal12 = last12.reduce((s, m) => s + parseMoneyToNumber(m.valor), 0);
 
-  // Rating color + label
-  const scoreColor: RGB = finalRating >= 7.5 ? colors.success : finalRating >= 6 ? colors.warning : colors.danger;
-  const nivelLabel = finalRating >= 8 ? "EXCELENTE"
-    : finalRating >= 6.5 ? "SATISFATÓRIO"
-    : finalRating >= 5 ? "MODERADO"
-    : "ALTO RISCO";
-
-  // ── BLOCO 1 — Header strip ────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════
+  // BLOCO A — Header compacto (título + rating pill + cliente)
+  // ══════════════════════════════════════════════════════════════════════
   {
-    const h = 25;
-    checkPageBreak(ctx, h + 2);
+    checkPageBreak(ctx, 14);
     const y0 = pos.y;
+    const h = 10;
+    const ratingW = 30;
 
-    // Left 2/3
-    const leftW = (contentW * 2) / 3;
-    const rightW = contentW - leftW - 2;
-    const rightX = margin + leftW + 2;
+    // Code pill "00"
+    doc.setFillColor(...colors.headerBg);
+    doc.roundedRect(margin, y0, 14, 7, DS.radius.md, DS.radius.md, "F");
+    doc.setFontSize(DS.font.micro);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.text("00", margin + 7, y0 + 5, { align: "center" });
 
-    doc.setFillColor(...colors.primary);
-    doc.roundedRect(margin, y0, leftW, h, DS.radius.md, DS.radius.md, "F");
-    doc.setFillColor(...colors.accent);
-    doc.rect(margin, y0, 3, h, "F");
+    // Título
+    doc.setFontSize(DS.font.h1);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...colors.headerBg);
+    doc.text("SÍNTESE PRELIMINAR", margin + 18, y0 + 6);
 
-    // Razão social (hero)
-    const razao = (data.cnpj?.razaoSocial || "—").substring(0, 60);
+    // Rating pill (direita)
+    const scoreColor: RGB = finalRating >= 7.5 ? colors.success : finalRating >= 6 ? colors.warning : colors.danger;
+    const rx = margin + contentW - ratingW;
+    doc.setFillColor(...scoreColor);
+    doc.roundedRect(rx, y0, ratingW, h, DS.radius.lg, DS.radius.lg, "F");
     doc.setFontSize(DS.font.h1);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
-    doc.text(razao, margin + 6, y0 + 8);
+    const ratingTxt = `${finalRating}/10`;
+    doc.text(ratingTxt, rx + ratingW / 2, y0 + 7, { align: "center" });
 
-    // Nome fantasia
-    const fantasia = data.cnpj?.nomeFantasia;
-    if (fantasia) {
-      doc.setFontSize(DS.font.caption);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(...colors.textOnDark);
-      doc.text(truncateText(fantasia, 70), margin + 6, y0 + 13);
-    }
-
-    // CNPJ monospace-ish
-    doc.setFontSize(DS.font.bodySmall);
-    doc.setFont("courier", "bold");
-    doc.setTextColor(...colors.textOnDark);
-    doc.text(`CNPJ  ${data.cnpj?.cnpj || "—"}`, margin + 6, y0 + 18);
-
-    // Situação cadastral badge
-    const sit = (data.cnpj?.situacaoCadastral || "").toUpperCase();
-    if (sit) {
-      const badgeBg: RGB = sit.includes("ATIVA") ? colors.successBg : colors.warningBg;
-      const badgeTxt: RGB = sit.includes("ATIVA") ? colors.successText : colors.warningText;
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(DS.font.micro);
-      const badgeW = doc.getTextWidth(sit) + 6;
-      doc.setFillColor(...badgeBg);
-      doc.roundedRect(margin + 6, y0 + 20, badgeW, 4.2, DS.radius.sm, DS.radius.sm, "F");
-      doc.setTextColor(...badgeTxt);
-      doc.text(sit, margin + 6 + badgeW / 2, y0 + 23, { align: "center" });
-    }
-
-    // Right 1/3: rating + decisão
-    doc.setFillColor(...colors.cardBg);
-    doc.roundedRect(rightX, y0, rightW, h, DS.radius.md, DS.radius.md, "F");
+    // Divider + razão social
     doc.setDrawColor(...colors.border);
-    doc.roundedRect(rightX, y0, rightW, h, DS.radius.md, DS.radius.md, "D");
-    doc.setFillColor(...scoreColor);
-    doc.rect(rightX, y0, 3, h, "F");
+    doc.setLineWidth(0.3);
+    doc.line(margin, y0 + h + 0.5, margin + contentW, y0 + h + 0.5);
+    doc.setLineWidth(0.1);
 
+    const razao = (data.cnpj?.razaoSocial || "—").substring(0, 90);
     doc.setFontSize(DS.font.caption);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...colors.textMuted);
-    doc.text("RATING", rightX + 6, y0 + 6);
+    doc.text(`Cliente: ${razao}`, margin, y0 + h + 4);
 
-    doc.setFontSize(22);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...scoreColor);
-    const ratingStr = String(finalRating);
-    doc.text(ratingStr, rightX + 6, y0 + 15);
-    const rw = doc.getTextWidth(ratingStr);
-    doc.setFontSize(DS.font.caption);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(...colors.textMuted);
-    doc.text("/10", rightX + 6 + rw + 1, y0 + 15);
-
-    doc.setFontSize(DS.font.micro);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...scoreColor);
-    doc.text(nivelLabel, rightX + 6, y0 + 19);
-
-    // Decisão badge
-    const dec = (decision || "—").replace(/_/g, " ");
-    const decColor: RGB = /APROV/i.test(dec) && !/CONDIC/i.test(dec) ? colors.success
-      : /REPROV/i.test(dec) ? colors.danger
-      : colors.warning;
-    doc.setFontSize(DS.font.caption);
-    doc.setFont("helvetica", "bold");
-    const dbw = doc.getTextWidth(dec) + 6;
-    doc.setFillColor(...decColor);
-    doc.roundedRect(rightX + rightW - dbw - 4, y0 + h - 8, dbw, 5.5, DS.radius.sm, DS.radius.sm, "F");
-    doc.setTextColor(255, 255, 255);
-    doc.text(dec, rightX + rightW - dbw / 2 - 4, y0 + h - 4, { align: "center" });
-
-    pos.y = y0 + h + 4;
+    pos.y = y0 + 14;
   }
 
-  // ── BLOCO 2 — Fundação & idade ────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════
+  // BLOCO B — Info strip (6 colunas)
+  // ══════════════════════════════════════════════════════════════════════
   {
-    const h = 12;
-    checkPageBreak(ctx, h + 2);
+    checkPageBreak(ctx, 10);
     const y0 = pos.y;
-    const colW = (contentW - 8) / 3;
-    const items: Array<[string, string]> = [
-      ["FUNDAÇÃO", data.cnpj?.dataAbertura || "—"],
-      ["IDADE", companyAge || "—"],
-      ["NATUREZA JURÍDICA", truncateText(data.cnpj?.naturezaJuridica || "—", 38)],
+    const h = 8;
+
+    const today = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" });
+    const cnpjFmt = data.cnpj?.cnpj || "—";
+    const local = extractLocal(data.cnpj?.endereco);
+    const idade = companyAge || "—";
+    const capSocRaw = data.cnpj?.capitalSocialCNPJ || data.qsa?.capitalSocial || "";
+    const capSoc = capSocRaw ? fmtMoneyRound(capSocRaw) : "—";
+    const situ = (data.cnpj?.situacaoCadastral || "—").toUpperCase();
+    const situAtiva = situ.includes("ATIVA");
+    const situColor: RGB = situAtiva ? colors.success : situ === "—" ? colors.textMuted : colors.warning;
+
+    const cols: Array<{ label: string; value: string; color?: RGB }> = [
+      { label: "DATA", value: today },
+      { label: "CNPJ", value: cnpjFmt },
+      { label: "LOCAL", value: local },
+      { label: "IDADE", value: idade },
+      { label: "CAP. SOCIAL", value: capSoc },
+      { label: "SITUAÇÃO", value: situ.length > 12 ? situ.substring(0, 12) : situ, color: situColor },
     ];
-    items.forEach(([label, value], i) => {
-      const cx = margin + i * (colW + 4);
-      doc.setFillColor(...colors.surface2);
-      doc.roundedRect(cx, y0, colW, h, DS.radius.md, DS.radius.md, "F");
+
+    const colW = contentW / cols.length;
+    // Background surface
+    doc.setFillColor(...colors.surface2);
+    doc.roundedRect(margin, y0, contentW, h, DS.radius.md, DS.radius.md, "F");
+
+    cols.forEach((c, i) => {
+      const cx = margin + i * colW;
+      // Divider
+      if (i > 0) {
+        doc.setDrawColor(...colors.border);
+        doc.setLineWidth(0.2);
+        doc.line(cx, y0 + 1.5, cx, y0 + h - 1.5);
+        doc.setLineWidth(0.1);
+      }
       doc.setFontSize(DS.font.micro);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...colors.textMuted);
-      doc.text(label, cx + 4, y0 + 4.5);
+      doc.text(c.label, cx + 2, y0 + 3);
+
       doc.setFontSize(DS.font.bodySmall);
       doc.setFont("helvetica", "bold");
-      doc.setTextColor(...colors.textPrimary);
-      doc.text(value, cx + 4, y0 + 9.5);
+      doc.setTextColor(...(c.color ?? colors.textPrimary));
+      const maxChars = Math.floor((colW - 4) / 1.6);
+      const v = c.value.length > maxChars ? c.value.substring(0, maxChars - 1) + "…" : c.value;
+      doc.text(v, cx + 2, y0 + h - 1.5);
     });
-    pos.y = y0 + h + 4;
+
+    pos.y = y0 + h + 3;
   }
 
-  // ── BLOCO 3 — Segmento ────────────────────────────────────────────────
-  {
-    const principal = data.cnpj?.cnaePrincipal;
-    const secundarios = data.cnpj?.cnaeSecundarios;
-    const objeto = data.contrato?.objetoSocial;
-    if (principal || secundarios || objeto) {
-      const estH = 15;
-      checkPageBreak(ctx, estH + 2);
-      const y0 = pos.y;
-      doc.setFillColor(...colors.cardBg);
-      doc.setDrawColor(...colors.border);
-      doc.roundedRect(margin, y0, contentW, estH, DS.radius.md, DS.radius.md, "FD");
-      doc.setFillColor(...colors.info);
-      doc.rect(margin, y0, 3, estH, "F");
-
-      let ty = y0 + 5;
-      if (principal) {
-        doc.setFontSize(DS.font.micro);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors.textMuted);
-        doc.text("CNAE PRINCIPAL", margin + 6, ty);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(...colors.textPrimary);
-        doc.text(truncateText(principal, 110), margin + 6 + 28, ty);
-        ty += 4;
-      }
-      if (secundarios) {
-        doc.setFontSize(DS.font.micro);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors.textMuted);
-        doc.text("SECUNDÁRIOS", margin + 6, ty);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(...colors.textSecondary);
-        doc.text(truncateText(secundarios, 120), margin + 6 + 28, ty);
-        ty += 4;
-      }
-      if (objeto) {
-        doc.setFontSize(DS.font.micro);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(...colors.textMuted);
-        doc.text("OBJETO", margin + 6, ty);
-        doc.setFont("helvetica", "italic");
-        doc.setTextColor(...colors.textSecondary);
-        const lines = doc.splitTextToSize(objeto, contentW - 40) as string[];
-        doc.text(lines.slice(0, 1), margin + 6 + 28, ty);
-      }
-      pos.y = y0 + estH + 4;
-    }
-  }
-
-  // ── BLOCO 4 — Street View + endereço ──────────────────────────────────
-  {
-    const svImg = svParam || (data as unknown as { streetViewBase64?: string }).streetViewBase64;
-    if (svImg && data.cnpj?.endereco) {
-      const h = 45;
-      checkPageBreak(ctx, h + 4);
-      const y0 = pos.y;
-      const imgW = 80;
-      try {
-        doc.addImage(svImg, "JPEG", margin, y0, imgW, h);
-      } catch {
-        // fallthrough: swallow bad image, skip block
-        pos.y = y0;
-      }
-      // Address text to right
-      const tx = margin + imgW + 6;
-      const tw = contentW - imgW - 6;
-      doc.setFontSize(DS.font.micro);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(...colors.textMuted);
-      doc.text("ENDEREÇO", tx, y0 + 5);
-      doc.setFontSize(DS.font.bodySmall);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(...colors.textPrimary);
-      const lines = doc.splitTextToSize(data.cnpj.endereco, tw) as string[];
-      lines.slice(0, 5).forEach((l, i) => doc.text(l, tx, y0 + 11 + i * 4.5));
-      if (data.cnpj.telefone) {
-        doc.setFontSize(DS.font.micro);
-        doc.setTextColor(...colors.textMuted);
-        doc.text(`Tel.: ${data.cnpj.telefone}`, tx, y0 + h - 5);
-      }
-      pos.y = y0 + h + 4;
-    }
-  }
-
-  // ── BLOCO 5 — Estrutura societária + grupo econômico ──────────────────
-  {
-    const socios = (data.qsa?.quadroSocietario || []).filter(s => s?.nome);
-    if (socios.length > 0 || data.grupoEconomico?.empresas?.length) {
-      checkPageBreak(ctx, 30 + socios.length * 6);
-      dsMiniHeader(ctx, "Estrutura Societária");
-
-      if (socios.length > 0) {
-        const rows = socios.slice(0, 6).map(s => [
-          truncateText(s.nome || "—", 38),
-          s.cpfCnpj || "—",
-          truncateText(s.qualificacao || "—", 22),
-          s.participacao || "—",
-        ]);
-        autoT(ctx,
-          ["Nome", "CPF/CNPJ", "Qualificação", "Partic."],
-          rows,
-          [48, 30, 26, 16],
-        );
-      }
-
-      // Capital social + grupo econômico footer line
-      const capSoc = data.qsa?.capitalSocial || data.contrato?.capitalSocial;
-      const geCount = data.grupoEconomico?.empresas?.length || 0;
-      const parts: string[] = [];
-      if (capSoc) parts.push(`Capital Social: R$ ${fmtMoney(capSoc)}`);
-      if (geCount > 0) parts.push(`Grupo econômico: ${geCount} empresa(s) vinculada(s)`);
-      if (parts.length) {
-        checkPageBreak(ctx, 6);
-        doc.setFontSize(DS.font.caption);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(...colors.textSecondary);
-        doc.text(parts.join("   •   "), margin, pos.y + 4);
-        pos.y += 8;
-      }
-    }
-  }
-
-  // ── BLOCO 6 — Risco consolidado ───────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════
+  // BLOCO C — Alertas strip (mini-cards)
+  // ══════════════════════════════════════════════════════════════════════
   {
     const protQtd = protestosVigentes || 0;
-    const protVal = data.protestos?.vigentesValor || "0";
+    const protVal = parseMoneyToNumber(data.protestos?.vigentesValor || "0");
     const ccfQtd = data.ccf?.qtdRegistros ?? null;
     const procPass = parseInt(data.processos?.passivosTotal || "0") || 0;
     const scrVenc = vencidosSCR || 0;
     const scrTotal = parseMoneyToNumber(data.scr?.totalDividasAtivas || "0");
     const scrVencPct = scrTotal > 0 ? (scrVenc / scrTotal) * 100 : 0;
+    const alav = alavancagem ?? 0;
 
-    drawKpiGrid(ctx, [
+    type MetricCell = { label: string; value: string; sub: string; accent: RGB };
+    const cells: MetricCell[] = [
       {
-        label: "Protestos",
-        value: String(protQtd),
-        sub: protQtd > 0 ? `R$ ${fmtMoney(protVal)}` : "sem ocorrências",
-        color: protQtd > 0 ? colors.danger : colors.success,
+        label: "PROTESTOS",
+        value: protQtd > 0 ? fmtMoneyRound(protVal) : "—",
+        sub: protQtd > 0 ? `${protQtd} ocorr.` : "sem ocorrências",
+        accent: protQtd > 0 ? colors.danger : colors.success,
       },
       {
         label: "CCF",
         value: ccfQtd == null ? "—" : String(ccfQtd),
         sub: ccfQtd == null ? "não consultado" : ccfQtd > 0 ? "ocorrências" : "sem cheques",
-        color: ccfQtd == null ? colors.textMuted : ccfQtd > 0 ? colors.danger : colors.success,
+        accent: ccfQtd == null ? colors.textMuted : ccfQtd > 0 ? colors.danger : colors.success,
       },
       {
-        label: "Processos",
+        label: "PROCESSOS",
         value: String(procPass),
         sub: "polo passivo",
-        color: procPass > 10 ? colors.danger : procPass > 0 ? colors.warning : colors.success,
+        accent: procPass > 10 ? colors.danger : procPass > 0 ? colors.warning : colors.success,
       },
       {
-        label: "SCR Venc.",
-        value: scrVenc > 0 ? `R$ ${fmtMoney(String(scrVenc))}` : "—",
-        sub: scrVenc > 0 ? `${fmtBR(scrVencPct, 1)}% do total` : "em dia",
-        color: scrVenc > 0 ? colors.danger : colors.success,
+        label: "SCR VENCIDOS",
+        value: scrVenc > 0 ? fmtMoneyRound(scrVenc) : "—",
+        sub: scrTotal > 0 ? `${fmtPct(scrVencPct, 1)} do total` : "em dia",
+        accent: scrVenc > 0 ? colors.danger : colors.success,
       },
-    ], 4);
+      {
+        label: "ALAVANCAGEM",
+        value: alav > 0 ? `${fmtBR(alav, 2)}x` : "—",
+        sub: alav > 5 ? "risco alto" : alav > 3 ? "atenção" : alav > 0 ? "saudável" : "s/ dados",
+        accent: alav > 5 ? colors.danger : alav > 3 ? colors.warning : alav > 0 ? colors.success : colors.textMuted,
+      },
+    ];
 
-    // Top severity alerts (high first, then medium from alerts) - max 4
-    const seen = new Set<string>();
-    let count = 0;
-    const pushAlert = (msg: string, sev: "high"|"medium"|"info", sub?: string) => {
-      const k = msg.trim().toLowerCase().substring(0, 80);
-      if (seen.has(k) || count >= 4) return;
-      seen.add(k);
-      count++;
-      drawAlert(ctx, sev, msg, sub);
-    };
-    (alertsHigh || []).forEach(a => pushAlert(a.message, "high", a.impacto));
-    (alerts || [])
-      .filter(a => a.severity === "ALTA")
-      .forEach(a => pushAlert(a.message, "high", a.impacto));
-    (alerts || [])
-      .filter(a => a.severity === "MODERADA")
-      .forEach(a => pushAlert(a.message, "medium", a.impacto));
-  }
+    checkPageBreak(ctx, 18);
+    dsMiniHeader(ctx, "Alertas");
 
-  // ── BLOCO 7 — Faturamento mini-chart ──────────────────────────────────
-  if (last12.length > 0) {
-    const chartH = 22;
-    const labelH = 5;
-    const footerH = 6;
-    const totalH = chartH + labelH + footerH + 4;
-    checkPageBreak(ctx, totalH + 4);
-    const y0 = pos.y;
+    const y0 = pos.y + 1;
+    const cellH = 12;
+    const gap = 2;
+    const cellW = (contentW - gap * (cells.length - 1)) / cells.length;
 
-    // Title
-    doc.setFontSize(DS.font.caption);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...colors.textMuted);
-    doc.text("FATURAMENTO — ÚLTIMOS 12 MESES", margin, y0 + 3);
+    cells.forEach((c, i) => {
+      const cx = margin + i * (cellW + gap);
+      doc.setFillColor(...colors.cardBg);
+      doc.roundedRect(cx, y0, cellW, cellH, DS.radius.sm, DS.radius.sm, "F");
+      doc.setDrawColor(...colors.border);
+      doc.setLineWidth(0.2);
+      doc.roundedRect(cx, y0, cellW, cellH, DS.radius.sm, DS.radius.sm, "D");
+      doc.setLineWidth(0.1);
+      doc.setFillColor(...c.accent);
+      doc.rect(cx, y0, 2, cellH, "F");
 
-    const baseY = y0 + 6 + chartH;
-    const gap = 1.5;
-    const barCount = Math.min(12, last12.length);
-    const barW = (contentW - gap * (barCount - 1)) / barCount;
-    const values = last12.map(m => parseMoneyToNumber(m.valor));
-    const maxVal = Math.max(...values, 1);
-
-    last12.forEach((m, i) => {
-      const v = values[i];
-      const barH = (v / maxVal) * chartH;
-      const bx = margin + i * (barW + gap);
-      const by = baseY - barH;
-      const prev = i > 0 ? values[i - 1] : v;
-      const c: RGB = v === 0 ? colors.textMuted
-        : v > prev * 1.05 ? colors.success
-        : v < prev * 0.95 ? colors.danger
-        : colors.primary;
-      doc.setFillColor(...c);
-      doc.roundedRect(bx, by, barW, Math.max(barH, 0.3), 0.4, 0.4, "F");
       doc.setFontSize(DS.font.micro);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(...colors.textMuted);
-      doc.text(m.mes, bx + barW / 2, baseY + 3.5, { align: "center" });
+      doc.text(c.label, cx + 4, y0 + 3.5);
+
+      doc.setFontSize(DS.font.bodySmall);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...c.accent);
+      const maxC = Math.floor((cellW - 6) / 1.8);
+      const val = c.value.length > maxC ? c.value.substring(0, maxC - 1) + "…" : c.value;
+      doc.text(val, cx + 4, y0 + 7.8);
+
+      doc.setFontSize(DS.font.micro);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...colors.textMuted);
+      doc.text(c.sub, cx + 4, y0 + 11);
     });
 
-    // Footer line
-    const tendencia = data.faturamento?.tendencia || "indefinido";
-    const tendLabel = tendencia === "crescimento" ? "↑ Crescimento"
-      : tendencia === "queda" ? "↓ Queda"
-      : tendencia === "estavel" ? "→ Estável" : "—";
-    doc.setFontSize(DS.font.caption);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(...colors.textSecondary);
-    const fy = baseY + labelH + 4;
-    doc.text(`FMM 12M: R$ ${fmtBR(fmm12m, 0)}`, margin, fy);
-    doc.text(`Total 12M: R$ ${fmtBR(fatTotal12, 0)}`, margin + contentW / 2 - 20, fy);
-    doc.text(`Tendência: ${tendLabel}`, margin + contentW, fy, { align: "right" });
-
-    pos.y = fy + 4;
+    pos.y = y0 + cellH + 3;
   }
 
-  // ── BLOCO 8 — Curva ABC top 5 ─────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════
+  // BLOCO D — Gestão & Grupo Econômico (tabela unificada)
+  // ══════════════════════════════════════════════════════════════════════
   {
-    const abc = data.curvaABC;
-    const clientes: ClienteCurvaABC[] = abc?.clientes || [];
-    if (clientes.length > 0) {
-      checkPageBreak(ctx, 40);
-      dsMiniHeader(ctx, "Curva ABC — Top 5 Clientes");
+    const socios = (data.qsa?.quadroSocietario || []).filter(s => s?.nome || s?.cpfCnpj);
+    const empresas = data.grupoEconomico?.empresas || [];
 
-      // Compute receita total (use receitaTotalBase if available, else sum)
-      const receitaTotalNum = parseMoneyToNumber(abc?.receitaTotalBase || "0");
-      const top5 = clientes.slice(0, 5);
+    if (socios.length > 0 || empresas.length > 0) {
+      checkPageBreak(ctx, 20 + (socios.length + empresas.length) * 6);
+      dsMiniHeader(ctx, "Gestão & Grupo Econômico");
 
-      // Recompute % acumulado (known bug that it's empty upstream)
-      let acum = 0;
-      const rows = top5.map((c, i) => {
-        const valor = parseMoneyToNumber(c.valorFaturado);
-        const pctReceita = receitaTotalNum > 0
-          ? (valor / receitaTotalNum) * 100
-          : parseFloat(String(c.percentualReceita || "0").replace(",", ".")) || 0;
-        acum += pctReceita;
-        return [
-          String(c.posicao || i + 1),
-          truncateText(c.nome || "—", 40),
-          `R$ ${fmtMoney(c.valorFaturado)}`,
-          `${fmtBR(pctReceita, 2)}%`,
-          `${fmtBR(acum, 2)}%`,
-          c.classe || "—",
-        ];
+      const rows: string[][] = [];
+
+      socios.forEach(s => {
+        const scrSocio = data.scrSocios?.find(sc =>
+          (sc.cpfSocio && sc.cpfSocio === s.cpfCnpj) ||
+          (sc.nomeSocio && s.nome && sc.nomeSocio.toLowerCase() === s.nome.toLowerCase())
+        );
+        const scrTot = scrSocio?.periodoAtual?.totalDividasAtivas;
+        const prej = scrSocio?.periodoAtual?.prejuizos;
+        rows.push([
+          truncateText(s.nome || "—", 42),
+          s.cpfCnpj || "—",
+          "—",
+          scrTot ? fmtMoneyRound(scrTot) : "—",
+          prej ? fmtMoneyRound(prej) : "—",
+          "—",
+        ]);
       });
 
-      autoT(ctx,
-        ["#", "Cliente", "Faturamento", "% Receita", "% Acum.", "Cl."],
+      empresas.forEach(e => {
+        rows.push([
+          truncateText(e.razaoSocial || "—", 42),
+          e.cnpj || "—",
+          "—",
+          e.scrTotal ? fmtMoneyRound(e.scrTotal) : "—",
+          "—",
+          e.processos || "—",
+        ]);
+      });
+
+      autoT(
+        ctx,
+        ["NOME / RAZÃO SOCIAL", "CPF/CNPJ", "IDADE", "SCR", "PREJUÍZO", "PROC."],
         rows,
-        [8, 60, 30, 20, 20, 10],
+        [40, 20, 8, 15, 10, 7],
       );
-
-      // Footer line
-      const totalClientes = abc?.totalClientesNaBase || abc?.totalClientesExtraidos || clientes.length;
-      const top3Pct = abc?.concentracaoTop3;
-      const top5Pct = abc?.concentracaoTop5;
-      const parts: string[] = [`Total: ${totalClientes} cliente(s)`];
-      if (top3Pct) parts.push(`Top 3: ${top3Pct}`);
-      if (top5Pct) parts.push(`Top 5: ${top5Pct}`);
-      doc.setFontSize(DS.font.caption);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(...colors.textSecondary);
-      doc.text(parts.join("   •   "), margin, pos.y + 2);
-      pos.y += 6;
-
-      // Concentration alert
-      const first = top5[0];
-      if (first) {
-        const firstPct = receitaTotalNum > 0
-          ? (parseMoneyToNumber(first.valorFaturado) / receitaTotalNum) * 100
-          : parseFloat(String(first.percentualReceita || "0").replace(",", ".")) || 0;
-        if (firstPct > 30) {
-          drawAlert(ctx, "medium",
-            `Concentração elevada: maior cliente representa ${fmtBR(firstPct, 1)}% da receita`,
-            "Acima do limite FIDC (30%) — risco de dependência",
-          );
-        }
-      }
     }
   }
 
-  // ── BLOCO 9 — Pleito ──────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════
+  // BLOCO E — Faturamento + SCR Comparativo (lado a lado)
+  // ══════════════════════════════════════════════════════════════════════
   {
-    const rv = data.relatorioVisita;
-    if (rv && (rv.pleito || rv.limiteTotal || rv.modalidade || rv.prazoMaximoOp || rv.taxaConvencional)) {
-      const modLabel = rv.modalidade
-        ? rv.modalidade.charAt(0).toUpperCase() + rv.modalidade.slice(1)
-        : "—";
-      drawKpiGrid(ctx, [
-        {
-          label: "Valor Pleito",
-          value: rv.pleito ? `R$ ${fmtMoney(rv.pleito)}`
-            : rv.limiteTotal ? `R$ ${fmtMoney(rv.limiteTotal)}` : "—",
-          color: colors.primary,
-        },
-        {
-          label: "Modalidade",
-          value: modLabel,
-          color: colors.textPrimary,
-        },
-        {
-          label: "Prazo Máximo",
-          value: rv.prazoMaximoOp ? `${rv.prazoMaximoOp} dias` : "—",
-          color: colors.textPrimary,
-        },
-        {
-          label: "Taxa Conv.",
-          value: rv.taxaConvencional ? `${rv.taxaConvencional}% a.m.` : "—",
-          color: colors.textPrimary,
-        },
-      ], 4);
-    }
-  }
+    const scr = data.scr;
+    const scrAnt = data.scrAnterior;
+    const hasFat = last12.length > 0;
+    const hasScr = !!(scr && scr.periodoReferencia);
 
-  // ── BLOCO 10 — Tri-card: Pontos Fortes / Fracos / Alertas ─────────────
-  {
-    const pf = params.pontosFortes || [];
-    const pfr = params.pontosFracos || [];
-    const alertasMod = (alerts || []).filter(a => a.severity === "MODERADA").map(a => a.message);
-    if (pf.length + pfr.length + alertasMod.length > 0) {
-      const cardW = (contentW - 8) / 3;
-      const cardH = 40;
-      checkPageBreak(ctx, cardH + 6);
+    if (hasFat || hasScr) {
+      const blockH = 42;
+      checkPageBreak(ctx, blockH + 4);
       const y0 = pos.y;
+      const gap = 4;
+      const halfW = hasFat && hasScr ? (contentW - gap) / 2 : contentW;
 
-      const blocks: Array<[string, string[], RGB, RGB]> = [
-        ["PONTOS FORTES", pf, colors.successBg, colors.successText],
-        ["PONTOS FRACOS", pfr, colors.dangerBg,  colors.dangerText],
-        ["ALERTAS",       alertasMod, colors.warningBg, colors.warningText],
-      ];
-
-      blocks.forEach(([title, items, bg, fg], i) => {
-        const bx = margin + i * (cardW + 4);
-        doc.setFillColor(...bg);
-        doc.roundedRect(bx, y0, cardW, cardH, DS.radius.md, DS.radius.md, "F");
+      // ── Left: Faturamento chart ──
+      if (hasFat) {
+        const chartX = margin;
         doc.setFontSize(DS.font.caption);
         doc.setFont("helvetica", "bold");
-        doc.setTextColor(...fg);
-        doc.text(title, bx + 4, y0 + 5);
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(DS.font.micro);
-        doc.setTextColor(...colors.textPrimary);
-        if (items.length === 0) {
+        doc.setTextColor(...colors.headerBg);
+        doc.text("FATURAMENTO / 12M", chartX, y0 + 3);
+
+        const chartH = 22;
+        const chartY = y0 + 6;
+        const baseY = chartY + chartH;
+        const barGap = 1;
+        const barW = (halfW - barGap * (last12.length - 1)) / last12.length;
+        const values = last12.map(m => parseMoneyToNumber(m.valor));
+        const maxVal = Math.max(...values, 1);
+
+        last12.forEach((m, i) => {
+          const v = values[i];
+          const barH = Math.max((v / maxVal) * chartH, 0.3);
+          const bx = chartX + i * (barW + barGap);
+          const by = baseY - barH;
+          const isHighlight = i >= last12.length - 3;
+          const c: RGB = v === 0 ? colors.textMuted : isHighlight ? colors.accent : colors.primary;
+          doc.setFillColor(...c);
+          doc.rect(bx, by, barW, barH, "F");
+
+          doc.setFontSize(DS.font.micro);
+          doc.setFont("helvetica", "normal");
           doc.setTextColor(...colors.textMuted);
-          doc.text("— nenhum —", bx + 4, y0 + 11);
-        } else {
-          items.slice(0, 5).forEach((item, j) => {
-            const lines = doc.splitTextToSize(`• ${truncateText(item, 80)}`, cardW - 6) as string[];
-            doc.text(lines.slice(0, 2), bx + 4, y0 + 10 + j * 5.5);
-          });
+          const lbl = m.mes.length > 3 ? m.mes.substring(0, 3) : m.mes;
+          doc.text(lbl, bx + barW / 2, baseY + 3, { align: "center" });
+        });
+
+        // Footer: FMM / Total / Var
+        let varPct = 0;
+        if (last12.length >= 6) {
+          const rec = values.slice(-3).reduce((a, b) => a + b, 0);
+          const ant = values.slice(-6, -3).reduce((a, b) => a + b, 0);
+          if (ant > 0) varPct = ((rec - ant) / ant) * 100;
         }
-      });
-      pos.y = y0 + cardH + 4;
+        const trend = varPct > 2 ? "↑" : varPct < -2 ? "↓" : "→";
+        doc.setFontSize(DS.font.micro);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...colors.textSecondary);
+        doc.text(
+          `FMM ${fmtMoneyRound(fmm12m)} · Total ${fmtMoneyRound(fatTotal12)} · ${trend} ${fmtPct(varPct, 0)}`,
+          chartX, baseY + 8,
+        );
+      }
+
+      // ── Right: SCR Comparativo ──
+      if (hasScr) {
+        const scrX = hasFat ? margin + halfW + gap : margin;
+        const savedY = pos.y;
+        pos.y = y0;
+
+        const periodoAtual = scr!.periodoReferencia || "—";
+        const periodoAnt = scrAnt?.periodoReferencia || "";
+        const hasAnterior = !!scrAnt && !!periodoAnt;
+
+        doc.setFontSize(DS.font.caption);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.headerBg);
+        const titleTxt = hasAnterior
+          ? `SCR ${periodoAnt} × ${periodoAtual}`
+          : `SCR ${periodoAtual}`;
+        doc.text(titleTxt, scrX, y0 + 3);
+
+        // Manual mini-table (autoT would stretch full width)
+        const rowY = y0 + 6;
+        const colLabel = scrX;
+        const colVal1 = scrX + halfW * 0.38;
+        const colVal2 = scrX + halfW * 0.62;
+        const colVar  = scrX + halfW * 0.84;
+        const lineH = 4.2;
+
+        // Header
+        doc.setFillColor(...colors.headerBg);
+        doc.rect(scrX, rowY, halfW, 4.5, "F");
+        doc.setFontSize(DS.font.micro);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(255, 255, 255);
+        doc.text("MÉTRICA", colLabel + 1, rowY + 3.1);
+        doc.text("ATUAL", colVal1 + 1, rowY + 3.1);
+        if (hasAnterior) {
+          doc.text("ANT.", colVal2 + 1, rowY + 3.1);
+          doc.text("VAR.", colVar + 1, rowY + 3.1);
+        }
+
+        type SCRRow = { label: string; cur: number; prev: number; bold?: boolean };
+        const sr = (k: keyof typeof scr) => parseMoneyToNumber(String((scr as unknown as Record<string, string>)[k as string] || "0"));
+        const srAnt = (k: string) => parseMoneyToNumber(String((scrAnt as unknown as Record<string, string> | null)?.[k] || "0"));
+        const rowsD: SCRRow[] = [
+          { label: "Em Dia",    cur: sr("carteiraAVencer"),      prev: srAnt("carteiraAVencer") },
+          { label: "CP",        cur: sr("carteiraCurtoPrazo"),   prev: srAnt("carteiraCurtoPrazo") },
+          { label: "LP",        cur: sr("carteiraLongoPrazo"),   prev: srAnt("carteiraLongoPrazo") },
+          { label: "TOTAL",     cur: sr("totalDividasAtivas"),   prev: srAnt("totalDividasAtivas"), bold: true },
+          { label: "Vencidos",  cur: sr("vencidos"),             prev: srAnt("vencidos") },
+          { label: "Limite",    cur: sr("limiteCredito"),        prev: srAnt("limiteCredito") },
+        ];
+
+        rowsD.forEach((r, i) => {
+          const ry = rowY + 5 + i * lineH;
+          if (i % 2 === 1) {
+            doc.setFillColor(...colors.surface2);
+            doc.rect(scrX, ry - 3, halfW, lineH, "F");
+          }
+          doc.setFontSize(DS.font.micro);
+          doc.setFont("helvetica", r.bold ? "bold" : "normal");
+          doc.setTextColor(...colors.textPrimary);
+          doc.text(r.label, colLabel + 1, ry);
+          doc.text(r.cur > 0 ? fmtMoneyRound(r.cur) : "—", colVal1 + 1, ry);
+          if (hasAnterior) {
+            doc.text(r.prev > 0 ? fmtMoneyRound(r.prev) : "—", colVal2 + 1, ry);
+            if (r.prev > 0 && r.cur > 0) {
+              const pct = ((r.cur - r.prev) / r.prev) * 100;
+              const varColor: RGB = pct > 2 ? colors.danger : pct < -2 ? colors.success : colors.textMuted;
+              doc.setTextColor(...varColor);
+              doc.text(`${pct > 0 ? "+" : ""}${fmtBR(pct, 0)}%`, colVar + 1, ry);
+            } else {
+              doc.setTextColor(...colors.textMuted);
+              doc.text("—", colVar + 1, ry);
+            }
+          }
+        });
+
+        // IFs footer
+        const ifsCur = scr!.qtdeInstituicoes || "—";
+        doc.setFontSize(DS.font.micro);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...colors.textMuted);
+        doc.text(`IFs: ${ifsCur}${alavancagem ? ` · Alav ${fmtBR(alavancagem, 2)}x` : ""}`, scrX, y0 + blockH - 2);
+
+        pos.y = savedY;
+      }
+
+      pos.y = y0 + blockH + 4;
     }
   }
 
-  // ── BLOCO 11 — Percepção do analista ──────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════
+  // BLOCO F — Parecer inline
+  // ══════════════════════════════════════════════════════════════════════
   {
-    let abstractTxt = resumoExecutivo || "";
-    if (!abstractTxt && ctx.aiAnalysis?.parecer) {
-      if (typeof ctx.aiAnalysis.parecer === "object") {
-        abstractTxt = ctx.aiAnalysis.parecer.resumoExecutivo || ctx.aiAnalysis.parecer.textoCompleto || "";
-      } else {
-        abstractTxt = String(ctx.aiAnalysis.parecer);
+    // Texto parecer (flexível)
+    let parecerTxt = resumoExecutivo || "";
+    const parecerRaw = ctx.aiAnalysis?.parecer;
+    if (!parecerTxt && parecerRaw) {
+      if (typeof parecerRaw === "object" && parecerRaw !== null) {
+        const p = parecerRaw as { textoCompleto?: string; resumoExecutivo?: string };
+        parecerTxt = p.textoCompleto || p.resumoExecutivo || "";
+      } else if (typeof parecerRaw === "string") {
+        parecerTxt = parecerRaw;
       }
     }
-    if (!abstractTxt) abstractTxt = ctx.aiAnalysis?.sinteseExecutiva || "";
+    if (!parecerTxt) parecerTxt = ctx.aiAnalysis?.sinteseExecutiva || "";
 
-    if (abstractTxt) {
-      const maxLines = 6;
-      const avail = contentW - 12;
-      doc.setFontSize(DS.font.bodySmall);
-      doc.setFont("helvetica", "normal");
-      const allLines = doc.splitTextToSize(abstractTxt.trim(), avail) as string[];
-      const shown = allLines.slice(0, maxLines);
-      const h = 8 + shown.length * 4.2 + 8;
-      checkPageBreak(ctx, h + 2);
+    checkPageBreak(ctx, 14);
+    dsMiniHeader(ctx, "Parecer Preliminar");
+
+    // Decisão badge
+    {
+      const dec = (decision || "—").replace(/_/g, " ");
+      const decColor: RGB = /APROV/i.test(dec) && !/CONDIC/i.test(dec) ? colors.success
+        : /REPROV/i.test(dec) ? colors.danger
+        : colors.warning;
+      checkPageBreak(ctx, 8);
       const y0 = pos.y;
-
-      doc.setFillColor(...colors.surface2);
-      doc.roundedRect(margin, y0, contentW, h, DS.radius.md, DS.radius.md, "F");
-      doc.setFillColor(...colors.primary);
-      doc.rect(margin, y0, 3, h, "F");
-
-      doc.setFontSize(DS.font.micro);
+      doc.setFillColor(...decColor);
+      doc.roundedRect(margin, y0, contentW, 6, DS.radius.sm, DS.radius.sm, "F");
+      doc.setFontSize(DS.font.bodySmall);
       doc.setFont("helvetica", "bold");
-      doc.setTextColor(...colors.primary);
-      doc.text("PERCEPÇÃO DO ANALISTA", margin + 6, y0 + 5);
+      doc.setTextColor(255, 255, 255);
+      doc.text(`DECISÃO PRELIMINAR: ${dec}`, margin + 4, y0 + 4.2);
+      pos.y = y0 + 8;
+    }
 
+    // Resumo (até 8 linhas)
+    if (parecerTxt) {
       doc.setFontSize(DS.font.bodySmall);
       doc.setFont("helvetica", "normal");
+      const maxLines = 8;
+      const allLines = doc.splitTextToSize(parecerTxt.trim(), contentW - 2) as string[];
+      const shown = allLines.slice(0, maxLines);
+      if (allLines.length > maxLines) shown[shown.length - 1] = shown[shown.length - 1].replace(/\s*\S*$/, "") + "…";
+      const h = shown.length * 3.8 + 3;
+      checkPageBreak(ctx, h);
       doc.setTextColor(...colors.textPrimary);
-      shown.forEach((l, i) => doc.text(l, margin + 6, y0 + 10 + i * 4.2));
+      shown.forEach((l, i) => doc.text(l, margin, pos.y + 3 + i * 3.8));
+      pos.y += h;
+    }
 
-      const fy = y0 + 10 + shown.length * 4.2 + 2;
-      doc.setFontSize(DS.font.micro);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(...colors.textSecondary);
-      doc.text(`Recomendação: ${(decision || "—").replace(/_/g, " ")}`, margin + 6, fy);
-      doc.setFont("helvetica", "italic");
-      doc.setTextColor(...colors.textMuted);
-      doc.text("Ver parecer completo na seção 02.", margin + contentW - 6, fy, { align: "right" });
+    // Pontos Fortes
+    {
+      const pf = (params.pontosFortes || []).slice(0, 5);
+      if (pf.length > 0) {
+        checkPageBreak(ctx, 6 + pf.length * 3.8);
+        doc.setFontSize(DS.font.caption);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.success);
+        doc.text("PONTOS FORTES", margin, pos.y + 3);
+        pos.y += 4.5;
+        doc.setFontSize(DS.font.bodySmall);
+        doc.setFont("helvetica", "normal");
+        pf.forEach(item => {
+          const lines = doc.splitTextToSize(truncateText(item, 160), contentW - 5) as string[];
+          doc.setTextColor(...colors.success);
+          doc.text("•", margin + 1, pos.y + 2.8);
+          doc.setTextColor(...colors.textPrimary);
+          doc.text(lines[0], margin + 4, pos.y + 2.8);
+          pos.y += 3.8;
+        });
+        pos.y += 1;
+      }
+    }
 
-      pos.y = y0 + h + 4;
+    // Pontos Fracos
+    {
+      const pfr = (params.pontosFracos || []).slice(0, 5);
+      if (pfr.length > 0) {
+        checkPageBreak(ctx, 6 + pfr.length * 3.8);
+        doc.setFontSize(DS.font.caption);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.danger);
+        doc.text("PONTOS FRACOS", margin, pos.y + 3);
+        pos.y += 4.5;
+        doc.setFontSize(DS.font.bodySmall);
+        doc.setFont("helvetica", "normal");
+        pfr.forEach(item => {
+          const lines = doc.splitTextToSize(truncateText(item, 160), contentW - 5) as string[];
+          doc.setTextColor(...colors.danger);
+          doc.text("•", margin + 1, pos.y + 2.8);
+          doc.setTextColor(...colors.textPrimary);
+          doc.text(lines[0], margin + 4, pos.y + 2.8);
+          pos.y += 3.8;
+        });
+        pos.y += 1;
+      }
+    }
+
+    // Perguntas à Visita
+    {
+      const perguntas = (params.perguntasVisita || []).slice(0, 5);
+      if (perguntas.length > 0) {
+        checkPageBreak(ctx, 6 + perguntas.length * 3.8);
+        doc.setFontSize(DS.font.caption);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.headerBg);
+        doc.text("PERGUNTAS À VISITA", margin, pos.y + 3);
+        pos.y += 4.5;
+        doc.setFontSize(DS.font.bodySmall);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...colors.textPrimary);
+        perguntas.forEach((q, i) => {
+          const txt = `${i + 1}. ${truncateText(q.pergunta || "", 160)}`;
+          const lines = doc.splitTextToSize(txt, contentW - 2) as string[];
+          doc.text(lines[0], margin, pos.y + 2.8);
+          pos.y += 3.8;
+        });
+        pos.y += 2;
+      }
     }
   }
 
-  void protestosVigentes;
-  void vencidosSCR;
+  void fatTotal12;
+
 
   // ── Downstream subsections (kept) ─────────────────────────────────────
   // Seção Parâmetros do Fundo
