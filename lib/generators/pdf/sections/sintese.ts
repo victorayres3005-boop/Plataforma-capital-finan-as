@@ -2,383 +2,622 @@
  * Seção 00 — SÍNTESE PRELIMINAR + PARÂMETROS DO FUNDO + LIMITE DE CRÉDITO + CARTÃO CNPJ + QSA + GESTÃO
  * Contém toda a lógica do bloco sintético inicial do relatório.
  */
-import type { PdfCtx } from "../context";
+import type { PdfCtx, RGB } from "../context";
+import type { ClienteCurvaABC } from "@/types";
 import {
   newPage, drawHeader, drawHeaderCompact, checkPageBreak, drawSectionTitle, drawSpacer,
-  drawAlertDeduped, drawDetAlerts, drawTable, autoT, dsMiniHeader,
-  dsMetricCard, fmtMoney, fmtBR, parseMoneyToNumber,
+  drawAlert, drawAlertDeduped, drawDetAlerts, drawTable, autoT, dsMiniHeader,
+  dsMetricCard, drawKpiGrid, fmtMoney, fmtBR, parseMoneyToNumber,
   gerarAlertasQSA,
 } from "../helpers";
+// ───────────────────────────────────────────────────────────────────────────
+// helper: sort faturamento meses ascending
+function sortMesesAsc<T extends { mes: string; valor: string }>(ms: T[]): T[] {
+  const dk = (s: string) => {
+    if (!s) return 0;
+    const parts = s.split("/");
+    if (parts.length !== 2) return 0;
+    const [p1, p2] = parts;
+    const mm: Record<string, number> = { jan:1,fev:2,mar:3,abr:4,mai:5,jun:6,jul:7,ago:8,set:9,out:10,nov:11,dez:12 };
+    const month = isNaN(Number(p1)) ? (mm[p1.toLowerCase()] || 0) : Number(p1);
+    const year = Number(p2) < 100 ? Number(p2) + 2000 : Number(p2);
+    return year * 100 + month;
+  };
+  return [...ms].sort((a, b) => dk(a.mes) - dk(b.mes));
+}
+
+function truncateText(s: string, max: number): string {
+  const t = (s || "").trim();
+  if (!t) return "";
+  return t.length > max ? t.substring(0, max - 1).trimEnd() + "…" : t;
+}
+
 export function renderSintese(ctx: PdfCtx): void {
   const { doc, DS, pos, params, data, margin, contentW } = ctx;
   const {
-    decision, finalRating, alerts, alertsHigh: _alertsHigh, riskScore,
-    resumoExecutivo, alavancagem: alavParam,
+    decision, finalRating, alerts, alertsHigh,
+    resumoExecutivo, companyAge, streetViewBase64: svParam,
     vencidosSCR, protestosVigentes,
   } = params;
 
-  void _alertsHigh;
+  const colors = DS.colors;
 
   newPage(ctx);
   drawHeader(ctx);
-  drawSectionTitle(ctx, "00", "SINTESE PRELIMINAR");
+  drawSectionTitle(ctx, "00", "Síntese Preliminar");
 
-  const colors = DS.colors;
-
-  // Pre-compute values
-  const validMeses = [...(data.faturamento?.meses || [])]
-    .filter(m => m?.mes && m?.valor)
-    .sort((a, b) => {
-      const parseDK = (s: string): number => {
-        if (!s) return 0;
-        const parts = s.split("/");
-        if (parts.length !== 2) return 0;
-        const [p1, p2] = parts;
-        const mm: Record<string, number> = { jan: 1, fev: 2, mar: 3, abr: 4, mai: 5, jun: 6, jul: 7, ago: 8, set: 9, out: 10, nov: 11, dez: 12 };
-        const month = isNaN(Number(p1)) ? (mm[p1.toLowerCase()] || 0) : Number(p1);
-        const year = Number(p2) < 100 ? Number(p2) + 2000 : Number(p2);
-        return year * 100 + month;
-      };
-      return parseDK(a.mes) - parseDK(b.mes);
-    });
-
-  const fmmNum = data.faturamento?.fmm12m
+  // ── Pre-compute faturamento data ──────────────────────────────────────
+  const validMeses = sortMesesAsc((data.faturamento?.meses || []).filter(m => m?.mes && m?.valor));
+  const last12 = validMeses.slice(-12);
+  const fmm12m = data.faturamento?.fmm12m
     ? parseMoneyToNumber(data.faturamento.fmm12m)
-    : validMeses.slice(-12).reduce((s, m) => s + parseMoneyToNumber(m.valor), 0) / 12;
+    : (last12.length > 0 ? last12.reduce((s, m) => s + parseMoneyToNumber(m.valor), 0) / last12.length : 0);
+  const fatTotal12 = last12.reduce((s, m) => s + parseMoneyToNumber(m.valor), 0);
 
-  const scrNum = parseMoneyToNumber(data.scr?.totalDividasAtivas || "0");
-  const alavancagem = alavParam ?? (fmmNum > 0 ? scrNum / fmmNum : 0);
+  // Rating color + label
+  const scoreColor: RGB = finalRating >= 7.5 ? colors.success : finalRating >= 6 ? colors.warning : colors.danger;
+  const nivelLabel = finalRating >= 8 ? "EXCELENTE"
+    : finalRating >= 6.5 ? "SATISFATÓRIO"
+    : finalRating >= 5 ? "MODERADO"
+    : "ALTO RISCO";
 
-  const vermelho:   [number,number,number] = [...DS.colors.danger] as [number,number,number];
-  const amarelo:    [number,number,number] = [...DS.colors.warning] as [number,number,number];
-  const verde:      [number,number,number] = [...DS.colors.success] as [number,number,number];
-  const scoreColor: [number,number,number] = finalRating >= 7.5 ? verde : finalRating >= 6 ? amarelo : vermelho;
-
-  // BLOCO 1 — Hero Score + Decisão
+  // ── BLOCO 1 — Header strip ────────────────────────────────────────────
   {
-    checkPageBreak(ctx, 35);
-    const bloco1H = 30;
-    const bloco1Y = pos.y;
+    const h = 25;
+    checkPageBreak(ctx, h + 2);
+    const y0 = pos.y;
 
-    // Navy gradient background
-    const gSteps = 6;
-    const gStepW  = contentW / gSteps;
-    for (let s = 0; s < gSteps; s++) {
-      const t = s / (gSteps - 1);
-      doc.setFillColor(
-        Math.round(27 + t * 10),
-        Math.round(47 + t * 12),
-        Math.round(78 + t * 20)
-      );
-      doc.rect(margin + s * gStepW, bloco1Y, gStepW + 0.5, bloco1H, "F");
-    }
-    doc.setFillColor(...scoreColor);
-    doc.rect(margin, bloco1Y, 4, bloco1H, "F");
-    doc.setFillColor(...amarelo);
-    doc.rect(margin, bloco1Y + bloco1H - 1.5, contentW, 1.5, "F");
+    // Left 2/3
+    const leftW = (contentW * 2) / 3;
+    const rightW = contentW - leftW - 2;
+    const rightX = margin + leftW + 2;
 
-    // Score (left)
-    const scoreX = margin + 8;
-    doc.setFontSize(DS.font.caption);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(...DS.colors.textOnDark);
-    doc.text("SCORE DE RISCO", scoreX, bloco1Y + 7);
-    doc.setFontSize(28);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...scoreColor);
-    const scoreStr = String(finalRating);
-    doc.text(scoreStr, scoreX, bloco1Y + 22);
-    const scoreNumW = doc.getTextWidth(scoreStr);
-    doc.setFontSize(DS.font.h2);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(...DS.colors.textOnDark);
-    doc.text("/10", scoreX + scoreNumW + 1, bloco1Y + 22);
+    doc.setFillColor(...colors.primary);
+    doc.roundedRect(margin, y0, leftW, h, DS.radius.md, DS.radius.md, "F");
+    doc.setFillColor(...colors.accent);
+    doc.rect(margin, y0, 3, h, "F");
 
-    const ratingLabel = finalRating >= 8 ? "EXCELENTE" : finalRating >= 6.5 ? "SATISFATORIO" : finalRating >= 5 ? "MODERADO" : "ALTO RISCO";
-    doc.setFontSize(DS.font.micro);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...scoreColor);
-    doc.text(ratingLabel, scoreX, bloco1Y + 27);
-
-    // Progress bar
-    const barX = scoreX + scoreNumW + 14;
-    const barY = bloco1Y + 19;
-    const barW = 40; const barH = 2;
-    doc.setFillColor(50, 70, 100);
-    doc.roundedRect(barX, barY, barW, barH, 0.8, 0.8, "F");
-    const fillW = Math.min(barW, (finalRating / 10) * barW);
-    if (fillW > 0) { doc.setFillColor(...scoreColor); doc.roundedRect(barX, barY, fillW, barH, 0.8, 0.8, "F"); }
-
-    // Vertical divider
-    const divX = margin + 90;
-    doc.setDrawColor(60, 85, 125);
-    doc.setLineWidth(0.25);
-    doc.line(divX, bloco1Y + 5, divX, bloco1Y + bloco1H - 5);
-    doc.setLineWidth(0.1);
-
-    // Decisão (right)
-    const decC: [number,number,number] = decision === "APROVADO" ? verde : decision === "REPROVADO" ? vermelho : amarelo;
-    const rightX = divX + 6;
-    const rightW = contentW - (divX - margin) - 10;
-    doc.setFontSize(DS.font.caption);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(...DS.colors.textOnDark);
-    doc.text("DECISAO", rightX, bloco1Y + 7);
-    doc.setFontSize(15);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...decC);
-    const decLabel = decision.replace(/_/g, " ");
-    const decLabelLines = doc.splitTextToSize(decLabel, rightW) as string[];
-    doc.text(decLabelLines[0], rightX, bloco1Y + 19);
-
-    const decSubtitle = decision === "APROVADO" ? "Operacao recomendada pelo sistema" :
-      decision === "REPROVADO" ? "Operacao nao recomendada" :
-      decision === "APROVACAO_CONDICIONAL" ? "Aprovacao mediante condicoes" :
-      "Pendente de informacoes adicionais";
-    doc.setFontSize(DS.font.bodySmall);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(...DS.colors.textOnDark);
-    doc.text(decSubtitle, rightX, bloco1Y + 26);
-
-    // Risk badge
-    const riscoBg: [number,number,number] = riskScore === "baixo" ? verde : riskScore === "medio" ? amarelo : vermelho;
-    const riscoBw = 30; const riscoBh = 8;
-    const riscoBx = margin + contentW - riscoBw - 4;
-    const riscoBy = bloco1Y + 4;
-    doc.setFillColor(...riscoBg);
-    doc.roundedRect(riscoBx, riscoBy, riscoBw, riscoBh, DS.radius.sm, DS.radius.sm, "F");
-    doc.setFontSize(DS.font.micro);
+    // Razão social (hero)
+    const razao = (data.cnpj?.razaoSocial || "—").substring(0, 60);
+    doc.setFontSize(DS.font.h1);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(255, 255, 255);
-    doc.text(`RISCO ${riskScore.toUpperCase()}`, riscoBx + riscoBw / 2, riscoBy + 5.5, { align: "center" });
+    doc.text(razao, margin + 6, y0 + 8);
 
-    pos.y = bloco1Y + bloco1H + 5;
+    // Nome fantasia
+    const fantasia = data.cnpj?.nomeFantasia;
+    if (fantasia) {
+      doc.setFontSize(DS.font.caption);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...colors.textOnDark);
+      doc.text(truncateText(fantasia, 70), margin + 6, y0 + 13);
+    }
+
+    // CNPJ monospace-ish
+    doc.setFontSize(DS.font.bodySmall);
+    doc.setFont("courier", "bold");
+    doc.setTextColor(...colors.textOnDark);
+    doc.text(`CNPJ  ${data.cnpj?.cnpj || "—"}`, margin + 6, y0 + 18);
+
+    // Situação cadastral badge
+    const sit = (data.cnpj?.situacaoCadastral || "").toUpperCase();
+    if (sit) {
+      const badgeBg: RGB = sit.includes("ATIVA") ? colors.successBg : colors.warningBg;
+      const badgeTxt: RGB = sit.includes("ATIVA") ? colors.successText : colors.warningText;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(DS.font.micro);
+      const badgeW = doc.getTextWidth(sit) + 6;
+      doc.setFillColor(...badgeBg);
+      doc.roundedRect(margin + 6, y0 + 20, badgeW, 4.2, DS.radius.sm, DS.radius.sm, "F");
+      doc.setTextColor(...badgeTxt);
+      doc.text(sit, margin + 6 + badgeW / 2, y0 + 23, { align: "center" });
+    }
+
+    // Right 1/3: rating + decisão
+    doc.setFillColor(...colors.cardBg);
+    doc.roundedRect(rightX, y0, rightW, h, DS.radius.md, DS.radius.md, "F");
+    doc.setDrawColor(...colors.border);
+    doc.roundedRect(rightX, y0, rightW, h, DS.radius.md, DS.radius.md, "D");
+    doc.setFillColor(...scoreColor);
+    doc.rect(rightX, y0, 3, h, "F");
+
+    doc.setFontSize(DS.font.caption);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...colors.textMuted);
+    doc.text("RATING", rightX + 6, y0 + 6);
+
+    doc.setFontSize(22);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...scoreColor);
+    const ratingStr = String(finalRating);
+    doc.text(ratingStr, rightX + 6, y0 + 15);
+    const rw = doc.getTextWidth(ratingStr);
+    doc.setFontSize(DS.font.caption);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...colors.textMuted);
+    doc.text("/10", rightX + 6 + rw + 1, y0 + 15);
+
+    doc.setFontSize(DS.font.micro);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...scoreColor);
+    doc.text(nivelLabel, rightX + 6, y0 + 19);
+
+    // Decisão badge
+    const dec = (decision || "—").replace(/_/g, " ");
+    const decColor: RGB = /APROV/i.test(dec) && !/CONDIC/i.test(dec) ? colors.success
+      : /REPROV/i.test(dec) ? colors.danger
+      : colors.warning;
+    doc.setFontSize(DS.font.caption);
+    doc.setFont("helvetica", "bold");
+    const dbw = doc.getTextWidth(dec) + 6;
+    doc.setFillColor(...decColor);
+    doc.roundedRect(rightX + rightW - dbw - 4, y0 + h - 8, dbw, 5.5, DS.radius.sm, DS.radius.sm, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.text(dec, rightX + rightW - dbw / 2 - 4, y0 + h - 4, { align: "center" });
+
+    pos.y = y0 + h + 4;
   }
 
-  // Green accent separator
-  doc.setFillColor(...colors.accent);
-  doc.rect(margin, pos.y, contentW, 0.8, "F");
-  pos.y += 5;
-
-  // 3 Metric Cards
+  // ── BLOCO 2 — Fundação & idade ────────────────────────────────────────
   {
-    const mcGap = 4;
-    const mcW   = (contentW - mcGap * 2) / 3;
-    const mcH   = DS.space.kpiCardH;
-    checkPageBreak(ctx, mcH + DS.space.md);
-
-    const ratingBorderC: [number,number,number] = finalRating >= 7.5 ? DS.colors.success : finalRating >= 6 ? DS.colors.warning : DS.colors.danger;
-    dsMetricCard(ctx, margin, pos.y, mcW, mcH, "Rating de Crédito", `${finalRating}/10`,
-      finalRating >= 7.5 ? "Excelente" : finalRating >= 6 ? "Satisfatório" : "Atenção",
-      ratingBorderC, ratingBorderC);
-
-    const decBorderC: [number,number,number] = decision === "APROVADO" ? DS.colors.success : decision === "REPROVADO" ? DS.colors.danger : DS.colors.warning;
-    dsMetricCard(ctx, margin + mcW + mcGap, pos.y, mcW, mcH, "Decisão", decision.replace(/_/g, " "),
-      decision === "APROVADO" ? "Operação recomendada" : decision === "REPROVADO" ? "Não recomendada" : "Mediante condições",
-      decBorderC, decBorderC);
-
-    const riscoBorderC: [number,number,number] = riskScore === "baixo" ? DS.colors.success : riskScore === "medio" ? DS.colors.warning : DS.colors.danger;
-    dsMetricCard(ctx, margin + (mcW + mcGap) * 2, pos.y, mcW, mcH, "Nível de Risco", riskScore.toUpperCase(),
-      riskScore === "baixo" ? "Perfil conservador" : riskScore === "medio" ? "Perfil moderado" : "Perfil agressivo",
-      riscoBorderC, riscoBorderC);
-
-    pos.y += mcH + DS.space.md;
+    const h = 12;
+    checkPageBreak(ctx, h + 2);
+    const y0 = pos.y;
+    const colW = (contentW - 8) / 3;
+    const items: Array<[string, string]> = [
+      ["FUNDAÇÃO", data.cnpj?.dataAbertura || "—"],
+      ["IDADE", companyAge || "—"],
+      ["NATUREZA JURÍDICA", truncateText(data.cnpj?.naturezaJuridica || "—", 38)],
+    ];
+    items.forEach(([label, value], i) => {
+      const cx = margin + i * (colW + 4);
+      doc.setFillColor(...colors.surface2);
+      doc.roundedRect(cx, y0, colW, h, DS.radius.md, DS.radius.md, "F");
+      doc.setFontSize(DS.font.micro);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...colors.textMuted);
+      doc.text(label, cx + 4, y0 + 4.5);
+      doc.setFontSize(DS.font.bodySmall);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...colors.textPrimary);
+      doc.text(value, cx + 4, y0 + 9.5);
+    });
+    pos.y = y0 + h + 4;
   }
 
-  // Two-column data layout
+  // ── BLOCO 3 — Segmento ────────────────────────────────────────────────
   {
-    const IR_PAD_TOP = 3.5; const IR_LABEL_H = 3; const IR_LV_GAP = 2;
-    const IR_VAL_H = 6; const IR_DET_H = 4.5; const IR_FIELD_GAP = 5.0; const IR_PAD_BOT = 4.0;
+    const principal = data.cnpj?.cnaePrincipal;
+    const secundarios = data.cnpj?.cnaeSecundarios;
+    const objeto = data.contrato?.objetoSocial;
+    if (principal || secundarios || objeto) {
+      const estH = 15;
+      checkPageBreak(ctx, estH + 2);
+      const y0 = pos.y;
+      doc.setFillColor(...colors.cardBg);
+      doc.setDrawColor(...colors.border);
+      doc.roundedRect(margin, y0, contentW, estH, DS.radius.md, DS.radius.md, "FD");
+      doc.setFillColor(...colors.info);
+      doc.rect(margin, y0, 3, estH, "F");
 
-    const calcRowH = (value: string, rw: number, isLast: boolean, primarySize: number = DS.font.kpiValue): number => {
-      const segs = value.split("\n");
-      const scaledValH = (primarySize / DS.font.kpiValue) * IR_VAL_H;
-      doc.setFontSize(primarySize); doc.setFont("helvetica", "bold"); doc.setCharSpace(0);
-      const primCount = (doc.splitTextToSize(segs[0].trim(), rw - 10) as string[]).length;
-      let detCount = 0;
-      if (segs.length > 1) {
-        doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "normal");
-        segs.slice(1).forEach(s => { detCount += (doc.splitTextToSize(s.trim(), rw - 10) as string[]).length; });
+      let ty = y0 + 5;
+      if (principal) {
+        doc.setFontSize(DS.font.micro);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.textMuted);
+        doc.text("CNAE PRINCIPAL", margin + 6, ty);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...colors.textPrimary);
+        doc.text(truncateText(principal, 110), margin + 6 + 28, ty);
+        ty += 4;
       }
-      const bot = isLast ? IR_PAD_BOT : IR_FIELD_GAP;
-      return Math.max(DS.space.infoRowMinH, IR_PAD_TOP + IR_LABEL_H + IR_LV_GAP + primCount * scaledValH + detCount * IR_DET_H + bot);
-    };
-
-    const renderInfoRow = (
-      rx: number, ry: number, rw: number,
-      label: string, value: string,
-      isLast = false, overrideH?: number,
-      valueColor?: [number, number, number], primarySize: number = DS.font.kpiValue
-    ): number => {
-      const segs = value.split("\n");
-      const scaledValH = (primarySize / DS.font.kpiValue) * IR_VAL_H;
-      doc.setFontSize(primarySize); doc.setFont("helvetica", "bold"); doc.setCharSpace(0);
-      const primLines = doc.splitTextToSize(segs[0].trim(), rw - 10) as string[];
-      const detSegs: string[][] = [];
-      if (segs.length > 1) {
-        doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "normal");
-        segs.slice(1).forEach(s => detSegs.push(doc.splitTextToSize(s.trim(), rw - 10) as string[]));
+      if (secundarios) {
+        doc.setFontSize(DS.font.micro);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.textMuted);
+        doc.text("SECUNDÁRIOS", margin + 6, ty);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...colors.textSecondary);
+        doc.text(truncateText(secundarios, 120), margin + 6 + 28, ty);
+        ty += 4;
       }
-      const totalDet = detSegs.reduce((a, b) => a + b.length, 0);
-      const bot = isLast ? IR_PAD_BOT : IR_FIELD_GAP;
-      const naturalH = Math.max(DS.space.infoRowMinH, IR_PAD_TOP + IR_LABEL_H + IR_LV_GAP + primLines.length * scaledValH + totalDet * IR_DET_H + bot);
-      const rH = overrideH ?? naturalH;
-
-      doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "normal"); doc.setCharSpace(0.4);
-      doc.setTextColor(...DS.colors.textMuted);
-      doc.text(label.toUpperCase(), rx + 5, ry + IR_PAD_TOP + IR_LABEL_H);
-      doc.setCharSpace(0);
-
-      doc.setFontSize(primarySize); doc.setFont("helvetica", "bold"); doc.setCharSpace(0);
-      doc.setTextColor(...(valueColor ?? ([...DS.colors.textPrimary] as [number, number, number])));
-      const valBaseY = ry + IR_PAD_TOP + IR_LABEL_H + IR_LV_GAP + scaledValH * 0.82;
-      primLines.forEach((line, i) => doc.text(line, rx + 5, valBaseY + i * scaledValH));
-
-      if (detSegs.length > 0) {
-        doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "normal"); doc.setCharSpace(0);
-        doc.setTextColor(...DS.colors.textSecondary);
-        let dY = valBaseY + primLines.length * scaledValH;
-        detSegs.forEach(seg => seg.forEach(line => { doc.text(line, rx + 5, dY); dY += IR_DET_H; }));
+      if (objeto) {
+        doc.setFontSize(DS.font.micro);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...colors.textMuted);
+        doc.text("OBJETO", margin + 6, ty);
+        doc.setFont("helvetica", "italic");
+        doc.setTextColor(...colors.textSecondary);
+        const lines = doc.splitTextToSize(objeto, contentW - 40) as string[];
+        doc.text(lines.slice(0, 1), margin + 6 + 28, ty);
       }
-
-      if (!isLast) {
-        doc.setDrawColor(...DS.colors.border); doc.setLineWidth(0.25);
-        doc.line(rx + 5, ry + rH, rx + rw - 5, ry + rH);
-        doc.setLineWidth(0.1);
-      }
-      doc.setCharSpace(0);
-      return ry + rH;
-    };
-
-    // Data preparation
-    const anoAbSint = data.cnpj?.dataAbertura ? new Date(data.cnpj.dataAbertura).getFullYear() : null;
-    const idadeEmpSint = anoAbSint && !isNaN(anoAbSint) ? `${new Date().getFullYear() - anoAbSint} anos` : "—";
-    const fmmSint = data.faturamento?.fmm12m ? `R$ ${fmtMoney(data.faturamento.fmm12m)}` : data.faturamento?.mediaAno ? `R$ ${fmtMoney(data.faturamento.mediaAno)}` : "—";
-    const pleitoSint = data.relatorioVisita?.pleito ? `R$ ${fmtMoney(data.relatorioVisita.pleito)}` : "—";
-    const grupoQtdSint = data.grupoEconomico?.empresas?.length ?? 0;
-    const grupoSint = grupoQtdSint > 0 ? `Sim — ${grupoQtdSint} empresa(s)` : "Não identificado";
-    const refComSint = (data.relatorioVisita as { referenciaComercial?: string } | undefined)?.referenciaComercial || "—";
-    const modalSint = data.relatorioVisita?.modalidade
-      ? ({ comissaria: "Comissária", convencional: "Convencional", hibrida: "Comissária e Convencional", outra: "Outra" } as Record<string, string>)[data.relatorioVisita.modalidade] ?? "—"
-      : "—";
-    const concTop3Val = data.curvaABC?.concentracaoTop3 ? parseFloat(String(data.curvaABC.concentracaoTop3)) : 0;
-    const concTop3Sint = concTop3Val > 0 ? `${data.curvaABC!.concentracaoTop3}%` : "—";
-
-    const vigQtdSint = parseInt(data.protestos?.vigentesQtd || "0");
-    const vigValSint = data.protestos?.vigentesValor || "0";
-    const protOrdSint = [...(data.protestos?.detalhes ?? [])].filter(d => d.data).sort((a, b) => (b.data ?? "").localeCompare(a.data ?? ""));
-    const protRecenteSint = protOrdSint[0]?.data ?? null;
-    const protestoSint = vigQtdSint > 0
-      ? `${vigQtdSint} reg. | R$ ${fmtMoney(vigValSint)}${protRecenteSint ? ` | Rec: ${protRecenteSint}` : ""}`
-      : "Nenhum registro";
-
-    const totalOcorrSint = data.ccf?.qtdRegistros || 0;
-    const ccfBancosSint = (data.ccf?.bancos ?? []);
-    const ccfBancosStr = ccfBancosSint.length > 0
-      ? ccfBancosSint.slice(0, 4).map(b => `${b.banco}${b.quantidade > 1 ? ` (${b.quantidade})` : ""}`).join(" · ")
-        + (ccfBancosSint.length > 4 ? ` +${ccfBancosSint.length - 4}` : "")
-      : "";
-    const ccfSint = totalOcorrSint > 0
-      ? [`${totalOcorrSint} registro(s)`, ccfBancosStr].filter(Boolean).join("\n")
-      : "Nenhuma ocorrência";
-
-    const passivostSint  = parseInt(data.processos?.passivosTotal  || "0");
-    const poloAtivoSint  = parseInt(data.processos?.poloAtivoQtd   || "0");
-    const poloPassSint   = parseInt(data.processos?.poloPassivoQtd  || "0");
-    const processoSint = passivostSint > 0
-      ? [`${passivostSint} total`, [poloAtivoSint > 0 ? `Ativo: ${poloAtivoSint}` : "", poloPassSint > 0 ? `Passivo: ${poloPassSint}` : ""].filter(Boolean).join("  |  ")].filter(Boolean).join("\n")
-      : "Nenhum processo";
-
-    const scrVencSint = vencidosSCR > 0 ? (data.scr?.vencidos || "Sim") : "Nenhum";
-    const alavSint = alavancagem > 0 ? `${fmtBR(alavancagem, 2)}x` : "—";
-
-    checkPageBreak(ctx, 150);
-    const colGapSint = 3;
-    const col1WSint = (contentW - colGapSint) * 0.44;
-    const col2WSint = contentW - col1WSint - colGapSint;
-    const col2XSint = margin + col1WSint + colGapSint;
-    const hdrH = 14;
-    const blockYSint = pos.y;
-
-    type SintRow = { label: string; value: string; color?: [number, number, number]; primarySize?: number };
-    const c1Rows: SintRow[] = [
-      { label: "Idade da Empresa",         value: idadeEmpSint  },
-      { label: "Faturamento Médio (12M)",  value: fmmSint       },
-      { label: "Pleito",                   value: pleitoSint    },
-      { label: "Grupo Econômico",          value: grupoSint     },
-      { label: "Referência Comercial",     value: refComSint    },
-      { label: "Modalidade",               value: modalSint     },
-      { label: "ABC — Concentração Top 3", value: concTop3Sint, color: concTop3Val > 80 ? [220, 38, 38] : concTop3Val > 60 ? [217, 119, 6] : undefined },
-    ];
-    const c2Rows: SintRow[] = [
-      { label: "Protestos",              value: protestoSint,   color: vigQtdSint > 0 ? [220, 38, 38] : undefined },
-      { label: "CCF — Cheques Sem Fundo", value: ccfSint,       color: totalOcorrSint > 0 ? [220, 38, 38] : undefined },
-      { label: "Processos Judiciais",    value: processoSint,   color: passivostSint > 0 ? [217, 119, 6] : undefined, primarySize: 13 },
-      { label: "SCR — Vencido",          value: scrVencSint,    color: vencidosSCR > 0 ? [220, 38, 38] : undefined },
-      { label: "Alavancagem",            value: alavSint,       color: alavancagem > 4 ? [220, 38, 38] : alavancagem > 2 ? [217, 119, 6] : undefined },
-    ];
-
-    const c1H = c1Rows.map((r, i) => calcRowH(r.value, col1WSint, i === c1Rows.length - 1, r.primarySize));
-    const c2H = c2Rows.map((r, i) => calcRowH(r.value, col2WSint, i === c2Rows.length - 1, r.primarySize));
-    const c1Tot = c1H.reduce((a, b) => a + b, 0);
-    const c2Tot = c2H.reduce((a, b) => a + b, 0);
-    if (c1Tot < c2Tot) c1H[c1H.length - 1] += c2Tot - c1Tot;
-    else if (c2Tot < c1Tot) c2H[c2H.length - 1] += c1Tot - c2Tot;
-    const bodyH = c1H.reduce((a, b) => a + b, 0);
-
-    doc.setFillColor(...DS.colors.pageBg);
-    doc.rect(margin, blockYSint + hdrH, contentW, bodyH, "F");
-
-    doc.setFillColor(...DS.colors.headerBg);
-    doc.rect(margin, blockYSint, col1WSint, hdrH, "F");
-    doc.setFillColor(...DS.colors.accent);
-    doc.rect(margin, blockYSint, 3, hdrH, "F");
-    doc.setFontSize(DS.font.bodySmall); doc.setFont("helvetica", "bold"); doc.setTextColor(255, 255, 255);
-    doc.text("PERFIL & OPERACIONAL", margin + 7, blockYSint + 6);
-    doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "normal"); doc.setTextColor(...DS.colors.textOnDark);
-    doc.text("Cadastro e operações", margin + 7, blockYSint + 10.5);
-
-    doc.setFillColor(...DS.colors.headerBg);
-    doc.rect(col2XSint, blockYSint, col2WSint, hdrH, "F");
-    doc.setFillColor(...DS.colors.accent);
-    doc.rect(col2XSint, blockYSint, 3, hdrH, "F");
-    doc.setFontSize(DS.font.bodySmall); doc.setFont("helvetica", "bold"); doc.setTextColor(255, 255, 255);
-    doc.text("INDICADORES DE RISCO", col2XSint + 7, blockYSint + 6);
-    doc.setFontSize(DS.font.micro); doc.setFont("helvetica", "normal"); doc.setTextColor(...DS.colors.textOnDark);
-    doc.text("Exposição a riscos", col2XSint + 7, blockYSint + 10.5);
-
-    const divX = margin + col1WSint + colGapSint / 2;
-    doc.setDrawColor(...DS.colors.border); doc.setLineWidth(0.3);
-    doc.line(divX, blockYSint + hdrH, divX, blockYSint + hdrH + bodyH);
-    doc.setLineWidth(0.1);
-
-    doc.setDrawColor(...DS.colors.border); doc.setLineWidth(0.3);
-    doc.roundedRect(margin, blockYSint, contentW, hdrH + bodyH, DS.radius.md, DS.radius.md, "S");
-    doc.setLineWidth(0.1);
-
-    let y1Sint = blockYSint + hdrH;
-    let y2Sint = blockYSint + hdrH;
-
-    c1Rows.forEach((r, i) => { y1Sint = renderInfoRow(margin, y1Sint, col1WSint, r.label, r.value, i === c1Rows.length - 1, c1H[i], r.color, r.primarySize); });
-    c2Rows.forEach((r, i) => { y2Sint = renderInfoRow(col2XSint, y2Sint, col2WSint, r.label, r.value, i === c2Rows.length - 1, c2H[i], r.color, r.primarySize); });
-
-    pos.y = Math.max(y1Sint, y2Sint) + 6;
+      pos.y = y0 + estH + 4;
+    }
   }
 
-  // AI alerts
-  if (alerts.length > 0) {
-    alerts.forEach(alert => { drawAlertDeduped(ctx, alert.message, alert.severity); });
-    drawSpacer(ctx, 4);
+  // ── BLOCO 4 — Street View + endereço ──────────────────────────────────
+  {
+    const svImg = svParam || (data as unknown as { streetViewBase64?: string }).streetViewBase64;
+    if (svImg && data.cnpj?.endereco) {
+      const h = 45;
+      checkPageBreak(ctx, h + 4);
+      const y0 = pos.y;
+      const imgW = 80;
+      try {
+        doc.addImage(svImg, "JPEG", margin, y0, imgW, h);
+      } catch {
+        // fallthrough: swallow bad image, skip block
+        pos.y = y0;
+      }
+      // Address text to right
+      const tx = margin + imgW + 6;
+      const tw = contentW - imgW - 6;
+      doc.setFontSize(DS.font.micro);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...colors.textMuted);
+      doc.text("ENDEREÇO", tx, y0 + 5);
+      doc.setFontSize(DS.font.bodySmall);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...colors.textPrimary);
+      const lines = doc.splitTextToSize(data.cnpj.endereco, tw) as string[];
+      lines.slice(0, 5).forEach((l, i) => doc.text(l, tx, y0 + 11 + i * 4.5));
+      if (data.cnpj.telefone) {
+        doc.setFontSize(DS.font.micro);
+        doc.setTextColor(...colors.textMuted);
+        doc.text(`Tel.: ${data.cnpj.telefone}`, tx, y0 + h - 5);
+      }
+      pos.y = y0 + h + 4;
+    }
   }
 
-  // Síntese executiva text was moved to Parecer section (renders right after this)
+  // ── BLOCO 5 — Estrutura societária + grupo econômico ──────────────────
+  {
+    const socios = (data.qsa?.quadroSocietario || []).filter(s => s?.nome);
+    if (socios.length > 0 || data.grupoEconomico?.empresas?.length) {
+      checkPageBreak(ctx, 30 + socios.length * 6);
+      dsMiniHeader(ctx, "Estrutura Societária");
 
-  void resumoExecutivo;
+      if (socios.length > 0) {
+        const rows = socios.slice(0, 6).map(s => [
+          truncateText(s.nome || "—", 38),
+          s.cpfCnpj || "—",
+          truncateText(s.qualificacao || "—", 22),
+          s.participacao || "—",
+        ]);
+        autoT(ctx,
+          ["Nome", "CPF/CNPJ", "Qualificação", "Partic."],
+          rows,
+          [48, 30, 26, 16],
+        );
+      }
+
+      // Capital social + grupo econômico footer line
+      const capSoc = data.qsa?.capitalSocial || data.contrato?.capitalSocial;
+      const geCount = data.grupoEconomico?.empresas?.length || 0;
+      const parts: string[] = [];
+      if (capSoc) parts.push(`Capital Social: R$ ${fmtMoney(capSoc)}`);
+      if (geCount > 0) parts.push(`Grupo econômico: ${geCount} empresa(s) vinculada(s)`);
+      if (parts.length) {
+        checkPageBreak(ctx, 6);
+        doc.setFontSize(DS.font.caption);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(...colors.textSecondary);
+        doc.text(parts.join("   •   "), margin, pos.y + 4);
+        pos.y += 8;
+      }
+    }
+  }
+
+  // ── BLOCO 6 — Risco consolidado ───────────────────────────────────────
+  {
+    const protQtd = protestosVigentes || 0;
+    const protVal = data.protestos?.vigentesValor || "0";
+    const ccfQtd = data.ccf?.qtdRegistros ?? null;
+    const procPass = parseInt(data.processos?.passivosTotal || "0") || 0;
+    const scrVenc = vencidosSCR || 0;
+    const scrTotal = parseMoneyToNumber(data.scr?.totalDividasAtivas || "0");
+    const scrVencPct = scrTotal > 0 ? (scrVenc / scrTotal) * 100 : 0;
+
+    drawKpiGrid(ctx, [
+      {
+        label: "Protestos",
+        value: String(protQtd),
+        sub: protQtd > 0 ? `R$ ${fmtMoney(protVal)}` : "sem ocorrências",
+        color: protQtd > 0 ? colors.danger : colors.success,
+      },
+      {
+        label: "CCF",
+        value: ccfQtd == null ? "—" : String(ccfQtd),
+        sub: ccfQtd == null ? "não consultado" : ccfQtd > 0 ? "ocorrências" : "sem cheques",
+        color: ccfQtd == null ? colors.textMuted : ccfQtd > 0 ? colors.danger : colors.success,
+      },
+      {
+        label: "Processos",
+        value: String(procPass),
+        sub: "polo passivo",
+        color: procPass > 10 ? colors.danger : procPass > 0 ? colors.warning : colors.success,
+      },
+      {
+        label: "SCR Venc.",
+        value: scrVenc > 0 ? `R$ ${fmtMoney(String(scrVenc))}` : "—",
+        sub: scrVenc > 0 ? `${fmtBR(scrVencPct, 1)}% do total` : "em dia",
+        color: scrVenc > 0 ? colors.danger : colors.success,
+      },
+    ], 4);
+
+    // Top severity alerts (high first, then medium from alerts) - max 4
+    const seen = new Set<string>();
+    let count = 0;
+    const pushAlert = (msg: string, sev: "high"|"medium"|"info", sub?: string) => {
+      const k = msg.trim().toLowerCase().substring(0, 80);
+      if (seen.has(k) || count >= 4) return;
+      seen.add(k);
+      count++;
+      drawAlert(ctx, sev, msg, sub);
+    };
+    (alertsHigh || []).forEach(a => pushAlert(a.message, "high", a.impacto));
+    (alerts || [])
+      .filter(a => a.severity === "ALTA")
+      .forEach(a => pushAlert(a.message, "high", a.impacto));
+    (alerts || [])
+      .filter(a => a.severity === "MODERADA")
+      .forEach(a => pushAlert(a.message, "medium", a.impacto));
+  }
+
+  // ── BLOCO 7 — Faturamento mini-chart ──────────────────────────────────
+  if (last12.length > 0) {
+    const chartH = 22;
+    const labelH = 5;
+    const footerH = 6;
+    const totalH = chartH + labelH + footerH + 4;
+    checkPageBreak(ctx, totalH + 4);
+    const y0 = pos.y;
+
+    // Title
+    doc.setFontSize(DS.font.caption);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...colors.textMuted);
+    doc.text("FATURAMENTO — ÚLTIMOS 12 MESES", margin, y0 + 3);
+
+    const baseY = y0 + 6 + chartH;
+    const gap = 1.5;
+    const barCount = Math.min(12, last12.length);
+    const barW = (contentW - gap * (barCount - 1)) / barCount;
+    const values = last12.map(m => parseMoneyToNumber(m.valor));
+    const maxVal = Math.max(...values, 1);
+
+    last12.forEach((m, i) => {
+      const v = values[i];
+      const barH = (v / maxVal) * chartH;
+      const bx = margin + i * (barW + gap);
+      const by = baseY - barH;
+      const prev = i > 0 ? values[i - 1] : v;
+      const c: RGB = v === 0 ? colors.textMuted
+        : v > prev * 1.05 ? colors.success
+        : v < prev * 0.95 ? colors.danger
+        : colors.primary;
+      doc.setFillColor(...c);
+      doc.roundedRect(bx, by, barW, Math.max(barH, 0.3), 0.4, 0.4, "F");
+      doc.setFontSize(DS.font.micro);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...colors.textMuted);
+      doc.text(m.mes, bx + barW / 2, baseY + 3.5, { align: "center" });
+    });
+
+    // Footer line
+    const tendencia = data.faturamento?.tendencia || "indefinido";
+    const tendLabel = tendencia === "crescimento" ? "↑ Crescimento"
+      : tendencia === "queda" ? "↓ Queda"
+      : tendencia === "estavel" ? "→ Estável" : "—";
+    doc.setFontSize(DS.font.caption);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(...colors.textSecondary);
+    const fy = baseY + labelH + 4;
+    doc.text(`FMM 12M: R$ ${fmtBR(fmm12m, 0)}`, margin, fy);
+    doc.text(`Total 12M: R$ ${fmtBR(fatTotal12, 0)}`, margin + contentW / 2 - 20, fy);
+    doc.text(`Tendência: ${tendLabel}`, margin + contentW, fy, { align: "right" });
+
+    pos.y = fy + 4;
+  }
+
+  // ── BLOCO 8 — Curva ABC top 5 ─────────────────────────────────────────
+  {
+    const abc = data.curvaABC;
+    const clientes: ClienteCurvaABC[] = abc?.clientes || [];
+    if (clientes.length > 0) {
+      checkPageBreak(ctx, 40);
+      dsMiniHeader(ctx, "Curva ABC — Top 5 Clientes");
+
+      // Compute receita total (use receitaTotalBase if available, else sum)
+      const receitaTotalNum = parseMoneyToNumber(abc?.receitaTotalBase || "0");
+      const top5 = clientes.slice(0, 5);
+
+      // Recompute % acumulado (known bug that it's empty upstream)
+      let acum = 0;
+      const rows = top5.map((c, i) => {
+        const valor = parseMoneyToNumber(c.valorFaturado);
+        const pctReceita = receitaTotalNum > 0
+          ? (valor / receitaTotalNum) * 100
+          : parseFloat(String(c.percentualReceita || "0").replace(",", ".")) || 0;
+        acum += pctReceita;
+        return [
+          String(c.posicao || i + 1),
+          truncateText(c.nome || "—", 40),
+          `R$ ${fmtMoney(c.valorFaturado)}`,
+          `${fmtBR(pctReceita, 2)}%`,
+          `${fmtBR(acum, 2)}%`,
+          c.classe || "—",
+        ];
+      });
+
+      autoT(ctx,
+        ["#", "Cliente", "Faturamento", "% Receita", "% Acum.", "Cl."],
+        rows,
+        [8, 60, 30, 20, 20, 10],
+      );
+
+      // Footer line
+      const totalClientes = abc?.totalClientesNaBase || abc?.totalClientesExtraidos || clientes.length;
+      const top3Pct = abc?.concentracaoTop3;
+      const top5Pct = abc?.concentracaoTop5;
+      const parts: string[] = [`Total: ${totalClientes} cliente(s)`];
+      if (top3Pct) parts.push(`Top 3: ${top3Pct}`);
+      if (top5Pct) parts.push(`Top 5: ${top5Pct}`);
+      doc.setFontSize(DS.font.caption);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...colors.textSecondary);
+      doc.text(parts.join("   •   "), margin, pos.y + 2);
+      pos.y += 6;
+
+      // Concentration alert
+      const first = top5[0];
+      if (first) {
+        const firstPct = receitaTotalNum > 0
+          ? (parseMoneyToNumber(first.valorFaturado) / receitaTotalNum) * 100
+          : parseFloat(String(first.percentualReceita || "0").replace(",", ".")) || 0;
+        if (firstPct > 30) {
+          drawAlert(ctx, "medium",
+            `Concentração elevada: maior cliente representa ${fmtBR(firstPct, 1)}% da receita`,
+            "Acima do limite FIDC (30%) — risco de dependência",
+          );
+        }
+      }
+    }
+  }
+
+  // ── BLOCO 9 — Pleito ──────────────────────────────────────────────────
+  {
+    const rv = data.relatorioVisita;
+    if (rv && (rv.pleito || rv.limiteTotal || rv.modalidade || rv.prazoMaximoOp || rv.taxaConvencional)) {
+      const modLabel = rv.modalidade
+        ? rv.modalidade.charAt(0).toUpperCase() + rv.modalidade.slice(1)
+        : "—";
+      drawKpiGrid(ctx, [
+        {
+          label: "Valor Pleito",
+          value: rv.pleito ? `R$ ${fmtMoney(rv.pleito)}`
+            : rv.limiteTotal ? `R$ ${fmtMoney(rv.limiteTotal)}` : "—",
+          color: colors.primary,
+        },
+        {
+          label: "Modalidade",
+          value: modLabel,
+          color: colors.textPrimary,
+        },
+        {
+          label: "Prazo Máximo",
+          value: rv.prazoMaximoOp ? `${rv.prazoMaximoOp} dias` : "—",
+          color: colors.textPrimary,
+        },
+        {
+          label: "Taxa Conv.",
+          value: rv.taxaConvencional ? `${rv.taxaConvencional}% a.m.` : "—",
+          color: colors.textPrimary,
+        },
+      ], 4);
+    }
+  }
+
+  // ── BLOCO 10 — Tri-card: Pontos Fortes / Fracos / Alertas ─────────────
+  {
+    const pf = params.pontosFortes || [];
+    const pfr = params.pontosFracos || [];
+    const alertasMod = (alerts || []).filter(a => a.severity === "MODERADA").map(a => a.message);
+    if (pf.length + pfr.length + alertasMod.length > 0) {
+      const cardW = (contentW - 8) / 3;
+      const cardH = 40;
+      checkPageBreak(ctx, cardH + 6);
+      const y0 = pos.y;
+
+      const blocks: Array<[string, string[], RGB, RGB]> = [
+        ["PONTOS FORTES", pf, colors.successBg, colors.successText],
+        ["PONTOS FRACOS", pfr, colors.dangerBg,  colors.dangerText],
+        ["ALERTAS",       alertasMod, colors.warningBg, colors.warningText],
+      ];
+
+      blocks.forEach(([title, items, bg, fg], i) => {
+        const bx = margin + i * (cardW + 4);
+        doc.setFillColor(...bg);
+        doc.roundedRect(bx, y0, cardW, cardH, DS.radius.md, DS.radius.md, "F");
+        doc.setFontSize(DS.font.caption);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(...fg);
+        doc.text(title, bx + 4, y0 + 5);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(DS.font.micro);
+        doc.setTextColor(...colors.textPrimary);
+        if (items.length === 0) {
+          doc.setTextColor(...colors.textMuted);
+          doc.text("— nenhum —", bx + 4, y0 + 11);
+        } else {
+          items.slice(0, 5).forEach((item, j) => {
+            const lines = doc.splitTextToSize(`• ${truncateText(item, 80)}`, cardW - 6) as string[];
+            doc.text(lines.slice(0, 2), bx + 4, y0 + 10 + j * 5.5);
+          });
+        }
+      });
+      pos.y = y0 + cardH + 4;
+    }
+  }
+
+  // ── BLOCO 11 — Percepção do analista ──────────────────────────────────
+  {
+    let abstractTxt = resumoExecutivo || "";
+    if (!abstractTxt && ctx.aiAnalysis?.parecer) {
+      if (typeof ctx.aiAnalysis.parecer === "object") {
+        abstractTxt = ctx.aiAnalysis.parecer.resumoExecutivo || ctx.aiAnalysis.parecer.textoCompleto || "";
+      } else {
+        abstractTxt = String(ctx.aiAnalysis.parecer);
+      }
+    }
+    if (!abstractTxt) abstractTxt = ctx.aiAnalysis?.sinteseExecutiva || "";
+
+    if (abstractTxt) {
+      const maxLines = 6;
+      const avail = contentW - 12;
+      doc.setFontSize(DS.font.bodySmall);
+      doc.setFont("helvetica", "normal");
+      const allLines = doc.splitTextToSize(abstractTxt.trim(), avail) as string[];
+      const shown = allLines.slice(0, maxLines);
+      const h = 8 + shown.length * 4.2 + 8;
+      checkPageBreak(ctx, h + 2);
+      const y0 = pos.y;
+
+      doc.setFillColor(...colors.surface2);
+      doc.roundedRect(margin, y0, contentW, h, DS.radius.md, DS.radius.md, "F");
+      doc.setFillColor(...colors.primary);
+      doc.rect(margin, y0, 3, h, "F");
+
+      doc.setFontSize(DS.font.micro);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...colors.primary);
+      doc.text("PERCEPÇÃO DO ANALISTA", margin + 6, y0 + 5);
+
+      doc.setFontSize(DS.font.bodySmall);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(...colors.textPrimary);
+      shown.forEach((l, i) => doc.text(l, margin + 6, y0 + 10 + i * 4.2));
+
+      const fy = y0 + 10 + shown.length * 4.2 + 2;
+      doc.setFontSize(DS.font.micro);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...colors.textSecondary);
+      doc.text(`Recomendação: ${(decision || "—").replace(/_/g, " ")}`, margin + 6, fy);
+      doc.setFont("helvetica", "italic");
+      doc.setTextColor(...colors.textMuted);
+      doc.text("Ver parecer completo na seção 02.", margin + contentW - 6, fy, { align: "right" });
+
+      pos.y = y0 + h + 4;
+    }
+  }
+
   void protestosVigentes;
+  void vencidosSCR;
 
+  // ── Downstream subsections (kept) ─────────────────────────────────────
   // Seção Parâmetros do Fundo
   if (params.fundValidation && params.fundValidation.criteria.length > 0) {
-    renderParametrosFundo(ctx, fmmNum);
+    renderParametrosFundo(ctx, fmm12m);
   }
 
   // Seção Limite de Crédito
@@ -392,6 +631,7 @@ export function renderSintese(ctx: PdfCtx): void {
   // Seção QSA + Contrato + Gestão
   renderQSAGestao(ctx);
 }
+
 
 function renderParametrosFundo(ctx: PdfCtx, fmmNum: number): void {
   void fmmNum;

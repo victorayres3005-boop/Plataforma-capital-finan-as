@@ -480,647 +480,291 @@ function secChecklist(p: PDFReportParams): string {
 </div>`;
 }
 
-/** Build calculated contextual alerts (deterministic, outside template literal) */
-function buildCalcAlerts(p: PDFReportParams, data: PDFReportParams["data"], alerts: PDFReportParams["alerts"], fmmNum: number, alavancagem: number | null): string {
-  const calcAlerts: {msg:string;sev:"ALTA"|"MODERADA"|"INFO"}[] = [];
-
-  // Protestos vs faturamento
-  const protVal = numVal(data.protestos?.vigentesValor);
-  if (p.protestosVigentes > 0 && fmmNum > 0 && protVal > 0) {
-    const pctFat = (protVal / fmmNum) * 100;
-    calcAlerts.push({msg:"Protesto vigente de " + fmtMoneyRound(data.protestos?.vigentesValor) + " representa " + pctFat.toFixed(1) + "% do faturamento mensal", sev: pctFat > 10 ? "ALTA" : "MODERADA"});
-  }
-
-  // CCF with bank names
-  const ccf = data.ccf;
-  if (ccf && ccf.qtdRegistros > 0) {
-    const bancoNames = (ccf.bancos || []).slice(0, 5).map(b => b.banco).filter(Boolean).join(", ");
-    calcAlerts.push({msg: ccf.qtdRegistros + " ocorrencia(s) de cheque sem fundo" + (bancoNames ? " nos bancos: " + bancoNames : ""), sev:"ALTA"});
-  }
-
-  // Alavancagem
-  if (alavancagem != null && alavancagem > 3) {
-    calcAlerts.push({msg:"Alavancagem de " + alavancagem.toFixed(1) + "x acima do patamar conservador (max 3x)", sev: alavancagem > 5 ? "ALTA" : "MODERADA"});
-  }
-
-  // PL negativo (from balanço)
-  const balAnos2 = data.balanco?.anos || [];
-  if (balAnos2.length > 0) {
-    const ultimoBal = balAnos2[balAnos2.length - 1];
-    const pl = numVal(ultimoBal.patrimonioLiquido);
-    if (pl < 0) calcAlerts.push({msg:"Patrimonio Liquido negativo de " + fmtMoneyRound(String(pl)) + " — passivo a descoberto", sev:"ALTA"});
-    const lc = parseFloat(String(ultimoBal.liquidezCorrente || "0").replace(",", "."));
-    if (lc > 0 && lc < 1) calcAlerts.push({msg:"Liquidez corrente de " + lc.toFixed(2) + " — abaixo do ideal (>1,0)", sev:"MODERADA"});
-  }
-
-  // Vencidos SCR
-  if (p.vencidosSCR > 0 && fmmNum > 0) {
-    const vencVal = numVal(data.scr?.vencidos);
-    const pctVenc = (vencVal / fmmNum) * 100;
-    calcAlerts.push({msg:"SCR com " + fmtMoneyRound(data.scr?.vencidos) + " em vencidos (" + pctVenc.toFixed(1) + "% do FMM)", sev:"ALTA"});
-  }
-
-  // Render with deduplication
-  const filtered = calcAlerts.filter(ca => !alerts.some(a => a.message.toLowerCase().includes(ca.msg.substring(0, 30).toLowerCase())));
-  if (filtered.length === 0) return "";
-  return (alerts.length === 0 ? subTitle("Alertas") : "") + filtered.map(ca => alertBox(ca.msg, ca.sev)).join("");
-}
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // SECTION 3: SINTESE PRELIMINAR
 // ═══════════════════════════════════════════════════════════════════════════════
 function secSintese(p: PDFReportParams): string {
-  const {data,finalRating,decision,alerts}=p;
-  const rc=finalRating>=7?"#16a34a":finalRating>=4?"#d97706":"#dc2626";
+  const { data, finalRating, decision, alerts, alertsHigh, pontosFortes, pontosFracos, resumoExecutivo, companyAge } = p;
 
-  // FMM calculation - correct
-  const fmmNum = computeFmm(data.faturamento);
+  // Rating color + label
+  const rc = finalRating >= 7.5 ? "#16a34a" : finalRating >= 6 ? "#d97706" : "#dc2626";
+  const nivelLabel = finalRating >= 8 ? "EXCELENTE"
+    : finalRating >= 6.5 ? "SATISFATORIO"
+    : finalRating >= 5 ? "MODERADO"
+    : "ALTO RISCO";
 
-  // Faturamento Total - last 12 months SUM (NOT average)
+  // Faturamento series
   const allMesesSorted = sortMeses(data.faturamento?.meses || []).filter(m => m?.mes && m?.valor);
-  const last12Meses = allMesesSorted.slice(-12);
-  const fatTotal = last12Meses.length > 0 ? last12Meses.reduce((s, m) => s + numVal(m.valor), 0) : 0;
+  const last12 = allMesesSorted.slice(-12);
+  const fmmNum = computeFmm(data.faturamento);
+  const fatTotal12 = last12.reduce((s, m) => s + numVal(m.valor), 0);
+  const tendenciaRaw = data.faturamento?.tendencia || "indefinido";
+  const tendLabel = tendenciaRaw === "crescimento" ? "\u2191 Crescimento"
+    : tendenciaRaw === "queda" ? "\u2193 Queda"
+    : tendenciaRaw === "estavel" ? "\u2192 Estavel"
+    : "\u2014";
 
-  // ─── Exposição de crédito: PJ + Sócios PF separadamente ───
-  const scrPjDivida = numVal(data.scr?.totalDividasAtivas || "0");
-  const scrPjVencido = numVal(data.scr?.vencidos || "0");
-  const scrSociosArr = data.scrSocios || [];
-  const scrPfDivida = scrSociosArr.reduce((s, sc) => s + numVal(sc.periodoAtual?.totalDividasAtivas || "0"), 0);
-  const scrPfVencido = scrSociosArr.reduce((s, sc) => s + numVal(sc.periodoAtual?.vencidos || "0"), 0);
-  const scrTotalDivida = scrPjDivida + scrPfDivida;
-  const scrTotalVencido = scrPjVencido + scrPfVencido;
+  // Risco
+  const protQtd = p.protestosVigentes || 0;
+  const protVal = numVal(data.protestos?.vigentesValor || "0");
+  const ccfQtd = data.ccf?.qtdRegistros ?? null;
+  const procPass = parseInt(data.processos?.passivosTotal || "0") || 0;
+  const scrVenc = p.vencidosSCR || 0;
+  const scrTotal = numVal(data.scr?.totalDividasAtivas || "0");
+  const scrVencPct = scrTotal > 0 ? (scrVenc / scrTotal) * 100 : 0;
 
-  // Alavancagens separadas
-  const alavancagemPj = fmmNum > 0 ? scrPjDivida / fmmNum : null;
-  const alavancagemPf = fmmNum > 0 && scrPfDivida > 0 ? scrPfDivida / fmmNum : null;
-  const alavancagemTotal = fmmNum > 0 ? scrTotalDivida / fmmNum : null;
-  // Mantém compat com calcAlerts (usa alavancagem da empresa)
-  const alavancagem = p.alavancagem != null ? p.alavancagem : alavancagemPj;
-
+  // Pleito
   const rv = data.relatorioVisita;
-  const modalidade = rv?.modalidade || (rv?.taxaComissaria && rv?.taxaConvencional ? "Hibrida" : rv?.taxaComissaria ? "Comissaria" : rv?.taxaConvencional ? "Convencional" : "\u2014");
-  const modalidadeSub = String(modalidade).toLowerCase().includes("hibrida") ? "Convencional e Comissaria" : undefined;
-  const pleito = rv?.pleito || rv?.limiteTotal || "\u2014";
+  const modLabel = rv?.modalidade ? rv.modalidade.charAt(0).toUpperCase() + rv.modalidade.slice(1) : "\u2014";
 
-  const geCount = data.grupoEconomico?.empresas?.length || 0;
-  const geNames = (data.grupoEconomico?.empresas || []).slice(0, 3).map(e => e.razaoSocial || "").filter(Boolean).join(", ");
-
-  // Curva ABC top 3
-  const abcClientes = data.curvaABC?.clientes || [];
-  const top3Names = abcClientes.slice(0, 3).map(c => esc(c.nome || "")).join(", ");
-  const top3Pct = data.curvaABC?.concentracaoTop3 || "\u2014";
-
-  // CCF bank names
-  const ccfBancos = (data.ccf?.bancos || []).map(b => b.banco).filter(Boolean).slice(0, 3).join(", ");
-
-  // Most recent protesto
-  const detProtestos = data.protestos?.detalhes || [];
-  const sortedProtestos = [...detProtestos].sort((a, b) => {
-    const da = a.data ? new Date(a.data.split("/").reverse().join("-")).getTime() : 0;
-    const db = b.data ? new Date(b.data.split("/").reverse().join("-")).getTime() : 0;
-    return db - da;
+  // Curva ABC top 5 — recompute % acumulado (known bug)
+  const abc = data.curvaABC;
+  const clientes = abc?.clientes || [];
+  const receitaTotalNum = numVal(abc?.receitaTotalBase || "0");
+  const top5 = clientes.slice(0, 5);
+  let acum = 0;
+  const top5Rows = top5.map((c, i) => {
+    const valor = numVal(c.valorFaturado);
+    const pctReceita = receitaTotalNum > 0
+      ? (valor / receitaTotalNum) * 100
+      : parseFloat(String(c.percentualReceita || "0").replace(",", ".")) || 0;
+    acum += pctReceita;
+    return { pos: c.posicao || i + 1, nome: c.nome || "\u2014", valor: c.valorFaturado, pctReceita, acum, classe: c.classe || "\u2014" };
   });
-  const lastProtesto = sortedProtestos.length > 0 ? sortedProtestos[0].data || "\u2014" : "\u2014";
+  const firstPct = top5Rows[0]?.pctReceita || 0;
+  const totalClientes = abc?.totalClientesNaBase || abc?.totalClientesExtraidos || clientes.length;
 
-  // Processos ativo + passivo and most recent
-  const procAtivo = parseInt(data.processos?.poloAtivoQtd || "0");
-  const procPassivo = parseInt(data.processos?.passivosTotal || "0");
-  const procRecentes = (data.processos?.top10Recentes as ProcessoItem[] | undefined) || [];
-  const lastProcesso = procRecentes.length > 0 ? procRecentes[0].data || "\u2014" : "\u2014";
+  // ── BLOCO 1 — Header strip ────────────────────────────────────────────
+  const razao = esc(data.cnpj?.razaoSocial || "\u2014");
+  const fantasia = data.cnpj?.nomeFantasia ? esc(data.cnpj.nomeFantasia) : "";
+  const cnpjFmt = fmtCnpj(data.cnpj?.cnpj);
+  const situacao = (data.cnpj?.situacaoCadastral || "").toUpperCase();
+  const sitBadge = situacao
+    ? `<span style="display:inline-block;padding:2px 8px;border-radius:99px;background:${situacao.includes("ATIVA") ? "#dcfce7" : "#fef3c7"};color:${situacao.includes("ATIVA") ? "#166534" : "#854d0e"};font-size:9px;font-weight:800;letter-spacing:.04em;margin-top:6px">${esc(situacao)}</span>`
+    : "";
+  const decFmt = esc((decision || "\u2014").replace(/_/g, " "));
 
-  // Score composition
-  const cob=p.aiAnalysis?.coberturaAnalise;
-  type ScoreRow={comp:string;peso:string;status:string;relevancia:string;diag:string};
-  const scoreRows:ScoreRow[]=[];
-  if(cob&&Array.isArray(cob)){
-    (cob as {componente:string;peso:string;status:string;relevancia:string;diagnostico:string}[]).forEach(c=>{
-      scoreRows.push({comp:c.componente,peso:c.peso,status:c.status,relevancia:c.relevancia,diag:c.diagnostico});
-    });
-  }
-  if(scoreRows.length===0){
-    const vencOk=p.vencidosSCR===0;
-    const fatOk=!!(data.faturamento?.meses?.length);
-    const ccfOk=!data.ccf||data.ccf.qtdRegistros===0;
-    const protOk=p.protestosVigentes===0;
-    const procOk=parseInt(data.processos?.passivosTotal||"0")<10;
-    const dreOk=!!(data.dre?.anos?.length);
-    const irOk=!!(data.irSocios?.length);
-    scoreRows.push(
-      {comp:"SCR/Bacen",peso:"25%",status:vencOk?"OK":"ALERTA",relevancia:"Alta",diag:vencOk?"Sem vencidos":"Vencidos detectados"},
-      {comp:"Faturamento",peso:"20%",status:fatOk?"OK":"PENDENTE",relevancia:"Alta",diag:fatOk?"Dados disponiveis":"Sem dados"},
-      {comp:"CCF",peso:"15%",status:ccfOk?"OK":"ALERTA",relevancia:"Media",diag:ccfOk?"Sem ocorrencias":"Ocorrencias detectadas"},
-      {comp:"Protestos",peso:"15%",status:protOk?"OK":"ALERTA",relevancia:"Media",diag:protOk?"Sem protestos vigentes":`${p.protestosVigentes} protesto(s)`},
-      {comp:"Processos Jud.",peso:"10%",status:procOk?"OK":"ALERTA",relevancia:"Media",diag:procOk?"Normal":"Volume elevado"},
-      {comp:"DRE/Balanco",peso:"10%",status:dreOk?"OK":"PENDENTE",relevancia:"Baixa",diag:dreOk?"Dados disponiveis":"Sem dados"},
-      {comp:"IR Socios",peso:"5%",status:irOk?"OK":"PENDENTE",relevancia:"Baixa",diag:irOk?"Dados disponiveis":"Sem dados"},
-    );
-  }
-
-  /** Group label header — more prominent */
-  function groupLabel(label: string): string {
-    return `<div style="font-size:11px;font-weight:900;color:#203B88;text-transform:uppercase;letter-spacing:.12em;margin:24px 0 12px;padding:8px 14px;background:linear-gradient(90deg,#edf2fb 0%,#f8f9fb 100%);border-left:4px solid #73B815;border-radius:0 6px 6px 0;border-bottom:2px solid #e0e4ec">${esc(label)}</div>`;
-  }
-
-  const resumoTldr = p.aiAnalysis?.sinteseExecutiva || p.resumoExecutivo || "";
-
-  // ── Painel de Qualidade da Extração ──
-  type QualityCheck = { doc: string; status: "ok"|"partial"|"missing"; detail: string };
-  const qualityChecks: QualityCheck[] = [];
-  const checkDoc = (label: string, exists: boolean, issues: string[]) => {
-    if (!exists) qualityChecks.push({ doc: label, status: "missing", detail: "Nao enviado/extraido" });
-    else if (issues.length > 0) qualityChecks.push({ doc: label, status: "partial", detail: issues.join(", ") });
-    else qualityChecks.push({ doc: label, status: "ok", detail: "Completo" });
-  };
-
-  // CNPJ
-  checkDoc("CNPJ", !!data.cnpj?.cnpj, [
-    !data.cnpj?.razaoSocial && "razao social",
-    !data.cnpj?.situacaoCadastral && "situacao",
-  ].filter(Boolean) as string[]);
-  // QSA
-  checkDoc("QSA", !!(data.qsa?.quadroSocietario?.length), []);
-  // SCR atual
-  const scrIssues: string[] = [];
-  if (data.scr) {
-    if (!data.scr.periodoReferencia) scrIssues.push("periodo");
-    if (!data.scr.totalDividasAtivas) scrIssues.push("total dividas");
-    if (!data.scr.faixasAVencer) scrIssues.push("faixas a vencer");
-    if (!data.scr.modalidades?.length) scrIssues.push("modalidades");
-  }
-  checkDoc("SCR Bacen (atual)", !!data.scr, scrIssues);
-  // SCR anterior
-  const scrAntIssues: string[] = [];
-  if (data.scrAnterior) {
-    if (!data.scrAnterior.periodoReferencia) scrAntIssues.push("periodo");
-    if (!data.scrAnterior.totalDividasAtivas) scrAntIssues.push("total dividas");
-  }
-  checkDoc("SCR Bacen (anterior)", !!data.scrAnterior, scrAntIssues);
-  // SCR Sócios — validação cruzada QSA × SCR
-  const sociosPfQsa = (data.qsa?.quadroSocietario || []).filter(s => (s.cpfCnpj || "").replace(/\D/g, "").length === 11);
-  if (sociosPfQsa.length > 0) {
-    const scrSociosArrLocal = data.scrSocios || [];
-    const norm = (s: string) => s.toUpperCase().trim().replace(/\s+/g, " ");
-    const cobertos = new Set<string>();
-    const naoCobertos: string[] = [];
-    sociosPfQsa.forEach(qs => {
-      const nomeNorm = norm(qs.nome || "");
-      const cpfDigits = (qs.cpfCnpj || "").replace(/\D/g, "");
-      const found = scrSociosArrLocal.some(sc => {
-        const scNome = norm(sc.nomeSocio || "");
-        const scCpf = (sc.cpfSocio || "").replace(/\D/g, "");
-        return (cpfDigits && scCpf === cpfDigits) ||
-               (nomeNorm && scNome && (scNome === nomeNorm || scNome.includes(nomeNorm) || nomeNorm.includes(scNome)));
-      });
-      if (found) cobertos.add(nomeNorm);
-      else if (qs.nome) naoCobertos.push(qs.nome.split(" ").slice(0, 2).join(" "));
-    });
-    const total = sociosPfQsa.length;
-    const cob = cobertos.size;
-    if (cob === 0) {
-      qualityChecks.push({ doc: "SCR Socios PF", status: "missing", detail: `0 de ${total} cobertos` });
-    } else if (cob < total) {
-      qualityChecks.push({
-        doc: "SCR Socios PF",
-        status: "partial",
-        detail: `${cob} de ${total} cobertos. Faltam: ${naoCobertos.slice(0, 2).join(", ")}${naoCobertos.length > 2 ? "..." : ""}`,
-      });
-    } else {
-      qualityChecks.push({ doc: "SCR Socios PF", status: "ok", detail: `${cob} de ${total} cobertos` });
-    }
-  }
-  // Faturamento
-  checkDoc("Faturamento", !!(data.faturamento?.meses?.length), [
-    (data.faturamento?.meses?.length || 0) < 12 && `apenas ${data.faturamento?.meses?.length || 0} meses`,
-  ].filter(Boolean) as string[]);
-  // Protestos
-  checkDoc("Protestos", !!data.protestos, []);
-  // Processos
-  checkDoc("Processos", !!data.processos, []);
-  // CCF
-  checkDoc("CCF", !!data.ccf, []);
-  // DRE
-  checkDoc("DRE", !!(data.dre?.anos?.length), [
-    (data.dre?.anos?.length || 0) < 2 && "menos de 2 exercicios",
-  ].filter(Boolean) as string[]);
-  // Balanço
-  checkDoc("Balanco", !!(data.balanco?.anos?.length), []);
-  // Curva ABC
-  checkDoc("Curva ABC", !!(data.curvaABC?.clientes?.length), []);
-  // Visita
-  checkDoc("Relatorio Visita", !!data.relatorioVisita, []);
-  // IR Sócios
-  checkDoc("IR Socios", !!(data.irSocios?.length), []);
-
-  const qOk = qualityChecks.filter(q => q.status === "ok").length;
-  const qPartial = qualityChecks.filter(q => q.status === "partial").length;
-  const qMissing = qualityChecks.filter(q => q.status === "missing").length;
-  const qTotal = qualityChecks.length;
-  const qPct = Math.round((qOk / qTotal) * 100);
-
-  const qualityPanel = `<div style="margin-bottom:20px;padding:14px 16px;background:#f8f9fb;border:1px solid #e0e4ec;border-left:4px solid #203B88;border-radius:0 8px 8px 0;page-break-inside:avoid">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+  const block1 = `<div style="display:flex;gap:10px;margin-bottom:14px;page-break-inside:avoid">
+    <div style="flex:2;background:linear-gradient(135deg,#203B88 0%,#2a4da6 100%);border-left:4px solid #73B815;border-radius:8px;padding:16px 18px;color:#fff">
+      <div style="font-size:18px;font-weight:900;line-height:1.2">${razao}</div>
+      ${fantasia ? `<div style="font-size:10px;color:rgba(255,255,255,.7);margin-top:2px">${fantasia}</div>` : ""}
+      <div style="font-family:'Courier New',monospace;font-size:10px;color:rgba(255,255,255,.85);margin-top:6px;letter-spacing:.02em">CNPJ  ${cnpjFmt}</div>
+      ${sitBadge}
+    </div>
+    <div style="flex:1;background:#fff;border:1px solid #e0e4ec;border-left:4px solid ${rc};border-radius:8px;padding:14px 16px;display:flex;flex-direction:column;justify-content:space-between">
       <div>
-        <div style="font-size:10px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.08em">Qualidade da Extracao</div>
-        <div style="font-size:9.5px;color:#6b7280;margin-top:2px">Verificacao automatica dos documentos processados</div>
+        <div style="font-size:9px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em">Rating</div>
+        <div style="font-size:32px;font-weight:900;color:${rc};line-height:1">${finalRating}<span style="font-size:12px;color:#9ca3af;font-weight:600">/10</span></div>
+        <div style="font-size:9px;font-weight:800;color:${rc};margin-top:2px;letter-spacing:.05em">${nivelLabel}</div>
       </div>
-      <div style="display:flex;gap:6px;align-items:center">
-        <div style="background:#16a34a;color:#fff;font-size:10px;font-weight:800;padding:4px 9px;border-radius:4px">${qOk} OK</div>
-        ${qPartial > 0 ? `<div style="background:#d97706;color:#fff;font-size:10px;font-weight:800;padding:4px 9px;border-radius:4px">${qPartial} PARCIAL</div>` : ""}
-        ${qMissing > 0 ? `<div style="background:#dc2626;color:#fff;font-size:10px;font-weight:800;padding:4px 9px;border-radius:4px">${qMissing} AUSENTE</div>` : ""}
-        <div style="font-size:14px;font-weight:900;color:#203B88;margin-left:4px">${qPct}%</div>
-      </div>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
-      ${qualityChecks.map(q => {
-        const c = q.status === "ok"
-          ? { bg: "#f0fdf4", brd: "#bbf7d0", text: "#166534", icon: "\u2713" }
-          : q.status === "partial"
-            ? { bg: "#fffbeb", brd: "#fde68a", text: "#92400e", icon: "\u26A0" }
-            : { bg: "#fef2f2", brd: "#fecaca", text: "#991b1b", icon: "\u2717" };
-        return `<div style="background:${c.bg};border:1px solid ${c.brd};border-radius:6px;padding:6px 9px;font-size:9px">
-          <div style="display:flex;align-items:center;gap:4px;font-weight:800;color:${c.text};line-height:1.2">
-            <span>${c.icon}</span><span style="text-transform:uppercase;letter-spacing:.03em">${esc(q.doc)}</span>
-          </div>
-          <div style="font-size:8px;color:${c.text};opacity:.85;margin-top:2px;line-height:1.3">${esc(q.detail)}</div>
-        </div>`;
-      }).join("")}
+      <div style="text-align:right;margin-top:6px">${decisaoBadge(decision)}</div>
     </div>
   </div>`;
 
-  // ── Parecer da IA — extrai pontos fortes/fracos/contexto pra renderizar inline ──
-  const _aiParecerObj = (typeof p.aiAnalysis?.parecer === "object" && p.aiAnalysis?.parecer !== null)
-    ? p.aiAnalysis.parecer as { resumoExecutivo?: string; textoCompleto?: string; pontosFortes?: string[]; pontosNegativosOuFracos?: string[]; contexto?: string }
-    : null;
-  const aiPontosFortes: string[] = (p.pontosFortes && p.pontosFortes.length > 0)
-    ? p.pontosFortes
-    : (_aiParecerObj?.pontosFortes || []);
-  const aiPontosFracos: string[] = (p.pontosFracos && p.pontosFracos.length > 0)
-    ? p.pontosFracos
-    : (_aiParecerObj?.pontosNegativosOuFracos || []);
-  const aiContexto: string = _aiParecerObj?.contexto
-    || _aiParecerObj?.resumoExecutivo
-    || p.aiAnalysis?.sinteseExecutiva
-    || resumoTldr
-    || "";
-  const hasAiInsights = aiPontosFortes.length > 0 || aiPontosFracos.length > 0 || !!aiContexto;
-
-  // ── Hero limpo: rating + decisão + razão social ──
-  const razaoHero = esc(data.cnpj?.razaoSocial || "Cedente");
-  const cnpjHero = fmtCnpj(data.cnpj?.cnpj);
-  const heroHtml = `<div style="display:flex;align-items:center;gap:20px;padding:22px 26px;margin-bottom:22px;background:linear-gradient(135deg,#203B88 0%,#2a4da6 100%);border-radius:12px;box-shadow:0 4px 16px rgba(32,59,136,.15);page-break-inside:avoid">
-    <div style="text-align:center;flex-shrink:0;padding-right:20px;border-right:1px solid rgba(255,255,255,.18)">
-      <div style="font-size:9px;font-weight:700;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px">Rating Final</div>
-      <div style="font-size:42px;font-weight:900;color:${rc};line-height:1;text-shadow:0 2px 8px rgba(0,0,0,.2)">${finalRating}</div>
-      <div style="font-size:10px;color:rgba(255,255,255,.5);margin-top:2px">de 10</div>
-    </div>
-    <div style="flex:1;min-width:0">
-      <div style="font-size:10px;font-weight:700;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px">Cedente Analisado</div>
-      <div style="font-size:18px;font-weight:800;color:#fff;line-height:1.25;margin-bottom:6px;word-wrap:break-word">${razaoHero}</div>
-      <div style="font-size:11px;color:rgba(255,255,255,.65);font-variant-numeric:tabular-nums">${cnpjHero}</div>
-    </div>
-    <div style="flex-shrink:0">${decisaoBadge(decision, true)}</div>
+  // ── BLOCO 2 — Fundação & idade ────────────────────────────────────────
+  const info3 = (label: string, value: string) => `<div style="background:#edf2fb;border-radius:6px;padding:8px 12px">
+    <div style="font-size:8px;font-weight:800;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">${label}</div>
+    <div style="font-size:11px;font-weight:800;color:#111827;margin-top:2px">${value}</div>
+  </div>`;
+  const block2 = `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;page-break-inside:avoid">
+    ${info3("Fundacao", esc(data.cnpj?.dataAbertura) || "\u2014")}
+    ${info3("Idade", esc(companyAge) || "\u2014")}
+    ${info3("Natureza Juridica", esc(data.cnpj?.naturezaJuridica) || "\u2014")}
   </div>`;
 
-  // ── Bloco do parecer da IA: pontos fortes / fracos / contexto inline ──
-  const parecerInline = hasAiInsights ? `<div style="margin-bottom:24px;page-break-inside:avoid">
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
-      <div style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;background:#203B88;color:#fff;border-radius:6px;font-size:11px;font-weight:900">IA</div>
-      <div style="font-size:12px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.08em">Parecer Automatico</div>
-      <div style="flex:1;height:1px;background:linear-gradient(to right,#e0e4ec,transparent)"></div>
+  // ── BLOCO 3 — Segmento ────────────────────────────────────────────────
+  const principal = data.cnpj?.cnaePrincipal;
+  const secundarios = data.cnpj?.cnaeSecundarios;
+  const objeto = data.contrato?.objetoSocial;
+  const block3 = (principal || secundarios || objeto) ? `<div style="background:#fff;border:1px solid #e0e4ec;border-left:4px solid #2563eb;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:10.5px;line-height:1.55;page-break-inside:avoid">
+    ${principal ? `<div><span style="font-weight:800;color:#6b7280;font-size:9px;text-transform:uppercase;letter-spacing:.05em">CNAE Principal</span> <span style="color:#111827">${esc(principal)}</span></div>` : ""}
+    ${secundarios ? `<div style="margin-top:3px"><span style="font-weight:800;color:#6b7280;font-size:9px;text-transform:uppercase;letter-spacing:.05em">Secundarios</span> <span style="color:#374151;font-size:9.5px">${esc(secundarios).substring(0, 180)}</span></div>` : ""}
+    ${objeto ? `<div style="margin-top:4px;font-style:italic;color:#4b5563;font-size:10px">${esc(objeto).substring(0, 220)}${objeto.length > 220 ? "\u2026" : ""}</div>` : ""}
+  </div>` : "";
+
+  // ── BLOCO 4 — Street View + endereço ──────────────────────────────────
+  const svImg = p.streetViewBase64;
+  const block4 = (svImg && data.cnpj?.endereco) ? `<div style="display:flex;gap:12px;margin-bottom:14px;page-break-inside:avoid">
+    <img src="${svImg}" style="width:260px;height:150px;object-fit:cover;border-radius:8px;border:1px solid #e0e4ec"/>
+    <div style="flex:1;padding:6px 0">
+      <div style="font-size:9px;font-weight:800;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">Endereco</div>
+      <div style="font-size:10.5px;color:#111827;line-height:1.55;margin-top:4px">${esc(data.cnpj.endereco)}</div>
+      ${data.cnpj.telefone ? `<div style="font-size:9px;color:#9ca3af;margin-top:6px">Tel.: ${esc(data.cnpj.telefone)}</div>` : ""}
     </div>
-    ${aiContexto ? `<div style="background:#f8f9fb;border-left:4px solid #203B88;border-radius:0 8px 8px 0;padding:14px 18px;margin-bottom:14px;font-size:12px;line-height:1.7;color:#374151">
-      <div style="font-size:9px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Contexto</div>
-      ${esc(aiContexto.length > 600 ? aiContexto.substring(0, 600) + "..." : aiContexto)}
-    </div>` : ""}
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-      <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px 16px">
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
-          <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;background:#22c55e;color:#fff;border-radius:50%;font-size:10px;font-weight:900">\u2713</span>
-          <div style="font-size:10px;font-weight:800;color:#166534;text-transform:uppercase;letter-spacing:.06em">Pontos Fortes</div>
-        </div>
-        ${aiPontosFortes.length > 0
-          ? `<ul style="list-style:none;padding:0;margin:0">${aiPontosFortes.slice(0, 5).map(pt => `<li style="font-size:10.5px;color:#166534;line-height:1.6;padding:4px 0 4px 14px;position:relative">
-              <span style="position:absolute;left:0;top:7px;width:5px;height:5px;background:#22c55e;border-radius:50%"></span>${esc(pt)}
-            </li>`).join("")}</ul>`
-          : `<div style="font-size:10px;color:#9ca3af;font-style:italic">Nenhum ponto forte identificado.</div>`}
-      </div>
-      <div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:14px 16px">
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
-          <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;background:#ef4444;color:#fff;border-radius:50%;font-size:10px;font-weight:900">!</span>
-          <div style="font-size:10px;font-weight:800;color:#991b1b;text-transform:uppercase;letter-spacing:.06em">Pontos de Atencao</div>
-        </div>
-        ${aiPontosFracos.length > 0
-          ? `<ul style="list-style:none;padding:0;margin:0">${aiPontosFracos.slice(0, 5).map(pt => `<li style="font-size:10.5px;color:#991b1b;line-height:1.6;padding:4px 0 4px 14px;position:relative">
-              <span style="position:absolute;left:0;top:7px;width:5px;height:5px;background:#ef4444;border-radius:50%"></span>${esc(pt)}
-            </li>`).join("")}</ul>`
-          : `<div style="font-size:10px;color:#9ca3af;font-style:italic">Nenhum ponto de atencao identificado.</div>`}
-      </div>
-    </div>
-  </div>` : `<div style="padding:14px 18px;margin-bottom:20px;background:#fffbeb;border-left:4px solid #d97706;border-radius:0 8px 8px 0;font-size:11px;color:#92400e">
-    <strong>Parecer automatico nao gerado.</strong> Aguarde a analise da IA terminar ou clique em <em>Analisar com IA</em> para gerar pontos fortes, pontos de atencao e contexto.
-  </div>`;
+  </div>` : "";
 
-  return `<div class="sec">${secHdr("03","Sintese Preliminar")}
-
-  ${heroHtml}
-
-  ${parecerInline}
-
-  ${qualityPanel}
-
-  ${groupLabel("IDENTIFICACAO")}
-  ${grid(4,[
-    kpi("Rating",`${finalRating} / 10`,rc),
-    kpi("Decisao",decision.replace(/_/g," ")),
-    kpi("Tempo Empresa",esc(p.companyAge)||"\u2014"),
-    kpi("Modalidade",esc(String(modalidade)), "#111827", modalidadeSub),
-  ])}
-
-  ${groupLabel("INDICADORES FINANCEIROS")}
-  ${grid(4,[
-    kpi("FMM 12m", fmmNum > 0 ? fmtMoneyRound(String(fmmNum)) : "\u2014", "#111827", "media mensal recalculada"),
-    kpi("Faturamento Total", fatTotal > 0 ? fmtMoneyRound(String(fatTotal)) : "\u2014", "#111827", last12Meses.length > 0 ? `soma ${last12Meses.length} meses` : undefined),
-    kpi("Alavancagem Total", alavancagemTotal != null ? `${alavancagemTotal.toFixed(1)}x` : "\u2014", alavancagemTotal != null && alavancagemTotal > 3 ? "#dc2626" : "#111827", "PJ + Socios"),
-    kpi("Pleito",typeof pleito === "string" ? (pleito.match(/\d/) ? fmtMoneyRound(pleito) : esc(pleito)) : fmtMoneyRound(pleito)),
-  ])}
-
-  ${groupLabel("EXPOSICAO DE CREDITO — EMPRESA vs SOCIOS")}
-  <div style="font-size:10px;color:#6b7280;margin-bottom:10px">Separa dividas da pessoa juridica (CNPJ ${fmtCnpj(data.cnpj?.cnpj)}) das dividas dos socios pessoa fisica. Alavancagem usa o FMM 12m da empresa como denominador.</div>
-  <table style="${TS}">
-    <thead>${row(["Titular","Dividas Totais","Vencidos","Alavancagem (Div/FMM)"], true)}</thead>
-    <tbody>
-      <tr>
-        <td><strong>Empresa (PJ)</strong><br/><span style="font-size:8px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em">${fmtCnpj(data.cnpj?.cnpj)}</span></td>
-        <td class="money">${scrPjDivida > 0 ? fmtMoneyRound(String(scrPjDivida)) : "\u2014"}</td>
-        <td class="money${scrPjVencido > 0 ? " neg" : ""}">${scrPjVencido > 0 ? fmtMoneyRound(String(scrPjVencido)) : "\u2014"}</td>
-        <td class="money" style="${alavancagemPj != null && alavancagemPj > 3 ? "color:#dc2626;font-weight:800" : "font-weight:700"}">${alavancagemPj != null ? alavancagemPj.toFixed(2) + "x" : "\u2014"}</td>
-      </tr>
-      <tr>
-        <td><strong>Socios (PF)</strong><br/><span style="font-size:8px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em">${scrSociosArr.length > 0 ? scrSociosArr.length + " socio(s) com SCR" : "Sem SCR de socios"}</span></td>
-        <td class="money">${scrPfDivida > 0 ? fmtMoneyRound(String(scrPfDivida)) : "\u2014"}</td>
-        <td class="money${scrPfVencido > 0 ? " neg" : ""}">${scrPfVencido > 0 ? fmtMoneyRound(String(scrPfVencido)) : "\u2014"}</td>
-        <td class="money" style="${alavancagemPf != null && alavancagemPf > 3 ? "color:#dc2626;font-weight:800" : "font-weight:700"}">${alavancagemPf != null ? alavancagemPf.toFixed(2) + "x" : "\u2014"}</td>
-      </tr>
-      <tr style="background:#edf2fb !important">
-        <td><strong style="color:#203B88">TOTAL CONSOLIDADO</strong></td>
-        <td class="money" style="font-weight:900;color:#203B88">${scrTotalDivida > 0 ? fmtMoneyRound(String(scrTotalDivida)) : "\u2014"}</td>
-        <td class="money${scrTotalVencido > 0 ? " neg" : ""}" style="font-weight:900">${scrTotalVencido > 0 ? fmtMoneyRound(String(scrTotalVencido)) : "\u2014"}</td>
-        <td class="money" style="font-weight:900;${alavancagemTotal != null && alavancagemTotal > 3 ? "color:#dc2626" : "color:#203B88"}">${alavancagemTotal != null ? alavancagemTotal.toFixed(2) + "x" : "\u2014"}</td>
-      </tr>
-    </tbody>
-  </table>
-
-  ${groupLabel("INDICADORES DE RISCO")}
-  ${grid(4,[
-    kpi("Protestos Vigentes",String(p.protestosVigentes),p.protestosVigentes>0?"#dc2626":"#111827", `${fmtMoneyRound(data.protestos?.vigentesValor)} | ult: ${esc(String(lastProtesto))}`),
-    kpi("Processos",`A:${procAtivo} / P:${procPassivo}`, "#111827", `ult: ${esc(String(lastProcesso))}`),
-    kpi("SCR Vencido",fmtMoneyRound(data.scr?.vencidos),p.vencidosSCR>0?"#dc2626":"#111827"),
-    kpi("CCF", data.ccf ? (data.ccf.qtdRegistros > 0 ? `${data.ccf.qtdRegistros} ocorr.` : "Sem ocorrencias") : "\u2014", data.ccf && data.ccf.qtdRegistros > 0 ? "#dc2626" : "#111827", ccfBancos || undefined),
-  ])}
-
-  ${groupLabel("ESTRUTURA")}
-  ${(() => {
-    // NCG = Ativo Circulante - Passivo Circulante (último ano do balanço)
-    const balAnos = data.balanco?.anos || [];
-    const ultimoAno = balAnos.length > 0 ? balAnos[balAnos.length - 1] : null;
-    const acVal = ultimoAno ? numVal(ultimoAno.ativoCirculante) : 0;
-    const pcVal = ultimoAno ? numVal(ultimoAno.passivoCirculante) : 0;
-    const ncgVal = acVal - pcVal;
-    // Sanity check: AC ou PC > 100x do FMM12 indica provavel erro de escala na extracao
-    const escalaSuspeita = fmmNum > 0 && (acVal > fmmNum * 200 || pcVal > fmmNum * 200);
-    const ncgStr = ultimoAno ? fmtMoneyRound(String(ncgVal)) : "\u2014";
-    const ncgColor = escalaSuspeita ? "#d97706" : ncgVal < 0 ? "#dc2626" : "#16a34a";
-    const ncgSub = escalaSuspeita
-      ? "ESCALA SUSPEITA — verificar"
-      : ncgVal < 0 ? "Deficit \u2014 necessita financiamento" : "Superavit";
-    return grid(4,[
-      kpi("Grupo Economico",geCount > 0 ? `${geCount} empresa(s)` : "\u2014", "#111827", geNames || undefined),
-      kpi("Curva ABC Top 3",fmt(top3Pct), "#111827", top3Names || undefined),
-      kpi("NCG (Cap. Giro)", ncgStr, ncgColor, ncgSub),
-      kpiPlaceholder(),
-    ]) + (escalaSuspeita ? `<div style="margin-top:-8px;margin-bottom:14px;padding:8px 12px;background:#fffbeb;border-left:3px solid #d97706;border-radius:0 6px 6px 0;font-size:10px;color:#92400e">
-      <strong>Atencao:</strong> Ativo Circulante (${fmtMoneyRound(String(acVal))}) ou Passivo Circulante (${fmtMoneyRound(String(pcVal))}) parecem desproporcionais ao FMM (${fmtMoneyRound(String(fmmNum))}). Possivel erro de escala na extracao do balanco — recomenda-se conferencia manual.
-    </div>` : "");
-  })()}
-
-  ${groupLabel("ANALISE FIDC CRITICA")}
-  ${(() => {
-    type Flag = { label: string; value: string; level: "ok"|"warn"|"crit"; detail: string };
-    const flags: Flag[] = [];
-
-    // 1. Concentracao Curva ABC
-    const top3Num = parseFloat(String(data.curvaABC?.concentracaoTop3 || "0").replace(",", "."));
-    if (top3Num > 0) {
-      flags.push({
-        label: "Concentracao Top 3",
-        value: top3Num.toFixed(1) + "%",
-        level: top3Num > 50 ? "crit" : top3Num > 30 ? "warn" : "ok",
-        detail: top3Num > 50 ? "Risco severo de dependencia" : top3Num > 30 ? "Acima do limite FIDC (30%)" : "Dentro do limite",
-      });
-    }
-
-    // 2. Alavancagem Total (PJ + PF)
-    if (alavancagemTotal != null) {
-      flags.push({
-        label: "Alavancagem Total",
-        value: alavancagemTotal.toFixed(2) + "x",
-        level: alavancagemTotal > 5 ? "crit" : alavancagemTotal > 3 ? "warn" : "ok",
-        detail: alavancagemTotal > 5 ? "Sobrealavancado" : alavancagemTotal > 3 ? "Acima do conservador (3x)" : "Saudavel",
-      });
-    }
-
-    // 3. Margem Liquida (DRE mais recente)
-    const dreAnos = data.dre?.anos || [];
-    if (dreAnos.length > 0) {
-      const last = dreAnos[dreAnos.length - 1] as unknown as Record<string, string>;
-      let mlNum = parseFloat(String(last.margemLiquida || "0").replace(",", "."));
-      // Fallback se margem nao veio mas lucro e receita vieram
-      if (mlNum === 0) {
-        const ll = numVal(last.lucroLiquido);
-        const rl = numVal(last.receitaLiquida) || numVal(last.receitaBruta);
-        if (rl > 0 && ll !== 0) mlNum = (ll / rl) * 100;
-      }
-      if (mlNum !== 0) {
-        flags.push({
-          label: "Margem Liquida",
-          value: mlNum.toFixed(1) + "%",
-          level: mlNum < 2 ? "crit" : mlNum < 5 ? "warn" : "ok",
-          detail: mlNum < 0 ? "Prejuizo" : mlNum < 2 ? "Margem critica" : mlNum < 5 ? "Margem apertada" : "Margem confortavel",
-        });
-      }
-    }
-
-    // 4. SCR Vencido (PJ + PF)
-    if (scrTotalVencido > 0) {
-      flags.push({
-        label: "SCR Vencidos",
-        value: fmtMoneyRound(String(scrTotalVencido)),
-        level: "crit",
-        detail: `Empresa: ${fmtMoneyRound(String(scrPjVencido))} | Socios: ${fmtMoneyRound(String(scrPfVencido))}`,
-      });
-    } else {
-      flags.push({
-        label: "SCR Vencidos",
-        value: "\u2014",
-        level: "ok",
-        detail: "Sem inadimplencia bancaria",
-      });
-    }
-
-    // 5. Processos passivos
-    const passivosNum = parseInt(data.processos?.passivosTotal || "0");
-    if (passivosNum > 0 || data.processos) {
-      flags.push({
-        label: "Processos Passivos",
-        value: String(passivosNum),
-        level: passivosNum > 20 ? "crit" : passivosNum > 10 ? "warn" : "ok",
-        detail: passivosNum > 20 ? "Volume alto" : passivosNum > 10 ? "Volume moderado" : "Volume normal",
-      });
-    }
-
-    // 6. PL negativo (passivo a descoberto)
-    const balAnos = data.balanco?.anos || [];
-    if (balAnos.length > 0) {
-      const lastBal = balAnos[balAnos.length - 1];
-      const pl = numVal(lastBal.patrimonioLiquido);
-      if (pl !== 0) {
-        flags.push({
-          label: "Patrimonio Liquido",
-          value: fmtMoneyRound(String(pl)),
-          level: pl < 0 ? "crit" : "ok",
-          detail: pl < 0 ? "Passivo a descoberto" : "Positivo",
-        });
-      }
-    }
-
-    // 7. Protestos vigentes
-    if (p.protestosVigentes >= 0) {
-      const pvVal = numVal(data.protestos?.vigentesValor);
-      flags.push({
-        label: "Protestos Vigentes",
-        value: String(p.protestosVigentes),
-        level: p.protestosVigentes > 0 ? (pvVal > fmmNum * 0.1 ? "crit" : "warn") : "ok",
-        detail: p.protestosVigentes > 0 ? `${fmtMoneyRound(String(pvVal))} em aberto` : "Sem protestos",
-      });
-    }
-
-    if (flags.length === 0) return "";
-
-    const colorMap = {
-      ok: { bg: "#f0fdf4", border: "#bbf7d0", text: "#166534", icon: "\u2713", label: "OK" },
-      warn: { bg: "#fffbeb", border: "#fde68a", text: "#92400e", icon: "\u26A0", label: "ATENCAO" },
-      crit: { bg: "#fef2f2", border: "#fecaca", text: "#991b1b", icon: "\u2717", label: "CRITICO" },
-    };
-
-    const cardsHtml = flags.map(f => {
-      const c = colorMap[f.level];
-      return `<div style="background:${c.bg};border:1px solid ${c.border};border-radius:8px;padding:12px 14px;page-break-inside:avoid">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-          <span style="font-size:9px;font-weight:700;color:${c.text};text-transform:uppercase;letter-spacing:.04em">${esc(f.label)}</span>
-          <span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:99px;background:${c.text};color:#fff;font-size:8px;font-weight:800;letter-spacing:.04em">${c.icon} ${c.label}</span>
-        </div>
-        <div style="font-size:18px;font-weight:900;color:${c.text};line-height:1.1;margin-bottom:4px">${esc(f.value)}</div>
-        <div style="font-size:9.5px;color:${c.text};opacity:.8;line-height:1.4">${esc(f.detail)}</div>
-      </div>`;
-    }).join("");
-
-    const critCount = flags.filter(f => f.level === "crit").length;
-    const warnCount = flags.filter(f => f.level === "warn").length;
-    const okCount = flags.filter(f => f.level === "ok").length;
-    const veredito = critCount > 0
-      ? { txt: `${critCount} alerta(s) CRITICO(s) — Operacao requer aprovacao especial do comite`, bg: "#fef2f2", color: "#991b1b", border: "#dc2626" }
-      : warnCount > 0
-        ? { txt: `${warnCount} ponto(s) de atencao — Aprovacao condicional recomendada`, bg: "#fffbeb", color: "#92400e", border: "#d97706" }
-        : { txt: "Todos os criterios criticos do FIDC dentro do esperado", bg: "#f0fdf4", color: "#166534", border: "#16a34a" };
-
-    return `<div style="font-size:10px;color:#6b7280;margin-bottom:12px">Avaliacao critica sob otica FIDC: red flags em concentracao, alavancagem, margens, inadimplencia bancaria e judicial.</div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">${cardsHtml}</div>
-    <div style="padding:12px 16px;background:${veredito.bg};border:2px solid ${veredito.border};border-radius:8px;display:flex;align-items:center;gap:12px;page-break-inside:avoid">
-      <div style="display:flex;gap:8px;flex-shrink:0">
-        <div style="background:#16a34a;color:#fff;font-size:10px;font-weight:800;padding:4px 8px;border-radius:4px">${okCount} OK</div>
-        ${warnCount > 0 ? `<div style="background:#d97706;color:#fff;font-size:10px;font-weight:800;padding:4px 8px;border-radius:4px">${warnCount} ATENCAO</div>` : ""}
-        ${critCount > 0 ? `<div style="background:#dc2626;color:#fff;font-size:10px;font-weight:800;padding:4px 8px;border-radius:4px">${critCount} CRITICO</div>` : ""}
-      </div>
-      <div style="font-size:12px;font-weight:700;color:${veredito.color};flex:1">${esc(veredito.txt)}</div>
-    </div>`;
-  })()}
-
-  ${(() => {
-    // Gestão e Grupo Econômico compact table
-    const socios = data.qsa?.quadroSocietario || [];
-    const scrSocios = data.scrSocios || [];
-    const geEmpresas = data.grupoEconomico?.empresas || [];
-    if (socios.length === 0 && geEmpresas.length === 0) return "";
-
-    type GestaoRow = { nome: string; doc: string; scrTotal: string; vencido: string; protestos: string; processos: string };
-    const gestaoRows: GestaoRow[] = [];
-
-    // Sócios from QSA matched with SCR sócios
-    socios.filter(s => s.nome).forEach(s => {
-      const nomeUpper = (s.nome || "").toUpperCase().trim();
-      const matched = scrSocios.find(sc => {
-        const scNome = (sc.nomeSocio || "").toUpperCase().trim();
-        return scNome === nomeUpper || scNome.includes(nomeUpper) || nomeUpper.includes(scNome);
-      });
-      const digits = s.cpfCnpj ? s.cpfCnpj.replace(/\D/g, "") : "";
-      const docFmt = digits.length > 11 ? fmtCnpj(s.cpfCnpj) : digits.length > 0 ? fmtCpf(s.cpfCnpj) : "\u2014";
-      gestaoRows.push({
-        nome: esc(s.nome || "\u2014"),
-        doc: docFmt,
-        scrTotal: matched?.periodoAtual?.totalDividasAtivas ? fmtMoneyRound(matched.periodoAtual.totalDividasAtivas) : "\u2014",
-        vencido: matched?.periodoAtual?.vencidos && numVal(matched.periodoAtual.vencidos) > 0 ? fmtMoneyRound(matched.periodoAtual.vencidos) : "\u2014",
-        protestos: "\u2014",
-        processos: "\u2014",
-      });
-    });
-
-    // Grupo econômico empresas
-    geEmpresas.forEach(e => {
-      gestaoRows.push({
-        nome: esc(e.razaoSocial || "\u2014"),
-        doc: fmtCnpj(e.cnpj),
-        scrTotal: "\u2014",
-        vencido: "\u2014",
-        protestos: "\u2014",
-        processos: "\u2014",
-      });
-    });
-
-    return `${groupLabel("GESTAO E GRUPO ECONOMICO")}
-    <table style="${TS}">
-      <thead>${row(["Nome/Razao Social", "CPF/CNPJ", "SCR Total", "Vencido", "Protestos", "Processos"], true)}</thead>
-      <tbody>${gestaoRows.map(r => {
-        const vencColor = r.vencido !== "\u2014" ? "color:#dc2626;font-weight:700" : "";
-        return `<tr><td><strong>${r.nome}</strong></td><td>${r.doc}</td><td class="money">${r.scrTotal}</td><td class="money" style="${vencColor}">${r.vencido}</td><td style="text-align:center">${r.protestos}</td><td style="text-align:center">${r.processos}</td></tr>`;
+  // ── BLOCO 5 — Estrutura societária + grupo econômico ──────────────────
+  const socios = (data.qsa?.quadroSocietario || []).filter(s => s?.nome).slice(0, 6);
+  const capSoc = data.qsa?.capitalSocial || data.contrato?.capitalSocial;
+  const geCount = data.grupoEconomico?.empresas?.length || 0;
+  const footerParts: string[] = [];
+  if (capSoc) footerParts.push(`<strong>Capital Social:</strong> R$ ${fmtMoneyRound(capSoc)}`);
+  if (geCount > 0) footerParts.push(`<strong>Grupo economico:</strong> ${geCount} empresa(s) vinculada(s)`);
+  const block5 = (socios.length > 0 || geCount > 0) ? `<div style="margin-bottom:14px;page-break-inside:avoid">
+    ${subTitle("Estrutura Societaria")}
+    ${socios.length > 0 ? `<table style="${TS}">
+      <thead>${row(["Nome", "CPF/CNPJ", "Qualificacao", "Partic."], true)}</thead>
+      <tbody>${socios.map(s => {
+        const digits = (s.cpfCnpj || "").replace(/\D/g, "");
+        const docFmt = digits.length > 11 ? fmtCnpj(s.cpfCnpj) : digits.length > 0 ? fmtCpf(s.cpfCnpj) : "\u2014";
+        return `<tr><td><strong>${esc(s.nome || "\u2014")}</strong></td><td>${docFmt}</td><td>${esc(s.qualificacao || "\u2014")}</td><td>${esc(s.participacao || "\u2014")}</td></tr>`;
       }).join("")}</tbody>
-    </table>`;
-  })()}
+    </table>` : ""}
+    ${footerParts.length ? `<div style="font-size:10px;color:#4b5563;padding:6px 4px">${footerParts.join("   \u2022   ")}</div>` : ""}
+  </div>` : "";
 
-  ${subTitle("Composicao do Score")}
-  <table style="${TS}">
-    <thead>${row(["Componente","Peso","Status","Impacto","Relevancia","Diagnostico"],true)}</thead>
-    <tbody>${scoreRows.map(r=>{
-      const st=r.status==="OK"?"ok":r.status==="ALERTA"?"fail":"warn";
-      const pesoNum = parseFloat(r.peso) || 0;
-      const pesoFrac = pesoNum / 100;
-      const impactoVal = pesoFrac * 10 * (st === "ok" ? 1 : st === "fail" ? 0.3 : 0.5);
-      const impactoColor = st === "ok" ? "#16a34a" : "#dc2626";
-      const impactoSign = st === "ok" ? "+" : "-";
-      const impactoDisplay = `<span style="font-weight:800;color:${impactoColor}">${impactoSign}${impactoVal.toFixed(1)} pts</span>`;
-      const rowBg = st === "ok" ? "background:rgba(34,197,94,.06)" : st === "fail" ? "background:rgba(239,68,68,.06)" : "background:rgba(245,158,11,.06)";
-      const progressBar = `<div style="display:flex;align-items:center;gap:6px"><span>${esc(r.peso)}</span><div style="flex:1;height:6px;background:#e5e7eb;border-radius:3px;overflow:hidden"><div style="width:${pesoNum}%;height:100%;background:${st==="ok"?"#22c55e":st==="fail"?"#ef4444":"#f59e0b"};border-radius:3px"></div></div></div>`;
-      const badgeCfg = {ok:{bg:"#dcfce7",color:"#166534",brd:"#bbf7d0",icon:"\u2713"},fail:{bg:"#fee2e2",color:"#991b1b",brd:"#fecaca",icon:"\u2717"},warn:{bg:"#fef3c7",color:"#92400e",brd:"#fde68a",icon:"\u26A0"}}[st];
-      const bigBadge = `<span style="display:inline-flex;align-items:center;gap:4px;padding:5px 14px;border-radius:99px;background:${badgeCfg.bg};color:${badgeCfg.color};font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border:1px solid ${badgeCfg.brd}"><span style="font-size:10px">${badgeCfg.icon}</span> ${esc(r.status)}</span>`;
-      return `<tr style="${rowBg}"><td>${esc(r.comp)}</td><td>${progressBar}</td><td>${bigBadge}</td><td style="text-align:center">${impactoDisplay}</td><td>${esc(r.relevancia)}</td><td>${esc(r.diag)}</td></tr>`;
-    }).join("")}
-    <tr style="background:linear-gradient(135deg,#203B88 0%,#2a4da6 100%)"><td colspan="6" style="text-align:center;padding:12px 16px;border-bottom:none"><span style="font-size:14px;font-weight:900;color:#fff;letter-spacing:.05em">SCORE FINAL: ${finalRating} / 10 &mdash; ${esc(decision.replace(/_/g," "))}</span></td></tr>
-    </tbody>
-  </table>
+  // ── BLOCO 6 — Risco consolidado ───────────────────────────────────────
+  const block6 = `${groupLabelLocal("Risco Consolidado")}
+  ${grid(4, [
+    kpi("Protestos", String(protQtd),
+      protQtd > 0 ? "#dc2626" : "#16a34a",
+      protQtd > 0 ? `R$ ${fmtMoneyRound(String(protVal))}` : "sem ocorrencias"),
+    kpi("CCF",
+      ccfQtd == null ? "\u2014" : String(ccfQtd),
+      ccfQtd == null ? "#9ca3af" : ccfQtd > 0 ? "#dc2626" : "#16a34a",
+      ccfQtd == null ? "nao consultado" : ccfQtd > 0 ? "ocorrencias" : "sem cheques"),
+    kpi("Processos", String(procPass),
+      procPass > 10 ? "#dc2626" : procPass > 0 ? "#d97706" : "#16a34a",
+      "polo passivo"),
+    kpi("SCR Venc.",
+      scrVenc > 0 ? `R$ ${fmtMoneyRound(String(scrVenc))}` : "\u2014",
+      scrVenc > 0 ? "#dc2626" : "#16a34a",
+      scrVenc > 0 ? `${scrVencPct.toFixed(1)}% do total` : "em dia"),
+  ])}`;
 
-  ${alerts&&alerts.length>0?`${subTitle("Alertas")}${alerts.map(a=>alertBox(a.message,(a.severity||"INFO") as "ALTA"|"MODERADA"|"INFO")).join("")}`:""}
+  // Alerts (max 4, dedupe)
+  const seenAlerts = new Set<string>();
+  const selAlerts: Array<{ msg: string; sev: "ALTA"|"MODERADA"|"INFO" }> = [];
+  const pushAlert = (msg: string, sev: "ALTA"|"MODERADA"|"INFO") => {
+    const k = msg.trim().toLowerCase().substring(0, 80);
+    if (seenAlerts.has(k) || selAlerts.length >= 4) return;
+    seenAlerts.add(k);
+    selAlerts.push({ msg, sev });
+  };
+  (alertsHigh || []).forEach(a => pushAlert(a.message, "ALTA"));
+  (alerts || []).filter(a => a.severity === "ALTA").forEach(a => pushAlert(a.message, "ALTA"));
+  (alerts || []).filter(a => a.severity === "MODERADA").forEach(a => pushAlert(a.message, "MODERADA"));
+  const block6Alerts = selAlerts.length > 0
+    ? `<div style="margin-bottom:14px">${selAlerts.map(a => alertBox(a.msg, a.sev)).join("")}</div>`
+    : "";
 
-  ${buildCalcAlerts(p, data, alerts, fmmNum, alavancagem)}
+  // ── BLOCO 7 — Faturamento mini-chart ──────────────────────────────────
+  const maxVal = Math.max(...last12.map(m => numVal(m.valor)), 1);
+  const bars = last12.map((m, i) => {
+    const v = numVal(m.valor);
+    const prev = i > 0 ? numVal(last12[i - 1].valor) : v;
+    const c = v === 0 ? "#9ca3af"
+      : v > prev * 1.05 ? "#16a34a"
+      : v < prev * 0.95 ? "#dc2626"
+      : "#203B88";
+    const hPct = (v / maxVal) * 100;
+    return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:3px">
+      <div style="width:100%;background:${c};height:${hPct}%;min-height:2px;border-radius:2px 2px 0 0"></div>
+      <div style="font-size:7.5px;color:#9ca3af;text-transform:uppercase">${esc(m.mes)}</div>
+    </div>`;
+  }).join("");
+  const block7 = last12.length > 0 ? `<div style="margin-bottom:14px;padding:12px 14px;background:#fff;border:1px solid #e0e4ec;border-radius:8px;page-break-inside:avoid">
+    <div style="font-size:9px;font-weight:800;color:#6b7280;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Faturamento \u2014 Ultimos 12 Meses</div>
+    <div style="display:flex;align-items:flex-end;gap:3px;height:80px">${bars}</div>
+    <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:10px;color:#374151;border-top:1px solid #edf2fb;padding-top:6px">
+      <span><strong>FMM 12M:</strong> R$ ${fmtMoneyRound(String(fmmNum))}</span>
+      <span><strong>Total 12M:</strong> R$ ${fmtMoneyRound(String(fatTotal12))}</span>
+      <span><strong>Tendencia:</strong> ${tendLabel}</span>
+    </div>
+  </div>` : "";
+
+  // ── BLOCO 8 — Curva ABC top 5 ─────────────────────────────────────────
+  const block8 = top5Rows.length > 0 ? `<div style="margin-bottom:14px;page-break-inside:avoid">
+    ${subTitle("Curva ABC \u2014 Top 5 Clientes")}
+    <table style="${TS}">
+      <thead>${row(["#", "Cliente", "Faturamento", "% Receita", "% Acum.", "Cl."], true)}</thead>
+      <tbody>${top5Rows.map(r => `<tr>
+        <td>${r.pos}</td>
+        <td><strong>${esc(r.nome)}</strong></td>
+        <td class="money">R$ ${fmtMoneyRound(r.valor)}</td>
+        <td class="money">${r.pctReceita.toFixed(2)}%</td>
+        <td class="money">${r.acum.toFixed(2)}%</td>
+        <td style="text-align:center"><strong>${esc(r.classe)}</strong></td>
+      </tr>`).join("")}</tbody>
+    </table>
+    <div style="font-size:10px;color:#4b5563;padding:2px 4px 6px">
+      <strong>Total:</strong> ${totalClientes} cliente(s)
+      ${abc?.concentracaoTop3 ? `   \u2022   <strong>Top 3:</strong> ${esc(abc.concentracaoTop3)}` : ""}
+      ${abc?.concentracaoTop5 ? `   \u2022   <strong>Top 5:</strong> ${esc(abc.concentracaoTop5)}` : ""}
+    </div>
+    ${firstPct > 30 ? alertBox(`Concentracao elevada: maior cliente representa ${firstPct.toFixed(1)}% da receita`, "MODERADA") : ""}
+  </div>` : "";
+
+  // ── BLOCO 9 — Pleito ──────────────────────────────────────────────────
+  const hasPleito = rv && (rv.pleito || rv.limiteTotal || rv.modalidade || rv.prazoMaximoOp || rv.taxaConvencional);
+  const block9 = hasPleito ? `${groupLabelLocal("Pleito")}
+  ${grid(4, [
+    kpi("Valor Pleito",
+      rv!.pleito ? `R$ ${fmtMoneyRound(rv!.pleito)}` : rv!.limiteTotal ? `R$ ${fmtMoneyRound(rv!.limiteTotal)}` : "\u2014"),
+    kpi("Modalidade", modLabel),
+    kpi("Prazo Maximo", rv!.prazoMaximoOp ? `${esc(rv!.prazoMaximoOp)} dias` : "\u2014"),
+    kpi("Taxa Conv.", rv!.taxaConvencional ? `${esc(rv!.taxaConvencional)}% a.m.` : "\u2014"),
+  ])}` : "";
+
+  // ── BLOCO 10 — Tri-card ───────────────────────────────────────────────
+  const triItems = (items: string[]) => items.length === 0
+    ? `<div style="font-size:9.5px;color:#9ca3af;font-style:italic">\u2014 nenhum \u2014</div>`
+    : `<ul style="list-style:none;padding:0;margin:0">${items.slice(0, 5).map(it => `<li style="font-size:9.5px;line-height:1.45;padding:3px 0 3px 10px;position:relative"><span style="position:absolute;left:0;top:7px;width:4px;height:4px;background:currentColor;border-radius:50%"></span>${esc(it)}</li>`).join("")}</ul>`;
+  const alertasMod = (alerts || []).filter(a => a.severity === "MODERADA").map(a => a.message);
+  const pf = pontosFortes || [];
+  const pfr = pontosFracos || [];
+  const block10 = (pf.length + pfr.length + alertasMod.length > 0) ? `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;page-break-inside:avoid">
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px 14px;color:#166534">
+      <div style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Pontos Fortes</div>
+      ${triItems(pf)}
+    </div>
+    <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px 14px;color:#991b1b">
+      <div style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Pontos Fracos</div>
+      ${triItems(pfr)}
+    </div>
+    <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 14px;color:#854d0e">
+      <div style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Alertas</div>
+      ${triItems(alertasMod)}
+    </div>
+  </div>` : "";
+
+  // ── BLOCO 11 — Percepção do analista ──────────────────────────────────
+  const parecerObj = typeof p.aiAnalysis?.parecer === "object" && p.aiAnalysis?.parecer !== null
+    ? p.aiAnalysis.parecer as { resumoExecutivo?: string; textoCompleto?: string }
+    : null;
+  let abstractTxt = resumoExecutivo
+    || parecerObj?.resumoExecutivo
+    || parecerObj?.textoCompleto
+    || p.aiAnalysis?.sinteseExecutiva
+    || "";
+  if (abstractTxt.length > 600) abstractTxt = abstractTxt.substring(0, 600).trimEnd() + "\u2026";
+  const block11 = abstractTxt ? `<div style="margin-bottom:14px;background:#edf2fb;border-left:4px solid #203B88;border-radius:0 8px 8px 0;padding:12px 16px;page-break-inside:avoid">
+    <div style="font-size:9px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Percepcao do Analista</div>
+    <div style="font-size:10.5px;line-height:1.6;color:#1f2937">${esc(abstractTxt)}</div>
+    <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:9px">
+      <span style="font-weight:800;color:#374151">Recomendacao: ${decFmt}</span>
+      <span style="font-style:italic;color:#9ca3af">Ver parecer completo na secao 02.</span>
+    </div>
+  </div>` : "";
+
+  return `<div class="sec">${secHdr("00", "Sintese Preliminar")}
+  ${block1}
+  ${block2}
+  ${block3}
+  ${block4}
+  ${block5}
+  ${block6}
+  ${block6Alerts}
+  ${block7}
+  ${block8}
+  ${block9}
+  ${block10}
+  ${block11}
 </div>`;
+}
+
+function groupLabelLocal(label: string): string {
+  return `<div style="font-size:10px;font-weight:900;color:#203B88;text-transform:uppercase;letter-spacing:.1em;margin:14px 0 8px;padding:6px 12px;background:linear-gradient(90deg,#edf2fb 0%,#f8f9fb 100%);border-left:4px solid #73B815;border-radius:0 6px 6px 0">${esc(label)}</div>`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
