@@ -1613,6 +1613,7 @@ export async function POST(request: NextRequest) {
 
     const file = formData.get("file") as File | null;
     const docType = formData.get("type") as string | null;
+    const slot = formData.get("slot") as string | null;
 
     if (!file || !docType) {
       return NextResponse.json({ error: "Arquivo ou tipo não informado." }, { status: 400 });
@@ -1775,20 +1776,34 @@ export async function POST(request: NextRequest) {
               }
               case "contrato": {
                 data = fillContratoDefaults(parsed as Partial<ContratoSocialData>);
-                const n = (data as ContratoSocialData).socios?.length ?? 0;
-                console.log(`[extract][contrato] Gemini retornou ${n} socio(s) apos filtro.`);
+                const cd = data as ContratoSocialData;
+                const n = cd.socios?.length ?? 0;
+                console.log(`[extract][contrato] socios=${n} capitalSocial="${cd.capitalSocial || "vazio"}" objetoSocial=${cd.objetoSocial ? `${cd.objetoSocial.length}c` : "vazio"} dataConst="${cd.dataConstituicao || "vazio"}" temAlteracoes=${cd.temAlteracoes}`);
+                if (n === 0 && !cd.capitalSocial && !cd.objetoSocial) {
+                  console.warn(`[extract][contrato] NENHUM CAMPO EXTRAIDO — verifique documento. parsed keys: ${Object.keys(parsed as object).join(", ")}`);
+                }
                 break;
               }
               case "faturamento":    data = fillFaturamentoDefaults(parsed as Partial<FaturamentoData>); break;
               case "scr": {
                 data = fillSCRDefaults(parsed as Partial<SCRData>);
                 const scrData = data as SCRData;
-                console.log(`[extract][scr] Gemini retornou periodoRef="${scrData.periodoReferencia || "VAZIO"}" tipoPessoa="${scrData.tipoPessoa || "VAZIO"}" cnpjSCR="${scrData.cnpjSCR || ""}" cpfSCR="${scrData.cpfSCR || ""}" totalDividas="${scrData.totalDividasAtivas || "0"}"`);
+                // Override de tipoPessoa baseado no slot do frontend — elimina a dependencia
+                // do Gemini inferir PJ/PF corretamente.
+                if (slot === "scr_socio" || slot === "scr_socio_anterior") {
+                  if (scrData.tipoPessoa !== "PF") {
+                    console.log(`[extract][scr] slot=${slot} forcando tipoPessoa=PF (Gemini retornou "${scrData.tipoPessoa || "vazio"}")`);
+                  }
+                  scrData.tipoPessoa = "PF";
+                } else if (slot === "scr" || slot === "scrAnterior") {
+                  if (scrData.tipoPessoa !== "PJ") {
+                    console.log(`[extract][scr] slot=${slot} forcando tipoPessoa=PJ (Gemini retornou "${scrData.tipoPessoa || "vazio"}")`);
+                  }
+                  scrData.tipoPessoa = "PJ";
+                }
+                console.log(`[extract][scr] slot=${slot || "nenhum"} periodoRef="${scrData.periodoReferencia || "VAZIO"}" tipoPessoa="${scrData.tipoPessoa || "VAZIO"}" cnpjSCR="${scrData.cnpjSCR || ""}" cpfSCR="${scrData.cpfSCR || ""}" totalDividas="${scrData.totalDividasAtivas || "0"}"`);
                 if (!scrData.periodoReferencia) {
                   console.warn(`[extract][scr] SEM periodoReferencia — ordenacao atual/anterior vai falhar`);
-                }
-                if (!scrData.tipoPessoa) {
-                  console.warn(`[extract][scr] SEM tipoPessoa — documento vai cair no bucket empresa por fallback`);
                 }
                 const periodoAnterior = (parsed as Record<string, unknown>).periodoAnterior as Partial<SCRData> | undefined;
                 if (periodoAnterior && periodoAnterior.periodoReferencia) {

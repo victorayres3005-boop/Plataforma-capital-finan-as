@@ -370,6 +370,8 @@ export default function UploadStep({
       const fd = new FormData();
       fd.append("file", file);
       fd.append("type", apiType);
+      // Hint de slot — servidor usa pra forcar tipoPessoa='PF' em SCR de socio
+      fd.append("slot", type);
 
       try {
         const json = await enqueueExtract(async () => {
@@ -571,6 +573,7 @@ export default function UploadStep({
     const fd = new FormData();
     fd.append("file", section.lastFailedFile);
     fd.append("type", apiType);
+    fd.append("slot", type);
 
     try {
       const json = await enqueueExtract(async () => {

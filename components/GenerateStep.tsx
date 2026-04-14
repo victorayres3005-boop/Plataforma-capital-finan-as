@@ -1000,7 +1000,14 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     const asRec = (o: object) => o as unknown as Record<string, unknown>;
     if (data.cnpj.cnpj || data.cnpj.razaoSocial) docs.push({ type: "cnpj", filename: "cartao-cnpj.pdf", extracted_data: asRec(data.cnpj), uploaded_at: new Date().toISOString() });
     if (data.qsa.quadroSocietario.some(s => s.nome)) docs.push({ type: "qsa", filename: "qsa.pdf", extracted_data: asRec(data.qsa), uploaded_at: new Date().toISOString() });
-    if (data.contrato.capitalSocial || data.contrato.socios.some(s => s.nome)) docs.push({ type: "contrato_social", filename: "contrato-social.pdf", extracted_data: asRec(data.contrato), uploaded_at: new Date().toISOString() });
+    // Contrato social: persiste se QUALQUER campo estiver populado — nao so capitalSocial/socios
+    const c = data.contrato;
+    const contratoTemDados = !!(
+      c.capitalSocial || c.objetoSocial || c.dataConstituicao ||
+      c.administracao || c.foro || c.prazoDuracao || c.temAlteracoes ||
+      (c.socios && c.socios.some(s => s.nome))
+    );
+    if (contratoTemDados) docs.push({ type: "contrato_social", filename: "contrato-social.pdf", extracted_data: asRec(data.contrato), uploaded_at: new Date().toISOString() });
     if (data.faturamento.meses.length > 0 || data.faturamento.somatoriaAno) docs.push({ type: "faturamento", filename: "faturamento.pdf", extracted_data: asRec(data.faturamento), uploaded_at: new Date().toISOString() });
     if (data.scr.totalDividasAtivas || data.scr.operacoesEmAtraso) docs.push({ type: "scr_bacen", filename: "scr-bacen.pdf", extracted_data: asRec({ ...data.scr, tipoPessoa: "PJ" }), uploaded_at: new Date().toISOString() });
     if (data.scrAnterior) docs.push({ type: "scr_bacen", filename: "scr-anterior.pdf", extracted_data: asRec({ ...data.scrAnterior, tipoPessoa: "PJ" }), uploaded_at: new Date().toISOString() });
