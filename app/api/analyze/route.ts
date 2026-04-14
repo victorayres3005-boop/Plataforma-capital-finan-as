@@ -124,7 +124,13 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 // Chamada Gemini
 // ─────────────────────────────────────────
 async function callGemini(prompt: string, data: string): Promise<string> {
-  const parts = [{ text: prompt + "\n\n--- DADOS EXTRAÍDOS ---\n\n" + data }];
+  // Caching implicito do Gemini 2.5: prompt estatico (ANALYSIS_PROMPT + few-shots)
+  // como part isolada antes do bloco dinamico de dados. Habilita desconto
+  // automatico em input tokens quando o mesmo prompt e reutilizado.
+  const parts = [
+    { text: prompt },
+    { text: "\n\n--- DADOS EXTRAÍDOS ---\n\n" + data },
+  ];
 
   for (const apiKey of GEMINI_API_KEYS) {
     for (const model of GEMINI_MODELS) {

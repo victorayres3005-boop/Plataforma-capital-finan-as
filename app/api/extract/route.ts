@@ -1308,13 +1308,17 @@ Dados da empresa (coletados na visita):
 // PROVEDOR 1: Gemini (primário — melhor qualidade)
 // ─────────────────────────────────────────
 async function callGemini(prompt: string, content: string | { mimeType: string; base64: string }, maxOutputTokens = 2048): Promise<string> {
+  // Estrutura otimizada para o caching implicito do Gemini 2.5:
+  // o PROMPT (estatico, ~400 linhas no CONTRATO) vai PRIMEIRO em uma part isolada,
+  // e o conteudo dinamico vai depois. Quando a mesma extracao se repete (mesmo
+  // prompt = mesmo prefixo), o Gemini aplica desconto de ~70-90% em input tokens
+  // automaticamente, sem precisar de cached content endpoint.
   const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
-
+  parts.push({ text: prompt });
   if (typeof content === "string") {
-    parts.push({ text: prompt + "\n\n--- DOCUMENTO ---\n\n" + content });
+    parts.push({ text: "\n\n--- DOCUMENTO ---\n\n" + content });
   } else {
     parts.push({ inlineData: { mimeType: content.mimeType, data: content.base64 } });
-    parts.push({ text: prompt });
   }
 
   const startIdx = Math.floor(Math.random() * GEMINI_API_KEYS.length);
