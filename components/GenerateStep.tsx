@@ -1242,9 +1242,19 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     return Math.min(10, Math.round(s * 10) / 10);
   })();
 
-  // ── Decision (usa IA se disponível, senão cálculo local) ──
-  const finalRating = aiAnalysis ? aiAnalysis.rating : ratingScore;
+  // ── Decision (prioridade: override do analista > comite > IA > calculo local) ──
+  // O analista pode sobrescrever o rating e a decisao na pagina /parecer.
+  // O PDF deve respeitar esse override — senao mostra o rating cru da IA e
+  // diverge do que aparece na plataforma.
+  const parecerAnalistaOverride = (aiAnalysis as unknown as { parecerAnalista?: { ratingAnalista?: number | string | null; decisao?: string | null; decisaoComite?: string | null } } | null)?.parecerAnalista;
+  const ratingOverrideRaw = parecerAnalistaOverride?.ratingAnalista;
+  const ratingOverride = ratingOverrideRaw != null && ratingOverrideRaw !== "" ? Number(ratingOverrideRaw) : null;
+  const finalRating = (ratingOverride != null && !isNaN(ratingOverride))
+    ? ratingOverride
+    : (aiAnalysis ? aiAnalysis.rating : ratingScore);
+  const decisaoOverride = parecerAnalistaOverride?.decisaoComite || parecerAnalistaOverride?.decisao || null;
   const decision: string =
+    decisaoOverride ? String(decisaoOverride).toUpperCase() :
     aiAnalysis ? aiAnalysis.decisao :
     (finalRating >= 7 ? "APROVADO" : finalRating >= 4 ? "PENDENTE" : "REPROVADO");
   const decisionColor = decision === "APROVADO" ? "#16A34A" : decision === "REPROVADO" ? "#DC2626" : "#D97706";
