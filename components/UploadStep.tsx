@@ -391,15 +391,22 @@ export default function UploadStep({
         }) as any;
         const resOk = json.__resOk !== false;
         const meta = json.meta as Record<string, unknown> | undefined;
+        // Extração "silenciosa": Gemini respondeu sem erro mas não preencheu nada
+        // (PDF mal parseado, scan ruim, página em branco). Trata como erro visível.
+        const filledFields = (meta?.filledFields as number | undefined) ?? -1;
+        const isEmptyExtraction = filledFields === 0;
 
-        if (!resOk || !json.success || meta?.aiError) {
+        if (!resOk || !json.success || meta?.aiError || isEmptyExtraction) {
+          const errMsg = isEmptyExtraction
+            ? "Nenhum campo foi extraído do documento. Verifique se o PDF está legível ou tente outro arquivo."
+            : (meta?.errorMessage as string || json.error as string || "");
           setSections(prev => ({
             ...prev,
             [type]: {
               ...prev[type],
               errorCount: prev[type].errorCount + 1,
-              errorType: meta?.errorType as string || (resOk ? "unknown" : "quota"),
-              errorMessage: meta?.errorMessage as string || json.error as string || "",
+              errorType: meta?.errorType as string || (isEmptyExtraction ? "empty" : (resOk ? "unknown" : "quota")),
+              errorMessage: errMsg,
               lastFailedFile: file,
             },
           }));

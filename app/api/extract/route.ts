@@ -15,11 +15,11 @@ const GEMINI_API_KEYS = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_K
   .map(k => k.trim())
   .filter(Boolean);
 
-const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash-lite"];
+const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"];
 
 const OPENROUTER_API_KEYS = (process.env.OPENROUTER_API_KEYS || process.env.OPENROUTER_API_KEY || "")
   .split(",").map(k => k.trim()).filter(Boolean);
-const OPENROUTER_MODELS = ["google/gemini-2.0-flash-exp:free", "meta-llama/llama-4-maverick:free"];
+const OPENROUTER_MODELS: string[] = [];
 
 function geminiUrl(model: string, key: string) {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
@@ -1899,11 +1899,21 @@ export async function POST(request: NextRequest) {
     } else {
       // Sempre tenta extrair texto primeiro (muito mais barato em tokens)
       textContent = await extractText(buffer, ext);
-      const isUsableText = textContent.trim().length >= 20 && hasReadableContent(textContent);
+      // Mínimos por tipo de doc — quando pdf-parse falha em layouts com tabelas/colunas,
+      // o texto sai suspeitosamente curto. Abaixo do limiar, cai pro Gemini multimodal
+      // (que lê o PDF nativo e ignora o text extractor).
+      const minTextByDoc: Record<string, number> = {
+        contrato: 5000, scr: 800, qsa: 500, dre: 1500, balanco: 1500,
+        curva_abc: 800, processos: 1000, protestos: 500, grupoEconomico: 800,
+        ir_socio: 1500, relatorio_visita: 800, cnpj: 500,
+      };
+      const minRequired = minTextByDoc[docType] ?? 200;
+      const trimmedLen = textContent.trim().length;
+      const hasContent = hasReadableContent(textContent);
+      const isUsableText = trimmedLen >= minRequired && hasContent;
 
       if (!isUsableText && ext === "pdf") {
-        // Só envia como binário se não conseguiu extrair texto
-        console.log(`[extract] PDF text not usable, sending as binary...`);
+        console.log(`[extract] PDF text insuficiente (${trimmedLen} < ${minRequired} para ${docType}), enviando como binario`);
         imageContent = { mimeType: "application/pdf", base64: buffer.toString("base64") };
         textContent = "";
       } else if (!isUsableText) {

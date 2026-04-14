@@ -105,8 +105,8 @@ const GEMINI_API_KEYS = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_K
 // Fase 3: modelo fine-tunado tem prioridade se configurado e ativo
 const FINETUNED_MODEL = process.env.GEMINI_FINETUNED_MODEL?.trim() || null;
 const GEMINI_MODELS = FINETUNED_MODEL
-  ? [FINETUNED_MODEL, "gemini-2.5-flash", "gemini-2.0-flash-lite"]
-  : ["gemini-2.5-flash", "gemini-2.0-flash-lite"];
+  ? [FINETUNED_MODEL, "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"]
+  : ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"];
 
 function geminiUrl(model: string, key: string) {
   // tunedModels/ usam endpoint diferente de models/
@@ -116,7 +116,7 @@ function geminiUrl(model: string, key: string) {
 
 const OPENROUTER_API_KEYS = (process.env.OPENROUTER_API_KEYS || process.env.OPENROUTER_API_KEY || "")
   .split(",").map(k => k.trim()).filter(Boolean);
-const OPENROUTER_MODELS = ["google/gemini-2.0-flash-exp:free", "google/gemini-2.5-pro-exp-03-25:free"];
+const OPENROUTER_MODELS: string[] = [];
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
