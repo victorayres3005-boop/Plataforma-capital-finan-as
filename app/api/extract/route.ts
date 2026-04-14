@@ -363,38 +363,113 @@ Se o mesmo CPF aparecer mais de uma vez (ex: "Sócio" e também "Administrador")
 
 LEMBRE-SE: retornar quadroSocietario vazio quando há sócios no documento é o PIOR erro possível. Melhor retornar com campos incompletos do que vazio.`;
 
-const PROMPT_CONTRATO = `Você receberá um Contrato Social, Estatuto Social ou Ato Constitutivo de empresa (pode incluir alterações consolidadas, consolidações e aditivos). Extraia os dados e retorne APENAS JSON válido, sem markdown.
+const PROMPT_CONTRATO = `Você receberá um CONTRATO SOCIAL, ESTATUTO SOCIAL, ATO CONSTITUTIVO, ALTERAÇÃO CONTRATUAL, CONSOLIDAÇÃO ou ADITIVO de uma empresa brasileira. O documento pode estar em PDF nativo, PDF escaneado com OCR ruidoso, ou imagem. Sua tarefa é extrair TUDO o que for possível — mesmo informação parcial. Retorne APENAS JSON válido, sem markdown, sem comentários, sem texto fora do JSON.
 
-Schema:
+Schema OBRIGATÓRIO (preencha TODOS os campos que encontrar):
 {"socios":[{"nome":"","cpf":"","participacao":"","qualificacao":"","cotas":""}],"capitalSocial":"","objetoSocial":"","dataConstituicao":"","temAlteracoes":false,"ultimaAlteracao":"","prazoDuracao":"","administracao":"","foro":"","sede":""}
 
-CONSOLIDAÇÕES E ALTERAÇÕES — IMPORTANTE:
-- Se o documento for uma "Alteração Contratual Consolidada" ou "Consolidação": extraia o quadro societário FINAL (após a alteração), não o original
-- Se há múltiplas alterações listadas, use a MAIS RECENTE como ultimaAlteracao
-- temAlteracoes = true se o título do documento contém "Alteração", "Aditivo", "Consolidação" ou "Reforma"
-- dataConstituicao: SEMPRE a data original de fundação da empresa (não a data da alteração)
+═══ REGRA ZERO — NUNCA RETORNE VAZIO ═══
+Contratos sociais SEMPRE têm pelo menos:
+- Nome da empresa (na abertura, primeira página)
+- Objeto social (o que a empresa faz)
+- Capital social (valor das cotas)
+- Ao menos 1 sócio (sem sócio não existe contrato)
 
-Sócios:
-- Liste TODOS os sócios com participação no capital final (após última alteração)
-- nome: preserve acentos exatamente como no documento
-- cpf: formato XXX.XXX.XXX-XX (mesmo que parcialmente mascarado no documento)
-- participacao: percentual com vírgula (ex: "50,00%") OU valor em cotas em reais se não houver %
-- cotas: número absoluto de cotas se mencionado (ex: "110000"), senão ""
-- qualificacao: "Sócio" | "Sócio-Administrador" | "Administrador" | "Acionista" — use a descrição exata do contrato
+Se você está retornando todos os campos vazios, VOLTE e olhe de novo — a informação ESTÁ no documento. Releia o cabeçalho, as cláusulas, o rodapé, as assinaturas. Se o OCR está ruidoso, extraia o que conseguir inferir com alta confiança — é MELHOR retornar campos parciais do que tudo vazio.
 
-EXCLUSÕES — NÃO inclua: testemunhas, advogados, contadores, cônjuges sem participação, notários, procuradores.
+═══ ONDE ENCONTRAR CADA INFORMAÇÃO ═══
 
-Outros campos:
-- capitalSocial: valor total em reais com prefixo "R$" (ex: "R$ 220.000,00")
-- objetoSocial: extraia a cláusula de objeto social e reescreva em Título Case (não MAIÚSCULAS), texto corrido, atividades separadas por vírgula (sem ponto-e-vírgula). Máximo 300 caracteres. Ex: "Comércio atacadista de produtos alimentícios, fabricação de alimentos congelados, transporte rodoviário de cargas"
-- dataConstituicao: DD/MM/YYYY — data original da 1ª constituição
-- ultimaAlteracao: DD/MM/YYYY — data da alteração mais recente (se temAlteracoes=true)
-- prazoDuracao: "indeterminado" ou prazo específico (ex: "10 anos")
-- administracao: nome(s) do(s) administrador(es) conforme cláusula de administração (ex: "João da Silva (Administrador)")
-- foro: cidade do foro de eleição (última cláusula — ex: "São Paulo/SP")
-- sede: endereço completo da sede social em uma linha
+SÓCIOS — procure em QUALQUER destas seções:
+1. Cláusula "Dos Sócios" / "Do Capital Social" / "Da Administração" / "Cláusula Primeira" / "CLÁUSULA 1ª"
+2. Abertura do contrato (primeira página): "Fulano de Tal, brasileiro, [...], CPF 123.456.789-00, residente em [...]"
+3. Tabela de distribuição de cotas
+4. Página de assinaturas (finais): cada assinatura é normalmente de um sócio
+5. Alterações/consolidações: olhe o quadro societário FINAL, não o original
 
-Campos ausentes: "" ou false. NÃO invente dados.`;
+Formatos comuns de sócio no corpo do contrato:
+- "JOÃO DA SILVA, brasileiro, casado, empresário, portador do CPF nº 123.456.789-00, titular de 500.000 cotas, representando 50% do capital social"
+- "Maria Oliveira, RG 12.345.678, CPF 987.654.321-00, residente na Rua X, titular de 50 (cinquenta) cotas de R$ 1.000,00 cada"
+- Em tabelas: "Nome | CPF | Cotas | %"
+
+CAPITAL SOCIAL — procure por:
+- "Capital Social", "Capital Subscrito", "Capital Integralizado", "Cláusula do Capital"
+- "R$ 100.000,00 (cem mil reais) dividido em 100.000 cotas de R$ 1,00 cada"
+- Tabelas que somam o total de cotas
+- SEMPRE formato "R$ VALOR,CC" — com prefixo "R$" e separador brasileiro
+
+OBJETO SOCIAL — procure por:
+- Cláusula "Do Objeto Social" / "Objeto" / "Atividade" / "Cláusula Segunda"
+- Texto começando com "A sociedade tem por objeto..." ou "A empresa tem como atividade..."
+- Lista de CNAEs descritos
+- **É O CAMPO MAIS FÁCIL DE EXTRAIR — sempre tem, quase sempre na primeira página**
+- Reescreva em Título Case, texto corrido, atividades separadas por vírgula, máx 300 caracteres
+- Ex: "Comércio atacadista de produtos alimentícios, fabricação de alimentos congelados, transporte rodoviário de cargas"
+
+DATA DE CONSTITUIÇÃO — procure por:
+- "data da constituição", "constituída em", "fundada em"
+- Data mais antiga mencionada no documento (NÃO a data da alteração atual)
+- Cabeçalho do primeiro instrumento: "Instrumento Particular de Constituição [...] de 15/03/2010"
+- Formato de saída: DD/MM/YYYY
+
+ADMINISTRAÇÃO — procure por:
+- Cláusula "Da Administração" / "Administradores"
+- "A administração será exercida pelo sócio [nome]"
+- "fica nomeado administrador [nome]"
+- Ex de saída: "João da Silva (Administrador)" ou "João da Silva e Maria Oliveira (Administradores)"
+
+FORO — procure por:
+- Última cláusula do contrato (quase sempre a última)
+- "Fica eleito o foro da Comarca de [Cidade/UF]"
+- Ex de saída: "São Paulo/SP"
+
+SEDE — procure por:
+- Cláusula "Da Sede" / "Do Endereço" / primeira página após identificação da empresa
+- Endereço completo: rua, número, bairro, cidade, UF, CEP
+- Retorne em uma linha: "Rua das Flores, 123, Centro, São Paulo/SP, CEP 01234-567"
+
+PRAZO DE DURAÇÃO — procure por:
+- "Prazo indeterminado" (mais comum) → retorne "indeterminado"
+- "Prazo de 10 anos" → retorne "10 anos"
+
+═══ CONSOLIDAÇÕES E ALTERAÇÕES ═══
+- Se o título do documento contém "Alteração", "Aditivo", "Consolidação", "Reforma" → temAlteracoes=true
+- Extraia o QUADRO FINAL de sócios (após a alteração, não antes)
+- dataConstituicao = data ORIGINAL de fundação (1º instrumento)
+- ultimaAlteracao = data da alteração mais recente (DD/MM/YYYY)
+
+═══ CAMPOS DOS SÓCIOS ═══
+- nome: completo, preservando acentos/cedilhas, como aparece no documento
+- cpf: formato XXX.XXX.XXX-XX. Se mascarado ("***.456.789-**"), retorne como está. Se ausente, "".
+- participacao: percentual com vírgula ("50,00%") OU valor em cotas se não houver %. Se tem "500.000 cotas" de "1.000.000 cotas totais" → "50,00%".
+- cotas: número absoluto ("500000") se mencionado, senão ""
+- qualificacao: texto exato do contrato ("Sócio", "Sócio-Administrador", "Administrador", "Acionista", "Diretor")
+
+═══ EXCLUSÕES — NÃO inclua como sócios ═══
+- Testemunhas das assinaturas
+- Advogados, contadores, despachantes, procuradores sem cotas
+- Cônjuges mencionados sem participação ("casado com...")
+- Funcionários, gerentes contratados, diretores não-sócios
+- Notários, cartórios
+
+═══ REGRAS DE EXTRAÇÃO ═══
+1. EXTRAIA TODOS os sócios encontrados — mesmo que falte CPF ou %
+2. NUNCA retorne socios: [] se há MENÇÃO a sócios no documento
+3. Se encontrar só o nome sem CPF, inclua mesmo assim com cpf=""
+4. Se o capital social está em cotas mas não em reais, calcule (cotas × valor unitário)
+5. Se só uma parte é legível, retorne essa parte — nunca tudo vazio
+6. Para scans com OCR ruim: foque nos campos MAIS ROBUSTOS primeiro (objeto social, capital social, nome de sócios maiúsculos)
+
+═══ FALLBACK QUANDO O DOCUMENTO É DIFÍCIL ═══
+Se o documento está muito degradado/ilegível:
+- Prioridade 1: extraia objetoSocial (quase sempre é texto corrido legível)
+- Prioridade 2: capitalSocial (valor monetário destacado)
+- Prioridade 3: ao menos UM sócio (nome + CPF se visível)
+- Prioridade 4: dataConstituicao (cabeçalho do primeiro instrumento)
+- Deixe os outros campos vazios
+
+RETORNAR TODOS OS CAMPOS VAZIOS É ERRO CRÍTICO. Um contrato social sempre tem ao menos objeto social ou nome de sócio visível. Volte e olhe de novo se isso aconteceu.
+
+Campos ausentes: "" ou false. NÃO invente dados — mas extraia tudo o que está visível.`;
 
 const PROMPT_FATURAMENTO = `Você receberá um relatório de faturamento mensal (planilha Excel/XLSX, relatório de NF-e, extrato bancário, declaração contábil ou tabela PDF). Extraia TODOS os valores mensais e retorne APENAS JSON válido, sem markdown.
 
@@ -480,7 +555,73 @@ ATENÇÃO: se o documento tem apenas meses individuais (sem totais), deixe AMBOS
 
 NÃO invente dados. Campos ausentes = "" ou 0 ou false.`;
 
-const PROMPT_SCR = `Extraia dados do SCR (Sistema de Informações de Crédito do Banco Central). Retorne APENAS JSON válido, sem markdown.
+const PROMPT_SCR = `Você receberá um documento SCR do Banco Central (Sistema de Informações de Crédito) — pode ser de PESSOA FÍSICA (sócio) ou PESSOA JURÍDICA (empresa), emitido pelo Bacen ou por bancos integrados. Documento pode estar em PDF nativo, PDF escaneado com OCR, ou imagem. Sua tarefa é extrair TUDO o que estiver visível — mesmo parcial. Retorne APENAS JSON válido, sem markdown, sem comentários.
+
+═══ REGRA ZERO — NUNCA RETORNE VAZIO ═══
+Um documento SCR SEMPRE tem:
+- Data base/período de referência (cabeçalho)
+- Identificação do titular (CPF ou CNPJ)
+- Tabela de modalidades com valores por produto de crédito
+- Totais (linha "Total", "Soma", "Consolidado")
+
+Se você está retornando tudo zerado/vazio E o documento não diz "SEM HISTÓRICO" ou "NADA CONSTA", VOLTE e releia — a informação está lá. É MELHOR retornar dados parciais do que tudo vazio.
+
+═══ LAYOUT DO DOCUMENTO SCR — COMO LER ═══
+
+Um SCR do Bacen tipicamente tem estas SEÇÕES, nesta ordem:
+1. **Cabeçalho**: identificação do titular (nome + CPF/CNPJ) + data de referência
+2. **Resumo consolidado**: totais gerais — Carteira de Crédito, Responsabilidade Total, Limite
+3. **Tabela de Modalidades**: uma linha por produto (Capital de Giro, Financiamento, Cartão, etc.) com colunas A Vencer | Vencidos | Prejuízos | Limite | Participação
+4. **Discriminação A Vencer por Faixa de Prazo**: distribuição temporal do que ainda vai vencer
+5. **Discriminação Vencidos por Faixa de Prazo**: distribuição temporal do que já venceu
+6. **Prejuízos**: operações em prejuízo (faixas até 12m e acima 12m)
+7. **Responsabilidade por Instituição**: lista de bancos credores
+8. **Comparativo 2 Períodos** (opcional): colunas lado a lado com 2 datas de referência
+
+═══ COMO ENCONTRAR O PERÍODO DE REFERÊNCIA ═══
+Procure em ORDEM:
+1. Campo explícito "Data Base:", "Data de Referência:", "Período:", "Mês de Referência:", "Posição de [MM/AAAA]"
+2. Cabeçalho da tabela de modalidades (topo de colunas)
+3. Rodapé do documento
+4. Título do PDF ou nome do arquivo embutido
+5. Como último recurso: a data mais recente mencionada no texto
+
+SEMPRE retorne em formato MM/AAAA (ex: "03/2026", "11/2024"). Se só o ano estiver claro, use "12/AAAA". NUNCA deixe vazio se há QUALQUER data visível no documento.
+
+═══ SCR DE PESSOA FÍSICA (SÓCIO) vs PESSOA JURÍDICA (EMPRESA) ═══
+DIFERENÇAS DE LAYOUT:
+
+**SCR PF (sócio)** — cabeçalho mostra:
+- "Cliente: MARIA DA SILVA"
+- "CPF: 123.456.789-00" (11 dígitos, com ou sem máscara)
+- Pode aparecer como "CPF: ***.456.789-**" (mascarado por privacidade)
+- Modalidades típicas: Cartão de Crédito, Crédito Pessoal, Financiamento Imobiliário, Cheque Especial
+
+**SCR PJ (empresa)** — cabeçalho mostra:
+- "Cliente: EMPRESA XYZ LTDA"
+- "CNPJ: 12.345.678/0001-90" (14 dígitos)
+- Modalidades típicas: Capital de Giro, Desconto de Duplicatas, Financiamento Agroindustrial, Leasing, Conta Garantida
+
+Se o documento mostra CPF no cabeçalho → tipoPessoa="PF". Se mostra CNPJ → "PJ". Se mostra AMBOS (dono + empresa), use o documento da SEÇÃO DE TITULARIDADE principal.
+
+═══ EXTRAÇÃO PARA SCR DE PF (SÓCIO) ═══
+Quando tipoPessoa="PF":
+- nomeCliente: nome completo da pessoa (maiúsculas/minúsculas como no doc)
+- cpfSCR: CPF formatado "XXX.XXX.XXX-XX", aceita mascarado
+- cnpjSCR: SEMPRE "" (pessoa física não tem CNPJ)
+- As modalidades de PF geralmente somam valores menores (R$ 5k – R$ 500k é típico)
+- Pode ter prejuízos pequenos mesmo em pessoa com bom histórico
+- Se tiver seção "Cartão de Crédito": carteiraAVencer geralmente tem a maior parte
+
+═══ EXTRAÇÃO PARA SCR DE PJ (EMPRESA) ═══
+Quando tipoPessoa="PJ":
+- nomeCliente: razão social
+- cnpjSCR: CNPJ formatado "XX.XXX.XXX/XXXX-XX"
+- cpfSCR: SEMPRE "" (empresa não tem CPF)
+- PME típica tem totalDividasAtivas entre R$ 100k e R$ 100M
+- Média e grande empresa pode ultrapassar R$ 1B
+
+
 
 Schema obrigatório:
 {"periodoReferencia":"MM/AAAA","tipoPessoa":"PJ","cnpjSCR":"","nomeCliente":"","cpfSCR":"","pctDocumentosProcessados":"","pctVolumeProcessado":"","carteiraAVencer":"","vencidos":"","prejuizos":"","limiteCredito":"","qtdeInstituicoes":"","qtdeOperacoes":"","totalDividasAtivas":"","operacoesAVencer":"","operacoesEmAtraso":"","operacoesVencidas":"","tempoAtraso":"","coobrigacoes":"","classificacaoRisco":"","carteiraCurtoPrazo":"","carteiraLongoPrazo":"","emDia":"","semHistorico":false,"numeroIfs":"","faixasAVencer":{"ate30d":"0,00","d31_60":"0,00","d61_90":"0,00","d91_180":"0,00","d181_360":"0,00","acima360d":"0,00","prazoIndeterminado":"0,00","total":"0,00"},"faixasVencidos":{"ate30d":"0,00","d31_60":"0,00","d61_90":"0,00","d91_180":"0,00","d181_360":"0,00","acima360d":"0,00","total":"0,00"},"faixasPrejuizos":{"ate12m":"0,00","acima12m":"0,00","total":"0,00"},"faixasLimite":{"ate360d":"0,00","acima360d":"0,00","total":"0,00"},"outrosValores":{"carteiraCredito":"0,00","repasses":"0,00","coobrigacoes":"0,00","responsabilidadeTotal":"0,00","creditosALiberar":"0,00","riscoTotal":"0,00"},"modalidades":[{"nome":"","total":"","aVencer":"","vencido":"","participacao":"","ehContingente":false}],"instituicoes":[{"nome":"","valor":""}],"valoresMoedaEstrangeira":"","historicoInadimplencia":"","periodoAnterior":{"periodoReferencia":"","carteiraAVencer":"","vencidos":"","prejuizos":"","limiteCredito":"","totalDividasAtivas":"","operacoesAVencer":"","operacoesEmAtraso":"","operacoesVencidas":"","carteiraCurtoPrazo":"","carteiraLongoPrazo":"","classificacaoRisco":"","qtdeInstituicoes":"","numeroIfs":"","emDia":"","semHistorico":false,"faixasAVencer":{"ate30d":"0,00","d31_60":"0,00","d61_90":"0,00","d91_180":"0,00","d181_360":"0,00","acima360d":"0,00","prazoIndeterminado":"0,00","total":"0,00"},"faixasVencidos":{"ate30d":"0,00","d31_60":"0,00","d61_90":"0,00","d91_180":"0,00","d181_360":"0,00","acima360d":"0,00","total":"0,00"}},"variacoes":{"emDia":"","carteiraCurtoPrazo":"","carteiraLongoPrazo":"","totalDividasAtivas":"","vencidos":"","prejuizos":"","limiteCredito":"","numeroIfs":""}}
@@ -492,29 +633,62 @@ VALIDAÇÃO DE ORDEM DE GRANDEZA:
 - SEMPRE interprete "3.506.158,22" como 3,5 milhões, NÃO como 3,5 bilhões
 
 ═══ REGRAS GERAIS ═══
-- periodoReferencia: OBRIGATÓRIO, formato MM/AAAA (ex: "04/2025")
-- tipoPessoa: OBRIGATÓRIO — "PF" se cabeçalho mostra CPF (pessoa física); "PJ" se mostra CNPJ (empresa). Olhe o cabeçalho do documento.
+- periodoReferencia: OBRIGATÓRIO, formato MM/AAAA (ex: "04/2025"). Procure em "Data Base", "Mês de Referência", "Período", "Data de Referência", "Posição de", cabeçalho da tabela de modalidades, rodapé do documento, ou no título do PDF. NUNCA deixe vazio — se encontrar só ano, use "01/AAAA"; se não encontrar nada, olhe a data mais recente mencionada no documento e use como "MM/AAAA".
+- tipoPessoa: OBRIGATÓRIO — "PF" se cabeçalho mostra CPF (pessoa física); "PJ" se mostra CNPJ (empresa). Procure o cabeçalho que identifica o titular: normalmente logo após "Cliente:", "Titular:", "Documento:", "Nome:". Se há CPF (11 dígitos) → PF. Se há CNPJ (14 dígitos) → PJ. Se há ambos (dono + empresa), use o documento PRINCIPAL da seção de titularidade.
 - Valores monetários: formato brasileiro — pontos no milhar, vírgula nos decimais (ex: "23.785,80", "1.234.567,00"). SEM "R$". Campo ausente = "0,00".
 - NÃO invente dados. NÃO copie valores entre colunas (A Vencer ≠ Vencidos ≠ Prejuízos).
 - semHistorico = true SOMENTE se totalDividasAtivas="0,00" E limiteCredito="0,00" E modalidades=[].
 
+═══ IDENTIFICAÇÃO DO TITULAR ═══
+Se tipoPessoa="PF" (SCR de pessoa física):
+- nomeCliente: nome completo da pessoa física, procure em "Cliente:", "Titular:", "Nome:", "Tomador:" no cabeçalho
+- cpfSCR: CPF formatado "XXX.XXX.XXX-XX" (11 dígitos). Pode aparecer mascarado ("***.456.789-**") — retorne como está.
+- cnpjSCR: deixe vazio ""
+
+Se tipoPessoa="PJ" (SCR de empresa):
+- nomeCliente: razão social da empresa
+- cnpjSCR: CNPJ formatado "XX.XXX.XXX/XXXX-XX" (14 dígitos)
+- cpfSCR: deixe vazio ""
+
+Se você não consegue identificar o titular, ainda assim extraia os VALORES da tabela de modalidades e as faixas — deixe nomeCliente/cpfSCR/cnpjSCR vazios, mas NÃO retorne o JSON todo vazio.
+
 ═══ TABELA PRINCIPAL DE MODALIDADES ═══
-Colunas típicas: Modalidade | A Vencer | Vencidos | Prejuízos | Limite | Coobrigação | Participação
+Colunas típicas (podem variar em nome): Modalidade | A Vencer | Vencidos | Prejuízos | Limite | Coobrigação | Participação
+
+**ATENÇÃO — não confunda colunas semanticamente distintas:**
+- "A Vencer" / "Carteira A Vencer" / "Em Dia" / "Adimplente" → valores que AINDA VÃO VENCER (bom)
+- "Vencidos" / "Em Atraso" / "Atrasados" → valores JÁ VENCIDOS mas não prejuízo ainda
+- "Prejuízos" / "Lançado em Prejuízo" / "Baixa como Prejuízo" → operações consideradas perda
+- "Limite" / "Limite de Crédito" / "Limite Disponível" → teto contratado (não usado)
+- "Coobrigação" / "Coobrigações" / "Aval" → garantias prestadas a terceiros
+- "Participação" → percentual da modalidade no total (ex: "45,2%")
+
+NUNCA copie valor de uma coluna para outra. Se uma coluna está vazia/zerada no documento, retorne "0,00" para ela, não replique o valor de outra coluna.
 
 Para CADA linha de modalidade em modalidades[]:
-- nome: nome exato (ex: "Capital de Giro", "Financiamento Imobiliário", "Desconto de Duplicatas")
-- total: soma A Vencer + Vencidos + Prejuízos, OU valor da coluna "Total" se existir
-- aVencer: coluna "A Vencer" desta linha
-- vencido: coluna "Vencidos" desta linha (CUIDADO: NÃO confundir com A Vencer)
-- participacao: % de participação se constar (ex: "45,2%")
-- ehContingente: true para modalidades listadas em "Responsabilidades Contingentes" ou "Títulos Descontados"
+- nome: nome exato como aparece (ex: "Capital de Giro", "Financiamento Imobiliário", "Desconto de Duplicatas", "Cartão de Crédito", "Crédito Pessoal")
+- total: se houver coluna "Total", use. Senão some A Vencer + Vencidos + Prejuízos.
+- aVencer: coluna "A Vencer" desta linha (NÃO confundir com "Vencidos")
+- vencido: coluna "Vencidos" desta linha
+- participacao: % de participação se constar
+- ehContingente: true APENAS se a modalidade estiver em seção "Responsabilidades Contingentes", "Títulos Descontados" ou "Garantias Prestadas"
 
-Campos totais (da linha "Total" da tabela de modalidades):
-- carteiraAVencer = Total coluna "A Vencer"
-- vencidos = Total coluna "Vencidos"
-- prejuizos = Total coluna "Prejuízos"
-- limiteCredito = Total coluna "Limite de Crédito"
-- emDia = Total coluna "Em Dia" (se existir)
+**Campos totais do topo** — vêm da linha "Total" / "Consolidado" / "Soma Geral" da tabela de modalidades:
+- carteiraAVencer = Total da coluna "A Vencer"
+- vencidos = Total da coluna "Vencidos"
+- prejuizos = Total da coluna "Prejuízos"
+- limiteCredito = Total da coluna "Limite de Crédito"
+- emDia = Total da coluna "Em Dia" (se existir separado de A Vencer)
+- totalDividasAtivas = soma consolidada (A Vencer + Vencidos + Prejuízos) OU valor da linha "Responsabilidade Total"
+
+Se a tabela não tem linha "Total", SOME os valores das linhas individuais de modalidades para obter os totais.
+
+═══ QTDE DE INSTITUIÇÕES E OPERAÇÕES ═══
+- qtdeInstituicoes: número de bancos/financeiras com operações ativas — procure em "Qtde de IFs", "Instituições", "Nº de Instituições", "IFs"
+- qtdeOperacoes: número de contratos ativos — "Qtde de Operações", "Nº de Operações", "Contratos Ativos"
+- numeroIfs: mesmo que qtdeInstituicoes (campo legado, pode repetir)
+
+Se o documento mostra uma LISTA de instituições (tabela no final), conte as linhas únicas para qtdeInstituicoes.
 
 ═══ FAIXAS A VENCER ═══
 Seção: "Discriminação A Vencer por Faixa de Prazo" ou similar.
@@ -547,21 +721,62 @@ Mapeamento (idêntico a A Vencer, sem prazoIndeterminado):
 VALIDAÇÃO: faixasVencidos.total deve ser IGUAL a vencidos (campo principal).
 Se a seção não existir (empresa sem vencidos), todos os campos de faixasVencidos = "0,00".
 
-═══ DOIS PERÍODOS (IMPORTANTE) ═══
-Muitos SCRs mostram 2 períodos lado a lado (ex: coluna "Atual" + "Anterior", ou 2 datas de referência).
+═══ DOIS PERÍODOS (MUITO IMPORTANTE) ═══
+Muitos SCRs mostram COMPARATIVO entre 2 datas base. Os formatos mais comuns:
 
-Se houver 2 períodos:
-- Período MAIS RECENTE → campos principais do JSON
-- Período ANTERIOR → objeto periodoAnterior
+**Formato A — Duas colunas lado a lado:**
+Tabela com colunas "03/2026 | 03/2025 | Variação" ou "Atual | Anterior | Var %" ou "Posição Atual | Posição Anterior".
+→ Coluna da ESQUERDA (data mais recente) = campos principais do JSON.
+→ Coluna da DIREITA (data mais antiga) = objeto periodoAnterior.
 
-periodoAnterior DEVE incluir:
-periodoReferencia, carteiraAVencer, vencidos, prejuizos, limiteCredito, totalDividasAtivas, operacoesAVencer, operacoesEmAtraso, operacoesVencidas, carteiraCurtoPrazo, carteiraLongoPrazo, classificacaoRisco, qtdeInstituicoes, numeroIfs, emDia, semHistorico, faixasAVencer (completo), faixasVencidos (completo)
+**Formato B — Duas tabelas separadas:**
+Uma tabela de modalidades para cada data base. A tabela mais recente vem primeiro no documento OU tem data mais nova no cabeçalho.
+→ Tabela mais recente = campos principais. Tabela antiga = periodoAnterior.
 
-variacoes — calcule variação % de cada campo:
+**Formato C — Comparativo textual:**
+"Em 03/2026 o total era R$ X, contra R$ Y em 03/2025"
+→ Extraia ambos e preencha periodoAnterior.
+
+**Como decidir qual é o MAIS RECENTE:**
+1. Compare as datas base: a maior é a mais recente
+2. Se só tem "Atual" e "Anterior" como labels, "Atual" é o mais recente
+3. Em caso de dúvida: a coluna da esquerda geralmente é a mais recente em relatórios brasileiros
+
+Se houver 2 períodos, periodoAnterior DEVE incluir:
+periodoReferencia (OBRIGATÓRIO — a data mais antiga no formato MM/AAAA), carteiraAVencer, vencidos, prejuizos, limiteCredito, totalDividasAtivas, operacoesAVencer, operacoesEmAtraso, operacoesVencidas, carteiraCurtoPrazo, carteiraLongoPrazo, classificacaoRisco, qtdeInstituicoes, numeroIfs, emDia, semHistorico, faixasAVencer (completo), faixasVencidos (completo)
+
+variacoes — calcule variação % de cada campo principal:
 Fórmula: ((atual - anterior) / |anterior|) * 100
-Formato: "+7,6%" | "-6,5%" | "0,0%" | "" (se ausente)
+Formato: "+7,6%" | "-6,5%" | "0,0%" | "" (se anterior=0 ou ausente)
+- Crescimento de dívida = positivo (RUIM para risco)
+- Redução de dívida = negativo (BOM para risco)
 
-Se APENAS 1 período: deixe periodoAnterior com campos vazios/zerados.
+Se APENAS 1 período disponível: deixe periodoAnterior com campos vazios, NÃO duplique os valores atuais.
+
+═══ COMO DIFERENCIAR FAIXAS A VENCER DE FAIXAS VENCIDOS ═══
+O Bacen usa SEÇÕES separadas:
+
+**Seção "Discriminação A Vencer por Faixa de Prazo"** (ou "Cronograma A Vencer", "Desembolsos Futuros"):
+- Preenche APENAS faixasAVencer
+- Tem faixa "Prazo Indeterminado" (= recebíveis sem data certa, tipo rotativo de cartão)
+- A soma deve bater com carteiraAVencer
+
+**Seção "Discriminação Vencidos por Faixa de Prazo"** (ou "Atrasos por Faixa", "Vencidos por Faixa"):
+- Preenche APENAS faixasVencidos
+- NÃO tem "Prazo Indeterminado" (se está vencido, já está há X dias)
+- A soma deve bater com vencidos
+
+**ERRO COMUM**: confundir as duas tabelas. Se uma linha diz "31-60 dias: R$ 5.000", você precisa saber se é SOBRE O FUTURO (a vencer) ou SOBRE O PASSADO (vencido há 31-60 dias). A seção onde a linha aparece determina isso.
+
+Mapeamento (idêntico para ambas as tabelas, faixasVencidos não tem prazoIndeterminado):
+- "Até 30 dias" / "1 a 30 dias" / "0-30d" → ate30d
+- "31 a 60 dias" / "31-60d" → d31_60
+- "61 a 90 dias" / "61-90d" → d61_90
+- "91 a 180 dias" / "91-180d" → d91_180
+- "181 a 360 dias" / "181-360d" → d181_360
+- "Acima de 360 dias" / "Superior a 360 dias" / ">360d" → acima360d
+- "Prazo Indeterminado" (só em A Vencer) → prazoIndeterminado
+- "Total" → total
 
 ═══ MOEDA ESTRANGEIRA ═══
 valoresMoedaEstrangeira: se o documento mencionar exposições em USD, EUR ou outras moedas (ex: "US$ 50.000,00 em financiamento"), descreva aqui em uma linha. Senão "".
