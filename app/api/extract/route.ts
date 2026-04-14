@@ -1319,11 +1319,13 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
 
   const startIdx = Math.floor(Math.random() * GEMINI_API_KEYS.length);
   const rotatedKeys = [...GEMINI_API_KEYS.slice(startIdx), ...GEMINI_API_KEYS.slice(0, startIdx)];
+  const MAX_ATTEMPTS = 2; // 1 tentativa + 1 retry com backoff em 503/429
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
   for (const apiKey of rotatedKeys) {
     for (const model of GEMINI_MODELS) {
-      for (let attempt = 0; attempt < 1; attempt++) {
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         try {
-          console.log(`[Gemini] key=${apiKey.substring(0, 8)}... model=${model}`);
+          console.log(`[Gemini] key=${apiKey.substring(0, 8)}... model=${model} attempt=${attempt + 1}/${MAX_ATTEMPTS}`);
           const controller = new AbortController();
           const fetchTimeout = setTimeout(() => controller.abort(), 25000);
           const response = await fetch(geminiUrl(model, apiKey), {
@@ -1342,9 +1344,22 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
           });
           clearTimeout(fetchTimeout);
 
-          if (response.status === 429) {
-            console.log(`[Gemini] Rate limited on key=${apiKey.substring(0, 8)} model=${model}, skipping to next`);
-            break; // pula para próximo model/key sem esperar
+          // 429/503: erros transitorios — backoff exponencial e tenta de novo
+          if (response.status === 429 || response.status === 503) {
+            if (attempt < MAX_ATTEMPTS - 1) {
+              const backoffMs = 1000 * Math.pow(2, attempt); // 1s, 2s
+              console.log(`[Gemini] HTTP ${response.status} key=${apiKey.substring(0, 8)} model=${model}, backoff ${backoffMs}ms`);
+              await sleep(backoffMs);
+              continue;
+            }
+            console.log(`[Gemini] HTTP ${response.status} esgotou retries — skip para proximo model/key`);
+            break;
+          }
+
+          // 404: modelo nao existe — nao adianta retry, pula direto
+          if (response.status === 404) {
+            console.error(`[Gemini] HTTP 404 model=${model} — modelo invalido, skip`);
+            break;
           }
 
           if (!response.ok) {
@@ -1364,6 +1379,13 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
           }
           return text;
         } catch (err) {
+          // AbortError (timeout) e erros de rede: retry uma vez
+          const isAbort = err instanceof Error && err.name === "AbortError";
+          if (isAbort && attempt < MAX_ATTEMPTS - 1) {
+            console.warn(`[Gemini] timeout key=${apiKey.substring(0, 8)} model=${model}, tentando de novo`);
+            await sleep(500);
+            continue;
+          }
           console.error(`[Gemini] Error:`, err instanceof Error ? err.message : err);
           break;
         }
@@ -2089,8 +2111,11 @@ export async function POST(request: NextRequest) {
               errorType = "empty";
             }
 
+            // success: false quando IA falhou — o frontend trata como erro visivel
+            // em vez de fingir sucesso com dados vazios
             _send(controller, "result", {
-              success: true, data,
+              success: false, data,
+              error: errMsg.substring(0, 200),
               meta: { rawTextLength: _textContent.length, filledFields: 0, isScanned: _isImage, aiError: true, errorType, errorMessage: errMsg.substring(0, 200) },
             });
             return;
