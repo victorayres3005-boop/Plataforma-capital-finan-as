@@ -632,13 +632,13 @@ export default function HomePage() {
 
             {/* Título */}
             <h1 style={{ fontSize: "36px", fontWeight: 700, color: "#ffffff", margin: "0 0 12px", lineHeight: 1.2, textShadow: "0 2px 8px rgba(0,0,0,0.15)" }}>
-              Consolidador de Documentos
+              Plataforma de Análise de Crédito
             </h1>
 
             {/* Subtítulo */}
-            <p style={{ fontSize: "16px", color: "rgba(255,255,255,0.75)", lineHeight: 1.6, margin: "0 auto 28px", maxWidth: "480px" }}>
-              Envie seus documentos, extraia os dados automaticamente<br />
-              e gere relatórios consolidados em minutos.
+            <p style={{ fontSize: "16px", color: "rgba(255,255,255,0.75)", lineHeight: 1.6, margin: "0 auto 28px", maxWidth: "520px" }}>
+              Transforme documentos cadastrais e fiscais em pareceres<br />
+              de crédito completos, com dados consolidados em minutos.
             </p>
 
             {/* Stepper */}

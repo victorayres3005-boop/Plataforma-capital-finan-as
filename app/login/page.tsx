@@ -150,13 +150,13 @@ function LoginContent() {
         <div className="relative space-y-8 max-w-md">
           <div>
             <h1 className="text-3xl font-bold text-white leading-tight">
-              Consolidador de<br />Documentos
+              Plataforma de<br />Análise de Crédito
             </h1>
             <div className="w-16 h-1 bg-cf-green rounded-full mt-4" />
           </div>
 
           <p className="text-blue-200 text-base leading-relaxed">
-            Envie seus documentos, extraia dados automaticamente e gere relatórios consolidados profissionais em minutos.
+            Transforme documentos cadastrais e fiscais em pareceres de crédito completos, com dados consolidados em minutos.
           </p>
 
           <div className="space-y-4">
