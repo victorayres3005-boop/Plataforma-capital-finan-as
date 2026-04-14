@@ -566,7 +566,7 @@ function secSintese(p: PDFReportParams): string {
     { label: "Data Fund.", value: data.cnpj?.dataAbertura || "\u2014" },
     { label: "Idade", value: companyAge || "\u2014" },
     { label: "Porte", value: (data.cnpj?.porte || "\u2014").substring(0, 14) },
-    { label: "Cap. Social", value: capSoc2.startsWith("R$") ? capSoc2 : `R$ ${capSoc2}`, mono: true },
+    { label: "Cap. Social", value: capSoc2, mono: true },
     { label: "Tipo", value: (data.cnpj?.tipoEmpresa || "\u2014").substring(0, 14) },
     { label: "Local", value: extractLocal(data.cnpj?.endereco) },
   ];
@@ -591,13 +591,20 @@ function secSintese(p: PDFReportParams): string {
   </div>` : "";
 
   // ── BLOCO 4 — Foto + Endereço (CONDITIONAL) ────────────────────────────
-  const block4 = p.streetViewBase64 ? `<div style="display:flex;gap:8px;margin-bottom:10px;page-break-inside:avoid">
-    <img src="${p.streetViewBase64}" style="width:50%;height:120px;object-fit:cover;border-radius:3px;border:1px solid ${PAL.gray200}" alt="Street View" />
-    <div style="flex:1;background:${PAL.gray50};border:1px solid ${PAL.gray100};border-radius:3px;padding:10px 12px;min-width:0">
-      <div style="font:700 6.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray400};text-transform:uppercase;letter-spacing:.06em">Endereço</div>
-      <div style="font:400 9px/1.5 Helvetica,Arial,sans-serif;color:${PAL.gray700};margin-top:5px">${esc(data.cnpj?.endereco || "\u2014")}</div>
-    </div>
-  </div>` : "";
+  const svRaw = p.streetViewBase64;
+  const svValid = typeof svRaw === "string" && svRaw.length > 100
+    && (svRaw.startsWith("data:image") || svRaw.startsWith("http") || svRaw.startsWith("/9j/") || svRaw.startsWith("iVBOR"));
+  const svSrc = svValid
+    ? (svRaw!.startsWith("data:") || svRaw!.startsWith("http") ? svRaw! : `data:image/jpeg;base64,${svRaw}`)
+    : "";
+  const addressCard = `<div style="background:${PAL.gray50};border:1px solid ${PAL.gray100};border-radius:3px;padding:12px 14px;min-width:0">
+      <div style="font:700 7.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray400};text-transform:uppercase;letter-spacing:.06em">Endereço</div>
+      <div style="font:400 10px/1.5 Helvetica,Arial,sans-serif;color:${PAL.gray700};margin-top:5px">${esc(data.cnpj?.endereco || "\u2014")}</div>
+    </div>`;
+  const block4 = svValid ? `<div style="display:flex;gap:8px;margin-bottom:10px;page-break-inside:avoid">
+    <img src="${svSrc}" style="width:50%;height:120px;object-fit:cover;border-radius:3px;border:1px solid ${PAL.gray200}" alt="Street View" />
+    <div style="flex:1;min-width:0">${addressCard}</div>
+  </div>` : `<div style="margin-bottom:10px;page-break-inside:avoid">${addressCard}</div>`;
 
   // ── BLOCO 5 — Estrutura Societária ─────────────────────────────────────
   const socios = (data.qsa?.quadroSocietario || []).filter(s => s?.nome || s?.cpfCnpj);
@@ -616,16 +623,16 @@ function secSintese(p: PDFReportParams): string {
   }).join("");
 
   const capSocStr5 = data.qsa?.capitalSocial
-    ? `R$ ${fmtMoneyRound(data.qsa.capitalSocial)}`
+    ? fmtMoneyRound(data.qsa.capitalSocial)
     : data.cnpj?.capitalSocialCNPJ
-      ? `R$ ${fmtMoneyRound(data.cnpj.capitalSocialCNPJ)}`
+      ? fmtMoneyRound(data.cnpj.capitalSocialCNPJ)
       : "\u2014";
   const grupoStr5 = empresas.length > 0 ? `${empresas.length} empresa(s)` : "Não identificado";
 
   const block5 = hasBlock5 ? `<div style="margin-bottom:10px;page-break-inside:avoid">
     <div style="font:800 7.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray500};text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">GESTÃO &amp; GRUPO ECONÔMICO</div>
     ${socios.length > 0 ? `<table style="${TS};margin-bottom:5px;font-size:9px">
-      <thead>${row(["Nome", "CPF/CNPJ", "Qualificação", "Part."], true)}</thead>
+      <thead><tr>${["Nome","CPF/CNPJ","Qualificação","Part."].map(h => `<th style="background:${PAL.navy900};border-bottom:none;color:#fff">${h}</th>`).join("")}</tr></thead>
       <tbody>${socioRows5}</tbody>
     </table>` : ""}
     <div style="font:400 8.5px/1.4 Helvetica,Arial,sans-serif;color:${PAL.gray500}">Capital Social: ${capSocStr5} · Grupo Econômico: ${grupoStr5}</div>
@@ -645,7 +652,7 @@ function secSintese(p: PDFReportParams): string {
     {
       label: "Protestos",
       value: protQtd > 0 ? String(protQtd) : "0",
-      sub: protQtd > 0 ? `R$ ${fmtMoneyRound(String(protVal))}` : "sem ocorr.",
+      sub: protQtd > 0 ? fmtMoneyRound(String(protVal)) : "sem ocorr.",
       tone: protQtd > 2 ? "red" : "green",
     },
     {
@@ -662,7 +669,7 @@ function secSintese(p: PDFReportParams): string {
     },
     {
       label: "SCR Venc.",
-      value: scrVenc > 0 ? `R$ ${fmtMoneyRound(String(scrVenc))}` : "\u2014",
+      value: scrVenc > 0 ? fmtMoneyRound(String(scrVenc)) : "\u2014",
       sub: scrTotalAt > 0 ? `${scrVencPct.toFixed(1)}% do total` : "em dia",
       tone: scrVencPct > 10 ? "red" : scrVenc > 0 ? "amber" : "green",
     },
@@ -728,7 +735,7 @@ function secSintese(p: PDFReportParams): string {
   const fatPanel7 = hasFat7 ? `<div style="flex:1;background:${PAL.gray50};border:1px solid ${PAL.gray100};border-radius:3px;padding:8px 10px;min-width:0">
     <div style="font:700 6.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray500};text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Faturamento</div>
     <div style="display:flex;align-items:flex-end;gap:2px;height:55px">${bars7}</div>
-    <div style="font:400 7.5px/1.3 Helvetica,Arial,sans-serif;color:${PAL.gray700};margin-top:5px">FMM R$ ${fmtMoneyRound(String(fmmNum))} · Total R$ ${fmtMoneyRound(String(fatTotal12))} · ${trendArrow7} ${varPct7.toFixed(0)}%</div>
+    <div style="font:400 7.5px/1.3 Helvetica,Arial,sans-serif;color:${PAL.gray700};margin-top:5px">FMM ${fmtMoneyRound(String(fmmNum))} · Total ${fmtMoneyRound(String(fatTotal12))} · ${trendArrow7} ${varPct7.toFixed(0)}%</div>
   </div>` : "";
 
   const sr7 = (k: string) => numVal(String((scr as unknown as Record<string, string>)?.[k] || "0"));
@@ -748,15 +755,15 @@ function secSintese(p: PDFReportParams): string {
     }
     return `<tr style="font-weight:${r.bold ? "800" : "400"}">
       <td>${r.label}</td>
-      <td class="money">${r.cur > 0 ? `R$ ${fmtMoneyRound(r.cur)}` : "\u2014"}</td>
-      <td class="money">${r.prev > 0 ? `R$ ${fmtMoneyRound(r.prev)}` : "\u2014"}</td>
+      <td class="money">${r.cur > 0 ? fmtMoneyRound(r.cur) : "\u2014"}</td>
+      <td class="money">${r.prev > 0 ? fmtMoneyRound(r.prev) : "\u2014"}</td>
       ${varHtml}
     </tr>`;
   }).join("");
   const scrPanel7 = (hasScr7 && hasScrAnt7) ? `<div style="flex:1;background:${PAL.gray50};border:1px solid ${PAL.gray100};border-radius:3px;padding:8px 10px;min-width:0">
     <div style="font:700 6.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray500};text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">SCR ${esc(scrAnt!.periodoReferencia)} → ${esc(scr!.periodoReferencia)}</div>
-    <table style="width:100%;font-size:8px;border-collapse:collapse">
-      <thead>${row(["Métrica", "Atual", "Ant.", "Var%"], true)}</thead>
+    <table style="width:100%;font-size:9px;border-collapse:collapse">
+      <thead><tr>${["Métrica","Atual","Ant.","Var%"].map(h => `<th style="background:${PAL.navy900};border-bottom:none;color:#fff;font-size:8.5px">${h}</th>`).join("")}</tr></thead>
       <tbody>${scrRowsHtml7}</tbody>
     </table>
   </div>` : "";
@@ -783,7 +790,7 @@ function secSintese(p: PDFReportParams): string {
       return `<tr>
         <td>${i + 1}</td>
         <td><strong>${esc(c.nome || "\u2014")}</strong></td>
-        <td class="money">R$ ${fmtMoneyRound(c.valorFaturado)}</td>
+        <td class="money">${fmtMoneyRound(c.valorFaturado)}</td>
         <td>${pct.toFixed(1)}%</td>
         <td>${acum.toFixed(1)}%</td>
         <td style="text-align:center">${esc(c.classe || "\u2014")}</td>
@@ -796,7 +803,7 @@ function secSintese(p: PDFReportParams): string {
     block8 = `<div style="margin-bottom:10px;page-break-inside:avoid">
       <div style="font:800 7.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray500};text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">CURVA ABC — TOP 5 CLIENTES</div>
       <table style="${TS};margin-bottom:5px;font-size:9px">
-        <thead>${row(["#", "Cliente", "Faturamento", "% Rec.", "% Acum.", "Cl."], true)}</thead>
+        <thead><tr>${["#","Cliente","Faturamento","% Rec.","% Acum.","Cl."].map(h => `<th style="background:${PAL.navy900};border-bottom:none;color:#fff">${h}</th>`).join("")}</tr></thead>
         <tbody>${rows8}</tbody>
       </table>
       <div style="font:400 8.5px/1.4 Helvetica,Arial,sans-serif;color:${PAL.gray500}">Top 3: ${top3.toFixed(0)}% · Top 5: ${acum.toFixed(0)}% · Total clientes: ${totalCli}</div>
@@ -809,7 +816,7 @@ function secSintese(p: PDFReportParams): string {
   const hasPleito = !!(rv && (rv.pleito || rv.limiteTotal || rv.modalidade || rv.prazoMaximoOp || rv.taxaConvencional));
   const block9 = hasPleito ? `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px;page-break-inside:avoid">
     ${[
-      { label: "Valor Pleiteado", value: rv!.limiteTotal ? `R$ ${fmtMoneyRound(rv!.limiteTotal)}` : (rv!.pleito || "\u2014"), mono: !!rv!.limiteTotal },
+      { label: "Valor Pleiteado", value: rv!.limiteTotal ? fmtMoneyRound(rv!.limiteTotal) : (rv!.pleito || "\u2014"), mono: !!rv!.limiteTotal },
       { label: "Modalidade", value: (rv!.modalidade || "\u2014").toUpperCase() },
       { label: "Prazo Máx.", value: rv!.prazoMaximoOp ? `${rv!.prazoMaximoOp} dias` : "\u2014" },
       { label: "Taxa", value: rv!.taxaConvencional ? `${rv!.taxaConvencional}%` : "\u2014" },

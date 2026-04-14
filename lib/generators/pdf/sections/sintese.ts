@@ -2,7 +2,7 @@
  * Seção 00 — SÍNTESE PRELIMINAR + PARÂMETROS DO FUNDO + LIMITE DE CRÉDITO + CARTÃO CNPJ + QSA + GESTÃO
  * Contém toda a lógica do bloco sintético inicial do relatório.
  */
-import type { PdfCtx } from "../context";
+import type { PdfCtx, RGB } from "../context";
 import {
   newPage, drawHeader, drawHeaderCompact, checkPageBreak, drawSectionTitle, drawSpacer,
   drawAlert, drawAlertDeduped, drawDetAlerts, drawTable, autoT, dsMiniHeader,
@@ -12,16 +12,6 @@ import {
 
 // ───────────────────────────────────────────────────────────────────────────
 // Local formatters (compact money + percent) for the synthesis body
-function fmtMoneyRound(val: string | number | undefined | null): string {
-  if (val == null || val === "") return "—";
-  const n = typeof val === "number" ? val : parseMoneyToNumber(String(val));
-  if (!isFinite(n) || n === 0) return "—";
-  const abs = Math.abs(n);
-  if (abs >= 1_000_000) return `R$ ${fmtBR(n / 1_000_000, 1)}M`;
-  if (abs >= 1_000) return `R$ ${fmtBR(Math.round(n / 1_000), 0)}k`;
-  return `R$ ${fmtBR(Math.round(n), 0)}`;
-}
-
 function fmtPct(v: number, decimals = 1): string {
   if (!isFinite(v)) return "—";
   return fmtBR(v, decimals) + "%";
@@ -92,6 +82,23 @@ export function renderSintese(ctx: PdfCtx): void {
     greenLogo:[115, 184, 21]  as [number, number, number],
   };
 
+  // ── Font/spacing tokens (Bug 1) ─────────────────────────────────────────
+  const F = { label: 7.5, body: 10, value: 10, valueLg: 16, rating: 22, blockTitle: 9, tableHead: 8.5, tableCell: 9 } as const;
+  const S = { blockGap: 12, cardPad: 5, cardInfoH: 16, cardRiskH: 24, cardGap: 4 } as const;
+
+  // ── Local money helper (Bug 4): always "R$ " + stripped value, no doubles
+  const money = (v: string | number | undefined | null): string => {
+    if (v == null || v === "") return "—";
+    const n = typeof v === "number" ? v : parseMoneyToNumber(String(v));
+    if (!isFinite(n) || n === 0) return "—";
+    const abs = Math.abs(n);
+    let body: string;
+    if (abs >= 1_000_000) body = `${fmtBR(n / 1_000_000, 1)}M`;
+    else if (abs >= 1_000) body = `${fmtBR(Math.round(n / 1_000), 0)}k`;
+    else body = `${fmtBR(Math.round(n), 0)}`;
+    return `R$ ${body}`;
+  };
+
   newPage(ctx);
   drawHeader(ctx);
   drawSectionTitle(ctx, "00", "Síntese Preliminar");
@@ -121,9 +128,9 @@ export function renderSintese(ctx: PdfCtx): void {
   // BLOCO 1 — Empresa + Rating
   // ══════════════════════════════════════════════════════════════════════
   {
-    checkPageBreak(ctx, 28);
+    checkPageBreak(ctx, 30);
     const y0 = pos.y;
-    const blockH = 25;
+    const blockH = 28;
     const leftW = (cw * 2) / 3;
     const rightX = ml + leftW;
     const rightW = cw - leftW;
@@ -131,25 +138,25 @@ export function renderSintese(ctx: PdfCtx): void {
     // Left: razão social
     const razao = (data.cnpj?.razaoSocial || "—").trim();
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
+    doc.setFontSize(14);
     doc.setTextColor(...C.navy900);
-    doc.text(razao.length > 60 ? razao.substring(0, 59) + "…" : razao, ml, y0 + 5);
+    doc.text(razao.length > 60 ? razao.substring(0, 59) + "…" : razao, ml, y0 + 6);
 
     // Nome fantasia
     const fantasia = (data.cnpj?.nomeFantasia || "").trim();
     if (fantasia) {
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
+      doc.setFontSize(F.body);
       doc.setTextColor(...C.gray500);
-      doc.text(fantasia.length > 70 ? fantasia.substring(0, 69) + "…" : fantasia, ml, y0 + 9);
+      doc.text(fantasia.length > 70 ? fantasia.substring(0, 69) + "…" : fantasia, ml, y0 + 11);
     }
 
     // CNPJ + situação badge inline
     const cnpjStr = data.cnpj?.cnpj || "—";
     doc.setFont("courier", "normal");
-    doc.setFontSize(9);
+    doc.setFontSize(F.body);
     doc.setTextColor(...C.gray700);
-    doc.text(cnpjStr, ml, y0 + 14);
+    doc.text(cnpjStr, ml, y0 + 17);
     const cnpjW = doc.getTextWidth(cnpjStr);
 
     const situ = (data.cnpj?.situacaoCadastral || "").toUpperCase().trim();
@@ -159,57 +166,57 @@ export function renderSintese(ctx: PdfCtx): void {
       const badgeFg: [number, number, number] = isAtiva ? C.green600 : C.amber500;
       const lblTxt = situ.length > 14 ? situ.substring(0, 14) : situ;
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(8);
+      doc.setFontSize(F.label);
       const txtW = doc.getTextWidth(lblTxt);
       const padX = 2.5;
       const bx = ml + cnpjW + 3;
       const bw = txtW + padX * 2;
-      const bh = 4.5;
-      const by = y0 + 10.5;
+      const bh = 4.8;
+      const by = y0 + 13.5;
       doc.setFillColor(...badgeBg);
       doc.roundedRect(bx, by, bw, bh, 1.5, 1.5, "F");
       doc.setTextColor(...badgeFg);
-      doc.text(lblTxt, bx + padX, by + 3.3);
+      doc.text(lblTxt, bx + padX, by + 3.4);
     }
 
     // Right: rating circle
     const cxC = rightX + rightW / 2;
-    const cyC = y0 + 11;
+    const cyC = y0 + 12;
     doc.setDrawColor(...scoreColor);
-    doc.setLineWidth(1);
-    doc.circle(cxC, cyC, 9, "S");
+    doc.setLineWidth(1.2);
+    doc.circle(cxC, cyC, 11, "S");
     doc.setLineWidth(0.1);
 
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
+    doc.setFontSize(F.rating);
     doc.setTextColor(...scoreColor);
-    doc.text(String(score.toFixed(1)).replace(".", ","), cxC, cyC + 2, { align: "center" });
+    doc.text(String(score.toFixed(1)).replace(".", ","), cxC, cyC + 2.5, { align: "center" });
 
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(7);
+    doc.setFontSize(F.label);
     doc.setTextColor(...C.gray400);
-    doc.text("/10", cxC, cyC + 6, { align: "center" });
+    doc.text("/10", cxC, cyC + 7, { align: "center" });
 
     // Label
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(7);
+    doc.setFontSize(F.label);
     doc.setTextColor(...scoreColor);
-    doc.text(scoreLabel, cxC, cyC + 11, { align: "center" });
+    doc.text(scoreLabel, cxC, cyC + 13, { align: "center" });
 
     // Decision badge
     {
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(7);
+      doc.setFontSize(F.label);
       const txtW = doc.getTextWidth(dec);
       const padX = 3;
       const bw = txtW + padX * 2;
-      const bh = 4.8;
+      const bh = 5;
       const bx = cxC - bw / 2;
-      const by = cyC + 13.5;
+      const by = cyC + 15.5;
       doc.setFillColor(...decColor);
       doc.roundedRect(bx, by, bw, bh, 1.2, 1.2, "F");
       doc.setTextColor(255, 255, 255);
-      doc.text(dec, bx + padX, by + 3.5);
+      doc.text(dec, bx + padX, by + 3.6);
     }
 
     // Bottom divider
@@ -218,21 +225,21 @@ export function renderSintese(ctx: PdfCtx): void {
     doc.line(ml, y0 + blockH, ml + cw, y0 + blockH);
     doc.setLineWidth(0.1);
 
-    pos.y = y0 + blockH + 3;
+    pos.y = y0 + blockH + S.blockGap;
   }
 
   // ══════════════════════════════════════════════════════════════════════
   // BLOCO 2 — Fundação & Dados Básicos (6 cards)
   // ══════════════════════════════════════════════════════════════════════
   {
-    checkPageBreak(ctx, 14);
+    checkPageBreak(ctx, 18);
     const y0 = pos.y;
-    const cardH = 12;
-    const gap = 3;
+    const cardH = S.cardInfoH;
+    const gap = S.cardGap;
     const cardW = (cw - gap * 5) / 6;
 
     const capSocRaw = data.cnpj?.capitalSocialCNPJ || data.qsa?.capitalSocial || "";
-    const capSoc = capSocRaw ? fmtMoneyRound(capSocRaw) : "—";
+    const capSoc = capSocRaw ? money(capSocRaw) : "—";
     const local = extractLocal(data.cnpj?.endereco);
 
     const cells: Array<{ label: string; value: string; mono?: boolean }> = [
@@ -254,19 +261,19 @@ export function renderSintese(ctx: PdfCtx): void {
       doc.setLineWidth(0.1);
 
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(6);
+      doc.setFontSize(F.label);
       doc.setTextColor(...C.gray400);
-      doc.text(c.label, cx + 2, y0 + 3.2);
+      doc.text(c.label, cx + 2.5, y0 + 4.5);
 
       doc.setFont(c.mono ? "courier" : "helvetica", "bold");
-      doc.setFontSize(c.value === "—" ? 9 : 8.5);
+      doc.setFontSize(F.body);
       doc.setTextColor(...(c.value === "—" ? C.gray400 : C.gray900));
-      const maxC = Math.floor((cardW - 4) / (c.mono ? 1.7 : 1.55));
+      const maxC = Math.floor((cardW - 5) / (c.mono ? 1.9 : 1.75));
       const v = c.value.length > maxC ? c.value.substring(0, maxC - 1) + "…" : c.value;
-      doc.text(v, cx + 2, y0 + 8.5);
+      doc.text(v, cx + 2.5, y0 + 11.5);
     });
 
-    pos.y = y0 + cardH + 3;
+    pos.y = y0 + cardH + S.blockGap;
   }
 
   // ══════════════════════════════════════════════════════════════════════
@@ -276,8 +283,9 @@ export function renderSintese(ctx: PdfCtx): void {
     const cnaePr = (data.cnpj?.cnaePrincipal || "").trim();
     const cnaeSec = (data.cnpj?.cnaeSecundarios || "").trim();
     if (cnaePr || cnaeSec) {
-      doc.setFontSize(8);
-      const innerW = cw - 8;
+      checkPageBreak(ctx, 14);
+      doc.setFontSize(F.body);
+      const innerW = cw - 2 * S.cardPad;
       // Try to split into "code" and "description"
       let codeStr = "";
       let descStr = cnaePr;
@@ -286,9 +294,9 @@ export function renderSintese(ctx: PdfCtx): void {
       const descLines = doc.splitTextToSize(descStr || "—", innerW) as string[];
       const secLines = cnaeSec ? doc.splitTextToSize(`CNAEs sec.: ${cnaeSec}`, innerW) as string[] : [];
       const totalLines = (codeStr ? 1 : 0) + descLines.length + secLines.length;
-      const blockH = Math.max(8, 4 + totalLines * 3.4);
+      const lineH = 4.2;
+      const blockH = Math.max(12, 2 * S.cardPad + totalLines * lineH);
 
-      checkPageBreak(ctx, blockH + 3);
       const y0 = pos.y;
       doc.setFillColor(...C.navy50);
       doc.roundedRect(ml, y0, cw, blockH, 2, 2, "F");
@@ -297,62 +305,106 @@ export function renderSintese(ctx: PdfCtx): void {
       doc.roundedRect(ml, y0, cw, blockH, 2, 2, "S");
       doc.setLineWidth(0.1);
 
-      let ty = y0 + 4;
+      let ty = y0 + S.cardPad + 1;
       if (codeStr) {
         doc.setFont("helvetica", "bold");
-        doc.setFontSize(8);
+        doc.setFontSize(F.body);
         doc.setTextColor(...C.navy900);
-        doc.text(`CNAE ${codeStr}`, ml + 4, ty);
-        ty += 3.4;
+        doc.text(`CNAE ${codeStr}`, ml + S.cardPad, ty);
+        ty += lineH;
       }
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
+      doc.setFontSize(F.body);
       doc.setTextColor(...C.navy700);
-      descLines.forEach(l => { doc.text(l, ml + 4, ty); ty += 3.4; });
+      descLines.forEach(l => { doc.text(l, ml + S.cardPad, ty); ty += lineH; });
       if (secLines.length) {
         doc.setTextColor(...C.navy700);
-        secLines.forEach(l => { doc.text(l, ml + 4, ty); ty += 3.4; });
+        secLines.forEach(l => { doc.text(l, ml + S.cardPad, ty); ty += lineH; });
       }
-      pos.y = y0 + blockH + 3;
+      pos.y = y0 + blockH + S.blockGap;
     }
   }
 
   // ══════════════════════════════════════════════════════════════════════
   // BLOCO 4 — Foto + Endereço (CONDITIONAL)
   // ══════════════════════════════════════════════════════════════════════
-  if (params.streetViewBase64) {
-    checkPageBreak(ctx, 42);
-    const y0 = pos.y;
-    const imgW = 82;
-    const imgH = 35;
-    try {
-      doc.addImage(params.streetViewBase64, "JPEG", ml, y0, imgW, imgH);
-    } catch { /* swallow image errors */ }
+  {
+    const sv = params.streetViewBase64;
+    const hasValidImage = typeof sv === "string" && sv.length > 100
+      && (sv.startsWith("data:image") || sv.startsWith("/9j/") || sv.startsWith("iVBOR"));
 
-    const rx = ml + imgW + 4;
-    const rw = cw - imgW - 4;
-    const rh = imgH;
-    doc.setFillColor(...C.gray50);
-    doc.roundedRect(rx, y0, rw, rh, 2, 2, "F");
-    doc.setDrawColor(...C.gray100);
-    doc.setLineWidth(0.2);
-    doc.roundedRect(rx, y0, rw, rh, 2, 2, "S");
-    doc.setLineWidth(0.1);
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(6);
-    doc.setTextColor(...C.gray400);
-    doc.text("ENDEREÇO", rx + 3, y0 + 4);
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    doc.setTextColor(...C.gray700);
     const endereco = (data.cnpj?.endereco || "—").trim();
-    const lines = doc.splitTextToSize(endereco, rw - 6) as string[];
-    let ty = y0 + 8;
-    lines.slice(0, 5).forEach(l => { doc.text(l, rx + 3, ty); ty += 3.4; });
 
-    pos.y = y0 + rh + 3;
+    const renderAddressFullWidth = () => {
+      checkPageBreak(ctx, 24);
+      const y0 = pos.y;
+      const rh = 22;
+      doc.setFillColor(...C.gray50);
+      doc.roundedRect(ml, y0, cw, rh, 2, 2, "F");
+      doc.setDrawColor(...C.gray100);
+      doc.setLineWidth(0.2);
+      doc.roundedRect(ml, y0, cw, rh, 2, 2, "S");
+      doc.setLineWidth(0.1);
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(F.label);
+      doc.setTextColor(...C.gray400);
+      doc.text("ENDEREÇO", ml + S.cardPad, y0 + 5);
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(F.body);
+      doc.setTextColor(...C.gray700);
+      const lines = doc.splitTextToSize(endereco, cw - 2 * S.cardPad) as string[];
+      let ty = y0 + 10;
+      lines.slice(0, 4).forEach(l => { doc.text(l, ml + S.cardPad, ty); ty += 4.2; });
+
+      pos.y = y0 + rh + S.blockGap;
+    };
+
+    if (hasValidImage) {
+      checkPageBreak(ctx, 45);
+      const y0 = pos.y;
+      const imgW = 82;
+      const imgH = 35;
+      let drew = false;
+      try {
+        const imgData = sv!.startsWith("data:") ? sv! : `data:image/jpeg;base64,${sv}`;
+        doc.addImage(imgData, "JPEG", ml, y0, imgW, imgH);
+        drew = true;
+      } catch (e) {
+        console.error("[sintese] Street View addImage failed:", e);
+      }
+
+      if (!drew) {
+        renderAddressFullWidth();
+      } else {
+        const rx = ml + imgW + S.cardGap;
+        const rw = cw - imgW - S.cardGap;
+        const rh = imgH;
+        doc.setFillColor(...C.gray50);
+        doc.roundedRect(rx, y0, rw, rh, 2, 2, "F");
+        doc.setDrawColor(...C.gray100);
+        doc.setLineWidth(0.2);
+        doc.roundedRect(rx, y0, rw, rh, 2, 2, "S");
+        doc.setLineWidth(0.1);
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(F.label);
+        doc.setTextColor(...C.gray400);
+        doc.text("ENDEREÇO", rx + S.cardPad, y0 + 5);
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(F.body);
+        doc.setTextColor(...C.gray700);
+        const lines = doc.splitTextToSize(endereco, rw - 2 * S.cardPad) as string[];
+        let ty = y0 + 10;
+        lines.slice(0, 6).forEach(l => { doc.text(l, rx + S.cardPad, ty); ty += 4.2; });
+
+        pos.y = y0 + rh + S.blockGap;
+      }
+    } else {
+      renderAddressFullWidth();
+    }
   }
 
   // ══════════════════════════════════════════════════════════════════════
@@ -363,13 +415,13 @@ export function renderSintese(ctx: PdfCtx): void {
     const empresas = data.grupoEconomico?.empresas || [];
 
     if (socios.length > 0 || empresas.length > 0) {
-      checkPageBreak(ctx, 18 + socios.length * 6);
+      checkPageBreak(ctx, Math.max(30, 25 + socios.length * 7));
 
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(7);
+      doc.setFontSize(F.blockTitle);
       doc.setTextColor(...C.gray500);
-      doc.text("GESTÃO & GRUPO ECONÔMICO", ml, pos.y + 3);
-      pos.y += 5;
+      doc.text("GESTÃO & GRUPO ECONÔMICO", ml, pos.y + 4);
+      pos.y += 7;
 
       if (socios.length > 0) {
         const rows: string[][] = socios.map(s => [
@@ -383,20 +435,20 @@ export function renderSintese(ctx: PdfCtx): void {
           ["NOME", "CPF/CNPJ", "QUALIFICAÇÃO", "PART."],
           rows,
           [70, 35, 45, 24],
+          { headFill: C.navy900 as RGB, fontSize: F.tableCell, headFontSize: F.tableHead },
         );
       }
 
-      const capSocStr = data.qsa?.capitalSocial
-        ? fmtMoney(data.qsa.capitalSocial)
-        : data.cnpj?.capitalSocialCNPJ
-          ? fmtMoney(data.cnpj.capitalSocialCNPJ)
-          : "—";
+      const capSocStrRaw = data.qsa?.capitalSocial
+        ? data.qsa.capitalSocial
+        : data.cnpj?.capitalSocialCNPJ || "";
+      const capSocStr = capSocStrRaw ? `R$ ${fmtMoney(capSocStrRaw)}` : "—";
       const grupoStr = empresas.length > 0 ? `${empresas.length} empresa(s)` : "Não identificado";
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
+      doc.setFontSize(F.body);
       doc.setTextColor(...C.gray500);
-      doc.text(`Capital Social: ${capSocStr} · Grupo Econômico: ${grupoStr}`, ml, pos.y + 3);
-      pos.y += 6;
+      doc.text(`Capital Social: ${capSocStr} · Grupo Econômico: ${grupoStr}`, ml, pos.y + 4);
+      pos.y += 4 + S.blockGap;
     }
   }
 
@@ -404,13 +456,14 @@ export function renderSintese(ctx: PdfCtx): void {
   // BLOCO 6 — Indicadores de Risco
   // ══════════════════════════════════════════════════════════════════════
   {
-    checkPageBreak(ctx, 32);
+    const numAlertas = Math.min(4, ((params.alertsHigh || []).length) + ((params.alerts || []).filter(a => a.severity === "MODERADA").length));
+    checkPageBreak(ctx, 26 + numAlertas * 12 + S.blockGap);
 
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(7);
+    doc.setFontSize(F.blockTitle);
     doc.setTextColor(...C.gray500);
-    doc.text("INDICADORES DE RISCO", ml, pos.y + 3);
-    pos.y += 5;
+    doc.text("INDICADORES DE RISCO", ml, pos.y + 4);
+    pos.y += 7;
 
     const protQtd = protestosVigentes || 0;
     const protVal = parseMoneyToNumber(data.protestos?.vigentesValor || "0");
@@ -435,7 +488,7 @@ export function renderSintese(ctx: PdfCtx): void {
       {
         label: "PROTESTOS",
         value: protQtd > 0 ? String(protQtd) : "0",
-        sub: protQtd > 0 ? fmtMoneyRound(protVal) : "sem ocorr.",
+        sub: protQtd > 0 ? money(protVal) : "sem ocorr.",
         tone: protQtd > 2 ? "red" : "green",
       },
       {
@@ -452,7 +505,7 @@ export function renderSintese(ctx: PdfCtx): void {
       },
       {
         label: "SCR VENC.",
-        value: scrVenc > 0 ? fmtMoneyRound(scrVenc) : "—",
+        value: scrVenc > 0 ? money(scrVenc) : "—",
         sub: scrTotalAt > 0 ? `${fmtPct(scrVencPct, 1)} do total` : "em dia",
         tone: scrVencPct > 10 ? "red" : scrVenc > 0 ? "amber" : "green",
       },
@@ -464,9 +517,9 @@ export function renderSintese(ctx: PdfCtx): void {
       },
     ];
 
-    const gap = 3;
+    const gap = S.cardGap;
     const cardW = (cw - gap * 4) / 5;
-    const cardH = 20;
+    const cardH = S.cardRiskH;
     const y0 = pos.y;
 
     cells.forEach((c, i) => {
@@ -480,24 +533,24 @@ export function renderSintese(ctx: PdfCtx): void {
       doc.setLineWidth(0.1);
 
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(6);
+      doc.setFontSize(F.label);
       doc.setTextColor(...C.gray400);
-      doc.text(c.label, cx + 3, y0 + 4);
+      doc.text(c.label, cx + S.cardPad, y0 + 5);
 
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(13);
+      doc.setFontSize(F.valueLg);
       doc.setTextColor(...t.fg);
-      const maxC = Math.floor((cardW - 6) / 2.4);
+      const maxC = Math.floor((cardW - 2 * S.cardPad) / 2.9);
       const v = c.value.length > maxC ? c.value.substring(0, maxC - 1) + "…" : c.value;
-      doc.text(v, cx + 3, y0 + 12);
+      doc.text(v, cx + S.cardPad, y0 + 14);
 
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(7);
+      doc.setFontSize(F.label);
       doc.setTextColor(...C.gray500);
-      doc.text(c.sub, cx + 3, y0 + 17);
+      doc.text(c.sub, cx + S.cardPad, y0 + 20);
     });
 
-    pos.y = y0 + cardH + 4;
+    pos.y = y0 + cardH + S.cardGap;
 
     // Top alerts (high first, then medium up to 4 total)
     const allHigh = (params.alertsHigh || []).slice(0, 2);
@@ -505,6 +558,7 @@ export function renderSintese(ctx: PdfCtx): void {
     [...allHigh, ...allMed].slice(0, 4).forEach(a => {
       drawAlertDeduped(ctx, a.message, a.severity, a.impacto);
     });
+    pos.y += S.blockGap;
   }
 
   // ══════════════════════════════════════════════════════════════════════
@@ -518,10 +572,10 @@ export function renderSintese(ctx: PdfCtx): void {
     const hasScr = !!(scr && scr.periodoReferencia);
 
     if (hasFat || hasScr) {
-      const blockH = 42;
-      checkPageBreak(ctx, blockH + 4);
+      const blockH = 55;
+      checkPageBreak(ctx, blockH + S.blockGap);
       const y0 = pos.y;
-      const gap = 4;
+      const gap = S.cardGap;
       const useTwoCols = hasFat && hasScrAnt && hasScr;
       const colW = useTwoCols ? (cw - gap) / 2 : cw;
 
@@ -536,53 +590,68 @@ export function renderSintese(ctx: PdfCtx): void {
         doc.setLineWidth(0.1);
 
         doc.setFont("helvetica", "bold");
-        doc.setFontSize(6);
+        doc.setFontSize(F.blockTitle);
         doc.setTextColor(...C.gray500);
-        doc.text("FATURAMENTO", colX + 4, y0 + 5);
+        doc.text("FATURAMENTO", colX + S.cardPad, y0 + 6);
 
-        const barArea = colW - 10;
+        // Bug 2: use parseMoneyToNumber (BR format aware), guard empty
+        const values = last12.map(m => parseMoneyToNumber(m.valor));
+        const maxVal = Math.max(...values, 0);
+        console.log("[sintese] fat values:", values, "max:", maxVal);
+
+        const barArea = colW - 2 * S.cardPad;
         const n = last12.length;
         const barGap = 1.5;
         const barW = (barArea - barGap * Math.max(0, n - 1)) / Math.max(1, n);
-        const maxBarH = 22;
-        const baseY = y0 + 8 + maxBarH;
-        const values = last12.map(m => parseMoneyToNumber(m.valor));
-        const maxVal = Math.max(...values, 1);
+        const chartAreaH = 30;
+        const labelsAreaH = 8;
+        const kpiAreaH = 7;
+        const headerH = 10;
+        const chartTop = y0 + headerH;
+        const baseY = chartTop + chartAreaH;
 
-        // Trend up?
-        let varPct = 0;
-        if (n >= 6) {
-          const rec = values.slice(-3).reduce((a, b) => a + b, 0);
-          const ant = values.slice(-6, -3).reduce((a, b) => a + b, 0);
-          if (ant > 0) varPct = ((rec - ant) / ant) * 100;
-        }
-        const upTrend = varPct > 2;
+        if (maxVal === 0) {
+          doc.setFont("helvetica", "italic");
+          doc.setFontSize(F.body);
+          doc.setTextColor(...C.gray400);
+          doc.text("Faturamento não disponível", colX + colW / 2, chartTop + chartAreaH / 2, { align: "center" });
+        } else {
+          // Trend
+          let varPctLocal = 0;
+          if (n >= 6) {
+            const rec = values.slice(-3).reduce((a, b) => a + b, 0);
+            const ant = values.slice(-6, -3).reduce((a, b) => a + b, 0);
+            if (ant > 0) varPctLocal = ((rec - ant) / ant) * 100;
+          }
+          const upTrend = varPctLocal > 2;
 
-        last12.forEach((m, i) => {
-          const v = values[i];
-          const bh = Math.max((v / maxVal) * maxBarH, 0.3);
-          const bx = colX + 5 + i * (barW + barGap);
-          const by = baseY - bh;
-          const isHi = i >= n - 3 && upTrend;
-          const col: [number, number, number] = v === 0 ? C.gray300 : isHi ? C.greenLogo : C.navy800;
-          doc.setFillColor(...col);
-          doc.rect(bx, by, barW, bh, "F");
+          last12.forEach((m, i) => {
+            const v = values[i];
+            const rawH = (v / maxVal) * chartAreaH;
+            const bh = v === 0 ? 0.5 : Math.max(rawH, 0.5);
+            const bx = colX + S.cardPad + i * (barW + barGap);
+            const by = baseY - bh;
+            const isHi = i >= n - 3 && upTrend;
+            const col: [number, number, number] = v === 0 ? C.gray300 : isHi ? C.greenLogo : C.navy800;
+            doc.setFillColor(...col);
+            doc.rect(bx, by, barW, bh, "F");
 
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(F.label - 1);
+            doc.setTextColor(...C.gray500);
+            const lbl = (m.mes || "").substring(0, 5);
+            doc.text(lbl, bx + barW / 2, baseY + labelsAreaH / 2 + 1, { align: "center" });
+          });
+
+          const trend = varPctLocal > 2 ? "↑" : varPctLocal < -2 ? "↓" : "→";
           doc.setFont("helvetica", "normal");
-          doc.setFontSize(5);
-          doc.setTextColor(...C.gray500);
-          const lbl = (m.mes || "").substring(0, 5);
-          doc.text(lbl, bx + barW / 2, baseY + 2.5, { align: "center" });
-        });
-
-        const trend = varPct > 2 ? "↑" : varPct < -2 ? "↓" : "→";
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(6.5);
-        doc.setTextColor(...C.gray700);
-        doc.text(
-          `FMM ${fmtMoneyRound(fmm12m)} · Total ${fmtMoneyRound(fatTotal12)} · ${trend} ${fmtPct(varPct, 0)}`,
-          colX + 4, y0 + blockH - 3,
-        );
+          doc.setFontSize(F.label);
+          doc.setTextColor(...C.gray700);
+          doc.text(
+            `FMM ${money(fmm12m)} · Total ${money(fatTotal12)} · ${trend} ${fmtPct(varPctLocal, 0)}`,
+            colX + S.cardPad, baseY + labelsAreaH + kpiAreaH - 1,
+          );
+        }
       }
 
       // ── Right container (SCR comparativo) ──
@@ -596,9 +665,9 @@ export function renderSintese(ctx: PdfCtx): void {
         doc.setLineWidth(0.1);
 
         doc.setFont("helvetica", "bold");
-        doc.setFontSize(6);
+        doc.setFontSize(F.blockTitle);
         doc.setTextColor(...C.gray500);
-        doc.text(`SCR ${scrAnt!.periodoReferencia} → ${scr!.periodoReferencia}`, colX + 4, y0 + 5);
+        doc.text(`SCR ${scrAnt!.periodoReferencia} → ${scr!.periodoReferencia}`, colX + S.cardPad, y0 + 6);
 
         const sr = (k: string) => parseMoneyToNumber(String((scr as unknown as Record<string, string>)?.[k] || "0"));
         const srAnt = (k: string) => parseMoneyToNumber(String((scrAnt as unknown as Record<string, string> | null)?.[k] || "0"));
@@ -610,28 +679,32 @@ export function renderSintese(ctx: PdfCtx): void {
           { label: "Total Dívidas", cur: sr("totalDividasAtivas"), prev: srAnt("totalDividasAtivas"), bold: true },
         ];
 
-        const colLab = colX + 4;
+        const colLab = colX + S.cardPad;
         const colCur = colX + colW * 0.42;
         const colPrev = colX + colW * 0.66;
         const colVar = colX + colW * 0.86;
 
-        // header
+        // Navy header band (Bug 5)
+        const headH = 7;
+        const headY = y0 + 11;
+        doc.setFillColor(...C.navy900);
+        doc.rect(colX + S.cardPad - 1, headY, colW - 2 * (S.cardPad - 1), headH, "F");
         doc.setFont("helvetica", "bold");
-        doc.setFontSize(6);
-        doc.setTextColor(...C.gray500);
-        doc.text("MÉTRICA", colLab, y0 + 10);
-        doc.text("ATUAL", colCur, y0 + 10);
-        doc.text("ANT.", colPrev, y0 + 10);
-        doc.text("VAR%", colVar, y0 + 10);
+        doc.setFontSize(F.tableHead);
+        doc.setTextColor(255, 255, 255);
+        doc.text("MÉTRICA", colLab, headY + headH - 2);
+        doc.text("ATUAL", colCur, headY + headH - 2);
+        doc.text("ANT.", colPrev, headY + headH - 2);
+        doc.text("VAR%", colVar, headY + headH - 2);
 
         rows.forEach((r, i) => {
-          const ry = y0 + 14 + i * 5.5;
+          const ry = headY + headH + 5 + i * 6;
           doc.setFont("helvetica", r.bold ? "bold" : "normal");
-          doc.setFontSize(7);
+          doc.setFontSize(F.tableCell);
           doc.setTextColor(...C.gray900);
           doc.text(r.label, colLab, ry);
-          doc.text(r.cur > 0 ? fmtMoneyRound(r.cur) : "—", colCur, ry);
-          doc.text(r.prev > 0 ? fmtMoneyRound(r.prev) : "—", colPrev, ry);
+          doc.text(r.cur > 0 ? money(r.cur) : "—", colCur, ry);
+          doc.text(r.prev > 0 ? money(r.prev) : "—", colPrev, ry);
           if (r.prev > 0 && r.cur > 0) {
             const pct = ((r.cur - r.prev) / r.prev) * 100;
             const vc: [number, number, number] = pct > 2 ? C.red600 : pct < -2 ? C.green600 : C.gray500;
@@ -644,7 +717,7 @@ export function renderSintese(ctx: PdfCtx): void {
         });
       }
 
-      pos.y = y0 + blockH + 4;
+      pos.y = y0 + blockH + S.blockGap;
     }
   }
 
@@ -654,19 +727,26 @@ export function renderSintese(ctx: PdfCtx): void {
   {
     const clientes = data.curvaABC?.clientes || [];
     if (clientes.length > 0) {
+      console.log("[sintese] ABC sample client:", JSON.stringify(clientes[0]));
       const top5 = clientes.slice(0, 5);
-      checkPageBreak(ctx, 22 + top5.length * 6);
+      checkPageBreak(ctx, 45);
 
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(7);
+      doc.setFontSize(F.blockTitle);
       doc.setTextColor(...C.gray500);
-      doc.text("CURVA ABC — TOP 5 CLIENTES", ml, pos.y + 3);
-      pos.y += 5;
+      doc.text("CURVA ABC — TOP 5 CLIENTES", ml, pos.y + 4);
+      pos.y += 7;
+
+      // Field name: valorFaturado (confirmed in types/index.ts ClienteCurvaABC)
+      const abcValor = (c: unknown): string => {
+        const rec = c as Record<string, unknown>;
+        return String(rec?.valorFaturado || rec?.faturamento || rec?.valor || "0");
+      };
 
       const baseTotal = parseMoneyToNumber(data.curvaABC?.receitaTotalBase || "0");
       let acum = 0;
       const rows: string[][] = top5.map((c, i) => {
-        const valor = parseMoneyToNumber(c.valorFaturado);
+        const valor = parseMoneyToNumber(abcValor(c));
         const pct = baseTotal > 0
           ? (valor / baseTotal) * 100
           : parseFloat(String(c.percentualReceita).replace(",", ".").replace("%", "")) || 0;
@@ -674,7 +754,7 @@ export function renderSintese(ctx: PdfCtx): void {
         return [
           String(i + 1),
           truncateText(c.nome || "—", 36),
-          fmtMoneyRound(valor),
+          money(valor),
           fmtPct(pct, 1),
           fmtPct(acum, 1),
           c.classe || "—",
@@ -685,30 +765,32 @@ export function renderSintese(ctx: PdfCtx): void {
         ["#", "CLIENTE", "FATURAMENTO", "% REC.", "% ACUM.", "CL."],
         rows,
         [8, 58, 35, 25, 25, 15],
+        { headFill: C.navy900 as RGB, fontSize: F.tableCell, headFontSize: F.tableHead },
       );
 
       const top3 = top5.slice(0, 3).reduce((s, c) => {
-        const v = parseMoneyToNumber(c.valorFaturado);
+        const v = parseMoneyToNumber(abcValor(c));
         return s + (baseTotal > 0 ? (v / baseTotal) * 100 : parseFloat(String(c.percentualReceita).replace(",", ".").replace("%", "")) || 0);
       }, 0);
       const top5Sum = rows.length > 0 ? acum : 0;
       const totalCli = data.curvaABC?.totalClientesNaBase || clientes.length;
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
+      doc.setFontSize(F.body);
       doc.setTextColor(...C.gray500);
       doc.text(
         `Top 3: ${fmtPct(top3, 0)} · Top 5: ${fmtPct(top5Sum, 0)} · Total clientes: ${totalCli}`,
-        ml, pos.y + 3,
+        ml, pos.y + 4,
       );
-      pos.y += 5;
+      pos.y += 6;
 
       // Concentration alert
       const top1Pct = baseTotal > 0
-        ? (parseMoneyToNumber(top5[0].valorFaturado) / baseTotal) * 100
+        ? (parseMoneyToNumber(abcValor(top5[0])) / baseTotal) * 100
         : parseFloat(String(top5[0].percentualReceita).replace(",", ".").replace("%", "")) || 0;
       if (top1Pct > 30) {
         drawAlert(ctx, "high", `Concentração elevada: maior cliente representa ${fmtPct(top1Pct, 0)} da receita`);
       }
+      pos.y += S.blockGap;
     }
   }
 
@@ -719,17 +801,17 @@ export function renderSintese(ctx: PdfCtx): void {
     const rv = data.relatorioVisita;
     const hasPleito = !!(rv && (rv.pleito || rv.limiteTotal || rv.modalidade || rv.prazoMaximoOp || rv.taxaConvencional));
     if (hasPleito) {
-      checkPageBreak(ctx, 18);
+      checkPageBreak(ctx, 20);
 
       const cards: Array<{ label: string; value: string; mono?: boolean }> = [
-        { label: "VALOR PLEITEADO", value: rv!.limiteTotal ? fmtMoney(rv!.limiteTotal) : (rv!.pleito || "—"), mono: !!rv!.limiteTotal },
+        { label: "VALOR PLEITEADO", value: rv!.limiteTotal ? `R$ ${fmtMoney(rv!.limiteTotal)}` : (rv!.pleito || "—"), mono: !!rv!.limiteTotal },
         { label: "MODALIDADE", value: (rv!.modalidade || "—").toUpperCase() },
         { label: "PRAZO MÁX.", value: rv!.prazoMaximoOp ? `${rv!.prazoMaximoOp} dias` : "—" },
         { label: "TAXA", value: rv!.taxaConvencional ? `${rv!.taxaConvencional}%` : "—" },
       ];
-      const gap = 3;
+      const gap = S.cardGap;
       const cardW = (cw - gap * 3) / 4;
-      const cardH = 16;
+      const cardH = S.cardInfoH;
       const y0 = pos.y;
 
       cards.forEach((c, i) => {
@@ -742,19 +824,19 @@ export function renderSintese(ctx: PdfCtx): void {
         doc.setLineWidth(0.1);
 
         doc.setFont("helvetica", "bold");
-        doc.setFontSize(6);
+        doc.setFontSize(F.label);
         doc.setTextColor(...C.gray400);
-        doc.text(c.label, cx + 3, y0 + 4);
+        doc.text(c.label, cx + S.cardPad, y0 + 5);
 
         doc.setFont(c.mono ? "courier" : "helvetica", "bold");
-        doc.setFontSize(10);
+        doc.setFontSize(F.body);
         doc.setTextColor(...C.navy900);
-        const maxC = Math.floor((cardW - 6) / (c.mono ? 1.9 : 1.7));
+        const maxC = Math.floor((cardW - 2 * S.cardPad) / (c.mono ? 1.9 : 1.75));
         const v = c.value.length > maxC ? c.value.substring(0, maxC - 1) + "…" : c.value;
-        doc.text(v, cx + 3, y0 + 11);
+        doc.text(v, cx + S.cardPad, y0 + 12);
       });
 
-      pos.y = y0 + cardH + 4;
+      pos.y = y0 + cardH + S.blockGap;
     }
   }
 
@@ -770,10 +852,10 @@ export function renderSintese(ctx: PdfCtx): void {
       .slice(0, 6);
 
     if (fortes.length > 0 || fracos.length > 0 || moderados.length > 0) {
-      const cardH = 35;
-      checkPageBreak(ctx, cardH + 4);
+      const cardH = 40;
+      checkPageBreak(ctx, cardH + S.blockGap);
       const y0 = pos.y;
-      const gap = 4;
+      const gap = S.cardGap;
       const cardW = (cw - gap * 2) / 3;
 
       const cols: Array<{
@@ -798,29 +880,29 @@ export function renderSintese(ctx: PdfCtx): void {
         doc.setLineWidth(0.1);
 
         doc.setFont("helvetica", "bold");
-        doc.setFontSize(7);
+        doc.setFontSize(F.blockTitle);
         doc.setTextColor(...col.fg);
-        doc.text(col.title, cx + 3, y0 + 4);
+        doc.text(col.title, cx + S.cardPad, y0 + 5);
         doc.setDrawColor(...col.border);
         doc.setLineWidth(0.2);
-        doc.line(cx + 3, y0 + 5.5, cx + cardW - 3, y0 + 5.5);
+        doc.line(cx + S.cardPad, y0 + 6.8, cx + cardW - S.cardPad, y0 + 6.8);
         doc.setLineWidth(0.1);
 
         doc.setFont("helvetica", "normal");
-        doc.setFontSize(7);
+        doc.setFontSize(F.body - 1.5);
         doc.setTextColor(...C.gray700);
-        let ty = y0 + 9;
+        let ty = y0 + 11;
         col.items.slice(0, 5).forEach(item => {
           if (ty > y0 + cardH - 3) return;
-          const lines = doc.splitTextToSize(`• ${truncateText(item, 200)}`, cardW - 6) as string[];
+          const lines = doc.splitTextToSize(`• ${truncateText(item, 200)}`, cardW - 2 * S.cardPad) as string[];
           lines.slice(0, 2).forEach(l => {
             if (ty > y0 + cardH - 3) return;
-            doc.text(l, cx + 3, ty);
-            ty += 3.4;
+            doc.text(l, cx + S.cardPad, ty);
+            ty += 4;
           });
         });
       });
-      pos.y = y0 + cardH + 4;
+      pos.y = y0 + cardH + S.blockGap;
     }
   }
 
@@ -840,17 +922,17 @@ export function renderSintese(ctx: PdfCtx): void {
     }
 
     if (parecerTxt) {
-      const innerW = cw - 10;
-      const lineH = 3.5;
+      const innerW = cw - 2 * S.cardPad;
+      const lineH = 4.3;
       const allLines = doc.splitTextToSize(parecerTxt, innerW) as string[];
       const maxLines = 6;
       const shown = allLines.slice(0, maxLines);
       if (allLines.length > maxLines) {
         shown[shown.length - 1] = shown[shown.length - 1].replace(/\s*\S*$/, "") + "…";
       }
-      const blockH = 5 + shown.length * lineH + 12;
+      const blockH = S.cardPad + 2 + shown.length * lineH + 14;
 
-      checkPageBreak(ctx, blockH + 3);
+      checkPageBreak(ctx, blockH + S.blockGap);
       const y0 = pos.y;
       doc.setFillColor(...C.gray50);
       doc.roundedRect(ml, y0, cw, blockH, 3, 3, "F");
@@ -860,38 +942,38 @@ export function renderSintese(ctx: PdfCtx): void {
       doc.setLineWidth(0.1);
 
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
+      doc.setFontSize(F.body);
       doc.setTextColor(...C.gray700);
-      let ty = y0 + 6;
-      shown.forEach(l => { doc.text(l, ml + 5, ty); ty += lineH; });
+      let ty = y0 + S.cardPad + 3;
+      shown.forEach(l => { doc.text(l, ml + S.cardPad, ty); ty += lineH; });
 
       // Recommendation line
-      const recY = y0 + blockH - 7;
+      const recY = y0 + blockH - 8;
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
+      doc.setFontSize(F.body);
       doc.setTextColor(...C.gray500);
-      doc.text("Recomendação:", ml + 5, recY);
+      doc.text("Recomendação:", ml + S.cardPad, recY);
       const labelW = doc.getTextWidth("Recomendação:");
 
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(7);
+      doc.setFontSize(F.label);
       const txtW = doc.getTextWidth(dec);
       const padX = 3;
       const bw = txtW + padX * 2;
-      const bh = 4.5;
-      const bx = ml + 5 + labelW + 3;
-      const by = recY - 3.4;
+      const bh = 5;
+      const bx = ml + S.cardPad + labelW + 3;
+      const by = recY - 3.6;
       doc.setFillColor(...decColor);
       doc.roundedRect(bx, by, bw, bh, 1.2, 1.2, "F");
       doc.setTextColor(255, 255, 255);
-      doc.text(dec, bx + padX, by + 3.2);
+      doc.text(dec, bx + padX, by + 3.5);
 
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(7);
+      doc.setFontSize(F.label);
       doc.setTextColor(...C.gray400);
-      doc.text("Ver parecer completo na seção 02.", ml + 5, y0 + blockH - 2);
+      doc.text("Ver parecer completo na seção 02.", ml + S.cardPad, y0 + blockH - 2);
 
-      pos.y = y0 + blockH + 4;
+      pos.y = y0 + blockH + S.blockGap;
     }
   }
 
