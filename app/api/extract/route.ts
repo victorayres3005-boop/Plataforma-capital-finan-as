@@ -1265,19 +1265,26 @@ function fillCNPJDefaults(data: Partial<CNPJData>): CNPJData {
 }
 
 function fillQSADefaults(data: Partial<QSAData>): QSAData {
-  const quadro = Array.isArray(data.quadroSocietario) && data.quadroSocietario.length > 0
-    ? data.quadroSocietario.map(s => ({
-        nome: s.nome || "", cpfCnpj: s.cpfCnpj || "",
-        qualificacao: s.qualificacao || "", participacao: s.participacao || "",
-      }))
-    : [{ nome: "", cpfCnpj: "", qualificacao: "", participacao: "" }];
+  // Nao injetar sócio vazio quando Gemini retorna array vazio — isso quebra
+  // o enriquecimento via Credit Hub e polui o PDF com linhas em branco.
+  const quadro = Array.isArray(data.quadroSocietario)
+    ? data.quadroSocietario
+        .filter(s => s && (s.nome || s.cpfCnpj)) // descarta entradas totalmente vazias
+        .map(s => ({
+          nome: s.nome || "", cpfCnpj: s.cpfCnpj || "",
+          qualificacao: s.qualificacao || "", participacao: s.participacao || "",
+        }))
+    : [];
   return { capitalSocial: data.capitalSocial || "", quadroSocietario: quadro };
 }
 
 function fillContratoDefaults(data: Partial<ContratoSocialData>): ContratoSocialData {
-  const socios = Array.isArray(data.socios) && data.socios.length > 0
-    ? data.socios.map(s => ({ nome: s.nome || "", cpf: s.cpf || "", participacao: s.participacao || "", qualificacao: s.qualificacao || "" }))
-    : [{ nome: "", cpf: "", participacao: "", qualificacao: "" }];
+  // Mesma regra do QSA — nao inventar socio vazio quando Gemini falha.
+  const socios = Array.isArray(data.socios)
+    ? data.socios
+        .filter(s => s && (s.nome || s.cpf))
+        .map(s => ({ nome: s.nome || "", cpf: s.cpf || "", participacao: s.participacao || "", qualificacao: s.qualificacao || "" }))
+    : [];
   return {
     socios, capitalSocial: data.capitalSocial || "", objetoSocial: data.objetoSocial || "",
     dataConstituicao: data.dataConstituicao || "", temAlteracoes: data.temAlteracoes || false,
@@ -1757,16 +1764,38 @@ export async function POST(request: NextRequest) {
                 }
                 break;
               }
-              case "qsa":            data = fillQSADefaults(parsed as Partial<QSAData>); break;
-              case "contrato":       data = fillContratoDefaults(parsed as Partial<ContratoSocialData>); break;
+              case "qsa": {
+                data = fillQSADefaults(parsed as Partial<QSAData>);
+                const n = (data as QSAData).quadroSocietario?.length ?? 0;
+                console.log(`[extract][qsa] Gemini retornou ${n} socio(s) apos filtro. capitalSocial="${(data as QSAData).capitalSocial || "vazio"}"`);
+                if (n === 0) {
+                  console.warn(`[extract][qsa] NENHUM SOCIO EXTRAIDO — verifique o documento e o prompt. parsed keys: ${Object.keys(parsed as object).join(", ")}`);
+                }
+                break;
+              }
+              case "contrato": {
+                data = fillContratoDefaults(parsed as Partial<ContratoSocialData>);
+                const n = (data as ContratoSocialData).socios?.length ?? 0;
+                console.log(`[extract][contrato] Gemini retornou ${n} socio(s) apos filtro.`);
+                break;
+              }
               case "faturamento":    data = fillFaturamentoDefaults(parsed as Partial<FaturamentoData>); break;
               case "scr": {
                 data = fillSCRDefaults(parsed as Partial<SCRData>);
+                const scrData = data as SCRData;
+                console.log(`[extract][scr] Gemini retornou periodoRef="${scrData.periodoReferencia || "VAZIO"}" tipoPessoa="${scrData.tipoPessoa || "VAZIO"}" cnpjSCR="${scrData.cnpjSCR || ""}" cpfSCR="${scrData.cpfSCR || ""}" totalDividas="${scrData.totalDividasAtivas || "0"}"`);
+                if (!scrData.periodoReferencia) {
+                  console.warn(`[extract][scr] SEM periodoReferencia — ordenacao atual/anterior vai falhar`);
+                }
+                if (!scrData.tipoPessoa) {
+                  console.warn(`[extract][scr] SEM tipoPessoa — documento vai cair no bucket empresa por fallback`);
+                }
                 const periodoAnterior = (parsed as Record<string, unknown>).periodoAnterior as Partial<SCRData> | undefined;
                 if (periodoAnterior && periodoAnterior.periodoReferencia) {
                   (data as SCRData & { _scrAnterior?: SCRData })._scrAnterior = fillSCRDefaults(periodoAnterior);
                   (data as SCRData & { _variacoes?: Record<string, string> })._variacoes =
                     ((parsed as Record<string, unknown>).variacoes as Record<string, string>) || {};
+                  console.log(`[extract][scr] Periodo anterior detectado no mesmo doc: ${periodoAnterior.periodoReferencia}`);
                 }
                 break;
               }
