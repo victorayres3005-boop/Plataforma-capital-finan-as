@@ -101,15 +101,60 @@ const defaultGrupoEconomico: GrupoEconomicoData = { empresas:[] };
 
 // ─── Merge logic ───
 
+// Chaves naturais para dedupe de arrays em merge (evita duplicar socios/clientes/empresas)
+const ARRAY_DEDUPE_KEYS: Record<string, string[]> = {
+  quadroSocietario: ["cpfCnpj", "nome"],
+  socios: ["cpf", "nome"],
+  meses: ["mes"],
+  empresas: ["cnpj", "razaoSocial"],
+  detalhes: ["numero", "data"],
+  distribuicao: ["tipo"],
+  clientes: ["cnpj", "nome"],
+  anos: ["ano"],
+  top10Recentes: ["numero"],
+  bancarios: ["nome", "numero"],
+  modalidades: ["nome"],
+  instituicoes: ["nome"],
+};
+
+function dedupeArray(key: string, arr: unknown[]): unknown[] {
+  const idKeys = ARRAY_DEDUPE_KEYS[key];
+  if (!idKeys) return arr; // sem chave natural — retorna como esta
+  const seen = new Set<string>();
+  const out: unknown[] = [];
+  for (const item of arr) {
+    if (!item || typeof item !== "object") { out.push(item); continue; }
+    const obj = item as Record<string, unknown>;
+    const id = idKeys.map(k => String(obj[k] || "")).join("|").trim();
+    if (!id || id === new Array(idKeys.length).fill("").join("|")) { out.push(item); continue; }
+    if (seen.has(id)) continue; // duplicata
+    seen.add(id);
+    out.push(item);
+  }
+  return out;
+}
+
 function mergeData(existing: Record<string, unknown>, incoming: Record<string, unknown>): Record<string, unknown> {
   const result = { ...existing };
   for (const [key, value] of Object.entries(incoming)) {
     if (Array.isArray(value) && Array.isArray(result[key])) {
-      result[key] = [...(result[key] as unknown[]), ...value];
-    } else if (typeof value === 'string' && value.length > 0) {
+      // Arrays: concatena + deduplica por chave natural quando existe
+      const combined = [...(result[key] as unknown[]), ...value];
+      result[key] = dedupeArray(key, combined);
+    } else if (Array.isArray(value)) {
+      // Novo array sobrescreve — aplica dedupe mesmo assim
+      result[key] = dedupeArray(key, value);
+    } else if (typeof value === "string") {
+      // String: incoming ganha SEMPRE, exceto quando incoming vazio E existing tem algo
+      const existingStr = typeof result[key] === "string" ? (result[key] as string) : "";
+      if (value.length > 0 || existingStr.length === 0) {
+        result[key] = value;
+      }
+    } else if (typeof value === "boolean") {
+      // Boolean: incoming sempre ganha (inclui false como informacao valida)
       result[key] = value;
-    } else if (typeof value === 'boolean' && value === true) {
-      result[key] = true;
+    } else if (value !== undefined && value !== null) {
+      result[key] = value;
     }
   }
   return result;

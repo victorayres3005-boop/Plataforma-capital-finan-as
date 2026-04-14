@@ -783,6 +783,20 @@ Mapeamento (idêntico para ambas as tabelas, faixasVencidos não tem prazoIndete
 ═══ MOEDA ESTRANGEIRA ═══
 valoresMoedaEstrangeira: se o documento mencionar exposições em USD, EUR ou outras moedas (ex: "US$ 50.000,00 em financiamento"), descreva aqui em uma linha. Senão "".
 
+═══ REGRA DE MÚTUA EXCLUSIVIDADE (IMPORTANTE) ═══
+Um valor NUNCA pode aparecer ao mesmo tempo em faixasAVencer E em faixasVencidos.
+Se você está em dúvida sobre uma linha e não tem CERTEZA se é "a vencer" ou "vencido",
+coloque em faixasAVencer (o cenário mais comum) e deixe faixasVencidos com zeros.
+Nunca copie os mesmos números nas duas estruturas.
+
+═══ VALIDAÇÃO ANTES DE RETORNAR ═══
+Antes de produzir o JSON final, confira:
+1. totalDividasAtivas ≈ carteiraAVencer + vencidos + prejuizos (margem ~5%)
+2. faixasAVencer.total ≈ soma das faixas individuais
+3. faixasVencidos.total ≈ soma das faixas individuais
+4. Se totalDividasAtivas > "0,00" então semHistorico DEVE ser false
+5. periodoReferencia NUNCA pode ficar vazio — use a data mais recente que encontrar
+
 NÃO invente dados.`;
 
 
@@ -1507,50 +1521,88 @@ function fillCNPJDefaults(data: Partial<CNPJData>): CNPJData {
   };
 }
 
-function fillQSADefaults(data: Partial<QSAData>): QSAData {
-  // Nao injetar sócio vazio quando Gemini retorna array vazio — isso quebra
-  // o enriquecimento via Credit Hub e polui o PDF com linhas em branco.
-  const quadro = Array.isArray(data.quadroSocietario)
-    ? data.quadroSocietario
-        .filter(s => s && (s.nome || s.cpfCnpj)) // descarta entradas totalmente vazias
-        .map(s => ({
-          nome: s.nome || "", cpfCnpj: s.cpfCnpj || "",
-          qualificacao: s.qualificacao || "", participacao: s.participacao || "",
-        }))
-    : [];
-  return { capitalSocial: data.capitalSocial || "", quadroSocietario: quadro };
+function fillQSADefaults(data: Partial<QSAData>): QSAData & { _incompleteCount?: number } {
+  // Descarta socios totalmente vazios MAS conta quantos foram descartados
+  // pra que a Review possa exibir "N socios foram detectados parcialmente".
+  const raw = Array.isArray(data.quadroSocietario) ? data.quadroSocietario : [];
+  let incompleteCount = 0;
+  const quadro = raw
+    .filter(s => {
+      if (!s) { incompleteCount++; return false; }
+      const hasName = !!(s.nome && s.nome.trim());
+      const hasCpf = !!(s.cpfCnpj && s.cpfCnpj.trim());
+      const hasQual = !!(s.qualificacao && s.qualificacao.trim());
+      // Se so tem qualificacao/participacao e nada identificavel, e ruido
+      if (!hasName && !hasCpf && !hasQual) { incompleteCount++; return false; }
+      // Se so tem nome OU so tem CPF, mantem com warning no log
+      if (!hasName || !hasCpf) {
+        console.warn(`[extract][qsa] socio parcial mantido: nome="${s.nome || "—"}" cpf="${s.cpfCnpj || "—"}"`);
+      }
+      return true;
+    })
+    .map(s => ({
+      nome: s.nome || "", cpfCnpj: s.cpfCnpj || "",
+      qualificacao: s.qualificacao || "", participacao: s.participacao || "",
+    }));
+  if (incompleteCount > 0) {
+    console.warn(`[extract][qsa] ${incompleteCount} entrada(s) totalmente vazia(s) descartada(s)`);
+  }
+  const result: QSAData & { _incompleteCount?: number } = {
+    capitalSocial: data.capitalSocial || "", quadroSocietario: quadro,
+  };
+  if (incompleteCount > 0) result._incompleteCount = incompleteCount;
+  return result;
 }
 
-function fillContratoDefaults(data: Partial<ContratoSocialData>): ContratoSocialData {
-  // Mesma regra do QSA — nao inventar socio vazio quando Gemini falha.
-  const socios = Array.isArray(data.socios)
-    ? data.socios
-        .filter(s => s && (s.nome || s.cpf))
-        .map(s => ({ nome: s.nome || "", cpf: s.cpf || "", participacao: s.participacao || "", qualificacao: s.qualificacao || "" }))
-    : [];
-  return {
+function fillContratoDefaults(data: Partial<ContratoSocialData>): ContratoSocialData & { _incompleteCount?: number } {
+  const raw = Array.isArray(data.socios) ? data.socios : [];
+  let incompleteCount = 0;
+  const socios = raw
+    .filter(s => {
+      if (!s) { incompleteCount++; return false; }
+      const hasName = !!(s.nome && s.nome.trim());
+      const hasCpf = !!(s.cpf && s.cpf.trim());
+      const hasPart = !!(s.participacao && s.participacao.trim());
+      if (!hasName && !hasCpf && !hasPart) { incompleteCount++; return false; }
+      if (!hasName || !hasCpf) {
+        console.warn(`[extract][contrato] socio parcial mantido: nome="${s.nome || "—"}" cpf="${s.cpf || "—"}"`);
+      }
+      return true;
+    })
+    .map(s => ({ nome: s.nome || "", cpf: s.cpf || "", participacao: s.participacao || "", qualificacao: s.qualificacao || "" }));
+  if (incompleteCount > 0) {
+    console.warn(`[extract][contrato] ${incompleteCount} entrada(s) totalmente vazia(s) descartada(s)`);
+  }
+  const result: ContratoSocialData & { _incompleteCount?: number } = {
     socios, capitalSocial: data.capitalSocial || "", objetoSocial: data.objetoSocial || "",
     dataConstituicao: data.dataConstituicao || "", temAlteracoes: data.temAlteracoes || false,
     prazoDuracao: data.prazoDuracao || "", administracao: data.administracao || "", foro: data.foro || "",
   };
+  if (incompleteCount > 0) result._incompleteCount = incompleteCount;
+  return result;
 }
 
 function fillFaturamentoDefaults(data: Partial<FaturamentoData>): FaturamentoData {
   const _mesAtualFiltro = new Date().getMonth() + 1;
   const _anoAtualFiltro = new Date().getFullYear();
 
+  const _mesesFuturosDropados: string[] = [];
   const meses = (Array.isArray(data.meses) ? data.meses : [])
     .filter(m => {
       if (!m.mes) return false;
       const [mesNum, anoNum] = m.mes.split("/").map(Number);
       if (!mesNum || !anoNum) return false;
 
-      // Remove meses futuros — ano futuro, ou mesmo ano mas mês futuro
-      if (anoNum > _anoAtualFiltro) return false;
-      if (anoNum === _anoAtualFiltro && mesNum > _mesAtualFiltro) return false;
-
-      return true; // mantém todos os meses passados, incluindo zeros sazonais
+      // Meses futuros: marca como dropado pra expor na Review, nao silencia
+      if (anoNum > _anoAtualFiltro || (anoNum === _anoAtualFiltro && mesNum > _mesAtualFiltro)) {
+        _mesesFuturosDropados.push(m.mes);
+        return false;
+      }
+      return true;
     });
+  if (_mesesFuturosDropados.length > 0) {
+    console.warn(`[extract][faturamento] ${_mesesFuturosDropados.length} mes(es) futuro(s) descartado(s): ${_mesesFuturosDropados.join(", ")}`);
+  }
   const parseBR = (v: string) => parseFloat((v || "0").replace(/\./g, "").replace(",", ".")) || 0;
   const fmtBR = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -1602,7 +1654,7 @@ function fillFaturamentoDefaults(data: Partial<FaturamentoData>): FaturamentoDat
     .filter(m => parseBR(m.valor) === 0)
     .map(m => ({ mes: m.mes, motivo: "Valor zero ou ausente" }));
 
-  return {
+  const result = {
     meses,
     somatoriaAno: fmtBR(soma12m),
     mediaAno: fmtBR(fmm12m),
@@ -1618,7 +1670,9 @@ function fillFaturamentoDefaults(data: Partial<FaturamentoData>): FaturamentoDat
     mesesZerados,
     quantidadeMesesZerados: mesesZerados.length,
     temMesesZerados: mesesZerados.length > 0,
-  };
+  } as FaturamentoData & { _mesesFuturosIgnorados?: string[] };
+  if (_mesesFuturosDropados.length > 0) result._mesesFuturosIgnorados = _mesesFuturosDropados;
+  return result;
 }
 
 function fillSCRDefaults(data: Partial<SCRData>): SCRData {
@@ -1912,16 +1966,24 @@ export async function POST(request: NextRequest) {
     }
 
     // ──── Excel: processamento direto sem IA ────
+    // Se o parser Excel retornar vazio OU lancar erro, cai pro Gemini como fallback
+    // (evita que analista veja "faturamento vazio" sem aviso quando o XLSX foge do formato).
     if (ext === "xlsx" && docType === "faturamento") {
       try {
         console.log(`[extract] Processing Excel: ${file.name}`);
         const faturamento = await extractExcel(buffer);
         const filled = countFilledFields(faturamento);
-        return NextResponse.json({
-          success: true,
-          data: faturamento,
-          meta: { rawTextLength: 0, filledFields: filled, isScanned: false, aiPowered: false },
-        });
+        const hasMeses = Array.isArray(faturamento.meses) && faturamento.meses.length > 0;
+        if (!hasMeses || filled === 0) {
+          console.warn(`[extract] Excel parser retornou vazio (meses=${faturamento.meses?.length ?? 0}, filled=${filled}) — caindo pro Gemini como fallback`);
+          // Prossegue para fluxo Gemini (nao retorna aqui)
+        } else {
+          return NextResponse.json({
+            success: true,
+            data: faturamento,
+            meta: { rawTextLength: 0, filledFields: filled, isScanned: false, aiPowered: false },
+          });
+        }
       } catch (err) {
         console.error("[extract] Excel processing failed:", err);
         // Se falhar, tentar via IA
@@ -1981,6 +2043,12 @@ export async function POST(request: NextRequest) {
           error: "Não foi possível extrair texto do documento. Tente enviar em outro formato.",
         }, { status: 422 });
       }
+    }
+
+    // Injeta hint do nome do arquivo no prompt para SCR — quando periodoReferencia
+    // nao aparece no documento, Gemini pode usar o filename como pista de ultimo recurso.
+    if (docType === "scr" && file.name) {
+      prompt = `${prompt}\n\n═══ HINT DO NOME DO ARQUIVO ═══\nO arquivo foi enviado com o nome: "${file.name}"\nSe o documento nao declarar periodoReferencia claramente mas o nome do arquivo contem uma data (ex: "scr-11-2025.pdf", "bacen-2024-12.pdf"), use essa data como periodoReferencia (formato MM/AAAA). NUNCA retorne periodoReferencia vazio.`;
     }
 
     if (textContent) {
