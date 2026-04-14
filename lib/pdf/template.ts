@@ -486,8 +486,26 @@ function secChecklist(p: PDFReportParams): string {
 function secSintese(p: PDFReportParams): string {
   const { data, finalRating, decision, pontosFortes, pontosFracos, resumoExecutivo, companyAge } = p;
 
-  // Rating color
-  const rc = finalRating >= 7.5 ? "#16a34a" : finalRating >= 6 ? "#d97706" : "#dc2626";
+  // Palette (mirrors lib/generators/pdf/sections/sintese.ts C constant)
+  const PAL = {
+    navy900: "#0c1b3a", navy800: "#132c4e", navy700: "#1a3a6b",
+    navy100: "#dce6f5", navy50: "#eef3fb",
+    amber500: "#d4960a", amber100: "#fdf3d7", amber50: "#fef9ec",
+    red600: "#c53030", red100: "#fee2e2", red50: "#fef2f2",
+    green600: "#16653a", green100: "#d1fae5", green50: "#ecfdf5",
+    gray900: "#111827", gray700: "#374151", gray500: "#6b7280",
+    gray400: "#9ca3af", gray300: "#d1d5db", gray200: "#e5e7eb",
+    gray100: "#f3f4f6", gray50: "#f9fafb",
+    greenLogo: "#73B815",
+  };
+
+  const score = finalRating || 0;
+  const scoreColor = score >= 6.5 ? PAL.green600 : score >= 5 ? PAL.amber500 : PAL.red600;
+  const scoreLabel = score >= 8 ? "EXCELENTE" : score >= 6.5 ? "SATISFATÓRIO" : score >= 5 ? "MODERADO" : "ALTO RISCO";
+  const dec = (decision || "\u2014").replace(/_/g, " ").toUpperCase();
+  const decAprov = /APROV/i.test(dec) && !/CONDIC/i.test(dec);
+  const decReprov = /REPROV/i.test(dec);
+  const decColor = decAprov ? PAL.green600 : decReprov ? PAL.red600 : PAL.amber500;
 
   // Faturamento series
   const allMesesSorted = sortMeses(data.faturamento?.meses || []).filter(m => m?.mes && m?.valor);
@@ -501,22 +519,18 @@ function secSintese(p: PDFReportParams): string {
   const ccfQtd = data.ccf?.qtdRegistros ?? null;
   const procPass = parseInt(data.processos?.passivosTotal || "0") || 0;
   const scrVenc = p.vencidosSCR || 0;
-  const scrTotal = numVal(data.scr?.totalDividasAtivas || "0");
-  const scrVencPct = scrTotal > 0 ? (scrVenc / scrTotal) * 100 : 0;
+  const scrTotalAt = numVal(data.scr?.totalDividasAtivas || "0");
+  const scrVencPct = scrTotalAt > 0 ? (scrVenc / scrTotalAt) * 100 : 0;
   const alav = p.alavancagem ?? 0;
 
-  // ── BLOCO A — Header compacto ─────────────────────────────────────────
   const razao = esc(data.cnpj?.razaoSocial || "\u2014");
+  const fantasia = esc(data.cnpj?.nomeFantasia || "");
   const cnpjFmt = fmtCnpj(data.cnpj?.cnpj);
-  const situacao = (data.cnpj?.situacaoCadastral || "\u2014").toUpperCase();
+  const situacao = (data.cnpj?.situacaoCadastral || "").toUpperCase().trim();
   const situAtiva = situacao.includes("ATIVA");
-  const situColor = situAtiva ? "#16a34a" : situacao === "\u2014" ? "#9ca3af" : "#d97706";
-  const decFmt = esc((decision || "\u2014").replace(/_/g, " "));
-  const decColor = /APROV/i.test(decFmt) && !/CONDIC/i.test(decFmt) ? "#16a34a"
-    : /REPROV/i.test(decFmt) ? "#dc2626"
-    : "#d97706";
+  const situBg = situAtiva ? PAL.green100 : PAL.amber100;
+  const situFg = situAtiva ? PAL.green600 : PAL.amber500;
 
-  // Helpers locais
   const extractLocal = (endereco: string | undefined): string => {
     if (!endereco) return "\u2014";
     const m = endereco.match(/([A-Za-zÁÂÃÇÉÍÓÔÚáâãçéíóôú \-']{3,})[\s/-]+([A-Z]{2})\b/);
@@ -525,239 +539,335 @@ function secSintese(p: PDFReportParams): string {
     return parts.slice(-2).join("/") || endereco.substring(0, 22);
   };
 
-  const blockA = `<div style="margin-bottom:8px;page-break-inside:avoid">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
-      <div style="display:flex;align-items:center;gap:10px">
-        <span style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:16px;background:#1e3a5f;color:#fff;font-size:9px;font-weight:900;border-radius:3px">00</span>
-        <span style="font-size:14px;font-weight:900;color:#1e3a5f;letter-spacing:.06em">SÍNTESE PRELIMINAR</span>
+  // ── BLOCO 1 — Empresa + Rating ─────────────────────────────────────────
+  const block1 = `<div style="display:flex;align-items:center;justify-content:space-between;gap:14px;border-bottom:1px solid ${PAL.gray200};padding-bottom:8px;margin-bottom:10px;page-break-inside:avoid">
+    <div style="flex:2;min-width:0">
+      <div style="font:900 13px/1.2 Helvetica,Arial,sans-serif;color:${PAL.navy900}">${razao}</div>
+      ${fantasia ? `<div style="font:400 8.5px/1.3 Helvetica,Arial,sans-serif;color:${PAL.gray500};margin-top:2px">${fantasia}</div>` : ""}
+      <div style="margin-top:4px;display:flex;align-items:center;gap:6px">
+        <span style="font:400 9.5px/1 'Courier New',monospace;color:${PAL.gray700}">${esc(cnpjFmt)}</span>
+        ${situacao ? `<span style="display:inline-block;padding:2px 6px;border-radius:3px;background:${situBg};color:${situFg};font:700 8px/1 Helvetica,Arial,sans-serif">${esc(situacao.substring(0,14))}</span>` : ""}
       </div>
-      <span style="display:inline-block;padding:4px 14px;border-radius:14px;background:${rc};color:#fff;font-size:12px;font-weight:900;min-width:48px;text-align:center">${finalRating}/10</span>
     </div>
-    <div style="border-top:1px solid #e0e4ec;margin-top:4px;padding-top:3px">
-      <span style="font-size:9px;color:#9ca3af">Cliente: ${razao}</span>
-    </div>
-  </div>`;
-
-  // ── BLOCO B — Info strip (6 colunas) ──────────────────────────────────
-  const today = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" });
-  const capSocRaw = data.cnpj?.capitalSocialCNPJ || data.qsa?.capitalSocial || "";
-  const capSocStr = capSocRaw ? fmtMoneyRound(capSocRaw) : "\u2014";
-  const infoCol = (label: string, value: string, color?: string) => `<div style="flex:1;padding:6px 10px;border-right:1px solid #dce1eb">
-    <div style="font-size:7px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em">${label}</div>
-    <div style="font-size:9.5px;font-weight:800;color:${color || "#111827"};margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${value}</div>
-  </div>`;
-  const blockB = `<div style="display:flex;background:#edf2fb;border-radius:4px;margin-bottom:8px;page-break-inside:avoid;overflow:hidden">
-    ${infoCol("Data", esc(today))}
-    ${infoCol("CNPJ", esc(cnpjFmt))}
-    ${infoCol("Local", esc(extractLocal(data.cnpj?.endereco)))}
-    ${infoCol("Idade", esc(companyAge) || "\u2014")}
-    ${infoCol("Cap. Social", esc(capSocStr))}
-    <div style="flex:1;padding:6px 10px">
-      <div style="font-size:7px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em">Situação</div>
-      <div style="font-size:9.5px;font-weight:800;color:${situColor};margin-top:2px">${esc(situacao.substring(0, 12))}</div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center">
+      <div style="width:60px;height:60px;border-radius:50%;border:2px solid ${scoreColor};display:flex;flex-direction:column;align-items:center;justify-content:center">
+        <div style="font:900 18px/1 Helvetica,Arial,sans-serif;color:${scoreColor}">${score.toFixed(1).replace(".", ",")}</div>
+        <div style="font:400 7px/1 Helvetica,Arial,sans-serif;color:${PAL.gray400};margin-top:1px">/10</div>
+      </div>
+      <div style="font:800 8px/1 Helvetica,Arial,sans-serif;color:${scoreColor};margin-top:5px;letter-spacing:.04em">${scoreLabel}</div>
+      <div style="display:inline-block;margin-top:4px;padding:3px 8px;background:${decColor};color:#fff;font:700 7px/1 Helvetica,Arial,sans-serif;border-radius:3px;letter-spacing:.04em">${esc(dec)}</div>
     </div>
   </div>`;
 
-  // ── BLOCO C — Alertas strip ───────────────────────────────────────────
-  const alertCell = (label: string, value: string, sub: string, accent: string) => `<div style="flex:1;background:#fff;border:1px solid #e0e4ec;border-left:3px solid ${accent};border-radius:3px;padding:5px 8px;min-width:0">
-    <div style="font-size:7px;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em">${label}</div>
-    <div style="font-size:10px;font-weight:900;color:${accent};margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${value}</div>
-    <div style="font-size:7px;color:#9ca3af;margin-top:1px">${sub}</div>
+  // ── BLOCO 2 — Fundação & Dados Básicos (6 cards) ───────────────────────
+  const capSocRaw2 = data.cnpj?.capitalSocialCNPJ || data.qsa?.capitalSocial || "";
+  const capSoc2 = capSocRaw2 ? fmtMoneyRound(capSocRaw2) : "\u2014";
+  const cells2: Array<{ label: string; value: string; mono?: boolean }> = [
+    { label: "Data Fund.", value: data.cnpj?.dataAbertura || "\u2014" },
+    { label: "Idade", value: companyAge || "\u2014" },
+    { label: "Porte", value: (data.cnpj?.porte || "\u2014").substring(0, 14) },
+    { label: "Cap. Social", value: capSoc2.startsWith("R$") ? capSoc2 : `R$ ${capSoc2}`, mono: true },
+    { label: "Tipo", value: (data.cnpj?.tipoEmpresa || "\u2014").substring(0, 14) },
+    { label: "Local", value: extractLocal(data.cnpj?.endereco) },
+  ];
+  const block2 = `<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:10px;page-break-inside:avoid">
+    ${cells2.map(c => `<div style="background:${PAL.gray50};border:1px solid ${PAL.gray100};border-radius:3px;padding:6px 8px;min-width:0">
+      <div style="font:700 6.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray400};text-transform:uppercase;letter-spacing:.06em">${esc(c.label)}</div>
+      <div style="font:800 9px/1.2 ${c.mono ? "'Courier New',monospace" : "Helvetica,Arial,sans-serif"};color:${c.value === "\u2014" ? PAL.gray400 : PAL.gray900};margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.value)}</div>
+    </div>`).join("")}
   </div>`;
 
-  const alavColor = alav > 5 ? "#dc2626" : alav > 3 ? "#d97706" : alav > 0 ? "#16a34a" : "#9ca3af";
-  const blockC = `<div style="margin-bottom:8px;page-break-inside:avoid">
-    <div style="background:#1e3a5f;color:#fff;font-size:8px;font-weight:800;letter-spacing:.08em;padding:3px 8px;margin-bottom:4px">ALERTAS</div>
-    <div style="display:flex;gap:4px">
-      ${alertCell("Protestos",
-        protQtd > 0 ? `R$ ${fmtMoneyRound(String(protVal))}` : "\u2014",
-        protQtd > 0 ? `${protQtd} ocorr.` : "sem ocorrências",
-        protQtd > 0 ? "#dc2626" : "#16a34a")}
-      ${alertCell("CCF",
-        ccfQtd == null ? "\u2014" : String(ccfQtd),
-        ccfQtd == null ? "não consultado" : ccfQtd > 0 ? "ocorrências" : "sem cheques",
-        ccfQtd == null ? "#9ca3af" : ccfQtd > 0 ? "#dc2626" : "#16a34a")}
-      ${alertCell("Processos",
-        String(procPass),
-        "polo passivo",
-        procPass > 10 ? "#dc2626" : procPass > 0 ? "#d97706" : "#16a34a")}
-      ${alertCell("SCR Venc.",
-        scrVenc > 0 ? `R$ ${fmtMoneyRound(String(scrVenc))}` : "\u2014",
-        scrTotal > 0 ? `${scrVencPct.toFixed(1)}% do total` : "em dia",
-        scrVenc > 0 ? "#dc2626" : "#16a34a")}
-      ${alertCell("Alavancagem",
-        alav > 0 ? `${alav.toFixed(2)}x` : "\u2014",
-        alav > 5 ? "risco alto" : alav > 3 ? "atenção" : alav > 0 ? "saudável" : "s/ dados",
-        alavColor)}
+  // ── BLOCO 3 — Segmento (CNAE) ──────────────────────────────────────────
+  const cnaePr = (data.cnpj?.cnaePrincipal || "").trim();
+  const cnaeSec = (data.cnpj?.cnaeSecundarios || "").trim();
+  let cnaeCode = "";
+  let cnaeDesc = cnaePr;
+  const cm = cnaePr.match(/^([\d./-]{6,})\s+(.*)$/);
+  if (cm) { cnaeCode = cm[1]; cnaeDesc = cm[2]; }
+  const block3 = (cnaePr || cnaeSec) ? `<div style="background:${PAL.navy50};border:1px solid ${PAL.navy100};border-radius:3px;padding:8px 10px;margin-bottom:10px;page-break-inside:avoid">
+    ${cnaeCode ? `<div style="font:800 9px/1.3 Helvetica,Arial,sans-serif;color:${PAL.navy900}">CNAE ${esc(cnaeCode)}</div>` : ""}
+    <div style="font:400 9px/1.4 Helvetica,Arial,sans-serif;color:${PAL.navy700};margin-top:2px">${esc(cnaeDesc || "\u2014")}</div>
+    ${cnaeSec ? `<div style="font:400 8.5px/1.4 Helvetica,Arial,sans-serif;color:${PAL.navy700};margin-top:3px">CNAEs sec.: ${esc(cnaeSec)}</div>` : ""}
+  </div>` : "";
+
+  // ── BLOCO 4 — Foto + Endereço (CONDITIONAL) ────────────────────────────
+  const block4 = p.streetViewBase64 ? `<div style="display:flex;gap:8px;margin-bottom:10px;page-break-inside:avoid">
+    <img src="${p.streetViewBase64}" style="width:50%;height:120px;object-fit:cover;border-radius:3px;border:1px solid ${PAL.gray200}" alt="Street View" />
+    <div style="flex:1;background:${PAL.gray50};border:1px solid ${PAL.gray100};border-radius:3px;padding:10px 12px;min-width:0">
+      <div style="font:700 6.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray400};text-transform:uppercase;letter-spacing:.06em">Endereço</div>
+      <div style="font:400 9px/1.5 Helvetica,Arial,sans-serif;color:${PAL.gray700};margin-top:5px">${esc(data.cnpj?.endereco || "\u2014")}</div>
     </div>
-  </div>`;
+  </div>` : "";
 
-  // ── BLOCO D — Gestão & Grupo Econômico ────────────────────────────────
+  // ── BLOCO 5 — Estrutura Societária ─────────────────────────────────────
   const socios = (data.qsa?.quadroSocietario || []).filter(s => s?.nome || s?.cpfCnpj);
   const empresas = data.grupoEconomico?.empresas || [];
-  const hasDBlock = socios.length > 0 || empresas.length > 0;
+  const hasBlock5 = socios.length > 0 || empresas.length > 0;
 
-  const socioRows = socios.map(s => {
+  const socioRows5 = socios.map(s => {
     const digits = (s.cpfCnpj || "").replace(/\D/g, "");
     const docFmt = digits.length > 11 ? fmtCnpj(s.cpfCnpj) : digits.length > 0 ? fmtCpf(s.cpfCnpj) : "\u2014";
-    const scrSocio = data.scrSocios?.find(sc =>
-      (sc.cpfSocio && sc.cpfSocio === s.cpfCnpj) ||
-      (sc.nomeSocio && s.nome && sc.nomeSocio.toLowerCase() === s.nome.toLowerCase())
-    );
-    const scrTot = scrSocio?.periodoAtual?.totalDividasAtivas;
-    const prej = scrSocio?.periodoAtual?.prejuizos;
     return `<tr>
       <td><strong>${esc(s.nome || "\u2014")}</strong></td>
       <td>${docFmt}</td>
-      <td style="text-align:center">\u2014</td>
-      <td class="money">${scrTot ? `R$ ${fmtMoneyRound(scrTot)}` : "\u2014"}</td>
-      <td class="money">${prej ? `R$ ${fmtMoneyRound(prej)}` : "\u2014"}</td>
-      <td style="text-align:center">\u2014</td>
+      <td>${esc(s.qualificacao || "\u2014")}</td>
+      <td style="text-align:right">${esc(s.participacao || "\u2014")}</td>
     </tr>`;
   }).join("");
 
-  const empresaRows = empresas.map(e => `<tr>
-    <td><strong>${esc(e.razaoSocial || "\u2014")}</strong></td>
-    <td>${fmtCnpj(e.cnpj)}</td>
-    <td style="text-align:center">\u2014</td>
-    <td class="money">${e.scrTotal ? `R$ ${fmtMoneyRound(e.scrTotal)}` : "\u2014"}</td>
-    <td class="money">\u2014</td>
-    <td style="text-align:center">${esc(e.processos || "\u2014")}</td>
-  </tr>`).join("");
+  const capSocStr5 = data.qsa?.capitalSocial
+    ? `R$ ${fmtMoneyRound(data.qsa.capitalSocial)}`
+    : data.cnpj?.capitalSocialCNPJ
+      ? `R$ ${fmtMoneyRound(data.cnpj.capitalSocialCNPJ)}`
+      : "\u2014";
+  const grupoStr5 = empresas.length > 0 ? `${empresas.length} empresa(s)` : "Não identificado";
 
-  const blockD = hasDBlock ? `<div style="margin-bottom:8px;page-break-inside:avoid">
-    <div style="background:#1e3a5f;color:#fff;font-size:8px;font-weight:800;letter-spacing:.08em;padding:3px 8px;margin-bottom:2px">GESTÃO &amp; GRUPO ECONÔMICO</div>
-    <table style="${TS};margin-bottom:0;font-size:9px">
-      <thead>${row(["Nome / Razão Social", "CPF/CNPJ", "Idade", "SCR", "Prejuízo", "Proc."], true)}</thead>
-      <tbody>${socioRows}${empresaRows}</tbody>
-    </table>
+  const block5 = hasBlock5 ? `<div style="margin-bottom:10px;page-break-inside:avoid">
+    <div style="font:800 7.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray500};text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">GESTÃO &amp; GRUPO ECONÔMICO</div>
+    ${socios.length > 0 ? `<table style="${TS};margin-bottom:5px;font-size:9px">
+      <thead>${row(["Nome", "CPF/CNPJ", "Qualificação", "Part."], true)}</thead>
+      <tbody>${socioRows5}</tbody>
+    </table>` : ""}
+    <div style="font:400 8.5px/1.4 Helvetica,Arial,sans-serif;color:${PAL.gray500}">Capital Social: ${capSocStr5} · Grupo Econômico: ${grupoStr5}</div>
   </div>` : "";
 
-  // ── BLOCO E — Faturamento + SCR comparativo (side-by-side) ────────────
-  const scr = data.scr;
-  const scrAnt = data.scrAnterior;
-  const hasScrE = !!(scr && scr.periodoReferencia);
-  const hasFatE = last12.length > 0;
-
-  // Faturamento chart
-  const maxVal = Math.max(...last12.map(m => numVal(m.valor)), 1);
-  const bars = last12.map((m, i) => {
-    const v = numVal(m.valor);
-    const isHi = i >= last12.length - 3;
-    const c = v === 0 ? "#9ca3af" : isHi ? "#73B815" : "#203B88";
-    const hPct = (v / maxVal) * 100;
-    return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px">
-      <div style="width:100%;background:${c};height:${hPct}%;min-height:1px"></div>
-      <div style="font-size:6.5px;color:#9ca3af">${esc(m.mes.substring(0, 3))}</div>
+  // ── BLOCO 6 — Indicadores de Risco ─────────────────────────────────────
+  type RiskTone = "red" | "green" | "amber" | "gray";
+  const toneCss = (t: RiskTone) => {
+    switch (t) {
+      case "red":   return { bg: PAL.red50,    bd: PAL.red100,    fg: PAL.red600   };
+      case "green": return { bg: PAL.green50,  bd: PAL.green100,  fg: PAL.green600 };
+      case "amber": return { bg: PAL.amber50,  bd: PAL.amber100,  fg: PAL.amber500 };
+      default:      return { bg: PAL.gray50,   bd: PAL.gray100,   fg: PAL.gray400  };
+    }
+  };
+  const cells6: Array<{ label: string; value: string; sub: string; tone: RiskTone }> = [
+    {
+      label: "Protestos",
+      value: protQtd > 0 ? String(protQtd) : "0",
+      sub: protQtd > 0 ? `R$ ${fmtMoneyRound(String(protVal))}` : "sem ocorr.",
+      tone: protQtd > 2 ? "red" : "green",
+    },
+    {
+      label: "CCF",
+      value: ccfQtd == null ? "\u2014" : String(ccfQtd),
+      sub: ccfQtd == null ? "n/c" : ccfQtd > 0 ? "ocorr." : "limpo",
+      tone: ccfQtd == null ? "gray" : ccfQtd > 0 ? "red" : "green",
+    },
+    {
+      label: "Processos",
+      value: String(procPass),
+      sub: "polo passivo",
+      tone: procPass > 0 ? "red" : data.processos ? "green" : "gray",
+    },
+    {
+      label: "SCR Venc.",
+      value: scrVenc > 0 ? `R$ ${fmtMoneyRound(String(scrVenc))}` : "\u2014",
+      sub: scrTotalAt > 0 ? `${scrVencPct.toFixed(1)}% do total` : "em dia",
+      tone: scrVencPct > 10 ? "red" : scrVenc > 0 ? "amber" : "green",
+    },
+    {
+      label: "Alavancagem",
+      value: alav > 0 ? `${alav.toFixed(2)}x` : "\u2014",
+      sub: alav > 5 ? "alto" : alav > 3 ? "atenção" : alav > 0 ? "saudável" : "s/ dados",
+      tone: alav > 5 ? "red" : alav > 3 ? "amber" : alav > 0 ? "green" : "gray",
+    },
+  ];
+  const block6Cards = cells6.map(c => {
+    const t = toneCss(c.tone);
+    return `<div style="background:${t.bg};border:1px solid ${t.bd};border-radius:3px;padding:8px 10px;min-width:0">
+      <div style="font:700 6.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray400};text-transform:uppercase;letter-spacing:.06em">${esc(c.label)}</div>
+      <div style="font:900 14px/1.1 Helvetica,Arial,sans-serif;color:${t.fg};margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.value)}</div>
+      <div style="font:400 7.5px/1.2 Helvetica,Arial,sans-serif;color:${PAL.gray500};margin-top:3px">${esc(c.sub)}</div>
     </div>`;
   }).join("");
+  const allHigh6 = (p.alertsHigh || []).slice(0, 2);
+  const allMed6 = (p.alerts || []).filter(a => a.severity === "MODERADA").slice(0, 2);
+  const alertBanners6 = [...allHigh6, ...allMed6].slice(0, 4).map(a => {
+    const isHigh = a.severity === "ALTA";
+    const bg = isHigh ? PAL.red50 : PAL.amber50;
+    const bd = isHigh ? PAL.red100 : PAL.amber100;
+    const fg = isHigh ? PAL.red600 : PAL.amber500;
+    return `<div style="background:${bg};border:1px solid ${bd};border-left:3px solid ${fg};border-radius:2px;padding:5px 8px;margin-top:4px;font:600 8.5px/1.3 Helvetica,Arial,sans-serif;color:${PAL.gray700}">${esc(a.message)}</div>`;
+  }).join("");
+  const block6 = `<div style="margin-bottom:10px;page-break-inside:avoid">
+    <div style="font:800 7.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray500};text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">INDICADORES DE RISCO</div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px">${block6Cards}</div>
+    ${alertBanners6}
+  </div>`;
 
-  let varPct = 0;
+  // ── BLOCO 7 — Faturamento + SCR comparativo ───────────────────────────
+  const scr = data.scr;
+  const scrAnt = data.scrAnterior;
+  const hasFat7 = last12.length > 0;
+  const hasScr7 = !!(scr && scr.periodoReferencia);
+  const hasScrAnt7 = !!(scrAnt && scrAnt.periodoReferencia);
+
+  const maxVal7 = Math.max(...last12.map(m => numVal(m.valor)), 1);
+  let varPct7 = 0;
   if (last12.length >= 6) {
     const values = last12.map(m => numVal(m.valor));
     const rec = values.slice(-3).reduce((a, b) => a + b, 0);
     const ant = values.slice(-6, -3).reduce((a, b) => a + b, 0);
-    if (ant > 0) varPct = ((rec - ant) / ant) * 100;
+    if (ant > 0) varPct7 = ((rec - ant) / ant) * 100;
   }
-  const trendArrow = varPct > 2 ? "\u2191" : varPct < -2 ? "\u2193" : "\u2192";
+  const upTrend7 = varPct7 > 2;
+  const trendArrow7 = varPct7 > 2 ? "\u2191" : varPct7 < -2 ? "\u2193" : "\u2192";
 
-  const fatPanel = hasFatE ? `<div style="flex:1;background:#fff;border:1px solid #e0e4ec;border-radius:4px;padding:6px 8px;min-width:0">
-    <div style="font-size:8px;font-weight:800;color:#1e3a5f;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">Faturamento / 12M</div>
-    <div style="display:flex;align-items:flex-end;gap:2px;height:52px">${bars}</div>
-    <div style="font-size:7.5px;color:#374151;margin-top:4px;border-top:1px solid #edf2fb;padding-top:3px">
-      FMM R$ ${fmtMoneyRound(String(fmmNum))} · Total R$ ${fmtMoneyRound(String(fatTotal12))} · ${trendArrow} ${varPct.toFixed(0)}%
-    </div>
+  const bars7 = last12.map((m, i) => {
+    const v = numVal(m.valor);
+    const isHi = i >= last12.length - 3 && upTrend7;
+    const c = v === 0 ? PAL.gray300 : isHi ? PAL.greenLogo : PAL.navy800;
+    const hPct = (v / maxVal7) * 100;
+    return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px;min-width:0">
+      <div style="width:100%;background:${c};height:${hPct}%;min-height:1px"></div>
+      <div style="font:400 5.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray500};white-space:nowrap;overflow:hidden">${esc((m.mes || "").substring(0, 5))}</div>
+    </div>`;
+  }).join("");
+
+  const fatPanel7 = hasFat7 ? `<div style="flex:1;background:${PAL.gray50};border:1px solid ${PAL.gray100};border-radius:3px;padding:8px 10px;min-width:0">
+    <div style="font:700 6.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray500};text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Faturamento</div>
+    <div style="display:flex;align-items:flex-end;gap:2px;height:55px">${bars7}</div>
+    <div style="font:400 7.5px/1.3 Helvetica,Arial,sans-serif;color:${PAL.gray700};margin-top:5px">FMM R$ ${fmtMoneyRound(String(fmmNum))} · Total R$ ${fmtMoneyRound(String(fatTotal12))} · ${trendArrow7} ${varPct7.toFixed(0)}%</div>
   </div>` : "";
 
-  // SCR comparativo
-  const sr = (k: string) => numVal(String((scr as unknown as Record<string, string>)?.[k] || "0"));
-  const srAnt = (k: string) => numVal(String((scrAnt as unknown as Record<string, string> | null)?.[k] || "0"));
-  const scrRowsData: Array<{ label: string; cur: number; prev: number; bold?: boolean }> = [
-    { label: "Em Dia",   cur: sr("carteiraAVencer"),    prev: srAnt("carteiraAVencer") },
-    { label: "CP",       cur: sr("carteiraCurtoPrazo"), prev: srAnt("carteiraCurtoPrazo") },
-    { label: "LP",       cur: sr("carteiraLongoPrazo"), prev: srAnt("carteiraLongoPrazo") },
-    { label: "TOTAL",    cur: sr("totalDividasAtivas"), prev: srAnt("totalDividasAtivas"), bold: true },
-    { label: "Vencidos", cur: sr("vencidos"),           prev: srAnt("vencidos") },
-    { label: "Limite",   cur: sr("limiteCredito"),      prev: srAnt("limiteCredito") },
+  const sr7 = (k: string) => numVal(String((scr as unknown as Record<string, string>)?.[k] || "0"));
+  const srAnt7 = (k: string) => numVal(String((scrAnt as unknown as Record<string, string> | null)?.[k] || "0"));
+  const scrRows7: Array<{ label: string; cur: number; prev: number; bold?: boolean }> = [
+    { label: "Carteira A/V", cur: sr7("carteiraAVencer"), prev: srAnt7("carteiraAVencer") },
+    { label: "Vencidos",     cur: sr7("vencidos"),         prev: srAnt7("vencidos") },
+    { label: "Prejuízos",    cur: sr7("prejuizos"),        prev: srAnt7("prejuizos") },
+    { label: "Total Dívidas",cur: sr7("totalDividasAtivas"),prev: srAnt7("totalDividasAtivas"), bold: true },
   ];
-  const hasAnterior = !!scrAnt && !!scrAnt.periodoReferencia;
-  const scrTitleTxt = hasAnterior
-    ? `SCR ${esc(scrAnt!.periodoReferencia)} × ${esc(scr?.periodoReferencia || "\u2014")}`
-    : `SCR ${esc(scr?.periodoReferencia || "\u2014")}`;
-  const scrRowsHtml = scrRowsData.map(r => {
-    const fw = r.bold ? "800" : "400";
-    let varHtml = "";
-    if (hasAnterior) {
-      if (r.prev > 0 && r.cur > 0) {
-        const pct = ((r.cur - r.prev) / r.prev) * 100;
-        const vColor = pct > 2 ? "#dc2626" : pct < -2 ? "#16a34a" : "#9ca3af";
-        varHtml = `<td style="color:${vColor};font-weight:700">${pct > 0 ? "+" : ""}${pct.toFixed(0)}%</td>`;
-      } else {
-        varHtml = `<td style="color:#9ca3af">\u2014</td>`;
-      }
+  const scrRowsHtml7 = scrRows7.map(r => {
+    let varHtml = `<td style="color:${PAL.gray400}">\u2014</td>`;
+    if (r.prev > 0 && r.cur > 0) {
+      const pct = ((r.cur - r.prev) / r.prev) * 100;
+      const vColor = pct > 2 ? PAL.red600 : pct < -2 ? PAL.green600 : PAL.gray500;
+      varHtml = `<td style="color:${vColor};font-weight:700">${pct > 0 ? "+" : ""}${pct.toFixed(0)}%</td>`;
     }
-    return `<tr style="font-weight:${fw}">
+    return `<tr style="font-weight:${r.bold ? "800" : "400"}">
       <td>${r.label}</td>
       <td class="money">${r.cur > 0 ? `R$ ${fmtMoneyRound(r.cur)}` : "\u2014"}</td>
-      ${hasAnterior ? `<td class="money">${r.prev > 0 ? `R$ ${fmtMoneyRound(r.prev)}` : "\u2014"}</td>` : ""}
+      <td class="money">${r.prev > 0 ? `R$ ${fmtMoneyRound(r.prev)}` : "\u2014"}</td>
       ${varHtml}
     </tr>`;
   }).join("");
-  const scrHeader = hasAnterior
-    ? row(["Métrica", "Atual", "Ant.", "Var."], true)
-    : row(["Métrica", "Atual"], true);
-
-  const scrPanel = hasScrE ? `<div style="flex:1;background:#fff;border:1px solid #e0e4ec;border-radius:4px;padding:6px 8px;min-width:0">
-    <div style="font-size:8px;font-weight:800;color:#1e3a5f;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">${scrTitleTxt}</div>
+  const scrPanel7 = (hasScr7 && hasScrAnt7) ? `<div style="flex:1;background:${PAL.gray50};border:1px solid ${PAL.gray100};border-radius:3px;padding:8px 10px;min-width:0">
+    <div style="font:700 6.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray500};text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">SCR ${esc(scrAnt!.periodoReferencia)} → ${esc(scr!.periodoReferencia)}</div>
     <table style="width:100%;font-size:8px;border-collapse:collapse">
-      <thead>${scrHeader}</thead>
-      <tbody>${scrRowsHtml}</tbody>
+      <thead>${row(["Métrica", "Atual", "Ant.", "Var%"], true)}</thead>
+      <tbody>${scrRowsHtml7}</tbody>
     </table>
-    <div style="font-size:7px;color:#9ca3af;margin-top:3px">IFs: ${esc(scr?.qtdeInstituicoes || "\u2014")}${alav > 0 ? ` · Alav ${alav.toFixed(2)}x` : ""}</div>
+  </div>` : "";
+  const block7 = (hasFat7 || hasScr7) ? `<div style="display:flex;gap:8px;margin-bottom:10px;page-break-inside:avoid">
+    ${fatPanel7}
+    ${scrPanel7}
   </div>` : "";
 
-  const blockE = (hasFatE || hasScrE) ? `<div style="display:flex;gap:6px;margin-bottom:8px;page-break-inside:avoid">
-    ${fatPanel}
-    ${scrPanel}
+  // ── BLOCO 8 — Curva ABC (CONDITIONAL) ──────────────────────────────────
+  const clientes = data.curvaABC?.clientes || [];
+  let block8 = "";
+  if (clientes.length > 0) {
+    const top5 = clientes.slice(0, 5);
+    const baseTotal = numVal(data.curvaABC?.receitaTotalBase || "0");
+    const pctOf = (c: { valorFaturado: string; percentualReceita: string }) => {
+      const v = numVal(c.valorFaturado);
+      if (baseTotal > 0) return (v / baseTotal) * 100;
+      return parseFloat(String(c.percentualReceita).replace(",", ".").replace("%", "")) || 0;
+    };
+    let acum = 0;
+    const rows8 = top5.map((c, i) => {
+      const pct = pctOf(c);
+      acum += pct;
+      return `<tr>
+        <td>${i + 1}</td>
+        <td><strong>${esc(c.nome || "\u2014")}</strong></td>
+        <td class="money">R$ ${fmtMoneyRound(c.valorFaturado)}</td>
+        <td>${pct.toFixed(1)}%</td>
+        <td>${acum.toFixed(1)}%</td>
+        <td style="text-align:center">${esc(c.classe || "\u2014")}</td>
+      </tr>`;
+    }).join("");
+    const top3 = top5.slice(0, 3).reduce((s, c) => s + pctOf(c), 0);
+    const totalCli = data.curvaABC?.totalClientesNaBase || clientes.length;
+    const top1 = pctOf(top5[0]);
+    const concAlert = top1 > 30 ? `<div style="background:${PAL.red50};border:1px solid ${PAL.red100};border-left:3px solid ${PAL.red600};border-radius:2px;padding:5px 8px;margin-top:4px;font:600 8.5px/1.3 Helvetica,Arial,sans-serif;color:${PAL.gray700}">Concentração elevada: maior cliente representa ${top1.toFixed(0)}% da receita</div>` : "";
+    block8 = `<div style="margin-bottom:10px;page-break-inside:avoid">
+      <div style="font:800 7.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray500};text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">CURVA ABC — TOP 5 CLIENTES</div>
+      <table style="${TS};margin-bottom:5px;font-size:9px">
+        <thead>${row(["#", "Cliente", "Faturamento", "% Rec.", "% Acum.", "Cl."], true)}</thead>
+        <tbody>${rows8}</tbody>
+      </table>
+      <div style="font:400 8.5px/1.4 Helvetica,Arial,sans-serif;color:${PAL.gray500}">Top 3: ${top3.toFixed(0)}% · Top 5: ${acum.toFixed(0)}% · Total clientes: ${totalCli}</div>
+      ${concAlert}
+    </div>`;
+  }
+
+  // ── BLOCO 9 — Pleito (CONDITIONAL) ─────────────────────────────────────
+  const rv = data.relatorioVisita;
+  const hasPleito = !!(rv && (rv.pleito || rv.limiteTotal || rv.modalidade || rv.prazoMaximoOp || rv.taxaConvencional));
+  const block9 = hasPleito ? `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px;page-break-inside:avoid">
+    ${[
+      { label: "Valor Pleiteado", value: rv!.limiteTotal ? `R$ ${fmtMoneyRound(rv!.limiteTotal)}` : (rv!.pleito || "\u2014"), mono: !!rv!.limiteTotal },
+      { label: "Modalidade", value: (rv!.modalidade || "\u2014").toUpperCase() },
+      { label: "Prazo Máx.", value: rv!.prazoMaximoOp ? `${rv!.prazoMaximoOp} dias` : "\u2014" },
+      { label: "Taxa", value: rv!.taxaConvencional ? `${rv!.taxaConvencional}%` : "\u2014" },
+    ].map(c => `<div style="background:${PAL.navy50};border:1px solid ${PAL.navy100};border-radius:3px;padding:8px 10px">
+      <div style="font:700 6.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray400};text-transform:uppercase;letter-spacing:.06em">${esc(c.label)}</div>
+      <div style="font:800 11px/1.2 ${c.mono ? "'Courier New',monospace" : "Helvetica,Arial,sans-serif"};color:${PAL.navy900};margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.value)}</div>
+    </div>`).join("")}
   </div>` : "";
 
-  // ── BLOCO F — Parecer inline ──────────────────────────────────────────
-  const parecerObj = typeof p.aiAnalysis?.parecer === "object" && p.aiAnalysis?.parecer !== null
+  // ── BLOCO 10 — Análise (Fortes / Fracos / Alertas) ─────────────────────
+  const fortes10 = (pontosFortes || []).slice(0, 6);
+  const fracos10 = (pontosFracos || []).slice(0, 6);
+  const moderados10 = (p.alerts || []).filter(a => a.severity === "MODERADA").map(a => a.message).slice(0, 6);
+  const hasBlock10 = fortes10.length > 0 || fracos10.length > 0 || moderados10.length > 0;
+  const cols10 = [
+    { title: "PONTOS FORTES", items: fortes10,    bg: PAL.green50, bd: PAL.green100, fg: PAL.green600 },
+    { title: "PONTOS FRACOS", items: fracos10,    bg: PAL.red50,   bd: PAL.red100,   fg: PAL.red600 },
+    { title: "ALERTAS",       items: moderados10, bg: PAL.amber50, bd: PAL.amber100, fg: PAL.amber500 },
+  ];
+  const block10 = hasBlock10 ? `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px;page-break-inside:avoid">
+    ${cols10.map(col => `<div style="background:${col.bg};border:1px solid ${col.bd};border-radius:3px;padding:8px 10px;min-height:80px">
+      <div style="font:800 7.5px/1 Helvetica,Arial,sans-serif;color:${col.fg};text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid ${col.bd};padding-bottom:3px">${col.title}</div>
+      <ul style="list-style:none;padding:0;margin:5px 0 0 0">${col.items.slice(0, 5).map(it => `<li style="font:400 7.5px/1.4 Helvetica,Arial,sans-serif;color:${PAL.gray700};padding:2px 0 2px 8px;position:relative"><span style="position:absolute;left:0;top:2px;color:${col.fg};font-weight:700">•</span>${esc(it)}</li>`).join("")}</ul>
+    </div>`).join("")}
+  </div>` : "";
+
+  // ── BLOCO 11 — Percepção do Analista (CONDITIONAL) ─────────────────────
+  const parecerObj11 = typeof p.aiAnalysis?.parecer === "object" && p.aiAnalysis?.parecer !== null
     ? p.aiAnalysis.parecer as { resumoExecutivo?: string; textoCompleto?: string }
     : null;
-  let parecerTxt = resumoExecutivo
-    || parecerObj?.textoCompleto
-    || parecerObj?.resumoExecutivo
+  let parecerTxt11 = (resumoExecutivo
+    || parecerObj11?.resumoExecutivo
+    || parecerObj11?.textoCompleto
+    || (typeof p.aiAnalysis?.parecer === "string" ? p.aiAnalysis.parecer : "")
     || p.aiAnalysis?.sinteseExecutiva
-    || "";
-  if (parecerTxt.length > 700) parecerTxt = parecerTxt.substring(0, 700).trimEnd() + "\u2026";
-
-  const pf = (pontosFortes || []).slice(0, 5);
-  const pfr = (pontosFracos || []).slice(0, 5);
-  const perguntas = (p.perguntasVisita || []).slice(0, 5);
-
-  const bulletList = (items: string[], color: string) =>
-    `<ul style="list-style:none;padding:0;margin:4px 0 0 0">${items.map(it => `<li style="font-size:9px;line-height:1.45;padding:1px 0 1px 10px;position:relative;color:#1f2937"><span style="position:absolute;left:0;top:4px;color:${color};font-weight:900">•</span>${esc(it)}</li>`).join("")}</ul>`;
-
-  const numberedList = (items: { pergunta: string; contexto: string }[]) =>
-    `<ol style="list-style:none;padding:0;margin:4px 0 0 0">${items.map((q, i) => `<li style="font-size:9px;line-height:1.45;padding:1px 0 1px 14px;position:relative;color:#1f2937"><span style="position:absolute;left:0;top:1px;color:#1e3a5f;font-weight:800">${i + 1}.</span>${esc(q.pergunta)}</li>`).join("")}</ol>`;
-
-  const blockF = `<div style="margin-bottom:8px;page-break-inside:avoid">
-    <div style="background:#1e3a5f;color:#fff;font-size:8px;font-weight:800;letter-spacing:.08em;padding:3px 8px;margin-bottom:4px">PARECER PRELIMINAR</div>
-    <div style="background:${decColor};color:#fff;font-size:10px;font-weight:900;letter-spacing:.05em;padding:4px 10px;border-radius:3px;margin-bottom:5px">DECISÃO PRELIMINAR: ${decFmt}</div>
-    ${parecerTxt ? `<div style="font-size:9.5px;line-height:1.5;color:#1f2937;margin-bottom:6px">${esc(parecerTxt)}</div>` : ""}
-    ${pf.length ? `<div style="margin-bottom:4px"><div style="font-size:8px;font-weight:800;color:#16a34a;text-transform:uppercase;letter-spacing:.05em">Pontos Fortes</div>${bulletList(pf, "#16a34a")}</div>` : ""}
-    ${pfr.length ? `<div style="margin-bottom:4px"><div style="font-size:8px;font-weight:800;color:#dc2626;text-transform:uppercase;letter-spacing:.05em">Pontos Fracos</div>${bulletList(pfr, "#dc2626")}</div>` : ""}
-    ${perguntas.length ? `<div><div style="font-size:8px;font-weight:800;color:#1e3a5f;text-transform:uppercase;letter-spacing:.05em">Perguntas à Visita</div>${numberedList(perguntas)}</div>` : ""}
-  </div>`;
+    || "").trim();
+  if (parecerTxt11.length > 600) parecerTxt11 = parecerTxt11.substring(0, 600).trimEnd() + "\u2026";
+  const block11 = parecerTxt11 ? `<div style="background:${PAL.gray50};border:1px solid ${PAL.gray200};border-radius:4px;padding:10px 14px;margin-bottom:10px;page-break-inside:avoid">
+    <div style="font:400 9px/1.5 Helvetica,Arial,sans-serif;color:${PAL.gray700}">${esc(parecerTxt11)}</div>
+    <div style="margin-top:8px;display:flex;align-items:center;gap:6px">
+      <span style="font:400 8.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray500}">Recomendação:</span>
+      <span style="display:inline-block;padding:3px 8px;background:${decColor};color:#fff;font:700 7.5px/1 Helvetica,Arial,sans-serif;border-radius:3px;letter-spacing:.04em">${esc(dec)}</span>
+    </div>
+    <div style="font:400 7.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray400};margin-top:5px">Ver parecer completo na seção 02.</div>
+  </div>` : "";
 
   return `<div class="sec" style="padding:8px 14px">
-  ${blockA}
-  ${blockB}
-  ${blockC}
-  ${blockD}
-  ${blockE}
-  ${blockF}
+  ${block1}
+  ${block2}
+  ${block3}
+  ${block4}
+  ${block5}
+  ${block6}
+  ${block7}
+  ${block8}
+  ${block9}
+  ${block10}
+  ${block11}
 </div>`;
 }
 
