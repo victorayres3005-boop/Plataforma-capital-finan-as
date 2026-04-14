@@ -22,9 +22,10 @@ interface ReviewStepProps {
   data: ExtractedData;
   onComplete: (data: ExtractedData) => void;
   onBack: () => void;
+  onDataChange?: (data: ExtractedData) => void;
 }
 
-export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps) {
+export default function ReviewStep({ data, onComplete, onBack, onDataChange }: ReviewStepProps) {
   // ── State ──────────────────────────────────────────────────────────────────
   const [form, setForm] = useState<ExtractedData>(() => {
     const d: ExtractedData = JSON.parse(JSON.stringify(data));
@@ -68,6 +69,8 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
         setSavedAt(new Date());
         isFirstRender.current = false;
       } catch { /* storage may be full */ }
+      // Notifica o pai para auto-save no Supabase
+      onDataChange?.(form);
     }, isFirstRender.current ? 1500 : 2000);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps

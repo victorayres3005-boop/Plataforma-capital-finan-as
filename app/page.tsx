@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import UploadStep, { OriginalFiles } from "@/components/UploadStep";
 import ReviewStep from "@/components/ReviewStep";
 import { useOnboarding } from "@/lib/useOnboarding";
@@ -13,6 +13,7 @@ import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { AppStep, ExtractedData, DocumentCollection, Notification } from "@/types";
 import { hydrateFromCollection, defaultData } from "@/lib/hydrateFromCollection";
+import { buildCollectionDocs } from "@/lib/buildCollectionDocs";
 import { DRAFT_KEY } from "@/components/ReviewStep";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import Link from "next/link";
@@ -188,6 +189,54 @@ export default function HomePage() {
   const [extractedData, setExtractedData] = useState<ExtractedData>(defaultData);
   const [originalFiles, setOriginalFiles] = useState<OriginalFiles>({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] });
   const [resumedDocs, setResumedDocs] = useState<import("@/types").CollectionDocument[] | undefined>(undefined);
+  // ── Auto-save no Supabase ──
+  const [collectionId, setCollectionId] = useState<string | null>(null);
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoSaveInFlight = useRef(false);
+  const autoSaveCollection = useCallback((data: ExtractedData) => {
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(async () => {
+      if (autoSaveInFlight.current) return;
+      const documents = buildCollectionDocs(data);
+      if (documents.length === 0) return; // nada pra salvar ainda
+      autoSaveInFlight.current = true;
+      try {
+        const supabase = createClient();
+        const { data: session } = await supabase.auth.getUser();
+        if (!session.user) return;
+        const meta = {
+          company_name: data.cnpj.razaoSocial || null,
+          cnpj: data.cnpj.cnpj || null,
+          fmm_12m: parseFloat((data.faturamento.mediaAno || "0").replace(/\./g, "").replace(",", ".")) || null,
+        };
+        if (collectionId) {
+          await supabase.from("document_collections")
+            .update({ documents, label: data.cnpj.razaoSocial || null, ...meta })
+            .eq("id", collectionId);
+        } else {
+          const { data: row, error } = await supabase.from("document_collections").insert({
+            user_id: session.user.id,
+            status: "in_progress",
+            label: data.cnpj.razaoSocial || null,
+            documents,
+            ...meta,
+          }).select("id").single();
+          if (error) throw error;
+          setCollectionId(row.id);
+          // Atualiza a URL para suportar reload (sem navegar)
+          try {
+            const url = new URL(window.location.href);
+            url.searchParams.set("resume", row.id);
+            window.history.replaceState({}, "", url.toString());
+          } catch { /* ignore */ }
+        }
+      } catch (err) {
+        console.warn("[autoSave] falhou:", err instanceof Error ? err.message : err);
+      } finally {
+        autoSaveInFlight.current = false;
+      }
+    }, 800);
+  }, [collectionId]);
   const { user, loading: authLoading, signOut } = useAuth();
   const { welcomeSeen, firstCollectionDone, loaded: onboardingLoaded, markWelcomeSeen, markTooltipSeen, markFirstCollectionDone, isTooltipSeen } = useOnboarding(user?.id);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -267,12 +316,17 @@ export default function HomePage() {
 
       setExtractedData(hydrated);
       setResumedDocs(docs as import("@/types").CollectionDocument[]);
+      setCollectionId(collectionId); // garante que proximas mudancas viram UPDATE, nao INSERT
       setShowDashboard(false);
       // Se um step foi forçado (ex: voltar do parecer), usa ele; senão usa lógica padrão
       setStep(forceStep || (col.status === "finished" ? "generate" : "upload"));
 
-      // Clean URL
-      window.history.replaceState({}, "", "/");
+      // Mantem ?resume= na URL para suportar reload subsequente
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set("resume", collectionId);
+        window.history.replaceState({}, "", url.toString());
+      } catch { /* ignore */ }
     } catch {
       toast.error("Erro ao carregar coleta.");
     } finally {
@@ -1301,7 +1355,7 @@ export default function HomePage() {
             {collections.length === 0 && (
               <OnboardingTooltip id="nova-coleta" message="Clique aqui para iniciar a analise de um novo cedente. Voce vai fazer upload dos documentos e a IA cuida do resto." position="bottom" isSeen={isTooltipSeen("nova-coleta")} onSeen={() => markTooltipSeen("nova-coleta")}>
                 <button
-                  onClick={() => { setShowDashboard(false); setStep("upload"); setExtractedData(defaultData); }}
+                  onClick={() => { setShowDashboard(false); setStep("upload"); setExtractedData(defaultData); setCollectionId(null); try { const url = new URL(window.location.href); url.searchParams.delete("resume"); window.history.replaceState({}, "", url.toString()); } catch {/**/} }}
                   style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "12px 28px", borderRadius: "12px", background: "linear-gradient(135deg, #192f5d 0%, #203b88 100%)", color: "white", fontSize: "14px", fontWeight: 700, border: "none", cursor: "pointer", boxShadow: "0 4px 16px rgba(32,59,136,0.3)", marginBottom: "32px", width: "100%" }}
                 >
                   <Plus size={18} /> Nova Coleta de Documentos
@@ -1337,7 +1391,7 @@ export default function HomePage() {
                     <a href="/historico" className="text-xs font-semibold text-cf-navy hover:underline">Ver histórico</a>
                     <OnboardingTooltip id="nova-coleta" message="Clique aqui para iniciar a analise de um novo cedente." position="bottom" isSeen={isTooltipSeen("nova-coleta")} onSeen={() => markTooltipSeen("nova-coleta")}>
                       <button
-                        onClick={() => { setShowDashboard(false); setStep("upload"); setExtractedData(defaultData); }}
+                        onClick={() => { setShowDashboard(false); setStep("upload"); setExtractedData(defaultData); setCollectionId(null); try { const url = new URL(window.location.href); url.searchParams.delete("resume"); window.history.replaceState({}, "", url.toString()); } catch {/**/} }}
                         style={{ display: "inline-flex", alignItems: "center", gap: "5px", padding: "6px 14px", borderRadius: "8px", background: "linear-gradient(135deg, #192f5d 0%, #203b88 100%)", color: "white", fontSize: "12px", fontWeight: 700, border: "none", cursor: "pointer", boxShadow: "0 2px 8px rgba(32,59,136,0.25)", minHeight: "auto" }}
                       >
                         <Plus size={13} /> Nova Coleta
@@ -1532,7 +1586,7 @@ export default function HomePage() {
         })() : step === "generate" ? (
 
         <div key="generate" className="w-full animate-slide-up">
-          <GenerateStep data={extractedData} originalFiles={originalFiles} onBack={() => setStep("review")} onReset={() => { setShowDashboard(true); setStep("upload"); setExtractedData(defaultData); setResumedDocs(undefined); setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] }); }} onNotify={handleNotify} onFirstCollection={markFirstCollectionDone} />
+          <GenerateStep data={extractedData} originalFiles={originalFiles} onBack={() => setStep("review")} onReset={() => { setShowDashboard(true); setStep("upload"); setExtractedData(defaultData); setResumedDocs(undefined); setCollectionId(null); try { const url = new URL(window.location.href); url.searchParams.delete("resume"); window.history.replaceState({}, "", url.toString()); } catch {/**/} setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] }); }} onNotify={handleNotify} onFirstCollection={markFirstCollectionDone} />
         </div>
 
         ) : (
@@ -1560,12 +1614,18 @@ export default function HomePage() {
           {step === "upload" && (
             <UploadStep
               onComplete={(d, files) => { setExtractedData(d); setOriginalFiles(files); setResumedDocs(undefined); setLocalDraft(null); try { localStorage.removeItem(DRAFT_KEY); } catch {/**/} setStep("review"); }}
+              onDataChange={(d) => { setExtractedData(d); autoSaveCollection(d); }}
               resumedDocs={resumedDocs}
               initialData={resumedDocs && resumedDocs.length > 0 ? extractedData : undefined}
             />
           )}
           {step === "review" && (
-            <ReviewStep data={extractedData} onComplete={(d) => { setExtractedData(d); try { localStorage.removeItem(DRAFT_KEY); } catch {/**/} setLocalDraft(null); setStep("generate"); }} onBack={() => setStep("upload")} />
+            <ReviewStep
+              data={extractedData}
+              onComplete={(d) => { setExtractedData(d); try { localStorage.removeItem(DRAFT_KEY); } catch {/**/} setLocalDraft(null); setStep("generate"); }}
+              onBack={() => setStep("upload")}
+              onDataChange={(d) => { setExtractedData(d); autoSaveCollection(d); }}
+            />
           )}
         </div>
 

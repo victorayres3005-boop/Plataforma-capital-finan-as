@@ -217,10 +217,12 @@ export default function UploadStep({
   onComplete,
   resumedDocs,
   initialData,
+  onDataChange,
 }: {
   onComplete: (data: ExtractedData, files: OriginalFiles) => void;
   resumedDocs?: CollectionDocument[];
   initialData?: ExtractedData;
+  onDataChange?: (data: ExtractedData) => void;
 }) {
   const [sections, setSections] = useState<Record<DocKey, SectionState>>(() =>
     resumedDocs && resumedDocs.length > 0 ? buildInitialSections(resumedDocs) : {
@@ -256,6 +258,15 @@ export default function UploadStep({
   // Use a ref so the processing function always sees the latest extracted data
   const extractedRef = useRef(extracted);
   extractedRef.current = extracted;
+
+  // Notifica o pai a cada mudanca em `extracted` para auto-save no Supabase.
+  // Pulamos a primeira execucao quando initialData ja foi passado (evita
+  // re-salvar imediatamente uma coleta retomada).
+  const skipFirstDataChange = useRef(!!initialData);
+  useEffect(() => {
+    if (skipFirstDataChange.current) { skipFirstDataChange.current = false; return; }
+    onDataChange?.(extracted);
+  }, [extracted, onDataChange]);
 
   // ── Bureau state ──
   const [bureauStatus, setBureauStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
