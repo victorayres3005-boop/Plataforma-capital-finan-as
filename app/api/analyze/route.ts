@@ -22,80 +22,122 @@ function getAnalysisCacheKey(data: unknown): string {
   } catch { return ""; }
 }
 
-// ─── Payload compacto: reduz de ~80kb para ~12kb antes de enviar ao Gemini ───
+// ─── Payload enriquecido: antes cortava em 8 socios, 10 modalidades etc,
+// agora manda ate 20 socios, 25 modalidades, 10 processos, e inclui os campos
+// que estavam dropados (nomeFantasia, cnaeSecundarios, carteira CP/LP, etc).
+// Objetivo: IA ve ~80% dos dados em vez de 15-20%, rating automatico mais fiel.
 function buildPayloadResumo(data: ExtractedData): string {
   return JSON.stringify({
     cnpj: {
-      razaoSocial: data.cnpj.razaoSocial, cnpj: data.cnpj.cnpj,
-      dataAbertura: data.cnpj.dataAbertura, situacaoCadastral: data.cnpj.situacaoCadastral,
-      porte: data.cnpj.porte, cnaePrincipal: data.cnpj.cnaePrincipal,
-      naturezaJuridica: data.cnpj.naturezaJuridica, capitalSocialCNPJ: data.cnpj.capitalSocialCNPJ,
-      tipoEmpresa: data.cnpj.tipoEmpresa, funcionarios: data.cnpj.funcionarios,
+      razaoSocial: data.cnpj.razaoSocial,
+      nomeFantasia: data.cnpj.nomeFantasia,
+      cnpj: data.cnpj.cnpj,
+      dataAbertura: data.cnpj.dataAbertura,
+      situacaoCadastral: data.cnpj.situacaoCadastral,
+      dataSituacaoCadastral: data.cnpj.dataSituacaoCadastral,
+      motivoSituacao: data.cnpj.motivoSituacao,
+      porte: data.cnpj.porte,
+      cnaePrincipal: data.cnpj.cnaePrincipal,
+      cnaeSecundarios: data.cnpj.cnaeSecundarios,
+      naturezaJuridica: data.cnpj.naturezaJuridica,
+      capitalSocialCNPJ: data.cnpj.capitalSocialCNPJ,
+      endereco: data.cnpj.endereco,
+      tipoEmpresa: data.cnpj.tipoEmpresa,
+      funcionarios: data.cnpj.funcionarios,
       regimeTributario: data.cnpj.regimeTributario,
     },
     qsa: {
       capitalSocial: data.qsa.capitalSocial,
-      quadroSocietario: data.qsa.quadroSocietario.slice(0, 8).map(s => ({
-        nome: s.nome, participacao: s.participacao, qualificacao: s.qualificacao,
+      quadroSocietario: data.qsa.quadroSocietario.slice(0, 20).map(s => ({
+        nome: s.nome, cpfCnpj: s.cpfCnpj,
+        participacao: s.participacao, qualificacao: s.qualificacao,
       })),
     },
     faturamento: {
       fmm12m: data.faturamento.fmm12m, fmmMedio: data.faturamento.fmmMedio,
+      fmmAnual: data.faturamento.fmmAnual,
+      tendencia: data.faturamento.tendencia,
       somatoriaAno: data.faturamento.somatoriaAno, ultimoMesComDados: data.faturamento.ultimoMesComDados,
-      mesesZerados: data.faturamento.mesesZerados?.slice(0, 5),
-      meses: data.faturamento.meses.slice(-12).map(m => ({ mes: m.mes, valor: m.valor })),
+      mesesZerados: data.faturamento.mesesZerados?.slice(0, 12),
+      meses: data.faturamento.meses.slice(-24).map(m => ({ mes: m.mes, valor: m.valor })),
     },
     scr: {
       totalDividasAtivas: data.scr.totalDividasAtivas, vencidos: data.scr.vencidos,
       prejuizos: data.scr.prejuizos, carteiraAVencer: data.scr.carteiraAVencer,
+      carteiraCurtoPrazo: data.scr.carteiraCurtoPrazo,
+      carteiraLongoPrazo: data.scr.carteiraLongoPrazo,
       limiteCredito: data.scr.limiteCredito, qtdeInstituicoes: data.scr.qtdeInstituicoes,
-      qtdeOperacoes: data.scr.qtdeOperacoes, classificacaoRisco: data.scr.classificacaoRisco,
-      historicoInadimplencia: data.scr.historicoInadimplencia, tempoAtraso: data.scr.tempoAtraso,
-      modalidades: data.scr.modalidades?.slice(0, 10),
-      instituicoes: data.scr.instituicoes?.slice(0, 8),
+      qtdeOperacoes: data.scr.qtdeOperacoes,
+      operacoesAVencer: data.scr.operacoesAVencer,
+      operacoesEmAtraso: data.scr.operacoesEmAtraso,
+      operacoesVencidas: data.scr.operacoesVencidas,
+      classificacaoRisco: data.scr.classificacaoRisco,
+      historicoInadimplencia: data.scr.historicoInadimplencia,
+      tempoAtraso: data.scr.tempoAtraso,
+      coobrigacoes: data.scr.coobrigacoes,
+      faixasAVencer: data.scr.faixasAVencer,
+      faixasVencidos: data.scr.faixasVencidos,
+      modalidades: data.scr.modalidades?.slice(0, 25),
+      instituicoes: data.scr.instituicoes?.slice(0, 15),
+      periodoReferencia: data.scr.periodoReferencia,
     },
     scrAnterior: data.scrAnterior ? {
       totalDividasAtivas: data.scrAnterior.totalDividasAtivas, vencidos: data.scrAnterior.vencidos,
       prejuizos: data.scrAnterior.prejuizos, limiteCredito: data.scrAnterior.limiteCredito,
+      carteiraCurtoPrazo: data.scrAnterior.carteiraCurtoPrazo,
+      carteiraLongoPrazo: data.scrAnterior.carteiraLongoPrazo,
+      periodoReferencia: data.scrAnterior.periodoReferencia,
     } : null,
     protestos: {
       vigentesQtd: data.protestos.vigentesQtd, vigentesValor: data.protestos.vigentesValor,
       regularizadosQtd: data.protestos.regularizadosQtd,
-      detalhes: data.protestos.detalhes.slice(0, 5),
+      regularizadosValor: data.protestos.regularizadosValor,
+      // Top 5 protestos: analyst enxerga se sao pequenos vs grandes, credor, data
+      detalhes: data.protestos.detalhes.slice(0, 10).map(d => ({
+        data: d.data, credor: d.credor, valor: d.valor,
+        numero: d.numero, apresentante: d.apresentante,
+        municipio: d.municipio, uf: d.uf, regularizado: d.regularizado,
+      })),
     },
     processos: {
       passivosTotal: data.processos.passivosTotal, ativosTotal: data.processos.ativosTotal,
       valorTotalEstimado: data.processos.valorTotalEstimado, temRJ: data.processos.temRJ,
       distribuicao: data.processos.distribuicao,
-      bancarios: data.processos.bancarios?.slice(0, 5),
-      fiscais: data.processos.fiscais?.slice(0, 3),
-      top10Valor: data.processos.top10Valor?.slice(0, 5).map(p => ({
+      bancarios: data.processos.bancarios?.slice(0, 10),
+      fiscais: data.processos.fiscais?.slice(0, 5),
+      top10Valor: data.processos.top10Valor?.slice(0, 10).map(p => ({
         tipo: p.tipo, partes: p.partes, polo_passivo: p.polo_passivo, valor: p.valor, status: p.status,
       })),
     },
     ccf: data.ccf ? {
-      qtdRegistros: data.ccf.qtdRegistros, bancos: data.ccf.bancos.slice(0, 5),
+      qtdRegistros: data.ccf.qtdRegistros, bancos: data.ccf.bancos.slice(0, 10),
       tendenciaLabel: data.ccf.tendenciaLabel, tendenciaVariacao: data.ccf.tendenciaVariacao,
     } : null,
     curvaABC: data.curvaABC || null,
     dre: data.dre ? {
       anos: data.dre.anos?.slice(-3),
       tendenciaLucro: data.dre.tendenciaLucro, crescimentoReceita: data.dre.crescimentoReceita,
+      observacoes: data.dre.observacoes,
     } : null,
     balanco: data.balanco ? {
       anos: data.balanco.anos?.slice(-3),
       tendenciaPatrimonio: data.balanco.tendenciaPatrimonio,
+      observacoes: data.balanco.observacoes,
     } : null,
-    irSocios: data.irSocios?.slice(0, 3).map(s => ({
+    irSocios: data.irSocios?.slice(0, 5).map(s => ({
       nomeSocio: s.nomeSocio, anoBase: s.anoBase, rendimentoTotal: s.rendimentoTotal,
       patrimonioLiquido: s.patrimonioLiquido, situacaoMalhas: s.situacaoMalhas, debitosEmAberto: s.debitosEmAberto,
     })),
     contrato: data.contrato ? {
-      capitalSocial: data.contrato.capitalSocial, dataConstituicao: data.contrato.dataConstituicao,
-      objetoSocial: (data.contrato.objetoSocial || "").substring(0, 200),
+      capitalSocial: data.contrato.capitalSocial,
+      dataConstituicao: data.contrato.dataConstituicao,
+      objetoSocial: (data.contrato.objetoSocial || "").substring(0, 500),
+      administracao: data.contrato.administracao,
+      socios: data.contrato.socios?.slice(0, 10),
+      temAlteracoes: data.contrato.temAlteracoes,
     } : null,
     relatorioVisita: data.relatorioVisita || null,
-    scrSocios: data.scrSocios?.slice(0, 3),
+    scrSocios: data.scrSocios?.slice(0, 5),
   });
 }
 

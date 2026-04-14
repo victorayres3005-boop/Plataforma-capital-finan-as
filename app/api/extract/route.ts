@@ -5,6 +5,10 @@ import { createHash } from "node:crypto";
 import { createServerSupabase } from "@/lib/supabase/server";
 import type { CNPJData, ContratoSocialData, SCRData, QSAData, FaturamentoData, ProtestosData, ProcessosData, GrupoEconomicoData, CurvaABCData, DREData, BalancoData, IRSocioData, RelatorioVisitaData } from "@/types";
 import { sanitizeDescricaoDebitos, sanitizeStr, sanitizeEnum, sanitizeMoney } from "@/lib/extract/sanitize";
+import {
+  CNPJDataSchema, QSADataSchema, ContratoSocialDataSchema, FaturamentoDataSchema, SCRDataSchema,
+  safeParseExtracted, auditBusinessRules,
+} from "@/lib/extract/schemas";
 
 export const runtime = "nodejs";
 
@@ -2093,7 +2097,45 @@ export async function POST(request: NextRequest) {
             const aiResponse = await callAI(_prompt, _textContent, _imageContent, _maxOutputTokens);
             console.log(`[extract] AI response length: ${aiResponse.length}`);
             console.log(`[extract] AI raw response (first 1000 chars):`, aiResponse.substring(0, 1000));
-            const parsed = parseJSON<Record<string, unknown>>(aiResponse);
+            const rawParsed = parseJSON<Record<string, unknown>>(aiResponse);
+
+            // ──── Validacao Zod por doc type (leniente + warnings) ────
+            // Coerciona tipos, aplica defaults e acumula avisos de formato/negocio.
+            // Nao bloqueia a resposta — so documenta problemas.
+            let parsed: Record<string, unknown> = rawParsed;
+            const zodWarnings: Array<{field: string; message: string}> = [];
+            try {
+              if (_docType === "cnpj") {
+                const r = safeParseExtracted(CNPJDataSchema, rawParsed, "cnpj");
+                parsed = r.data as unknown as Record<string, unknown>;
+                zodWarnings.push(...r.warnings);
+              } else if (_docType === "qsa") {
+                const r = safeParseExtracted(QSADataSchema, rawParsed, "qsa");
+                parsed = r.data as unknown as Record<string, unknown>;
+                zodWarnings.push(...r.warnings);
+              } else if (_docType === "contrato") {
+                const r = safeParseExtracted(ContratoSocialDataSchema, rawParsed, "contrato");
+                parsed = r.data as unknown as Record<string, unknown>;
+                zodWarnings.push(...r.warnings);
+              } else if (_docType === "faturamento") {
+                const r = safeParseExtracted(FaturamentoDataSchema, rawParsed, "faturamento");
+                parsed = r.data as unknown as Record<string, unknown>;
+                zodWarnings.push(...r.warnings);
+              } else if (_docType === "scr") {
+                const r = safeParseExtracted(SCRDataSchema, rawParsed, "scr");
+                parsed = r.data as unknown as Record<string, unknown>;
+                zodWarnings.push(...r.warnings);
+              }
+              // Audit de regras de negocio (range, coerencia, formato)
+              const businessWarnings = auditBusinessRules(_docType, parsed);
+              zodWarnings.push(...businessWarnings);
+              if (zodWarnings.length > 0) {
+                console.warn(`[extract][${_docType}] ${zodWarnings.length} warning(s) de validacao`);
+              }
+            } catch (zodErr) {
+              console.warn(`[extract][${_docType}] zod falhou, seguindo com rawParsed:`, zodErr instanceof Error ? zodErr.message : zodErr);
+              parsed = rawParsed;
+            }
 
             switch (_docType) {
               case "cnpj": {
