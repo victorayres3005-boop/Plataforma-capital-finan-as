@@ -9,6 +9,7 @@ import { SectionQSA } from "./review/SectionQSA";
 import { SectionContrato } from "./review/SectionContrato";
 import { SectionFaturamento } from "./review/SectionFaturamento";
 import { SectionSCR } from "./review/SectionSCR";
+import { SectionSCRSocios } from "./review/SectionSCRSocios";
 import { SectionDRE } from "./review/SectionDRE";
 import { SectionBalanco } from "./review/SectionBalanco";
 import { SectionCurvaABC } from "./review/SectionCurvaABC";
@@ -48,6 +49,7 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
       faturamento: qFat.score !== "good",
       scr: qScr.score !== "good" || qFat.score === "error",
       dre: false, balanco: false, curvaABC: false, irSocios: false, relatorioVisita: false,
+      scrSocios: (data.scrSocios?.length ?? 0) > 0,
     };
   });
 
@@ -303,6 +305,7 @@ export default function ReviewStep({ data, onComplete, onBack }: ReviewStepProps
       <SectionContrato data={form.contrato} set={setContrato} setSocio={setSocio} addSocio={addSocio} removeSocio={removeSocio} expanded={open.contrato} onToggle={() => toggle("contrato")} quality={qualityMap.contrato} />
       <SectionFaturamento data={form.faturamento} setMes={setFatMes} addMes={addFatMes} removeMes={removeFatMes} expanded={open.faturamento} onToggle={() => toggle("faturamento")} quality={qualityMap.faturamento} />
       <SectionSCR data={form.scr} anterior={form.scrAnterior ?? undefined} set={setSCR} setMod={setSCRMod} addMod={addSCRMod} removeMod={removeSCRMod} setInst={setSCRInst} addInst={addSCRInst} removeInst={removeSCRInst} showDetails={showSCRDetails} setShowDetails={setShowSCRDetails} expanded={open.scr} onToggle={() => toggle("scr")} quality={qualityMap.scr} />
+      <SectionSCRSocios socios={form.scrSocios || []} expanded={open.scrSocios} onToggle={() => toggle("scrSocios")} quality={qualityMap.scr} />
       {form.dre && <SectionDRE data={form.dre} set={setDRE} setAno={setDREAno} expanded={open.dre} onToggle={() => toggle("dre")} />}
       {form.balanco && <SectionBalanco data={form.balanco} set={setBalanco} setAno={setBalancoAno} expanded={open.balanco} onToggle={() => toggle("balanco")} />}
       {form.curvaABC && <SectionCurvaABC data={form.curvaABC} setField={setCurvaABCField} setCliente={setCurvaABCCliente} addCliente={addCurvaABCCliente} removeCliente={removeCurvaABCCliente} expanded={open.curvaABC} onToggle={() => toggle("curvaABC")} />}
