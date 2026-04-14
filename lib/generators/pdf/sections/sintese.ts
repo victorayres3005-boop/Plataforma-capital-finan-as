@@ -111,6 +111,22 @@ export function renderSintese(ctx: PdfCtx): void {
     : (last12.length > 0 ? last12.reduce((s, m) => s + parseMoneyToNumber(m.valor), 0) / last12.length : 0);
   const fatTotal12 = last12.reduce((s, m) => s + parseMoneyToNumber(m.valor), 0);
 
+  // Debug — verificar se os valores de faturamento/protestos/processos estao chegando certos
+  if (typeof console !== "undefined") {
+    const last3 = last12.slice(-3).map(m => ({ mes: m.mes, raw: m.valor, parsed: parseMoneyToNumber(m.valor) }));
+    console.log("[sintese] faturamento last3:", JSON.stringify(last3), "fmm:", fmm12m, "total12:", fatTotal12, "fmm12mRaw:", data.faturamento?.fmm12m || "—");
+    console.log("[sintese] protestos:", {
+      raw: data.protestos?.vigentesValor || "—",
+      parsed: parseMoneyToNumber(data.protestos?.vigentesValor || "0"),
+      qtd: data.protestos?.vigentesQtd || "—",
+    });
+    console.log("[sintese] processos:", {
+      passivos: data.processos?.passivosTotal || "—",
+      valorTotalRaw: data.processos?.valorTotalEstimado || "—",
+      valorTotalParsed: parseMoneyToNumber(data.processos?.valorTotalEstimado || "0"),
+    });
+  }
+
   const cw = contentW;
   const ml = margin;
 

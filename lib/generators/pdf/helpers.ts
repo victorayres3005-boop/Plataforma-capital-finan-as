@@ -2,9 +2,67 @@ import type { PdfCtx, AutoCell, AlertSeverity, RGB } from "./context";
 
 // ─── Formatting helpers ───────────────────────────────────────────────────────
 
-export function parseMoneyToNumber(val: string): number {
-  if (!val) return 0;
-  return parseFloat(val.replace(/\./g, "").replace(",", ".")) || 0;
+/**
+ * Parse robusto de valores monetarios em qualquer formato razoavel:
+ * - "3.285.611,48" (BR) -> 3285611.48
+ * - "R$ 3.285.611,48" -> 3285611.48
+ * - "1,234,567.89" (US com vírgula milhar + ponto decimal) -> 1234567.89
+ * - "3285611.48" (puro numerico com ponto decimal) -> 3285611.48
+ * - "3285611,48" (puro numerico com virgula decimal) -> 3285611.48
+ * - "1.234.567" (BR sem decimal) -> 1234567
+ * - "(1.234,56)" contabeis -> -1234.56
+ * - Preserva sinal negativo
+ */
+export function parseMoneyToNumber(val: string | number | null | undefined): number {
+  if (val == null) return 0;
+  if (typeof val === "number") return isFinite(val) ? val : 0;
+  const rawStr = String(val).trim();
+  if (!rawStr) return 0;
+  const isNegative = rawStr.startsWith("-") || rawStr.startsWith("(");
+  // Remove qualquer coisa que nao seja digito, ponto, virgula ou sinal
+  let cleaned = rawStr.replace(/[^\d.,\-]/g, "").replace(/^-/, "");
+  if (!cleaned) return 0;
+  const hasComma = cleaned.includes(",");
+  const hasDot = cleaned.includes(".");
+  let num: number;
+  if (hasComma && hasDot) {
+    // Ambos separadores presentes: o que aparece por ultimo e o decimal
+    const lastComma = cleaned.lastIndexOf(",");
+    const lastDot = cleaned.lastIndexOf(".");
+    if (lastComma > lastDot) {
+      // Formato BR: 1.234.567,89
+      cleaned = cleaned.replace(/\./g, "").replace(",", ".");
+    } else {
+      // Formato US: 1,234,567.89
+      cleaned = cleaned.replace(/,/g, "");
+    }
+    num = parseFloat(cleaned);
+  } else if (hasComma) {
+    // So virgula: pode ser decimal BR ou milhar US
+    const parts = cleaned.split(",");
+    if (parts.length === 2 && parts[1].length <= 2) {
+      // Decimal BR: "1234,56"
+      num = parseFloat(cleaned.replace(",", "."));
+    } else {
+      // Milhar US sem decimal ou varias virgulas: "1,234,567" -> 1234567
+      num = parseFloat(cleaned.replace(/,/g, ""));
+    }
+  } else if (hasDot) {
+    // So ponto: pode ser decimal US ou milhar BR
+    const parts = cleaned.split(".");
+    if (parts.length === 2 && parts[1].length <= 2) {
+      // Decimal US: "1234.56" -> 1234.56
+      num = parseFloat(cleaned);
+    } else {
+      // Milhar BR sem decimal: "1.234.567" -> 1234567
+      num = parseFloat(cleaned.replace(/\./g, ""));
+    }
+  } else {
+    // Sem separadores: numero puro
+    num = parseFloat(cleaned);
+  }
+  if (!isFinite(num) || isNaN(num)) return 0;
+  return isNegative ? -num : num;
 }
 
 export function fmtBR(n: number, decimals = 0): string {
