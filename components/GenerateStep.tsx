@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { ArrowLeft, Loader2, CheckCircle2, AlertTriangle, Pencil, RotateCcw, ArrowRight } from "lucide-react";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import Image from "next/image";
@@ -32,6 +32,10 @@ interface GenerateStepProps {
   onReset?: () => void;
   onNotify?: (msg: string) => void;
   onFirstCollection?: () => void;
+  // Lift do collectionId para o parent — evita duplicacao quando o auto-save
+  // do parent ja criou uma coleta antes do GenerateStep montar.
+  collectionId?: string | null;
+  onCollectionIdChange?: (id: string) => void;
 }
 
 // Module-level refs for upload context (set by component)
@@ -629,7 +633,7 @@ function validateExtractedData(data: ExtractedData): ValidationResult {
   };
 }
 
-export default function GenerateStep({ data: initialData, originalFiles, onBack, onReset, ...rest }: GenerateStepProps) {
+export default function GenerateStep({ data: initialData, originalFiles, onBack, onReset, collectionId: collectionIdProp, onCollectionIdChange, ...rest }: GenerateStepProps) {
   void rest; // onNotify e onFirstCollection substituídos pela página /parecer
   const [data, setData] = useState<ExtractedData>(() => JSON.parse(JSON.stringify(initialData)));
   const [editing, setEditing] = useState(false);
@@ -644,8 +648,16 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   // ── Data Validation (mantido para uso interno, card removido da UI) ──
   void validateExtractedData(data);
 
-  // ── Collection ID (needed by cache logic below) ──
-  const [collectionId, setCollectionId] = useState<string | null>(null);
+  // ── Collection ID — fonte unica de verdade no parent ──
+  // Usa a prop quando presente; cai num state local apenas quando o
+  // GenerateStep cria a coleta antes do parent ter um id (caso legacy).
+  const [collectionIdLocal, setCollectionIdLocal] = useState<string | null>(collectionIdProp ?? null);
+  useEffect(() => { if (collectionIdProp) setCollectionIdLocal(collectionIdProp); }, [collectionIdProp]);
+  const collectionId = collectionIdLocal;
+  const setCollectionId = useCallback((id: string | null) => {
+    setCollectionIdLocal(id);
+    if (id) onCollectionIdChange?.(id);
+  }, [onCollectionIdChange]);
 
   // ── Observações do analista ──
   const NOTES_KEY = "cf_analyst_notes_draft";

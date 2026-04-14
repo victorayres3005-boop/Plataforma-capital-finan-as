@@ -190,53 +190,84 @@ export default function HomePage() {
   const [originalFiles, setOriginalFiles] = useState<OriginalFiles>({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] });
   const [resumedDocs, setResumedDocs] = useState<import("@/types").CollectionDocument[] | undefined>(undefined);
   // ── Auto-save no Supabase ──
-  const [collectionId, setCollectionId] = useState<string | null>(null);
+  // Estrategia anti-bug:
+  //  - collectionIdRef: leitura sempre fresca dentro do timer (evita stale closure)
+  //  - insertInFlight: serializa o PRIMEIRO insert (impede 2 inserts paralelos = duplicacao)
+  //  - dirtyData: ultima versao que precisa ser salva. Se chegar update durante save,
+  //    nao descarta — fica marcada e dispara um novo save assim que terminar.
+  const [collectionId, setCollectionIdState] = useState<string | null>(null);
+  const collectionIdRef = useRef<string | null>(null);
+  const setCollectionId = useCallback((id: string | null) => {
+    collectionIdRef.current = id;
+    setCollectionIdState(id);
+  }, []);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const autoSaveInFlight = useRef(false);
-  const autoSaveCollection = useCallback((data: ExtractedData) => {
-    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    autoSaveTimer.current = setTimeout(async () => {
-      if (autoSaveInFlight.current) return;
-      const documents = buildCollectionDocs(data);
-      if (documents.length === 0) return; // nada pra salvar ainda
-      autoSaveInFlight.current = true;
-      try {
-        const supabase = createClient();
-        const { data: session } = await supabase.auth.getUser();
-        if (!session.user) return;
-        const meta = {
-          company_name: data.cnpj.razaoSocial || null,
-          cnpj: data.cnpj.cnpj || null,
-          fmm_12m: parseFloat((data.faturamento.mediaAno || "0").replace(/\./g, "").replace(",", ".")) || null,
-        };
-        if (collectionId) {
-          await supabase.from("document_collections")
-            .update({ documents, label: data.cnpj.razaoSocial || null, ...meta })
-            .eq("id", collectionId);
-        } else {
-          const { data: row, error } = await supabase.from("document_collections").insert({
-            user_id: session.user.id,
-            status: "in_progress",
-            label: data.cnpj.razaoSocial || null,
-            documents,
-            ...meta,
-          }).select("id").single();
-          if (error) throw error;
-          setCollectionId(row.id);
-          // Atualiza a URL para suportar reload (sem navegar)
-          try {
-            const url = new URL(window.location.href);
-            url.searchParams.set("resume", row.id);
-            window.history.replaceState({}, "", url.toString());
-          } catch { /* ignore */ }
+  const insertInFlight = useRef(false);
+  const dirtyData = useRef<ExtractedData | null>(null);
+  const autoSaveRunning = useRef(false);
+
+  const performSave = useCallback(async () => {
+    if (autoSaveRunning.current) return;
+    autoSaveRunning.current = true;
+    try {
+      while (dirtyData.current) {
+        const data = dirtyData.current;
+        dirtyData.current = null;
+        const documents = buildCollectionDocs(data);
+        if (documents.length === 0) continue;
+        try {
+          const supabase = createClient();
+          const { data: session } = await supabase.auth.getUser();
+          if (!session.user) continue;
+          const meta = {
+            company_name: data.cnpj.razaoSocial || null,
+            cnpj: data.cnpj.cnpj || null,
+            fmm_12m: parseFloat((data.faturamento.mediaAno || "0").replace(/\./g, "").replace(",", ".")) || null,
+          };
+          const currentId = collectionIdRef.current;
+          if (currentId) {
+            await supabase.from("document_collections")
+              .update({ documents, label: data.cnpj.razaoSocial || null, ...meta })
+              .eq("id", currentId);
+          } else if (!insertInFlight.current) {
+            insertInFlight.current = true;
+            try {
+              const { data: row, error } = await supabase.from("document_collections").insert({
+                user_id: session.user.id,
+                status: "in_progress",
+                label: data.cnpj.razaoSocial || null,
+                documents,
+                ...meta,
+              }).select("id").single();
+              if (error) throw error;
+              setCollectionId(row.id);
+              try {
+                const url = new URL(window.location.href);
+                url.searchParams.set("resume", row.id);
+                window.history.replaceState({}, "", url.toString());
+              } catch { /* ignore */ }
+            } finally {
+              insertInFlight.current = false;
+            }
+          } else {
+            // Insert ja em voo de outro tick — re-enfilera para tentar como UPDATE
+            dirtyData.current = data;
+            await new Promise(r => setTimeout(r, 100));
+          }
+        } catch (err) {
+          console.warn("[autoSave] falhou:", err instanceof Error ? err.message : err);
         }
-      } catch (err) {
-        console.warn("[autoSave] falhou:", err instanceof Error ? err.message : err);
-      } finally {
-        autoSaveInFlight.current = false;
       }
-    }, 800);
-  }, [collectionId]);
+    } finally {
+      autoSaveRunning.current = false;
+    }
+  }, [setCollectionId]);
+
+  const autoSaveCollection = useCallback((data: ExtractedData) => {
+    dirtyData.current = data;
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(() => { performSave(); }, 800);
+  }, [performSave]);
   const { user, loading: authLoading, signOut } = useAuth();
   const { welcomeSeen, firstCollectionDone, loaded: onboardingLoaded, markWelcomeSeen, markTooltipSeen, markFirstCollectionDone, isTooltipSeen } = useOnboarding(user?.id);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -316,7 +347,7 @@ export default function HomePage() {
 
       setExtractedData(hydrated);
       setResumedDocs(docs as import("@/types").CollectionDocument[]);
-      setCollectionId(collectionId); // garante que proximas mudancas viram UPDATE, nao INSERT
+      setCollectionId(collectionId); // setter unificado: atualiza state E ref
       setShowDashboard(false);
       // Se um step foi forçado (ex: voltar do parecer), usa ele; senão usa lógica padrão
       setStep(forceStep || (col.status === "finished" ? "generate" : "upload"));
@@ -1586,7 +1617,7 @@ export default function HomePage() {
         })() : step === "generate" ? (
 
         <div key="generate" className="w-full animate-slide-up">
-          <GenerateStep data={extractedData} originalFiles={originalFiles} onBack={() => setStep("review")} onReset={() => { setShowDashboard(true); setStep("upload"); setExtractedData(defaultData); setResumedDocs(undefined); setCollectionId(null); try { const url = new URL(window.location.href); url.searchParams.delete("resume"); window.history.replaceState({}, "", url.toString()); } catch {/**/} setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] }); }} onNotify={handleNotify} onFirstCollection={markFirstCollectionDone} />
+          <GenerateStep data={extractedData} originalFiles={originalFiles} collectionId={collectionId} onCollectionIdChange={setCollectionId} onBack={() => setStep("review")} onReset={() => { setShowDashboard(true); setStep("upload"); setExtractedData(defaultData); setResumedDocs(undefined); setCollectionId(null); try { const url = new URL(window.location.href); url.searchParams.delete("resume"); window.history.replaceState({}, "", url.toString()); } catch {/**/} setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] }); }} onNotify={handleNotify} onFirstCollection={markFirstCollectionDone} />
         </div>
 
         ) : (
