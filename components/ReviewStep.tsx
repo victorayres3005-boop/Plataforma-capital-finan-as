@@ -25,7 +25,32 @@ interface ReviewStepProps {
   onDataChange?: (data: ExtractedData) => void;
 }
 
+// Computa diff raso entre duas versoes do ExtractedData, retornando os campos
+// alterados no formato { "cnpj.razaoSocial": { old, new }, ... }.
+// Usado para telemetria: capturar quais campos o analista corrige com mais frequencia.
+function computeDiff(initial: Record<string, unknown>, current: Record<string, unknown>, prefix = ""): Record<string, { old: unknown; new: unknown }> {
+  const out: Record<string, { old: unknown; new: unknown }> = {};
+  const keysArr = Array.from(new Set<string>([...Object.keys(initial || {}), ...Object.keys(current || {})]));
+  for (const k of keysArr) {
+    const path = prefix ? `${prefix}.${k}` : k;
+    const a = (initial as Record<string, unknown>)?.[k];
+    const b = (current as Record<string, unknown>)?.[k];
+    if (a === b) continue;
+    if (typeof a === "object" && typeof b === "object" && !Array.isArray(a) && !Array.isArray(b) && a !== null && b !== null) {
+      Object.assign(out, computeDiff(a as Record<string, unknown>, b as Record<string, unknown>, path));
+      continue;
+    }
+    // Arrays e primitivos sao logados como um diff unico
+    if (JSON.stringify(a) !== JSON.stringify(b)) {
+      out[path] = { old: a, new: b };
+    }
+  }
+  return out;
+}
+
 export default function ReviewStep({ data, onComplete, onBack, onDataChange }: ReviewStepProps) {
+  // Snapshot inicial para capturar correcoes do analista (telemetria observability)
+  const initialDataRef = useRef<ExtractedData>(data);
   // ── State ──────────────────────────────────────────────────────────────────
   const [form, setForm] = useState<ExtractedData>(() => {
     const d: ExtractedData = JSON.parse(JSON.stringify(data));
@@ -368,7 +393,36 @@ export default function ReviewStep({ data, onComplete, onBack, onDataChange }: R
             {/* Gerar Relatório */}
             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "3px" }}>
               <button
-                onClick={() => onComplete(form)}
+                onClick={() => {
+                  // Captura diff de correcoes do analista (fire-and-forget, nao bloqueia)
+                  try {
+                    const diff = computeDiff(
+                      initialDataRef.current as unknown as Record<string, unknown>,
+                      form as unknown as Record<string, unknown>,
+                    );
+                    const correctedFields = Object.keys(diff);
+                    if (correctedFields.length > 0) {
+                      console.log(`[review] ${correctedFields.length} campo(s) corrigido(s):`, correctedFields);
+                      (async () => {
+                        try {
+                          const { createClient } = await import("@/lib/supabase/client");
+                          const supabase = createClient();
+                          const { data: userData } = await supabase.auth.getUser();
+                          if (userData.user) {
+                            await supabase.from("extraction_corrections").insert({
+                              user_id: userData.user.id,
+                              cnpj: form.cnpj?.cnpj || null,
+                              corrected_fields: correctedFields,
+                              diff: diff,
+                              corrections_count: correctedFields.length,
+                            });
+                          }
+                        } catch { /* nunca bloqueia */ }
+                      })();
+                    }
+                  } catch { /* ignore */ }
+                  onComplete(form);
+                }}
                 disabled={!pode && !forcarAvancar}
                 title={!pode && !forcarAvancar ? "Corrija os erros críticos antes de prosseguir" : undefined}
                 style={{

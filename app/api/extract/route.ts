@@ -353,9 +353,13 @@ capitalSocial: Valor total do capital social da empresa
 ═══ DEDUPLICAÇÃO ═══
 Se o mesmo CPF aparecer mais de uma vez (ex: "Sócio" e também "Administrador"), inclua APENAS UMA VEZ usando a qualificação mais completa (prefira "Sócio-Administrador" a apenas "Sócio" ou "Administrador").
 
-═══ VALIDAÇÃO ═══
-- Soma das participações deve ser ≤ 100%
-- Se ultrapassar, verifique duplicação ou sócio PJ estrangeiro
+═══ VALIDAÇÃO ANTES DE RETORNAR ═══
+Antes de produzir o JSON, confira CADA ITEM desta checklist:
+1. Soma das participações ≈ 100% (tolerancia 1%). Se ultrapassar, revise duplicacao ou socio PJ estrangeiro.
+2. Cada socio tem pelo menos NOME OU CPF/CNPJ (nunca ambos vazios).
+3. CPF formato XXX.XXX.XXX-XX (11 digitos). CNPJ formato XX.XXX.XXX/XXXX-XX (14 digitos).
+4. Qualificacoes usam os codigos RFB quando possivel (22, 49, 05, etc.) OU texto descritivo.
+5. NUNCA retorne quadroSocietario=[] se o documento menciona socios — prefira entrada parcial.
 - NÃO invente dados — campos ausentes = "" (string vazia)
 
 ═══ EXEMPLO DE SAÍDA ═══
@@ -474,6 +478,15 @@ Se o documento está muito degradado/ilegível:
 - Deixe os outros campos vazios
 
 RETORNAR TODOS OS CAMPOS VAZIOS É ERRO CRÍTICO. Um contrato social sempre tem ao menos objeto social ou nome de sócio visível. Volte e olhe de novo se isso aconteceu.
+
+═══ VALIDAÇÃO ANTES DE RETORNAR ═══
+Antes de produzir o JSON, confira:
+1. capitalSocial NUNCA vazio em consolidacao/ato constitutivo (volte ao documento se retornou "")
+2. Pelo menos 1 socio detectado (raro haver contrato sem socios)
+3. Soma de participacoes dos socios ≈ 100% (tolerancia 2%)
+4. dataConstituicao preenchido quando e um ato constitutivo (primeira alteracao)
+5. temAlteracoes=true quando o documento e claramente uma "X Alteracao" ou "Consolidacao"
+6. Se objetoSocial ficar vazio, releia — praticamente todo contrato tem um paragrafo de objeto social
 
 Campos ausentes: "" ou false. NÃO invente dados — mas extraia tudo o que está visível.`;
 
@@ -852,6 +865,8 @@ Totais:
 Flags críticos:
 - temRJ: true se houver menção a "Recuperação Judicial", "RJ", "Deferimento de Processamento de RJ"
 - temRecuperacaoExtrajudicial: true se "Recuperação Extrajudicial" ou "Homologação de Plano Extrajudicial"
+- recuperacaoJudicial: se temRJ=true, preencha {"status":"DEFERIDA|EM_PROCESSAMENTO|CONCEDIDA|ENCERRADA|CONVERTIDA_EM_FALENCIA","dataDistribuicao":"DD/MM/YYYY","numeroProcesso":"CNJ se disponivel","tribunal":"sigla","administradorJudicial":"nome se disponivel"}. Se algum campo nao aparecer, deixe "".
+- Se temRJ=false, recuperacaoJudicial pode ser omitido ou {} vazio.
 
 Categorias (distribuicao — use EXATAMENTE estes tipos):
 - "TRABALHISTA": reclamações trabalhistas, ações sindicais, execuções trabalhistas
@@ -2088,6 +2103,8 @@ export async function POST(request: NextRequest) {
       async start(controller) {
         const keepalive = setInterval(() => _send(controller, "keepalive", { ts: Date.now() }), 5000);
 
+        const startTimeMs = Date.now();
+        const zodWarnings: Array<{field: string; message: string}> = [];
         try {
           let data: AnyExtracted;
           const inputMode = _imageContent ? "binary" : "text";
@@ -2103,7 +2120,6 @@ export async function POST(request: NextRequest) {
             // Coerciona tipos, aplica defaults e acumula avisos de formato/negocio.
             // Nao bloqueia a resposta — so documenta problemas.
             let parsed: Record<string, unknown> = rawParsed;
-            const zodWarnings: Array<{field: string; message: string}> = [];
             try {
               if (_docType === "cnpj") {
                 const r = safeParseExtracted(CNPJDataSchema, rawParsed, "cnpj");
@@ -2306,6 +2322,28 @@ export async function POST(request: NextRequest) {
               } catch (e) {
                 console.warn(`[extract][cache] falha ao gravar (ignorado):`, e instanceof Error ? e.message : e);
               }
+            })();
+          }
+
+          // Metricas de extracao — fire-and-forget. Captura cada extracao para
+          // futuro diagnostico de quais campos falham mais por doc type.
+          if (cachedUserId) {
+            const duracaoMs = Date.now() - startTimeMs;
+            (async () => {
+              try {
+                const supaMetrics = createServerSupabase();
+                await supaMetrics.from("extraction_metrics").insert({
+                  user_id: cachedUserId,
+                  doc_type: _docType,
+                  filled_fields: filled,
+                  input_mode: inputMode,
+                  text_length: _textContent.length,
+                  duration_ms: duracaoMs,
+                  ai_powered: true,
+                  cached: false,
+                  zod_warnings: zodWarnings.length > 0 ? zodWarnings : null,
+                });
+              } catch { /* nunca falha a requisicao */ }
             })();
           }
         } catch (err) {
