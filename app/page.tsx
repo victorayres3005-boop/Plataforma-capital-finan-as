@@ -229,6 +229,8 @@ export default function HomePage() {
             await supabase.from("document_collections")
               .update({ documents, label: data.cnpj.razaoSocial || null, ...meta })
               .eq("id", currentId);
+            // Supabase virou fonte de verdade — apaga o draft local
+            try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
           } else if (!insertInFlight.current) {
             insertInFlight.current = true;
             try {
@@ -246,6 +248,8 @@ export default function HomePage() {
                 url.searchParams.set("resume", row.id);
                 window.history.replaceState({}, "", url.toString());
               } catch { /* ignore */ }
+              // Supabase virou fonte de verdade — apaga o draft local
+              try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
             } finally {
               insertInFlight.current = false;
             }
@@ -374,14 +378,21 @@ export default function HomePage() {
     }
   }, [handleResumeCollection]);
 
-  // ── Check localStorage for a draft in progress ──
+  // ── Draft localStorage: hoje o Supabase é fonte de verdade. So mostra o
+  // draft local quando NAO ha ?resume= na URL (Supabase ja cuidaria) e quando
+  // nao existe coleta in_progress recente do usuario (que tambem cuidaria). ──
   useEffect(() => {
     try {
+      // Se tem resume na URL, Supabase manda — ignora draft local
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("resume")) {
+        localStorage.removeItem(DRAFT_KEY);
+        return;
+      }
       const raw = localStorage.getItem(DRAFT_KEY);
       if (!raw) return;
       const parsed = JSON.parse(raw) as { form: ExtractedData; savedAt: string };
       if (!parsed?.form || !parsed?.savedAt) return;
-      // Only show draft if less than 48h old
       const age = Date.now() - new Date(parsed.savedAt).getTime();
       if (age > 48 * 3600 * 1000) { localStorage.removeItem(DRAFT_KEY); return; }
       setLocalDraft(parsed);

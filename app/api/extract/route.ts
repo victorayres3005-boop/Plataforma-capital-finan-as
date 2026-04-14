@@ -1925,11 +1925,12 @@ export async function POST(request: NextRequest) {
       // o texto sai suspeitosamente curto. Abaixo do limiar, cai pro Gemini multimodal
       // (que lê o PDF nativo e ignora o text extractor).
       const minTextByDoc: Record<string, number> = {
-        contrato: 5000, scr: 800, qsa: 500, dre: 1500, balanco: 1500,
-        curva_abc: 800, processos: 1000, protestos: 500, grupoEconomico: 800,
-        ir_socio: 1500, relatorio_visita: 800, cnpj: 500,
+        cnpj: 500, qsa: 500, contrato: 5000, faturamento: 800,
+        scr: 800, protestos: 500, processos: 1000, grupoEconomico: 800,
+        dre: 1500, balanco: 1500, curva_abc: 800, ir_socio: 1500,
+        relatorio_visita: 800,
       };
-      const minRequired = minTextByDoc[docType] ?? 200;
+      const minRequired = minTextByDoc[docType] ?? 500;
       const trimmedLen = textContent.trim().length;
       const hasContent = hasReadableContent(textContent);
       const isUsableText = trimmedLen >= minRequired && hasContent;

@@ -36,7 +36,27 @@ export function useAuth() {
 
   const signOut = async () => {
     const supabase = createClient();
+    // Encerra todos os canais realtime (evita receber eventos do usuario antigo)
+    try { await supabase.removeAllChannels(); } catch { /* ignore */ }
     await supabase.auth.signOut();
+    // Limpa storage do navegador para evitar vazamento entre contas no mesmo browser
+    try {
+      const localKeysToRemove = [
+        "cf_review_draft_v2",
+        "cf_analyst_notes_draft",
+        "cf_committee_draft",
+        "cf_nav_state",
+      ];
+      for (const k of localKeysToRemove) localStorage.removeItem(k);
+      // Limpa qualquer chave especifica de coleta (cf_parecer_pending_*, etc)
+      const allKeys = Object.keys(localStorage);
+      for (const k of allKeys) {
+        if (k.startsWith("cf_parecer_pending_") || k.startsWith("cf_")) {
+          localStorage.removeItem(k);
+        }
+      }
+      sessionStorage.clear();
+    } catch { /* ignore */ }
     window.location.href = "/login";
   };
 
