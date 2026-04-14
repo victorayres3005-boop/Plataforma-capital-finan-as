@@ -23,21 +23,38 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     taskType: "SEMANTIC_SIMILARITY",
   });
 
+  const failures: Array<{ key: string; reason: string }> = [];
   for (const key of keys) {
+    const keyShort = key.substring(0, 8);
     try {
       const res = await fetch(embeddingUrl(key), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body,
       });
-      if (!res.ok) continue;
+      if (!res.ok) {
+        const bodyText = await res.text().catch(() => "");
+        const reason = res.status === 429 ? "quota" : res.status === 403 ? "forbidden" : `http_${res.status}`;
+        console.warn(`[embedding] key=${keyShort}... ${reason} — ${bodyText.substring(0, 120)}`);
+        failures.push({ key: keyShort, reason });
+        continue;
+      }
       const json = await res.json();
       const values = json?.embedding?.values as number[] | undefined;
       if (values && values.length === 768) return values;
-    } catch { continue; }
+      console.warn(`[embedding] key=${keyShort}... resposta invalida (sem values ou dim != 768)`);
+      failures.push({ key: keyShort, reason: "invalid_response" });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[embedding] key=${keyShort}... network/parse error: ${msg.substring(0, 120)}`);
+      failures.push({ key: keyShort, reason: "network" });
+    }
   }
 
-  throw new Error("Falha ao gerar embedding — todas as chaves esgotadas");
+  // Diagnostico estruturado no erro — facilita triagem quando a analyze loga
+  const summary = failures.map(f => `${f.key}=${f.reason}`).join(", ");
+  console.error(`[embedding] ESGOTADO — ${failures.length}/${keys.length} chaves falharam: ${summary}`);
+  throw new Error(`Falha ao gerar embedding — ${failures.length} chaves esgotadas (${summary})`);
 }
 
 /**

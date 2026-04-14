@@ -1,6 +1,8 @@
 export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "node:crypto";
+import { createServerSupabase } from "@/lib/supabase/server";
 import type { CNPJData, ContratoSocialData, SCRData, QSAData, FaturamentoData, ProtestosData, ProcessosData, GrupoEconomicoData, CurvaABCData, DREData, BalancoData, IRSocioData, RelatorioVisitaData } from "@/types";
 import { sanitizeDescricaoDebitos, sanitizeStr, sanitizeEnum, sanitizeMoney } from "@/lib/extract/sanitize";
 
@@ -1878,6 +1880,37 @@ export async function POST(request: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
+    // ──── Cache de extracao por hash (sha256 do arquivo) ────
+    // Se o mesmo PDF ja foi extraido antes pelo mesmo usuario e doc_type,
+    // retorna o resultado cacheado instantaneamente (zero tokens Gemini).
+    // Gracioso: se a tabela ainda nao existe ou o query falha, segue fluxo normal.
+    const fileHash = createHash("sha256").update(buffer).digest("hex");
+    let cachedUserId: string | null = null;
+    try {
+      const supaCache = createServerSupabase();
+      const { data: userData } = await supaCache.auth.getUser();
+      cachedUserId = userData.user?.id || null;
+      if (cachedUserId) {
+        const { data: cached } = await supaCache
+          .from("extraction_cache")
+          .select("extracted_data, filled_fields")
+          .eq("user_id", cachedUserId)
+          .eq("file_hash", fileHash)
+          .eq("doc_type", docType)
+          .maybeSingle();
+        if (cached?.extracted_data) {
+          console.log(`[extract][cache] HIT ${docType} hash=${fileHash.substring(0, 12)} (${cached.filled_fields ?? "?"} campos)`);
+          return NextResponse.json({
+            success: true,
+            data: cached.extracted_data,
+            meta: { rawTextLength: 0, filledFields: cached.filled_fields ?? 0, isScanned: false, aiPowered: false, cached: true },
+          });
+        }
+      }
+    } catch (cacheErr) {
+      console.warn(`[extract][cache] lookup falhou (seguindo sem cache):`, cacheErr instanceof Error ? cacheErr.message : cacheErr);
+    }
+
     // ──── Excel: processamento direto sem IA ────
     if (ext === "xlsx" && docType === "faturamento") {
       try {
@@ -2145,6 +2178,26 @@ export async function POST(request: NextRequest) {
             ...(qsaDetectadoExtra ? { qsaDetectado: qsaDetectadoExtra } : {}),
             meta: { rawTextLength: _textContent.length, filledFields: filled, isScanned: _isImage, aiPowered: true },
           });
+
+          // Grava no cache de extracao — fire-and-forget, nunca bloqueia a resposta.
+          // So cacheia quando a extracao veio util (filled > 0).
+          if (cachedUserId && filled > 0) {
+            (async () => {
+              try {
+                const supaCacheWrite = createServerSupabase();
+                await supaCacheWrite.from("extraction_cache").upsert({
+                  user_id: cachedUserId,
+                  file_hash: fileHash,
+                  doc_type: _docType,
+                  extracted_data: data as unknown as Record<string, unknown>,
+                  filled_fields: filled,
+                }, { onConflict: "user_id,file_hash,doc_type" });
+                console.log(`[extract][cache] gravado ${_docType} hash=${fileHash.substring(0, 12)} filled=${filled}`);
+              } catch (e) {
+                console.warn(`[extract][cache] falha ao gravar (ignorado):`, e instanceof Error ? e.message : e);
+              }
+            })();
+          }
         } catch (err) {
           console.error("[extract] Stream error:", err instanceof Error ? err.message : err);
           _send(controller, "result", { success: false, error: "Erro interno ao processar o documento." });
