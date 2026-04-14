@@ -40,14 +40,26 @@ function periodoRefToKey(raw: unknown): number {
   return ano * 100 + mes;
 }
 
+// "atual" tem prioridade 0, "anterior" prioridade 1 — usado como tiebreaker
+// determinístico quando periodoReferencia está ausente/inválido nos dois docs.
+function slotHintRank(raw: unknown): number {
+  const s = String(raw || "").toLowerCase();
+  if (s === "scr" || s === "scr_socio") return 0;
+  if (s === "scranterior" || s === "scr_socio_anterior") return 1;
+  return 2;
+}
+
 function sortSCRDocsDesc<T extends { extracted_data?: Record<string, unknown> }>(docs: T[]): T[] {
   return [...docs].sort((a, b) => {
     const kA = periodoRefToKey(a.extracted_data?.periodoReferencia);
     const kB = periodoRefToKey(b.extracted_data?.periodoReferencia);
-    if (kA === 0 && kB === 0) return 0;
-    if (kA === 0) return 1;   // inválido vai pro final
-    if (kB === 0) return -1;
-    return kB - kA;           // DESC: mais recente primeiro
+    if (kA !== kB) {
+      if (kA === 0) return 1;   // inválido vai pro final
+      if (kB === 0) return -1;
+      return kB - kA;           // DESC: mais recente primeiro
+    }
+    // Empate (incluindo ambos inválidos) → desempata pelo slot original do upload
+    return slotHintRank(a.extracted_data?._slotHint) - slotHintRank(b.extracted_data?._slotHint);
   });
 }
 

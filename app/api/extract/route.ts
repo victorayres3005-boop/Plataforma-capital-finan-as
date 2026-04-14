@@ -2016,6 +2016,11 @@ export async function POST(request: NextRequest) {
                   }
                   scrData.tipoPessoa = "PJ";
                 }
+                // Persiste o slot original do upload como hint determinístico para
+                // a hidratação decidir atual/anterior quando periodoReferencia falhar.
+                if (slot) {
+                  (scrData as SCRData & { _slotHint?: string })._slotHint = slot;
+                }
                 console.log(`[extract][scr] slot=${slot || "nenhum"} periodoRef="${scrData.periodoReferencia || "VAZIO"}" tipoPessoa="${scrData.tipoPessoa || "VAZIO"}" cnpjSCR="${scrData.cnpjSCR || ""}" cpfSCR="${scrData.cpfSCR || ""}" totalDividas="${scrData.totalDividasAtivas || "0"}"`);
                 if (!scrData.periodoReferencia) {
                   console.warn(`[extract][scr] SEM periodoReferencia — ordenacao atual/anterior vai falhar`);
