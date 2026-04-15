@@ -92,10 +92,23 @@ export function hydrateFromCollection(docs: { type: string; extracted_data: Reco
     balanco: "balanco",
     ir_socio: "irSocios",
     relatorio_visita: "relatorioVisita",
+    ccf: "ccf",
   };
 
   for (const doc of docs) {
     if (doc.type === "scr_bacen") continue;
+
+    // bureau_meta guarda score + bureausConsultados no mesmo documento
+    if (doc.type === "bureau_meta" && doc.extracted_data) {
+      const { score, bureausConsultados } = doc.extracted_data as {
+        score?: ExtractedData["score"];
+        bureausConsultados?: string[];
+      };
+      if (score) result.score = score;
+      if (bureausConsultados && bureausConsultados.length > 0) result.bureausConsultados = bureausConsultados;
+      continue;
+    }
+
     const field = typeMap[doc.type];
     if (!field || !doc.extracted_data) continue;
     const { _editedManually, ...data } = doc.extracted_data;

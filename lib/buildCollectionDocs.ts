@@ -91,5 +91,16 @@ export function buildCollectionDocs(data: ExtractedData): CollectionDocument[] {
   if (data.relatorioVisita && (data.relatorioVisita.dataVisita || data.relatorioVisita.responsavelVisita || data.relatorioVisita.descricaoEstrutura || data.relatorioVisita.observacoesLivres)) {
     docs.push({ type: "relatorio_visita" as CollectionDocument["type"], filename: "relatorio-visita.pdf", extracted_data: asRec(data.relatorioVisita), uploaded_at: ts() });
   }
+  if (data.ccf && (data.ccf.qtdRegistros > 0 || (data.ccf.bancos && data.ccf.bancos.length > 0))) {
+    docs.push({ type: "ccf" as CollectionDocument["type"], filename: "ccf.pdf", extracted_data: asRec(data.ccf), uploaded_at: ts() });
+  }
+  if (data.score || (data.bureausConsultados && data.bureausConsultados.length > 0)) {
+    docs.push({
+      type: "bureau_meta" as CollectionDocument["type"],
+      filename: "bureau-meta.json",
+      extracted_data: asRec({ score: data.score ?? null, bureausConsultados: data.bureausConsultados ?? [] }),
+      uploaded_at: ts(),
+    });
+  }
   return docs;
 }
