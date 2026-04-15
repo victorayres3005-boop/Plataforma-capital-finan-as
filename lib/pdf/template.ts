@@ -409,7 +409,7 @@ function pageCapa(params: PDFReportParams, date: string): string {
   <div style="padding:20px 48px 28px;display:flex;justify-content:space-between;align-items:flex-end;border-top:1px solid rgba(255,255,255,0.08)">
     <div>
       <div style="font-size:10px;color:rgba(255,255,255,0.25);text-transform:uppercase;letter-spacing:0.1em">Data de emissão</div>
-      <div style="font-size:12px;color:rgba(255,255,255,0.55);margin-top:2px">${esc(dateExt)}</div>
+      <div style="font-size:12px;color:rgba(255,255,255,0.55);margin-top:2px">${esc(dateExt || date)}</div>
     </div>
     <div style="text-align:right">
       <div style="font-size:10px;color:rgba(255,255,255,0.25);text-transform:uppercase;letter-spacing:0.1em">Cód. verificação</div>
