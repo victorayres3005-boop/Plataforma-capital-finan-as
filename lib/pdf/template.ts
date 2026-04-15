@@ -1,2128 +1,1204 @@
 import type { PDFReportParams } from "@/lib/generators/pdf";
-import type { FundCriterion, ProcessoItem, FaturamentoMensal } from "@/types";
+import type { FundCriterion } from "@/types";
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function esc(s: string | null | undefined): string {
   if (!s) return "";
   return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
 function fmt(v: string | number | null | undefined): string {
-  if (v == null || v === "") return "\u2014";
+  if (v == null || v === "") return "—";
   return esc(String(v));
 }
+function numVal(v: string | number | null | undefined): number {
+  if (v == null || v === "") return 0;
+  const n = parseFloat(String(v).replace(/[^\d.,-]/g,"").replace(",","."));
+  return isNaN(n) ? 0 : n;
+}
 function fmtMoney(v: string | number | null | undefined): string {
-  if (v == null || v === "") return "\u2014";
-  const n = parseFloat(String(v).replace(/[^\d,-]/g,"").replace(",","."));
+  if (v == null || v === "") return "—";
+  const n = numVal(v);
   if (isNaN(n)) return esc(String(v));
   return "R$\u00a0" + n.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
 }
-function fmtMoneyRound(v: string | number | null | undefined): string {
-  if (v == null || v === "") return "\u2014";
-  const n = parseFloat(String(v).replace(/[^\d,-]/g,"").replace(",","."));
+function fmtMoneyAbr(v: string | number | null | undefined): string {
+  if (v == null || v === "") return "—";
+  const n = numVal(v);
   if (isNaN(n)) return esc(String(v));
-  if (Math.abs(n) >= 1_000_000) return "R$\u00a0" + (n / 1_000_000).toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:1}) + "M";
-  if (Math.abs(n) >= 1_000) return "R$\u00a0" + (n / 1_000).toLocaleString("pt-BR",{minimumFractionDigits:0,maximumFractionDigits:0}) + "k";
+  if (Math.abs(n) >= 1_000_000) return "R$\u00a0" + (n/1_000_000).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+"M";
+  if (Math.abs(n) >= 1_000) return "R$\u00a0" + (n/1_000).toLocaleString("pt-BR",{minimumFractionDigits:0,maximumFractionDigits:0})+"k";
   return "R$\u00a0" + Math.round(n).toLocaleString("pt-BR");
 }
 function fmtPct(v: string | number | null | undefined): string {
-  if (v == null || v === "") return "\u2014";
+  if (v == null || v === "") return "—";
   const s = String(v).trim();
-  if (s.includes("%")) return esc(s);
-  const n = parseFloat(s.replace(/[^\d,.-]/g,"").replace(",","."));
+  if (s.endsWith("%")) return esc(s);
+  const n = parseFloat(s.replace(",","."));
   if (isNaN(n)) return esc(s);
-  return n.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:2}) + "%";
+  return n.toLocaleString("pt-BR",{minimumFractionDigits:1,maximumFractionDigits:1})+"%";
 }
-function fmtCnpj(raw: string | null | undefined): string {
-  if (!raw) return "\u2014";
-  const d = raw.replace(/\D/g,"");
-  return d.length===14 ? d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/,"$1.$2.$3/$4-$5") : raw;
+function fmtCnpj(v: string | null | undefined): string {
+  if (!v) return "—";
+  const d = v.replace(/\D/g,"");
+  if (d.length !== 14) return esc(v);
+  return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`;
 }
-function fmtCpf(raw: string | null | undefined): string {
-  if (!raw) return "\u2014";
-  const d = raw.replace(/\D/g,"");
-  return d.length===11 ? d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/,"$1.$2.$3-$4") : raw;
+function fmtCpf(v: string | null | undefined): string {
+  if (!v) return "—";
+  const d = v.replace(/\D/g,"");
+  if (d.length !== 11) return esc(v);
+  return `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9)}`;
 }
-function numVal(v: string | number | null | undefined): number {
-  if (v == null) return 0;
-  if (typeof v === "number") return isNaN(v) ? 0 : v;
-  // Preserve sign
-  const rawStr = String(v).trim();
-  const isNegative = rawStr.startsWith("-") || rawStr.includes("(");
-  const cleaned = rawStr.replace(/[^\d.,\-]/g, "").replace(/^-/, "");
-  if (!cleaned) return 0;
-  const hasComma = cleaned.includes(",");
-  const hasDot = cleaned.includes(".");
-  let num: number;
-  if (hasComma && hasDot) {
-    // Ambos separadores: o último é o decimal
-    const lastComma = cleaned.lastIndexOf(",");
-    const lastDot = cleaned.lastIndexOf(".");
-    if (lastComma > lastDot) {
-      // BR: 1.234.567,89
-      num = parseFloat(cleaned.replace(/\./g, "").replace(",", "."));
-    } else {
-      // US: 1,234,567.89
-      num = parseFloat(cleaned.replace(/,/g, ""));
-    }
-  } else if (hasComma) {
-    const parts = cleaned.split(",");
-    if (parts.length === 2 && parts[1].length <= 2) {
-      // BR decimal: 123456,78
-      num = parseFloat(cleaned.replace(",", "."));
-    } else {
-      // US thousands: 1,234,567
-      num = parseFloat(cleaned.replace(/,/g, ""));
-    }
-  } else if (hasDot) {
-    const parts = cleaned.split(".");
-    if (parts.length === 2 && parts[1].length <= 2) {
-      // Decimal: 123.45
-      num = parseFloat(cleaned);
-    } else {
-      // BR thousands: 1.234.567 (sem decimal)
-      num = parseFloat(cleaned.replace(/\./g, ""));
-    }
-  } else {
-    // Sem separador: 35061582 - pode ser valor completo
-    num = parseFloat(cleaned);
-  }
-  if (isNaN(num) || !isFinite(num)) return 0;
-  // Sanity check: valor individual maior que R$ 100 bilhões é absurdo
-  // Provavelmente erro de parsing - zera pra não poluir a soma
-  if (Math.abs(num) > 100_000_000_000) return 0;
-  return isNegative ? -Math.abs(num) : num;
-}
-function fmtCompact(v: number): string {
-  if (v >= 1000000) return (v / 1000000).toFixed(1).replace(".", ",") + "M";
-  if (v >= 1000) return Math.round(v / 1000) + "k";
-  return String(Math.round(v));
+function fmtDate(v: string | null | undefined): string {
+  if (!v) return "—";
+  const m = v.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  return esc(v);
 }
 
-function decisaoBadge(decisao: string, big = false): string {
-  const map: Record<string,{bg:string;color:string;border:string;label:string;icon:string}> = {
-    APROVADO:              {bg:"rgba(34,197,94,.15)",color:"#4ade80",border:"rgba(34,197,94,.3)",label:"APROVADO",icon:"\u2713"},
-    APROVACAO_CONDICIONAL: {bg:"rgba(245,158,11,.12)",color:"#fbbf24",border:"rgba(245,158,11,.3)",label:"CONDICIONAL",icon:"\u26A0"},
-    PENDENTE:              {bg:"rgba(245,158,11,.12)",color:"#fbbf24",border:"rgba(245,158,11,.3)",label:"PENDENTE",icon:"\u23F3"},
-    REPROVADO:             {bg:"rgba(239,68,68,.15)",color:"#fca5a5",border:"rgba(239,68,68,.3)",label:"REPROVADO",icon:"\u2717"},
-  };
-  const d = map[decisao] ?? {bg:"rgba(255,255,255,.08)",color:"rgba(255,255,255,.6)",border:"rgba(255,255,255,.15)",label:esc(decisao),icon:""};
-  if (big) return `<div style="display:inline-flex;align-items:center;gap:10px;padding:12px 32px;border-radius:12px;background:${d.bg};border:2px solid ${d.border}">
-    <span style="font-size:20px">${d.icon}</span>
-    <span style="font-weight:900;font-size:16px;color:${d.color};letter-spacing:.1em">${d.label}</span>
-  </div>`;
-  return `<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:99px;background:${d.bg};color:${d.color};font-weight:700;font-size:9px;letter-spacing:.05em;text-transform:uppercase;border:1px solid ${d.border}">${d.icon?`<span style="font-size:10px">${d.icon}</span>`:""}${d.label}</span>`;
+// ─── Score helpers ─────────────────────────────────────────────────────────────
+function scoreColor(score: number): string {
+  if (score >= 7) return "var(--g6)";
+  if (score >= 4) return "var(--a5)";
+  return "var(--r6)";
+}
+function scoreBorder(score: number): string {
+  if (score >= 7) return "var(--g6)";
+  if (score >= 4) return "var(--a5)";
+  return "var(--r6)";
+}
+function decisionBg(decision: string): string {
+  const d = decision.toUpperCase();
+  if (d.includes("APROVADO") && !d.includes("COND")) return "var(--g6)";
+  if (d.includes("COND")) return "var(--a5)";
+  return "var(--r6)";
 }
 
-/** Inline status badge for tables */
-function statusBadge(text: string, type: "ok"|"fail"|"warn"|"info"): string {
-  const cfg = {
-    ok:   {bg:"#dcfce7",color:"#166534",brd:"#bbf7d0",icon:"\u2713"},
-    fail: {bg:"#fee2e2",color:"#991b1b",brd:"#fecaca",icon:"\u2717"},
-    warn: {bg:"#fef3c7",color:"#92400e",brd:"#fde68a",icon:"\u26A0"},
-    info: {bg:"#dbeafe",color:"#1d4ed8",brd:"#bfdbfe",icon:"\u24D8"},
-  }[type];
-  return `<span style="display:inline-flex;align-items:center;gap:3px;padding:3px 10px;border-radius:99px;background:${cfg.bg};color:${cfg.color};font-size:9px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border:1px solid ${cfg.brd}"><span style="font-size:9px">${cfg.icon}</span> ${esc(text)}</span>`;
+// ─── Page header wrapper ───────────────────────────────────────────────────────
+function page(content: string, pageNum: number, date: string): string {
+  return `
+<div class="page">
+  <div class="hdr">
+    <div><div class="logo">capital<span>finanças</span></div><div class="meta">CONSOLIDADOR DE DOCUMENTOS</div></div>
+    <div style="display:flex;align-items:center"><div class="meta">Relatório de Due Diligence · ${date}</div><div class="pg">${pageNum}</div></div>
+  </div>
+  <div class="ct">${content}</div>
+</div>`;
 }
 
-function kpi(label: string, value: string, color="#111827", sub?: string, borderColor?: string): string {
-  const bdr = borderColor || (color==="#dc2626" ? "#DC2626" : color==="#16a34a" ? "#73B815" : "#203B88");
-  return `<div style="background:linear-gradient(135deg,#ffffff 0%,#f8faff 100%);border:1px solid #e0e4ec;border-left:4px solid ${bdr};border-radius:8px;padding:14px 16px;min-width:0;box-shadow:0 2px 8px rgba(32,59,136,.06)">
-    <div style="display:inline-block;padding:2px 8px;border-radius:99px;background:#edf2fb;font-size:8px;color:#6b7280;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;font-family:'Open Sans',Arial,sans-serif">${label}</div>
-    <div style="font-size:18px;font-weight:900;color:${color};line-height:1.15;word-break:break-all;font-variant-numeric:tabular-nums">${value}</div>
-    ${sub?`<div style="font-size:9px;color:#9ca3af;margin-top:4px">${sub}</div>`:""}
-  </div>`;
-}
-
-/** Placeholder KPI for empty grid cells */
-function kpiPlaceholder(): string {
-  return `<div style="background:#f8f9fb;border:1px dashed #e0e4ec;border-radius:8px;padding:14px 16px;min-width:0;display:flex;align-items:center;justify-content:center">
-    <span style="color:#d1d5db;font-size:14px">\u2014</span>
-  </div>`;
-}
-
-function secHdr(num: string, title: string): string {
-  return `<div style="margin-bottom:18px;page-break-inside:avoid">
-    <div style="display:flex;align-items:center;background:#203B88;padding:12px 16px;gap:12px">
-      <span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;background:#ffffff;color:#203B88;font-size:12px;font-weight:900;border-radius:50%;flex-shrink:0;box-shadow:0 2px 6px rgba(0,0,0,.15)">${num}</span>
-      <span style="font-family:'Open Sans',Arial,sans-serif;font-size:14px;font-weight:800;color:#ffffff;text-transform:uppercase;letter-spacing:.08em">${esc(title)}</span>
-    </div>
-    <div style="height:3px;background:#73B815"></div>
-  </div>`;
-}
-
-function row(cells: string[], head=false): string {
-  const tag=head?"th":"td";
-  return `<tr>${cells.map(c=>`<${tag}>${c}</${tag}>`).join("")}</tr>`;
-}
-
-function alertBox(msg: string, sev: "ALTA"|"MODERADA"|"INFO"): string {
-  const cfg={
-    ALTA:     {bg:"#fff1f2",brd:"#ef4444",c:"#991b1b",label:"RISCO ALTO",icon:"\u26A0\uFE0F"},
-    MODERADA: {bg:"#fffbeb",brd:"#f59e0b",c:"#92400e",label:"ATENCAO",icon:"\u26A1"},
-    INFO:     {bg:"#eff6ff",brd:"#3b82f6",c:"#1d4ed8",label:"INFORMACAO",icon:"\u24D8"},
-  }[sev];
-  return `<div style="display:flex;gap:12px;align-items:flex-start;background:${cfg.bg};border-left:5px solid ${cfg.brd};border-radius:0 8px 8px 0;padding:12px 16px;margin-bottom:10px;page-break-inside:avoid;box-shadow:0 1px 4px rgba(0,0,0,.04)">
-    <span style="font-size:18px;flex-shrink:0;line-height:1">${cfg.icon}</span>
-    <div><div style="font-size:8.5px;font-weight:800;color:${cfg.c};text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px">${cfg.label}</div>
-    <div style="font-size:11px;color:${cfg.c};line-height:1.55">${esc(msg)}</div></div>
-  </div>`;
-}
-
-function grid(cols: number, items: string[]): string {
-  const filled=items.filter(Boolean);
-  if(filled.length===0) return "";
-  return `<div style="display:grid;grid-template-columns:repeat(${cols},1fr);gap:12px;margin-bottom:16px">${items.map(i=>i||kpiPlaceholder()).join("")}</div>`;
-}
-
-function subTitle(t: string): string {
-  return `<div style="font-family:'Open Sans',Arial,sans-serif;font-size:12px;font-weight:700;color:#203B88;text-transform:uppercase;letter-spacing:.08em;border-bottom:2px solid #e5e7eb;padding-bottom:6px;margin:20px 0 12px">${esc(t)}</div>`;
-}
-
-function paraBox(text: string): string {
-  return `<div style="background:linear-gradient(135deg,#f8f9fb 0%,#edf2fb 100%);border-left:4px solid #203B88;border-radius:0 8px 8px 0;padding:16px 18px;font-size:12px;line-height:1.8;color:#374151;page-break-inside:avoid">${esc(text)}</div>`;
-}
-
-/** Data card for grid layouts instead of plain tables */
-function dataCard(label: string, value: string): string {
-  return `<div style="background:#fff;border:1px solid #e0e4ec;border-radius:8px;padding:12px 14px;page-break-inside:avoid">
-    <div style="font-size:8px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">${esc(label)}</div>
-    <div style="font-size:12px;font-weight:600;color:#111827;line-height:1.4;word-break:break-word">${value}</div>
-  </div>`;
-}
-
-/** Translate legal status to simpler Portuguese */
-function translateProcessoStatus(status: string | undefined): string {
-  if (!status) return "\u2014";
-  const upper = status.toUpperCase().trim();
-  const map: Record<string,string> = {
-    "DISTRIBUIDO": "Em Andamento",
-    "ARQUIVADO": "Arquivado",
-    "JULGADO": "Julgado",
-    "EM GRAU DE RECURSO": "Em Recurso",
-    "TRANSITADO EM JULGADO": "Transitado",
-  };
-  if (map[upper]) return map[upper];
-  // Capitalize properly
-  return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
-}
-
-// ─── SVG Brand Logo ──────────────────────────────────────────────────────────
-const COVER_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="120" height="120"><defs><filter id="glow"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><rect width="64" height="64" rx="14" fill="rgba(255,255,255,0.1)" filter="url(#glow)"/><circle cx="32" cy="28" r="14" stroke="#ffffff" stroke-width="3.5" fill="none"/><circle cx="32" cy="44" r="3.2" fill="#73b815"/></svg>`;
-const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64"><rect width="64" height="64" rx="14" fill="#203b88"/><circle cx="32" cy="28" r="14" stroke="#ffffff" stroke-width="3.5" fill="none"/><circle cx="32" cy="44" r="3.2" fill="#73b815"/></svg>`;
-const LOGO_DATA_URI = `data:image/svg+xml;base64,${typeof Buffer !== "undefined" ? Buffer.from(LOGO_SVG).toString("base64") : ""}`;
-void LOGO_DATA_URI; // used in header template
-
-// ─── SVG Rating Gauge ─────────────────────────────────────────────────────────
-function ratingGauge(rating: number, size: "large"|"small" = "large"): string {
-  const w = size === "large" ? 200 : 180;
-  const h = size === "large" ? 110 : 90;
-  const cx = w/2, cy = h - 18, R = size === "large" ? 76 : 68;
-  const color=rating>=7?"#22c55e":rating>=4?"#f59e0b":"#ef4444";
-  const angle=Math.PI*(1-rating/10);
-  const ex=cx+R*Math.cos(angle),ey=cy-R*Math.sin(angle);
-  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="overflow:visible">
-    <path d="M ${cx-R},${cy} A ${R},${R} 0 0 1 ${cx+R},${cy}" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="12" stroke-linecap="round"/>
-    ${rating>0?`<path d="M ${cx-R},${cy} A ${R},${R} 0 0 1 ${ex.toFixed(1)},${ey.toFixed(1)}" fill="none" stroke="${color}" stroke-width="12" stroke-linecap="round"/>`:""}
-    <circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="8" fill="${color}" stroke="#fff" stroke-width="2.5" filter="drop-shadow(0 2px 4px rgba(0,0,0,.3))"/>
-    <text x="${cx}" y="${cy-18}" text-anchor="middle" font-family="'Open Sans',Arial,sans-serif" font-size="40" font-weight="900" fill="${color}">${rating}</text>
-    <text x="${cx}" y="${cy}" text-anchor="middle" font-family="'Open Sans',Arial,sans-serif" font-size="12" fill="rgba(255,255,255,.35)">/ 10</text>
-  </svg>`;
-}
-
-// ─── Faturamento Bar Chart ──────────────────────────────────────────────────
-function faturamentoChart(meses: FaturamentoMensal[], fmmRef?: number): string {
-  if(!meses||meses.length===0) return "";
-  const values=meses.map(m=>numVal(m.valor));
-  const max=Math.max(...values, fmmRef||0, 1);
-  const n=meses.length, H=140, gap=4, padTop=22, padBot=20;
-  const W = Math.max(640, n * 40);
-  const bw=Math.floor((W-(n-1)*gap)/n);
-  const totalH = H + padTop + padBot;
-
-  const bars=meses.map((m,i)=>{
-    const v=values[i];
-    const bh=Math.max(3,Math.floor((v/max)*H));
-    const x=i*(bw+gap);
-    const y=padTop+H-bh;
-    const intensity = v === 0 ? 0 : Math.max(0.35, v / max);
-    const clr = v === 0 ? "#e5e7eb" : `rgba(32,59,136,${intensity.toFixed(2)})`;
-    const label = v > 0 ? fmtCompact(v) : "";
-    const mesLabel = esc(m.mes || "");
-    return `<rect x="${x}" y="${y}" width="${bw}" height="${bh}" rx="4" fill="${clr}"/>
-${label ? `<text x="${x+bw/2}" y="${y-5}" text-anchor="middle" font-size="8" font-weight="700" fill="#203B88" font-family="'Open Sans',Arial">${label}</text>` : ""}
-<text x="${x+bw/2}" y="${padTop+H+14}" text-anchor="middle" font-size="7.5" fill="#6b7280" font-family="'Open Sans',Arial">${mesLabel}</text>`;
-  }).join("");
-
-  const fmmLine = fmmRef && fmmRef > 0 ? (() => {
-    const fmmY = padTop + H - Math.floor((fmmRef / max) * H);
-    return `<line x1="0" y1="${fmmY}" x2="${W}" y2="${fmmY}" stroke="#73B815" stroke-width="1.5" stroke-dasharray="6,3"/>
-<text x="${W-2}" y="${fmmY-4}" text-anchor="end" font-size="8" fill="#73B815" font-weight="700" font-family="'Open Sans',Arial">FMM ${fmtCompact(fmmRef)}</text>`;
-  })() : "";
-
-  return `<div style="margin-bottom:16px;padding:12px 14px;background:linear-gradient(135deg,#f8f9fb 0%,#edf2fb 100%);border-radius:10px;border:1px solid #e0e4ec">
-    <div style="font-size:9px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Faturamento Mensal</div>
-    <svg width="100%" height="${totalH}" viewBox="0 0 ${W} ${totalH}" preserveAspectRatio="xMidYMid meet">${bars}${fmmLine}</svg>
-  </div>`;
-}
-
-function sortMeses(meses: FaturamentoMensal[]): FaturamentoMensal[] {
-  return [...meses].sort((a,b)=>{
-    const dk = (s:string)=>{
-      const parts=s.split("/"); if(parts.length!==2) return 0;
-      const mm:Record<string,number>={jan:1,fev:2,mar:3,abr:4,mai:5,jun:6,jul:7,ago:8,set:9,out:10,nov:11,dez:12};
-      const month=isNaN(Number(parts[0]))?(mm[parts[0].toLowerCase()]||0):Number(parts[0]);
-      const year=Number(parts[1])<100?Number(parts[1])+2000:Number(parts[1]);
-      return year*100+month;
-    };
-    return dk(a.mes)-dk(b.mes);
-  });
-}
-
-/** Compute FMM from meses[] — sempre recalcula do array (nunca confia em fmm12m gravado, que pode estar com escala errada). */
-function computeFmm(faturamento: { fmm12m?: string | number; mediaAno?: string | number; meses?: FaturamentoMensal[] } | undefined): number {
-  if (!faturamento) return 0;
-  // Filtra meses válidos com valor numérico positivo (descarta zerados pra não puxar média pra baixo)
-  const valid = sortMeses(faturamento.meses || []).filter(m => {
-    if (!m?.mes || !m?.valor) return false;
+// ─── Bar chart ────────────────────────────────────────────────────────────────
+function buildBars(meses: {mes:string;valor:string}[]): string {
+  const vals = meses.map(m => numVal(m.valor));
+  const max = Math.max(...vals, 1);
+  return meses.map(m => {
     const v = numVal(m.valor);
-    return isFinite(v) && v > 0;
-  });
-  const last12 = valid.slice(-12);
-  if (last12.length > 0) {
-    const sum = last12.reduce((s, m) => s + numVal(m.valor), 0);
-    // Divide pela QTD REAL de meses com valor (não fixo em 12) — evita subestimar quando faltam meses
-    return sum / last12.length;
-  }
-  // Sem série mensal: cai pra valores pré-calculados (último recurso)
-  if (faturamento.fmm12m) return numVal(faturamento.fmm12m);
-  if (faturamento.mediaAno) return numVal(faturamento.mediaAno);
-  return 0;
+    const pct = Math.round((v/max)*100);
+    const lbl = fmtMoneyAbr(v).replace("R$\u00a0","");
+    return `<div class="bar-col"><div class="bar nv" style="height:${pct}%"><div class="bar-v">${lbl}</div></div><div class="bar-l">${esc(m.mes.slice(0,3))}</div></div>`;
+  }).join("");
 }
 
-function delta(cur:string|undefined,ant:string|undefined):string{
-  const c=numVal(cur),a=numVal(ant);
-  if(a===0||c===0) return "";
-  const d=c-a,pct=Math.round((d/a)*100),up=d>0;
-  const color=up?"#dc2626":"#16a34a";
-  const barW=Math.min(Math.abs(pct),100);
-  return `<span style="font-size:13px;font-weight:900;color:${color};margin-left:6px">${up?"\u25B2":"\u25BC"} ${Math.abs(pct)}%</span><span style="display:inline-block;width:${barW}px;height:6px;background:${color};border-radius:3px;margin-left:6px;vertical-align:middle"></span>`;
+// ─── Stitle ───────────────────────────────────────────────────────────────────
+function stitle(label: string): string {
+  return `<div class="stitle">${esc(label)} <div class="line"></div></div>`;
 }
-
-const TS = "width:100%;border-collapse:separate;border-spacing:0;font-size:11px;margin-bottom:16px;page-break-inside:avoid;border-radius:8px;overflow:hidden;border:1px solid #e0e4ec";
 
 // ─── CSS ──────────────────────────────────────────────────────────────────────
 const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700;800&display=swap');
-:root{--navy:#203B88;--green:#73B815;--bg-light:#edf2fb;--bg-card:#f8f9fb;--border:#e0e4ec;--text:#111827;--text-muted:#6b7280}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Open Sans','Helvetica Neue',Arial,sans-serif;font-size:12px;color:var(--text);background:#fff;line-height:1.55;-webkit-print-color-adjust:exact;print-color-adjust:exact;border-top:3px solid #73B815}
-table{width:100%;border-collapse:separate;border-spacing:0;font-size:11px;margin-bottom:16px;border-radius:8px;overflow:hidden}
-th{background:linear-gradient(135deg,#203B88 0%,#2a4da6 100%);color:#fff;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:10px 12px;text-align:left;border-bottom:3px solid #73B815}
-th:first-child{border-radius:8px 0 0 0}
-th:last-child{border-radius:0 8px 0 0}
-td{padding:10px 12px;border-bottom:1px solid #eef0f4;vertical-align:top;font-size:11px;font-variant-numeric:tabular-nums}
-tr:nth-child(even) td{background:#f0f4ff}
-tr:nth-child(odd) td{background:#fff}
-table{page-break-inside:avoid}
-.sec{margin-top:30px}
-.sec:nth-child(even){background:#f8f9fb;margin-left:-20px;margin-right:-20px;padding:20px 20px 4px;border-radius:10px}
-.avoid{page-break-inside:avoid}
-.badge{display:inline-flex;align-items:center;gap:3px;padding:3px 10px;border-radius:99px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
-.ok{background:#dcfce7;color:#166534;border:1px solid #bbf7d0}
-.fail{background:#fee2e2;color:#991b1b;border:1px solid #fecaca}
-.warn{background:#fef3c7;color:#92400e;border:1px solid #fde68a}
-.info{background:#dbeafe;color:#1d4ed8;border:1px solid #bfdbfe}
-.money{text-align:right;font-variant-numeric:tabular-nums}
-.neg{color:#dc2626;font-weight:700}
-.score-row-ok td{background:rgba(34,197,94,.06) !important}
-.score-row-fail td{background:rgba(239,68,68,.06) !important}
-.score-row-warn td{background:rgba(245,158,11,.06) !important}
-@media print{@page{margin:28mm 16mm 22mm}body::after{content:"Capital Financas · Confidencial";position:fixed;bottom:5mm;left:14mm;font-size:8px;color:#9ca3af}}
-`;
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+@page{size:A4;margin:14mm 16mm}
+@media print{
+  body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+  .page{page-break-after:always}
+  .avoid-break{page-break-inside:avoid}
+}
+:root{--n9:#0c1b3a;--n8:#132952;--n7:#1a3a6b;--n1:#dce6f5;--n0:#eef3fb;--a5:#d4940a;--a1:#fdf3d7;--a0:#fef9ec;--r6:#c53030;--r1:#fee2e2;--r0:#fef2f2;--g6:#16653a;--g1:#d1fae5;--g0:#ecfdf5;--x9:#111827;--x7:#374151;--x5:#6b7280;--x4:#9ca3af;--x3:#d1d5db;--x2:#e5e7eb;--x1:#f3f4f6;--x0:#f9fafb;--gl:#73b815}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'DM Sans',sans-serif;background:#edf0f4;color:var(--x9);-webkit-font-smoothing:antialiased}
+.mono{font-family:'JetBrains Mono',monospace}
+.page{max-width:860px;margin:20px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 4px 24px rgba(12,27,58,0.07)}
+.hdr{background:var(--n8);padding:14px 32px;display:flex;justify-content:space-between;align-items:center}
+.hdr .logo{font-size:15px;font-weight:700;color:#fff}
+.hdr .logo span{color:var(--gl)}
+.hdr .meta{font-size:10px;color:rgba(255,255,255,0.5)}
+.hdr .pg{background:var(--gl);color:#fff;font-size:11px;font-weight:700;padding:3px 11px;border-radius:10px;margin-left:12px}
+.ct{padding:28px 32px 40px}
+.stitle{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--x5);margin:24px 0 10px;display:flex;align-items:center;gap:8px}
+.stitle:first-child{margin-top:0}
+.stitle .line{flex:1;height:1px;background:var(--x2)}
+.emp{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:20px;border-bottom:1px solid var(--x2);margin-bottom:20px}
+.emp-name{font-size:18px;font-weight:700;color:var(--n9);margin-bottom:3px}
+.emp-fan{font-size:11px;color:var(--x5);margin-bottom:6px}
+.emp-cnpj{font-size:12px;color:var(--x5)}
+.emp-cnpj b{color:var(--x7);font-family:'JetBrains Mono',monospace}
+.sit{display:inline-block;padding:2px 10px;border-radius:4px;font-size:10px;font-weight:600;background:var(--g1);color:var(--g6);margin-left:8px}
+.sit.inactive{background:var(--r1);color:var(--r6)}
+.rat{text-align:center;min-width:110px}
+.rat-c{width:72px;height:72px;border-radius:50%;border:3px solid var(--r6);display:flex;flex-direction:column;align-items:center;justify-content:center;margin:0 auto 6px}
+.rat-n{font-size:26px;font-weight:700;line-height:1}
+.rat-d{font-size:10px;color:var(--x4)}
+.rat-l{font-size:10px;font-weight:700}
+.dec{display:inline-block;padding:4px 14px;border-radius:4px;font-size:10px;font-weight:700;text-transform:uppercase;background:var(--r6);color:#fff;margin-top:4px}
+.istrip{display:grid;gap:8px;margin-bottom:18px}
+.istrip.c2{grid-template-columns:1fr 1fr}
+.istrip.c3{grid-template-columns:1fr 1fr 1fr}
+.istrip.c4{grid-template-columns:1fr 1fr 1fr 1fr}
+.istrip.c5{grid-template-columns:1fr 1fr 1fr 1fr 1fr}
+.istrip.c6{grid-template-columns:repeat(6,1fr)}
+.icell{padding:10px 12px;background:var(--x0);border-radius:6px;border:1px solid var(--x1)}
+.icell.danger{background:var(--r0);border-color:var(--r1)}
+.icell.success{background:var(--g0);border-color:var(--g1)}
+.icell.warn{background:var(--a0);border-color:var(--a1)}
+.icell.navy{background:var(--n0);border-color:var(--n1)}
+.icell .l{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--x4);margin-bottom:4px}
+.icell .v{font-size:14px;font-weight:700;color:var(--n9)}
+.icell .v.sm{font-size:11px}
+.icell .v.red{color:var(--r6)}
+.icell .v.green{color:var(--g6)}
+.icell .v.muted{color:var(--x4)}
+.icell .sub{font-size:9px;color:var(--x5);margin-top:2px}
+.seg{padding:12px 16px;background:var(--n0);border-radius:6px;border:1px solid var(--n1);margin-bottom:18px;font-size:12px;color:var(--n7)}
+.seg b{color:var(--n9)}
+.seg .sec{font-size:10px;color:var(--x5);margin-top:4px}
+.map-row{display:grid;grid-template-columns:3fr 2fr;gap:14px;margin-bottom:18px}
+.map-frame{border-radius:8px;overflow:hidden;border:1px solid var(--x2);height:220px;position:relative;background:var(--x1)}
+.map-frame img{width:100%;height:100%;object-fit:cover}
+.addr-box{padding:16px;background:var(--x0);border-radius:8px;border:1px solid var(--x1);display:flex;flex-direction:column;justify-content:center}
+.addr-box .l{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--x4);margin-bottom:8px}
+.addr-box .a{font-size:13px;color:var(--x7);line-height:1.6}
+.addr-box .t{font-size:10px;color:var(--x5);margin-top:auto;padding-top:10px}
+.soc-tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12px;border:1px solid var(--x2);border-radius:8px;overflow:hidden;margin-bottom:6px}
+.soc-tbl thead th{background:var(--n9);color:rgba(255,255,255,0.85);font-size:9px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;padding:10px 14px;text-align:left}
+.soc-tbl tbody td{padding:10px 14px;border-bottom:1px solid var(--x1);color:var(--x7)}
+.soc-tbl tbody tr:last-child td{border-bottom:none}
+.soc-extra{font-size:11px;color:var(--x5);margin-bottom:18px}
+.soc-extra b{color:var(--x9)}
+.risk-section{background:var(--x0);border-radius:10px;border:1px solid var(--x2);padding:20px;margin-bottom:18px}
+.risk-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.risk-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--x5)}
+.risk-score{font-size:10px;font-weight:600;padding:3px 10px;border-radius:4px;background:var(--r1);color:var(--r6)}
+.risk-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.risk-block{background:#fff;border-radius:8px;border:1px solid var(--x2);overflow:hidden}
+.risk-block-hdr{padding:10px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--x1)}
+.risk-block-hdr .title{font-size:12px;font-weight:700;color:var(--n9)}
+.risk-block-hdr .big{font-size:22px;font-weight:700}
+.risk-block-hdr .big.red{color:var(--r6)}
+.risk-block-hdr .big.green{color:var(--g6)}
+.risk-block-body{padding:12px 14px}
+.risk-detail{font-size:11px;color:var(--x7);padding:4px 0;display:flex;justify-content:space-between}
+.risk-detail .label{color:var(--x5)}
+.risk-detail .val{font-weight:600}
+.risk-detail .val.red{color:var(--r6)}
+.risk-sep{height:1px;background:var(--x1);margin:6px 0}
+.risk-tag{display:inline-block;font-size:8px;font-weight:700;text-transform:uppercase;padding:2px 6px;border-radius:3px;margin-right:4px}
+.risk-tag.exec{background:#e8d5f5;color:#6b21a8}
+.risk-tag.sust{background:var(--a1);color:var(--a5)}
+.risk-tag.np{background:var(--n1);color:var(--n7)}
+.risk-tag.banco{background:#dbeafe;color:#1d4ed8}
+.risk-tag.fidc{background:var(--g1);color:var(--g6)}
+.risk-item{font-size:10px;color:var(--x7);padding:5px 0;border-bottom:1px solid var(--x1);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.risk-item:last-child{border-bottom:none}
+.risk-item .date{color:var(--x4);font-size:9px;min-width:70px}
+.risk-item .desc{flex:1}
+.risk-item .amt{font-family:'JetBrains Mono',monospace;font-weight:500;font-size:10px}
+.risk-item .amt.red{color:var(--r6)}
+.scr-strip{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:10px}
+.scr-card{padding:8px 10px;background:#fff;border-radius:6px;border:1px solid var(--x2)}
+.scr-card .l{font-size:8px;font-weight:600;text-transform:uppercase;color:var(--x4);margin-bottom:3px}
+.scr-card .v{font-size:14px;font-weight:700;color:var(--n9)}
+.scr-card .v.green{color:var(--g6)}
+.alert{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:6px;font-size:11px;margin-bottom:6px}
+.alert.alta{background:var(--r0);border:1px solid var(--r1);color:var(--r6)}
+.alert.mod{background:var(--a0);border:1px solid var(--a1);color:var(--a5)}
+.alert.info{background:var(--n0);border:1px solid var(--n1);color:var(--n7)}
+.alert.ok{background:var(--g0);border:1px solid var(--g1);color:var(--g6)}
+.atag{font-size:8px;font-weight:700;text-transform:uppercase;padding:2px 6px;border-radius:3px;flex-shrink:0}
+.alert.alta .atag{background:var(--r1)}
+.alert.mod .atag{background:var(--a1)}
+.alert.info .atag{background:var(--n1)}
+.alert.ok .atag{background:var(--g1)}
+.fin-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px}
+.fin-box{background:var(--x0);border-radius:8px;border:1px solid var(--x1);padding:16px}
+.fin-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--x5);margin-bottom:12px}
+.chart{display:flex;align-items:flex-end;gap:5px;height:100px;margin-bottom:8px}
+.bar-col{flex:1;display:flex;flex-direction:column;align-items:center}
+.bar{width:100%;border-radius:3px 3px 0 0;min-height:2px;position:relative}
+.bar.navy,.bar.nv{background:var(--n8)}
+.bar.light,.bar.lt{background:var(--n1)}
+.bar-val,.bar-v{position:absolute;top:-14px;left:50%;transform:translateX(-50%);font-size:7px;color:var(--x5);white-space:nowrap;font-family:'JetBrains Mono',monospace}
+.bar-lbl,.bar-l{font-size:8px;color:var(--x4);margin-top:5px}
+.kpi-row{display:flex;gap:16px;font-size:11px;color:var(--x5);padding-top:8px;border-top:1px solid var(--x1);margin-top:8px}
+.kpi-row b{color:var(--n9)}
+.kpi-row .down{color:var(--r6);font-weight:600}
+.kpi-row .up{color:var(--g6);font-weight:600}
+.scr-tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:11px}
+.scr-tbl thead th{background:var(--n9);color:rgba(255,255,255,0.85);font-size:8px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;padding:8px 10px;text-align:left}
+.scr-tbl thead th:not(:first-child){text-align:right}
+.scr-tbl tbody td{padding:7px 10px;border-bottom:1px solid var(--x1);color:var(--x7)}
+.scr-tbl tbody td:not(:first-child){text-align:right;font-family:'JetBrains Mono',monospace;font-size:10px}
+.scr-tbl tbody tr:last-child td{border-bottom:none}
+.scr-tbl .total td{font-weight:700;background:var(--x0);color:var(--n9)}
+.scr-tbl .var-cell.down{color:var(--g6);font-weight:600}
+.scr-tbl .var-cell.up{color:var(--r6);font-weight:600}
+.scr-tbl .var-cell.neutral{color:var(--x4)}
+.ifs-note{font-size:9px;color:var(--x4);margin-top:6px}
+.abc-wrap{background:var(--x0);border-radius:10px;border:1px solid var(--x2);padding:16px;margin-bottom:18px}
+.abc-tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:11px;margin-bottom:8px}
+.abc-tbl thead th{background:var(--n9);color:rgba(255,255,255,0.85);font-size:8px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;padding:9px 12px;text-align:left}
+.abc-tbl thead th.r{text-align:right}
+.abc-tbl tbody td{padding:9px 12px;border-bottom:1px solid var(--x1)}
+.abc-tbl tbody td.r{text-align:right;font-family:'JetBrains Mono',monospace}
+.abc-tbl tbody td.bold{font-weight:600}
+.abc-tbl tbody tr:last-child td{border-bottom:none}
+.abc-rank{display:inline-flex;width:22px;height:22px;border-radius:50%;background:var(--n8);color:#fff;font-size:10px;font-weight:700;align-items:center;justify-content:center}
+.abc-cl{padding:2px 8px;border-radius:4px;font-size:9px;font-weight:700}
+.abc-cl.a{background:var(--r1);color:var(--r6)}
+.abc-cl.b{background:var(--a1);color:var(--a5)}
+.abc-cl.c{background:var(--x1);color:var(--x5)}
+.abc-bar{height:5px;border-radius:3px;background:var(--n8);display:block;margin-top:3px}
+.abc-summary{font-size:11px;color:var(--x5)}
+.abc-summary b{color:var(--x9)}
+.pleito-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:18px}
+.pl-card{padding:12px 14px;background:var(--n0);border-radius:6px;border:1px solid var(--n1)}
+.pl-card .l{font-size:8px;font-weight:700;text-transform:uppercase;color:var(--x4);margin-bottom:4px}
+.pl-card .v{font-size:14px;font-weight:700;color:var(--n9)}
+.ana-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:18px}
+.ana-col{border-radius:8px;padding:14px 16px}
+.ana-col.f{background:var(--g0);border:1px solid var(--g1)}
+.ana-col.w{background:var(--r0);border:1px solid var(--r1)}
+.ana-col.a{background:var(--a0);border:1px solid var(--a1)}
+.ana-col.n{background:var(--x0);border:1px solid var(--x1)}
+.ana-h{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid rgba(0,0,0,0.06)}
+.ana-col.f .ana-h{color:var(--g6)}
+.ana-col.w .ana-h{color:var(--r6)}
+.ana-col.a .ana-h{color:var(--a5)}
+.ana-col.n .ana-h{color:var(--x5)}
+.ana-item,.ana-i{font-size:11px;color:var(--x7);padding:3px 0;line-height:1.5}
+.ana-item::before{content:'•';margin-right:6px;font-weight:700}
+.ana-col.f .ana-item::before{color:var(--g6)}
+.ana-col.w .ana-item::before{color:var(--r6)}
+.ana-col.a .ana-item::before{color:var(--a5)}
+.perc{padding:16px 18px;background:var(--x0);border-radius:8px;border:1px solid var(--x2)}
+.perc p,.perc-text{font-size:12px;color:var(--x7);line-height:1.7}
+.perc-rec{display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid var(--x2);font-size:11px;color:var(--x5)}
+.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:11px;border:1px solid var(--x2);border-radius:8px;overflow:hidden;margin-bottom:10px}
+.tbl thead th{background:var(--n9);color:rgba(255,255,255,0.85);font-size:9px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;padding:10px 14px;text-align:left}
+.tbl thead th.r{text-align:right}
+.tbl tbody td{padding:10px 14px;border-bottom:1px solid var(--x1);color:var(--x7)}
+.tbl tbody td.r{text-align:right;font-family:'JetBrains Mono',monospace;font-size:10px}
+.tbl tbody td.b{font-weight:600;color:var(--x9)}
+.tbl tbody td.red{color:var(--r6);font-weight:600}
+.tbl tbody td.green{color:var(--g6);font-weight:600}
+.tbl tbody tr:last-child td{border-bottom:none}
+.tbl tbody tr:nth-child(even){background:var(--x0)}
+.tbl .total td{font-weight:700;background:var(--n0);color:var(--n9)}
+.pf-row{display:grid;grid-template-columns:28px 1fr 160px 160px;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--x1)}
+.pf-row:last-child{border-bottom:none}
+.pf-icon{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700}
+.pf-icon.pass{background:var(--g1);color:var(--g6)}
+.pf-icon.fail{background:var(--r1);color:var(--r6)}
+.pf-name{font-size:12px;color:var(--x9)}
+.pf-tag{display:inline-block;font-size:7px;font-weight:700;text-transform:uppercase;padding:2px 5px;border-radius:3px;background:var(--r1);color:var(--r6);margin-left:6px;vertical-align:middle}
+.pf-lim .lbl,.pf-val .lbl{font-size:7px;font-weight:600;text-transform:uppercase;color:var(--x4);margin-bottom:1px}
+.pf-val .v{font-weight:600}
+.pf-val .v.pass{color:var(--g6)}
+.pf-val .v.fail{color:var(--r6)}
+.pf-note{font-size:9px;color:var(--r6);margin-top:2px}
+.verdict{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-radius:8px;margin-top:14px}
+.verdict.fail{background:var(--r0);border:1px solid var(--r1)}
+.verdict.pass{background:var(--g0);border:1px solid var(--g1)}
+.verdict .vt{font-size:13px;font-weight:600;color:var(--x9)}
+.verdict .vs{font-size:10px;color:var(--x5);margin-top:2px}
+.verdict .vb{padding:5px 16px;border-radius:4px;font-size:10px;font-weight:700;text-transform:uppercase;color:#fff}
+.verdict.fail .vb{background:var(--r6)}
+.verdict.pass .vb{background:var(--g6)}
+.chart-box{background:var(--x0);border-radius:8px;border:1px solid var(--x1);padding:18px;margin-bottom:14px}
+.chart-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--x5);margin-bottom:14px}
+.bars{display:flex;align-items:flex-end;gap:5px;height:120px;margin-bottom:6px}
+.prop-row{display:flex;align-items:center;gap:10px;padding:6px 0}
+.prop-label{font-size:11px;width:200px;color:var(--x7)}
+.prop-fill{height:6px;border-radius:3px;background:var(--n8)}
+.prop-fill.red{background:var(--r6)}
+.prop-pct{font-size:10px;font-weight:600;color:var(--x5);min-width:60px}
+.avatar{width:36px;height:36px;border-radius:50%;background:var(--n0);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:var(--n8);flex-shrink:0}
+.inf{font-size:11px;color:var(--x5);margin-bottom:12px}
+.inf b{color:var(--x9)}
+.badge{display:inline-block;padding:3px 10px;border-radius:4px;font-size:10px;font-weight:700;text-transform:uppercase}
+.badge.red{background:var(--r6);color:#fff}
+.badge.green{background:var(--g6);color:#fff}
+.badge.amber{background:var(--a5);color:#fff}
+.pb{border-top:2px dashed var(--x3);margin:28px 0;position:relative}
+.pb::after{content:attr(data-label);position:absolute;top:-9px;left:50%;transform:translateX(-50%);background:#edf0f4;padding:0 12px;font-size:9px;color:var(--x4)}
+</style>`;
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 1: CAPA
-// ═══════════════════════════════════════════════════════════════════════════════
-function secCapa(p: PDFReportParams): string {
-  const c=p.data.cnpj;
-  const hoje=new Date();
-  const meses=["janeiro","fevereiro","marco","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
-  const dataFormatada=`${hoje.getDate()} de ${meses[hoje.getMonth()]} de ${hoje.getFullYear()}`;
-  return `<div style="page-break-after:always;min-height:260mm;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(ellipse at 50% 40%, #2a4da6 0%, #203B88 50%, #1a2f6b 100%);text-align:center;padding:40px;position:relative;overflow:hidden">
-
-  <!-- Subtle geometric pattern overlay -->
-  <div style="position:absolute;inset:0;opacity:0.04;background-image:radial-gradient(circle, #ffffff 1px, transparent 1px);background-size:24px 24px"></div>
-
-  <!-- Logo + Brand -->
-  <div style="margin-bottom:8px;position:relative;z-index:1">
-    ${COVER_LOGO_SVG}
+// ─── Page 1: Capa ─────────────────────────────────────────────────────────────
+function pageCapa(params: PDFReportParams, date: string): string {
+  const d = params.data;
+  const cnpj = d.cnpj;
+  const score = params.finalRating ?? 0;
+  const sc = scoreColor(score);
+  const sb = scoreBorder(score);
+  const decBg = decisionBg(params.decision ?? "");
+  const ratingLabel = score >= 7 ? "Baixo Risco" : score >= 4 ? "Risco Moderado" : "Alto Risco";
+  return `
+<div class="page" style="background:var(--n8);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:60px 40px;min-height:600px">
+  <div style="font-size:28px;font-weight:700;color:#fff">capital<span style="color:#73b815">finanças</span></div>
+  <div style="font-size:11px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.15em;margin-top:4px">Análise de Crédito</div>
+  <div style="width:60px;height:2px;background:#73b815;margin:28px auto"></div>
+  <div style="font-size:22px;font-weight:700;color:#fff;max-width:450px">${esc(cnpj?.razaoSocial ?? "—")}</div>
+  <div style="font-size:12px;font-family:'JetBrains Mono',monospace;color:rgba(255,255,255,0.5);margin-top:10px">CNPJ: ${fmtCnpj(cnpj?.cnpj)}</div>
+  <div style="margin-top:32px;display:flex;flex-direction:column;align-items:center">
+    <div style="width:88px;height:88px;border-radius:50%;border:3px solid ${sb};display:flex;flex-direction:column;align-items:center;justify-content:center;margin-bottom:10px">
+      <div style="font-size:32px;font-weight:700;color:${sc};line-height:1">${score.toFixed(1)}</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.4)">/10</div>
+    </div>
+    <div style="font-size:11px;font-weight:700;color:${sc};margin-bottom:8px">${esc(ratingLabel)}</div>
+    <div style="display:inline-block;padding:5px 18px;border-radius:4px;font-size:11px;font-weight:700;text-transform:uppercase;background:${decBg};color:#fff">${esc(params.decision ?? "—")}</div>
   </div>
-  <div style="font-family:'Open Sans',Arial,sans-serif;font-size:28px;font-weight:800;color:#fff;letter-spacing:.08em;line-height:1;position:relative;z-index:1">CAPITAL <span style="color:#73B815">FINANCAS</span></div>
-  <div style="font-size:10px;color:rgba(255,255,255,.4);margin-top:4px;letter-spacing:.12em;text-transform:uppercase;font-family:'Open Sans',Arial,sans-serif;font-weight:600;position:relative;z-index:1">Analise de Credito</div>
-
-  <!-- Divider -->
-  <div style="width:200px;height:1px;background:rgba(255,255,255,.15);margin:28px auto;position:relative;z-index:1"></div>
-
-  <!-- Company Info -->
-  <div style="font-family:'Open Sans',Arial,sans-serif;font-size:30px;font-weight:800;color:#fff;line-height:1.15;margin-bottom:8px;max-width:80%;letter-spacing:.03em;position:relative;z-index:1">${esc(c?.razaoSocial||"\u2014")}</div>
-  <div style="font-size:13px;color:rgba(255,255,255,.5);font-family:'Open Sans',Arial,sans-serif;font-weight:500;margin-bottom:32px;position:relative;z-index:1">CNPJ: ${fmtCnpj(c?.cnpj)}</div>
-
-  <!-- Rating Gauge -->
-  <div style="margin-bottom:16px;position:relative;z-index:1">
-    ${ratingGauge(p.finalRating, "large")}
-  </div>
-
-  <!-- Decision Badge -->
-  <div style="margin-bottom:32px;position:relative;z-index:1">
-    ${decisaoBadge(p.decision, true)}
-  </div>
-
-  <!-- Date + Confidential -->
-  <div style="font-size:11px;color:rgba(255,255,255,.4);font-family:'Open Sans',Arial,sans-serif;position:relative;z-index:1">${dataFormatada}</div>
-  <div style="font-size:9px;color:rgba(255,255,255,.25);margin-top:6px;letter-spacing:.08em;text-transform:uppercase;font-family:'Open Sans',Arial,sans-serif;position:relative;z-index:1">Documento confidencial</div>
-  <div style="font-size:8px;color:rgba(255,255,255,0.35);margin-top:8px;font-family:'Open Sans',Arial,sans-serif;position:relative;z-index:1">Esta analise e valida por 90 dias a partir de ${dataFormatada}</div>
-  <div style="font-size:8px;color:rgba(255,255,255,0.3);margin-top:4px;font-family:'Open Sans',Arial,sans-serif;position:relative;z-index:1">Codigo de verificacao: ${(() => {
-    const raw = (c?.cnpj || "") + dataFormatada;
-    let h = 0;
-    for (let i = 0; i < raw.length; i++) { h = ((h << 5) - h + raw.charCodeAt(i)) | 0; }
-    return ("CF-" + Math.abs(h).toString(36).toUpperCase().padStart(8, "0")).substring(0, 14);
-  })()}</div>
-
-  ${p.committeMembers ? `<div style="margin-top:24px;text-align:center;position:relative;z-index:1">
-    <div style="font-size:9px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.15em;margin-bottom:6px">Comite de Credito</div>
-    <div style="font-size:11px;color:rgba(255,255,255,0.7);letter-spacing:0.03em">${esc(p.committeMembers)}</div>
-  </div>` : ""}
-
+  <div style="margin-top:32px;font-size:10px;color:rgba(255,255,255,0.35)">${date}${params.committeMembers ? " · " + esc(params.committeMembers) : ""}</div>
 </div>`;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 2: CHECKLIST DE DOCUMENTOS
-// ═══════════════════════════════════════════════════════════════════════════════
-function secChecklist(p: PDFReportParams): string {
-  const d=p.data;
+// ─── Page 2: Síntese Preliminar ───────────────────────────────────────────────
+function pageSintese(params: PDFReportParams, date: string): string {
+  const d = params.data;
+  const cnpj = d.cnpj;
+  const score = params.finalRating ?? 0;
+  const sc = scoreColor(score);
+  const sb = scoreBorder(score);
+  const decBg = decisionBg(params.decision ?? "");
+  const ratingLabel = score >= 7 ? "Baixo Risco" : score >= 4 ? "Risco Moderado" : "Alto Risco";
+  const isAtiva = (cnpj?.situacaoCadastral ?? "").toUpperCase().includes("ATIVA");
 
-  type CheckItem = { label: string; ok: boolean; tipo: "OBR"|"OPC" };
+  // Info strip values
+  // municipio/uf may be embedded in the endereco field
+  const endStr = cnpj?.endereco ?? "";
+  const localMatch = endStr.match(/([A-Za-zÀ-ÿ\s]+)\/([A-Z]{2})\b/);
+  const local = localMatch ? `${localMatch[1].trim()}/${localMatch[2]}` : endStr.split(",").pop()?.trim() ?? "";
+  const capitalSocial = d.qsa?.capitalSocial || cnpj?.capitalSocialCNPJ || "—";
 
-  const frente1: CheckItem[] = [
-    { label: "Cartao CNPJ", ok: !!d.cnpj, tipo: "OBR" },
-    { label: "QSA / Quadro de Socios", ok: !!(d.qsa?.quadroSocietario?.length), tipo: "OBR" },
-    { label: "Contrato Social", ok: !!d.contrato, tipo: "OBR" },
-    { label: "Faturamento", ok: !!(d.faturamento?.meses?.length), tipo: "OBR" },
-    { label: "DRE", ok: !!(d.dre?.anos?.length), tipo: "OPC" },
-    { label: "Balanco Patrimonial", ok: !!(d.balanco?.anos?.length), tipo: "OPC" },
-    { label: "Curva ABC - Top Clientes", ok: !!(d.curvaABC?.clientes?.length), tipo: "OPC" },
-    { label: "IR dos Socios", ok: !!(d.irSocios?.length), tipo: "OPC" },
-    { label: "Relatorio de Visita", ok: !!(d.relatorioVisita && (
-      d.relatorioVisita.dataVisita ||
-      d.relatorioVisita.responsavelVisita ||
-      d.relatorioVisita.localVisita ||
-      d.relatorioVisita.descricaoEstrutura ||
-      d.relatorioVisita.observacoesLivres ||
-      (d.relatorioVisita.pontosPositivos && d.relatorioVisita.pontosPositivos.length > 0) ||
-      (d.relatorioVisita.pontosAtencao && d.relatorioVisita.pontosAtencao.length > 0) ||
-      d.relatorioVisita.recomendacaoVisitante ||
-      d.relatorioVisita.estruturaFisicaConfirmada !== undefined ||
-      d.relatorioVisita.funcionariosObservados
-    )), tipo: "OPC" },
-  ];
+  // Sócios
+  const socios = d.qsa?.quadroSocietario ?? [];
+  const irMap: Record<string, string> = {};
+  (d.irSocios ?? []).forEach(ir => { irMap[ir.cpf] = ir.patrimonioLiquido; });
 
-  const frente2: CheckItem[] = [
-    { label: "SCR / BACEN", ok: !!(d.scr?.periodoReferencia), tipo: "OBR" },
-    { label: "SCR Periodo Anterior", ok: !!(d.scrAnterior?.periodoReferencia), tipo: "OPC" },
-    { label: "Protestos", ok: d.protestos?.vigentesQtd !== undefined, tipo: "OBR" },
-    { label: "Processos Judiciais", ok: d.processos?.passivosTotal !== undefined, tipo: "OBR" },
-    { label: "Grupo Economico", ok: !!(d.grupoEconomico?.empresas?.length), tipo: "OPC" },
-    { label: "SCR dos Socios", ok: !!(d.scrSocios?.length), tipo: "OPC" },
-    { label: "Score Bureau", ok: !!(d.score), tipo: "OPC" },
-  ];
-
-  const allDocs = [...frente1, ...frente2];
-  const recebidos = allDocs.filter(x => x.ok).length;
-  const pct = Math.round((recebidos / allDocs.length) * 100);
-  const barColor = pct >= 80 ? "#73B815" : pct >= 50 ? "#f59e0b" : "#dc2626";
-
-  function renderItem(item: CheckItem): string {
-    const tipoBg = item.tipo === "OBR" ? "#203B88" : "#9ca3af";
-    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;background:${item.ok?"#f0fdf4":"#fff"};border:1px solid ${item.ok?"#bbf7d0":"#f3f4f6"};margin-bottom:6px${item.ok?";box-shadow:0 1px 3px rgba(34,197,94,.08)":""}">
-      <span style="font-size:14px;flex-shrink:0">${item.ok?"\u2705":"\u274C"}</span>
-      <span style="font-size:10.5px;font-weight:${item.ok?"700":"400"};color:${item.ok?"#111827":"#9ca3af"};flex:1">${esc(item.label)}</span>
-      <span style="display:inline-block;padding:2px 7px;border-radius:4px;background:${tipoBg};color:#fff;font-size:7.5px;font-weight:800;letter-spacing:.04em;flex-shrink:0">${item.tipo}</span>
-    </div>`;
-  }
-
-  return `<div class="sec">${secHdr("02","Checklist de Documentos")}
-  <!-- Coverage Ribbon -->
-  <div style="margin-bottom:18px;padding:14px 20px;border-radius:10px;background:${pct >= 80 ? "linear-gradient(135deg,#f0fdf4 0%,#dcfce7 100%)" : pct >= 50 ? "linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%)" : "linear-gradient(135deg,#fff1f2 0%,#fee2e2 100%)"};border:2px solid ${barColor};text-align:center">
-    <div style="font-size:10px;font-weight:800;color:${pct >= 80 ? "#166534" : pct >= 50 ? "#92400e" : "#991b1b"};text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Cobertura da Analise</div>
-    <div style="font-size:28px;font-weight:900;color:${barColor}">${pct}%</div>
-  </div>
-  <div style="margin-bottom:18px;padding:18px 20px;background:linear-gradient(135deg,#f8f9fb 0%,#edf2fb 100%);border-radius:10px;border:1px solid #e0e4ec">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <span style="font-size:14px;font-weight:800;color:#111827">${recebidos} de ${allDocs.length} documentos coletados</span>
-      <span style="display:inline-block;padding:4px 14px;border-radius:99px;background:${barColor};color:#fff;font-size:12px;font-weight:800">${pct}%</span>
-    </div>
-    <div style="width:100%;height:14px;background:#e5e7eb;border-radius:8px;overflow:hidden;box-shadow:inset 0 1px 3px rgba(0,0,0,.08)">
-      <div style="width:${pct}%;height:100%;background:linear-gradient(90deg,${barColor},${barColor}dd);border-radius:8px"></div>
-    </div>
-  </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;page-break-inside:avoid">
-    <div>
-      <div style="font-size:10px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #e5e7eb">Frente 1 - Dados Financeiros e Societarios</div>
-      ${frente1.map(renderItem).join("")}
-    </div>
-    <div>
-      <div style="font-size:10px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #e5e7eb">Frente 2 - Risco e Historico</div>
-      ${frente2.map(renderItem).join("")}
-    </div>
-  </div>
-</div>`;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 3: SINTESE PRELIMINAR
-// ═══════════════════════════════════════════════════════════════════════════════
-function secSintese(p: PDFReportParams): string {
-  const { data, finalRating, decision, pontosFortes, pontosFracos, resumoExecutivo, companyAge } = p;
-
-  // Palette (mirrors lib/generators/pdf/sections/sintese.ts C constant)
-  const PAL = {
-    navy900: "#0c1b3a", navy800: "#132c4e", navy700: "#1a3a6b",
-    navy100: "#dce6f5", navy50: "#eef3fb",
-    amber500: "#d4960a", amber100: "#fdf3d7", amber50: "#fef9ec",
-    red600: "#c53030", red100: "#fee2e2", red50: "#fef2f2",
-    green600: "#16653a", green100: "#d1fae5", green50: "#ecfdf5",
-    gray900: "#111827", gray700: "#374151", gray500: "#6b7280",
-    gray400: "#9ca3af", gray300: "#d1d5db", gray200: "#e5e7eb",
-    gray100: "#f3f4f6", gray50: "#f9fafb",
-    greenLogo: "#73B815",
-  };
-
-  const score = finalRating || 0;
-  const scoreColor = score >= 6.5 ? PAL.green600 : score >= 5 ? PAL.amber500 : PAL.red600;
-  const scoreLabel = score >= 8 ? "EXCELENTE" : score >= 6.5 ? "SATISFATÓRIO" : score >= 5 ? "MODERADO" : "ALTO RISCO";
-  const dec = (decision || "\u2014").replace(/_/g, " ").toUpperCase();
-  const decAprov = /APROV/i.test(dec) && !/CONDIC/i.test(dec);
-  const decReprov = /REPROV/i.test(dec);
-  const decColor = decAprov ? PAL.green600 : decReprov ? PAL.red600 : PAL.amber500;
-
-  // Faturamento series
-  const allMesesSorted = sortMeses(data.faturamento?.meses || []).filter(m => m?.mes && m?.valor);
-  const last12 = allMesesSorted.slice(-12);
-  const fmmNum = computeFmm(data.faturamento);
-  const fatTotal12 = last12.reduce((s, m) => s + numVal(m.valor), 0);
-
-  // Risco
-  const protQtd = p.protestosVigentes || 0;
-  const protVal = numVal(data.protestos?.vigentesValor || "0");
-  const ccfQtd = data.ccf?.qtdRegistros ?? null;
-  const procPass = parseInt(data.processos?.passivosTotal || "0") || 0;
-  const scrVenc = p.vencidosSCR || 0;
-  const scrTotalAt = numVal(data.scr?.totalDividasAtivas || "0");
-  const scrVencPct = scrTotalAt > 0 ? (scrVenc / scrTotalAt) * 100 : 0;
-  const alav = p.alavancagem ?? 0;
-
-  const razao = esc(data.cnpj?.razaoSocial || "\u2014");
-  const fantasia = esc(data.cnpj?.nomeFantasia || "");
-  const cnpjFmt = fmtCnpj(data.cnpj?.cnpj);
-  const situacao = (data.cnpj?.situacaoCadastral || "").toUpperCase().trim();
-  const situAtiva = situacao.includes("ATIVA");
-  const situBg = situAtiva ? PAL.green100 : PAL.amber100;
-  const situFg = situAtiva ? PAL.green600 : PAL.amber500;
-
-  const extractLocal = (endereco: string | undefined): string => {
-    if (!endereco) return "\u2014";
-    const m = endereco.match(/([A-Za-zÁÂÃÇÉÍÓÔÚáâãçéíóôú \-']{3,})[\s/-]+([A-Z]{2})\b/);
-    if (m) return `${m[1].trim()}/${m[2]}`;
-    const parts = endereco.split(/[,\-/]/).map(s => s.trim()).filter(Boolean);
-    return parts.slice(-2).join("/") || endereco.substring(0, 22);
-  };
-
-  // ── BLOCO 1 — Empresa + Rating ─────────────────────────────────────────
-  const block1 = `<div style="display:flex;align-items:center;justify-content:space-between;gap:14px;border-bottom:1px solid ${PAL.gray200};padding-bottom:8px;margin-bottom:10px;page-break-inside:avoid">
-    <div style="flex:2;min-width:0">
-      <div style="font:900 13px/1.2 Helvetica,Arial,sans-serif;color:${PAL.navy900}">${razao}</div>
-      ${fantasia ? `<div style="font:400 8.5px/1.3 Helvetica,Arial,sans-serif;color:${PAL.gray500};margin-top:2px">${fantasia}</div>` : ""}
-      <div style="margin-top:4px;display:flex;align-items:center;gap:6px">
-        <span style="font:400 9.5px/1 'Courier New',monospace;color:${PAL.gray700}">${esc(cnpjFmt)}</span>
-        ${situacao ? `<span style="display:inline-block;padding:2px 6px;border-radius:3px;background:${situBg};color:${situFg};font:700 8px/1 Helvetica,Arial,sans-serif">${esc(situacao.substring(0,14))}</span>` : ""}
-      </div>
-    </div>
-    <div style="flex:1;display:flex;flex-direction:column;align-items:center">
-      <div style="width:60px;height:60px;border-radius:50%;border:2px solid ${scoreColor};display:flex;flex-direction:column;align-items:center;justify-content:center">
-        <div style="font:900 18px/1 Helvetica,Arial,sans-serif;color:${scoreColor}">${score.toFixed(1).replace(".", ",")}</div>
-        <div style="font:400 7px/1 Helvetica,Arial,sans-serif;color:${PAL.gray400};margin-top:1px">/10</div>
-      </div>
-      <div style="font:800 8px/1 Helvetica,Arial,sans-serif;color:${scoreColor};margin-top:5px;letter-spacing:.04em">${scoreLabel}</div>
-      <div style="display:inline-block;margin-top:4px;padding:3px 8px;background:${decColor};color:#fff;font:700 7px/1 Helvetica,Arial,sans-serif;border-radius:3px;letter-spacing:.04em">${esc(dec)}</div>
-    </div>
-  </div>`;
-
-  // ── BLOCO 2 — Fundação & Dados Básicos (6 cards) ───────────────────────
-  const capSocRaw2 = data.cnpj?.capitalSocialCNPJ || data.qsa?.capitalSocial || "";
-  const capSoc2 = capSocRaw2 ? fmtMoneyRound(capSocRaw2) : "\u2014";
-  const cells2: Array<{ label: string; value: string; mono?: boolean }> = [
-    { label: "Data Fund.", value: data.cnpj?.dataAbertura || "\u2014" },
-    { label: "Idade", value: companyAge || "\u2014" },
-    { label: "Porte", value: (data.cnpj?.porte || "\u2014").substring(0, 14) },
-    { label: "Cap. Social", value: capSoc2, mono: true },
-    { label: "Tipo", value: (data.cnpj?.tipoEmpresa || "\u2014").substring(0, 14) },
-    { label: "Local", value: extractLocal(data.cnpj?.endereco) },
-  ];
-  const block2 = `<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:10px;page-break-inside:avoid">
-    ${cells2.map(c => `<div style="background:${PAL.gray50};border:1px solid ${PAL.gray100};border-radius:3px;padding:6px 8px;min-width:0">
-      <div style="font:700 6.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray400};text-transform:uppercase;letter-spacing:.06em">${esc(c.label)}</div>
-      <div style="font:800 9px/1.2 ${c.mono ? "'Courier New',monospace" : "Helvetica,Arial,sans-serif"};color:${c.value === "\u2014" ? PAL.gray400 : PAL.gray900};margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.value)}</div>
-    </div>`).join("")}
-  </div>`;
-
-  // ── BLOCO 3 — Segmento (CNAE) ──────────────────────────────────────────
-  const cnaePr = (data.cnpj?.cnaePrincipal || "").trim();
-  const cnaeSec = (data.cnpj?.cnaeSecundarios || "").trim();
-  let cnaeCode = "";
-  let cnaeDesc = cnaePr;
-  const cm = cnaePr.match(/^([\d./-]{6,})\s+(.*)$/);
-  if (cm) { cnaeCode = cm[1]; cnaeDesc = cm[2]; }
-  const block3 = (cnaePr || cnaeSec) ? `<div style="background:${PAL.navy50};border:1px solid ${PAL.navy100};border-radius:3px;padding:8px 10px;margin-bottom:10px;page-break-inside:avoid">
-    ${cnaeCode ? `<div style="font:800 9px/1.3 Helvetica,Arial,sans-serif;color:${PAL.navy900}">CNAE ${esc(cnaeCode)}</div>` : ""}
-    <div style="font:400 9px/1.4 Helvetica,Arial,sans-serif;color:${PAL.navy700};margin-top:2px">${esc(cnaeDesc || "\u2014")}</div>
-    ${cnaeSec ? `<div style="font:400 8.5px/1.4 Helvetica,Arial,sans-serif;color:${PAL.navy700};margin-top:3px">CNAEs sec.: ${esc(cnaeSec)}</div>` : ""}
-  </div>` : "";
-
-  // ── BLOCO 4 — Foto + Endereço (CONDITIONAL) ────────────────────────────
-  const svRaw = p.streetViewBase64;
-  const svValid = typeof svRaw === "string" && svRaw.length > 100
-    && (svRaw.startsWith("data:image") || svRaw.startsWith("http") || svRaw.startsWith("/9j/") || svRaw.startsWith("iVBOR"));
-  const svSrc = svValid
-    ? (svRaw!.startsWith("data:") || svRaw!.startsWith("http") ? svRaw! : `data:image/jpeg;base64,${svRaw}`)
-    : "";
-  const addressCard = `<div style="background:${PAL.gray50};border:1px solid ${PAL.gray100};border-radius:3px;padding:12px 14px;min-width:0">
-      <div style="font:700 7.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray400};text-transform:uppercase;letter-spacing:.06em">Endereço</div>
-      <div style="font:400 10px/1.5 Helvetica,Arial,sans-serif;color:${PAL.gray700};margin-top:5px">${esc(data.cnpj?.endereco || "\u2014")}</div>
-    </div>`;
-  const block4 = svValid ? `<div style="display:flex;gap:8px;margin-bottom:10px;page-break-inside:avoid">
-    <img src="${svSrc}" style="width:50%;height:120px;object-fit:cover;border-radius:3px;border:1px solid ${PAL.gray200}" alt="Street View" />
-    <div style="flex:1;min-width:0">${addressCard}</div>
-  </div>` : `<div style="margin-bottom:10px;page-break-inside:avoid">${addressCard}</div>`;
-
-  // ── BLOCO 5 — Estrutura Societária ─────────────────────────────────────
-  const socios = (data.qsa?.quadroSocietario || []).filter(s => s?.nome || s?.cpfCnpj);
-  const empresas = data.grupoEconomico?.empresas || [];
-  const hasBlock5 = socios.length > 0 || empresas.length > 0;
-
-  const socioRows5 = socios.map(s => {
-    const digits = (s.cpfCnpj || "").replace(/\D/g, "");
-    const docFmt = digits.length > 11 ? fmtCnpj(s.cpfCnpj) : digits.length > 0 ? fmtCpf(s.cpfCnpj) : "\u2014";
-    return `<tr>
-      <td><strong>${esc(s.nome || "\u2014")}</strong></td>
-      <td>${docFmt}</td>
-      <td>${esc(s.qualificacao || "\u2014")}</td>
-      <td style="text-align:right">${esc(s.participacao || "\u2014")}</td>
-    </tr>`;
+  const socRows = socios.map(s => {
+    const pl = irMap[s.cpfCnpj] ? fmtMoneyAbr(irMap[s.cpfCnpj]) : "—";
+    return `<tr><td><b>${esc(s.nome)}</b></td><td style="font-family:'JetBrains Mono',monospace;font-size:11px">${fmtCpf(s.cpfCnpj)}</td><td>${esc(s.qualificacao)}</td><td style="color:var(--x4)">${fmt(s.participacao)}</td><td><b>${pl}</b></td></tr>`;
   }).join("");
 
-  const capSocStr5 = data.qsa?.capitalSocial
-    ? fmtMoneyRound(data.qsa.capitalSocial)
-    : data.cnpj?.capitalSocialCNPJ
-      ? fmtMoneyRound(data.cnpj.capitalSocialCNPJ)
-      : "\u2014";
-  const grupoStr5 = empresas.length > 0 ? `${empresas.length} empresa(s)` : "Não identificado";
+  // SCR cards
+  const scr = d.scr;
+  const totalDivida = scr?.totalDividasAtivas || scr?.carteiraAVencer || "—";
+  const vencidos = scr?.vencidos ?? "—";
+  const vencNum = numVal(vencidos);
+  const totalNum = numVal(totalDivida);
+  const pctVencido = totalNum > 0 && vencNum >= 0 ? ((vencNum / totalNum) * 100).toFixed(1) + "%" : "0,0%";
+  const nIfs = scr?.qtdeInstituicoes ?? "—";
+  const alavStr = params.alavancagem != null ? params.alavancagem.toFixed(1) + "x" : "—";
 
-  const block5 = hasBlock5 ? `<div style="margin-bottom:10px;page-break-inside:avoid">
-    <div style="font:800 7.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray500};text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">GESTÃO &amp; GRUPO ECONÔMICO</div>
-    ${socios.length > 0 ? `<table style="${TS};margin-bottom:5px;font-size:9px">
-      <thead><tr>${["Nome","CPF/CNPJ","Qualificação","Part."].map(h => `<th style="background:${PAL.navy900};border-bottom:none;color:#fff">${h}</th>`).join("")}</tr></thead>
-      <tbody>${socioRows5}</tbody>
-    </table>` : ""}
-    <div style="font:400 8.5px/1.4 Helvetica,Arial,sans-serif;color:${PAL.gray500}">Capital Social: ${capSocStr5} · Grupo Econômico: ${grupoStr5}</div>
-  </div>` : "";
-
-  // ── BLOCO 6 — Indicadores de Risco ─────────────────────────────────────
-  type RiskTone = "red" | "green" | "amber" | "gray";
-  const toneCss = (t: RiskTone) => {
-    switch (t) {
-      case "red":   return { bg: PAL.red50,    bd: PAL.red100,    fg: PAL.red600   };
-      case "green": return { bg: PAL.green50,  bd: PAL.green100,  fg: PAL.green600 };
-      case "amber": return { bg: PAL.amber50,  bd: PAL.amber100,  fg: PAL.amber500 };
-      default:      return { bg: PAL.gray50,   bd: PAL.gray100,   fg: PAL.gray400  };
-    }
-  };
-  const cells6: Array<{ label: string; value: string; sub: string; tone: RiskTone }> = [
-    {
-      label: "Protestos",
-      value: protQtd > 0 ? String(protQtd) : "0",
-      sub: protQtd > 0 ? fmtMoneyRound(String(protVal)) : "sem ocorr.",
-      tone: protQtd > 2 ? "red" : "green",
-    },
-    {
-      label: "CCF",
-      value: ccfQtd == null ? "\u2014" : String(ccfQtd),
-      sub: ccfQtd == null ? "n/c" : ccfQtd > 0 ? "ocorr." : "limpo",
-      tone: ccfQtd == null ? "gray" : ccfQtd > 0 ? "red" : "green",
-    },
-    {
-      label: "Processos",
-      value: String(procPass),
-      sub: "polo passivo",
-      tone: procPass > 0 ? "red" : data.processos ? "green" : "gray",
-    },
-    {
-      label: "SCR Venc.",
-      value: scrVenc > 0 ? fmtMoneyRound(String(scrVenc)) : "\u2014",
-      sub: scrTotalAt > 0 ? `${scrVencPct.toFixed(1)}% do total` : "em dia",
-      tone: scrVencPct > 10 ? "red" : scrVenc > 0 ? "amber" : "green",
-    },
-    {
-      label: "Alavancagem",
-      value: alav > 0 ? `${alav.toFixed(2)}x` : "\u2014",
-      sub: alav > 5 ? "alto" : alav > 3 ? "atenção" : alav > 0 ? "saudável" : "s/ dados",
-      tone: alav > 5 ? "red" : alav > 3 ? "amber" : alav > 0 ? "green" : "gray",
-    },
-  ];
-  const block6Cards = cells6.map(c => {
-    const t = toneCss(c.tone);
-    return `<div style="background:${t.bg};border:1px solid ${t.bd};border-radius:3px;padding:8px 10px;min-width:0">
-      <div style="font:700 6.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray400};text-transform:uppercase;letter-spacing:.06em">${esc(c.label)}</div>
-      <div style="font:900 14px/1.1 Helvetica,Arial,sans-serif;color:${t.fg};margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.value)}</div>
-      <div style="font:400 7.5px/1.2 Helvetica,Arial,sans-serif;color:${PAL.gray500};margin-top:3px">${esc(c.sub)}</div>
-    </div>`;
+  // Protestos
+  const prot = d.protestos;
+  const protQtd = numVal(prot?.vigentesQtd ?? "0");
+  const protVal = prot?.vigentesValor ?? "0";
+  const protColor = protQtd > 0 ? "red" : "green";
+  const protDetails = (prot?.detalhes ?? []).slice(0, 4);
+  const protRows = protDetails.map(p => {
+    const tag = (p.especie ?? "").toLowerCase().includes("prom") ? "np" :
+                (p.apresentante ?? "").toLowerCase().includes("banco") || (p.apresentante ?? "").toLowerCase().includes("bradesco") || (p.apresentante ?? "").toLowerCase().includes("itaú") ? "banco" :
+                (p.especie ?? "").toLowerCase().includes("sust") ? "sust" : "exec";
+    const tagLabel = tag === "np" ? "Nota Prom." : tag === "banco" ? "Banco" : tag === "sust" ? "Sustação" : "Execução";
+    return `<div class="risk-item"><span class="risk-tag ${tag}">${tagLabel}</span><span class="desc">${esc(p.credor)}</span><span class="amt red">${fmtMoney(p.valor)}</span></div>`;
   }).join("");
-  const allHigh6 = (p.alertsHigh || []).slice(0, 2);
-  const allMed6 = (p.alerts || []).filter(a => a.severity === "MODERADA").slice(0, 2);
-  const alertBanners6 = [...allHigh6, ...allMed6].slice(0, 4).map(a => {
-    const isHigh = a.severity === "ALTA";
-    const bg = isHigh ? PAL.red50 : PAL.amber50;
-    const bd = isHigh ? PAL.red100 : PAL.amber100;
-    const fg = isHigh ? PAL.red600 : PAL.amber500;
-    return `<div style="background:${bg};border:1px solid ${bd};border-left:3px solid ${fg};border-radius:2px;padding:5px 8px;margin-top:4px;font:600 8.5px/1.3 Helvetica,Arial,sans-serif;color:${PAL.gray700}">${esc(a.message)}</div>`;
+  const lastProt = (prot?.detalhes ?? []).filter(p => !p.regularizado)[0];
+
+  // Processos
+  const proc = d.processos;
+  const procTotal = numVal(proc?.passivosTotal ?? "0");
+  const procColor = procTotal > 5 ? "red" : procTotal > 0 ? "red" : "green";
+  const procDist = (proc?.distribuicao ?? []).slice(0, 4);
+  const procDistRows = procDist.map(p => {
+    const tag2 = p.tipo.toLowerCase().includes("fiscal") ? "exec" :
+                 p.tipo.toLowerCase().includes("banco") || p.tipo.toLowerCase().includes("fidc") ? "banco" :
+                 p.tipo.toLowerCase().includes("trab") ? "np" : "sust";
+    return `<div class="risk-item"><span class="risk-tag ${tag2}">${esc(p.tipo)}</span><span class="desc">${esc(p.tipo)}</span><span class="amt red">${esc(p.qtd)} proc.</span></div>`;
   }).join("");
-  const block6 = `<div style="margin-bottom:10px;page-break-inside:avoid">
-    <div style="font:800 7.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray500};text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">INDICADORES DE RISCO</div>
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px">${block6Cards}</div>
-    ${alertBanners6}
-  </div>`;
+  const lastProc = (proc?.top10Recentes ?? [])[0];
 
-  // ── BLOCO 7 — Faturamento + SCR comparativo ───────────────────────────
-  const scr = data.scr;
-  const scrAnt = data.scrAnterior;
-  const hasFat7 = last12.length > 0;
-  const hasScr7 = !!(scr && scr.periodoReferencia);
-  const hasScrAnt7 = !!(scrAnt && scrAnt.periodoReferencia);
+  // CCF
+  const ccfQtd = d.ccf?.qtdRegistros ?? 0;
+  const ccfText = ccfQtd === 0 ? `<span style="color:var(--g6);font-size:13px">0 — limpo</span>` : `<span style="color:var(--r6);font-size:13px">${ccfQtd} registros</span>`;
 
-  const maxVal7 = Math.max(...last12.map(m => numVal(m.valor)), 1);
-  let varPct7 = 0;
-  if (last12.length >= 6) {
-    const values = last12.map(m => numVal(m.valor));
-    const rec = values.slice(-3).reduce((a, b) => a + b, 0);
-    const ant = values.slice(-6, -3).reduce((a, b) => a + b, 0);
-    if (ant > 0) varPct7 = ((rec - ant) / ant) * 100;
-  }
-  const upTrend7 = varPct7 > 2;
-  const trendArrow7 = varPct7 > 2 ? "\u2191" : varPct7 < -2 ? "\u2193" : "\u2192";
-
-  const bars7 = last12.map((m, i) => {
-    const v = numVal(m.valor);
-    const isHi = i >= last12.length - 3 && upTrend7;
-    const c = v === 0 ? PAL.gray300 : isHi ? PAL.greenLogo : PAL.navy800;
-    const hPct = (v / maxVal7) * 100;
-    return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px;min-width:0">
-      <div style="width:100%;background:${c};height:${hPct}%;min-height:1px"></div>
-      <div style="font:400 5.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray500};white-space:nowrap;overflow:hidden">${esc((m.mes || "").substring(0, 5))}</div>
-    </div>`;
+  // Alerts from params
+  const alertsHtml = (params.alertsHigh ?? []).slice(0, 4).map(a => {
+    const cls = a.severity === "ALTA" ? "alta" : a.severity === "MODERADA" ? "mod" : "info";
+    const tag3 = a.severity === "ALTA" ? "ALTA" : a.severity === "MODERADA" ? "MOD" : "INFO";
+    return `<div class="alert ${cls}"><span class="atag">${tag3}</span> ${esc(a.message)}</div>`;
   }).join("");
 
-  const fatPanel7 = hasFat7 ? `<div style="flex:1;background:${PAL.gray50};border:1px solid ${PAL.gray100};border-radius:3px;padding:8px 10px;min-width:0">
-    <div style="font:700 6.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray500};text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Faturamento</div>
-    <div style="display:flex;align-items:flex-end;gap:2px;height:55px">${bars7}</div>
-    <div style="font:400 7.5px/1.3 Helvetica,Arial,sans-serif;color:${PAL.gray700};margin-top:5px">FMM ${fmtMoneyRound(String(fmmNum))} · Total ${fmtMoneyRound(String(fatTotal12))} · ${trendArrow7} ${varPct7.toFixed(0)}%</div>
-  </div>` : "";
+  // Faturamento chart
+  const fatMeses = (d.faturamento?.meses ?? []).slice(-12);
+  const fatBars = fatMeses.length > 0 ? buildBars(fatMeses) : "";
+  const fmm = d.faturamento?.fmm12m ?? d.faturamento?.mediaAno ?? "—";
+  const total12 = d.faturamento?.somatoriaAno ?? "—";
+  const tendencia = d.faturamento?.tendencia ?? "indefinido";
+  const tendLabel = tendencia === "crescimento" ? "↑ crescimento" : tendencia === "queda" ? "↓ queda" : "→ estável";
+  const tendColor = tendencia === "crescimento" ? "var(--g6)" : tendencia === "queda" ? "var(--r6)" : "var(--x5)";
 
-  const sr7 = (k: string) => numVal(String((scr as unknown as Record<string, string>)?.[k] || "0"));
-  const srAnt7 = (k: string) => numVal(String((scrAnt as unknown as Record<string, string> | null)?.[k] || "0"));
-  const scrRows7: Array<{ label: string; cur: number; prev: number; bold?: boolean }> = [
-    { label: "Carteira A/V", cur: sr7("carteiraAVencer"), prev: srAnt7("carteiraAVencer") },
-    { label: "Vencidos",     cur: sr7("vencidos"),         prev: srAnt7("vencidos") },
-    { label: "Prejuízos",    cur: sr7("prejuizos"),        prev: srAnt7("prejuizos") },
-    { label: "Total Dívidas",cur: sr7("totalDividasAtivas"),prev: srAnt7("totalDividasAtivas"), bold: true },
-  ];
-  const scrRowsHtml7 = scrRows7.map(r => {
-    let varHtml = `<td style="color:${PAL.gray400}">\u2014</td>`;
-    if (r.prev > 0 && r.cur > 0) {
-      const pct = ((r.cur - r.prev) / r.prev) * 100;
-      const vColor = pct > 2 ? PAL.red600 : pct < -2 ? PAL.green600 : PAL.gray500;
-      varHtml = `<td style="color:${vColor};font-weight:700">${pct > 0 ? "+" : ""}${pct.toFixed(0)}%</td>`;
-    }
-    return `<tr style="font-weight:${r.bold ? "800" : "400"}">
-      <td>${r.label}</td>
-      <td class="money">${r.cur > 0 ? fmtMoneyRound(r.cur) : "\u2014"}</td>
-      <td class="money">${r.prev > 0 ? fmtMoneyRound(r.prev) : "\u2014"}</td>
-      ${varHtml}
-    </tr>`;
-  }).join("");
-  const scrPanel7 = (hasScr7 && hasScrAnt7) ? `<div style="flex:1;background:${PAL.gray50};border:1px solid ${PAL.gray100};border-radius:3px;padding:8px 10px;min-width:0">
-    <div style="font:700 6.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray500};text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">SCR ${esc(scrAnt!.periodoReferencia)} → ${esc(scr!.periodoReferencia)}</div>
-    <table style="width:100%;font-size:9px;border-collapse:collapse">
-      <thead><tr>${["Métrica","Atual","Ant.","Var%"].map(h => `<th style="background:${PAL.navy900};border-bottom:none;color:#fff;font-size:8.5px">${h}</th>`).join("")}</tr></thead>
-      <tbody>${scrRowsHtml7}</tbody>
+  // SCR table
+  const scrAnt = d.scrAnterior;
+  let scrTable = "";
+  if (scr && scrAnt) {
+    const rows: Array<{label:string;curr:string;prev:string;varCls:string;varVal:string}> = [
+      { label:"Curto Prazo", curr:fmtMoneyAbr(scr.carteiraCurtoPrazo), prev:fmtMoneyAbr(scrAnt.carteiraCurtoPrazo), varCls:"down", varVal:"—" },
+      { label:"Longo Prazo", curr:fmtMoneyAbr(scr.carteiraLongoPrazo), prev:fmtMoneyAbr(scrAnt.carteiraLongoPrazo), varCls:"down", varVal:"—" },
+      { label:"Vencidos", curr:fmt(scr.vencidos), prev:fmt(scrAnt.vencidos), varCls:"neutral", varVal:"—" },
+      { label:"Prejuízos", curr:fmt(scr.prejuizos), prev:fmt(scrAnt.prejuizos), varCls:"neutral", varVal:"—" },
+      { label:"Limite Crédito", curr:fmtMoneyAbr(scr.limiteCredito), prev:fmtMoneyAbr(scrAnt.limiteCredito), varCls:"up", varVal:"—" },
+    ];
+    const totalRows = `<tr class="total"><td>Total Dívidas</td><td>${fmtMoneyAbr(scr.totalDividasAtivas)}</td><td>${fmtMoneyAbr(scrAnt.totalDividasAtivas)}</td><td class="var-cell neutral">—</td></tr>`;
+    scrTable = `<table class="scr-tbl">
+      <thead><tr><th>Métrica</th><th>Atual</th><th>Anterior</th><th>Var.</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr><td>${esc(r.label)}</td><td>${r.curr}</td><td>${r.prev}</td><td class="var-cell ${r.varCls}">${r.varVal}</td></tr>`).join("")}${totalRows}</tbody>
     </table>
-  </div>` : "";
-  const block7 = (hasFat7 || hasScr7) ? `<div style="display:flex;gap:8px;margin-bottom:10px;page-break-inside:avoid">
-    ${fatPanel7}
-    ${scrPanel7}
-  </div>` : "";
+    <div class="ifs-note">Instituições financeiras: ${fmt(scr.qtdeInstituicoes)} · Operações: ${fmt(scr.qtdeOperacoes)}</div>`;
+  } else if (scr) {
+    scrTable = `<table class="scr-tbl">
+      <thead><tr><th>Métrica</th><th>Valor</th></tr></thead>
+      <tbody>
+        <tr><td>Carteira A Vencer</td><td>${fmtMoneyAbr(scr.carteiraAVencer)}</td></tr>
+        <tr><td>Vencidos</td><td>${fmtMoneyAbr(scr.vencidos)}</td></tr>
+        <tr><td>Prejuízos</td><td>${fmtMoneyAbr(scr.prejuizos)}</td></tr>
+        <tr><td>Limite de Crédito</td><td>${fmtMoneyAbr(scr.limiteCredito)}</td></tr>
+        <tr class="total"><td>Total Dívidas</td><td>${fmtMoneyAbr(scr.totalDividasAtivas)}</td></tr>
+      </tbody>
+    </table>
+    <div class="ifs-note">Instituições financeiras: ${fmt(scr.qtdeInstituicoes)} · Operações: ${fmt(scr.qtdeOperacoes)}</div>`;
+  }
 
-  // ── BLOCO 8 — Curva ABC (CONDITIONAL) ──────────────────────────────────
-  const clientes = data.curvaABC?.clientes || [];
-  let block8 = "";
-  if (clientes.length > 0) {
-    const top5 = clientes.slice(0, 5);
-    const baseTotal = numVal(data.curvaABC?.receitaTotalBase || "0");
-    const pctOf = (c: { valorFaturado: string; percentualReceita: string }) => {
-      const v = numVal(c.valorFaturado);
-      if (baseTotal > 0) return (v / baseTotal) * 100;
-      return parseFloat(String(c.percentualReceita).replace(",", ".").replace("%", "")) || 0;
-    };
-    let acum = 0;
-    const rows8 = top5.map((c, i) => {
-      const pct = pctOf(c);
-      acum += pct;
+  // Curva ABC (inline in page 2)
+  const abc = d.curvaABC;
+  let abcHtml = "";
+  if (abc && abc.clientes.length > 0) {
+    const maxVal = numVal(abc.clientes[0]?.valorFaturado ?? "0");
+    const rows2 = abc.clientes.slice(0, 5).map((c, i) => {
+      const barW = maxVal > 0 ? Math.round((numVal(c.valorFaturado)/maxVal)*100) : 0;
+      const clsCls = (c.classe ?? "c").toLowerCase();
       return `<tr>
-        <td>${i + 1}</td>
-        <td><strong>${esc(c.nome || "\u2014")}</strong></td>
-        <td class="money">${fmtMoneyRound(c.valorFaturado)}</td>
-        <td>${pct.toFixed(1)}%</td>
-        <td>${acum.toFixed(1)}%</td>
-        <td style="text-align:center">${esc(c.classe || "\u2014")}</td>
+        <td><span class="abc-rank">${i+1}</span></td>
+        <td><b>${esc(c.nome)}</b><div class="abc-bar" style="width:${barW}%"></div></td>
+        <td class="r">${fmtMoney(c.valorFaturado)}</td>
+        <td class="r bold">${fmtPct(c.percentualReceita)}</td>
+        <td class="r bold">${fmtPct(c.percentualAcumulado)}</td>
+        <td><span class="abc-cl ${clsCls}">${esc(c.classe)}</span></td>
       </tr>`;
     }).join("");
-    const top3 = top5.slice(0, 3).reduce((s, c) => s + pctOf(c), 0);
-    const totalCli = data.curvaABC?.totalClientesNaBase || clientes.length;
-    const top1 = pctOf(top5[0]);
-    const concAlert = top1 > 30 ? `<div style="background:${PAL.red50};border:1px solid ${PAL.red100};border-left:3px solid ${PAL.red600};border-radius:2px;padding:5px 8px;margin-top:4px;font:600 8.5px/1.3 Helvetica,Arial,sans-serif;color:${PAL.gray700}">Concentração elevada: maior cliente representa ${top1.toFixed(0)}% da receita</div>` : "";
-    block8 = `<div style="margin-bottom:10px;page-break-inside:avoid">
-      <div style="font:800 7.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray500};text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">CURVA ABC — TOP 5 CLIENTES</div>
-      <table style="${TS};margin-bottom:5px;font-size:9px">
-        <thead><tr>${["#","Cliente","Faturamento","% Rec.","% Acum.","Cl."].map(h => `<th style="background:${PAL.navy900};border-bottom:none;color:#fff">${h}</th>`).join("")}</tr></thead>
-        <tbody>${rows8}</tbody>
+    abcHtml = `${stitle("Concentração de clientes")}
+    <div class="abc-wrap">
+      <table class="abc-tbl">
+        <thead><tr><th style="width:40px">#</th><th>Cliente</th><th class="r">Faturamento</th><th class="r">% Rec.</th><th class="r">% Acum.</th><th style="width:50px">Cl.</th></tr></thead>
+        <tbody>${rows2}</tbody>
       </table>
-      <div style="font:400 8.5px/1.4 Helvetica,Arial,sans-serif;color:${PAL.gray500}">Top 3: ${top3.toFixed(0)}% · Top 5: ${acum.toFixed(0)}% · Total clientes: ${totalCli}</div>
-      ${concAlert}
+      <div class="abc-summary">Top 3: <b>${fmt(abc.concentracaoTop3)}</b> · Top 5: <b>${fmt(abc.concentracaoTop5)}</b> · Total clientes: <b>${abc.totalClientesNaBase}</b></div>
     </div>`;
   }
 
-  // ── BLOCO 9 — Pleito (CONDITIONAL) ─────────────────────────────────────
-  const rv = data.relatorioVisita;
-  const hasPleito = !!(rv && (rv.pleito || rv.limiteTotal || rv.modalidade || rv.prazoMaximoOp || rv.taxaConvencional));
-  const block9 = hasPleito ? `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px;page-break-inside:avoid">
-    ${[
-      { label: "Valor Pleiteado", value: rv!.limiteTotal ? fmtMoneyRound(rv!.limiteTotal) : (rv!.pleito || "\u2014"), mono: !!rv!.limiteTotal },
-      { label: "Modalidade", value: (rv!.modalidade || "\u2014").toUpperCase() },
-      { label: "Prazo Máx.", value: rv!.prazoMaximoOp ? `${rv!.prazoMaximoOp} dias` : "\u2014" },
-      { label: "Taxa", value: rv!.taxaConvencional ? `${rv!.taxaConvencional}%` : "\u2014" },
-    ].map(c => `<div style="background:${PAL.navy50};border:1px solid ${PAL.navy100};border-radius:3px;padding:8px 10px">
-      <div style="font:700 6.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray400};text-transform:uppercase;letter-spacing:.06em">${esc(c.label)}</div>
-      <div style="font:800 11px/1.2 ${c.mono ? "'Courier New',monospace" : "Helvetica,Arial,sans-serif"};color:${PAL.navy900};margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.value)}</div>
-    </div>`).join("")}
-  </div>` : "";
+  // Pleito (from relatorioVisita)
+  const rv = d.relatorioVisita;
+  const modalidade = rv?.modalidade ? rv.modalidade.toUpperCase() : "—";
+  const pleitoHtml = `${stitle("Pleito")}
+  <div class="pleito-grid">
+    <div class="pl-card"><div class="l">Valor Pleiteado</div><div class="v" style="color:var(--x4)">${rv?.pleito ? fmtMoneyAbr(rv.pleito) : "—"}</div></div>
+    <div class="pl-card"><div class="l">Modalidade</div><div class="v">${fmt(modalidade)}</div></div>
+    <div class="pl-card"><div class="l">Prazo Máx.</div><div class="v" style="color:var(--x4)">${fmt(rv?.prazoMaximoOp)}</div></div>
+    <div class="pl-card"><div class="l">Taxa</div><div class="v" style="color:var(--x4)">${rv?.taxaConvencional ?? rv?.taxaComissaria ?? "—"}</div></div>
+  </div>`;
 
-  // ── BLOCO 10 — Análise (Fortes / Fracos / Alertas) ─────────────────────
-  const fortes10 = (pontosFortes || []).slice(0, 6);
-  const fracos10 = (pontosFracos || []).slice(0, 6);
-  const moderados10 = (p.alerts || []).filter(a => a.severity === "MODERADA").map(a => a.message).slice(0, 6);
-  const hasBlock10 = fortes10.length > 0 || fracos10.length > 0 || moderados10.length > 0;
-  const cols10 = [
-    { title: "PONTOS FORTES", items: fortes10,    bg: PAL.green50, bd: PAL.green100, fg: PAL.green600 },
-    { title: "PONTOS FRACOS", items: fracos10,    bg: PAL.red50,   bd: PAL.red100,   fg: PAL.red600 },
-    { title: "ALERTAS",       items: moderados10, bg: PAL.amber50, bd: PAL.amber100, fg: PAL.amber500 },
-  ];
-  const block10 = hasBlock10 ? `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px;page-break-inside:avoid">
-    ${cols10.map(col => `<div style="background:${col.bg};border:1px solid ${col.bd};border-radius:3px;padding:8px 10px;min-height:80px">
-      <div style="font:800 7.5px/1 Helvetica,Arial,sans-serif;color:${col.fg};text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid ${col.bd};padding-bottom:3px">${col.title}</div>
-      <ul style="list-style:none;padding:0;margin:5px 0 0 0">${col.items.slice(0, 5).map(it => `<li style="font:400 7.5px/1.4 Helvetica,Arial,sans-serif;color:${PAL.gray700};padding:2px 0 2px 8px;position:relative"><span style="position:absolute;left:0;top:2px;color:${col.fg};font-weight:700">•</span>${esc(it)}</li>`).join("")}</ul>
-    </div>`).join("")}
-  </div>` : "";
+  // Analise
+  const fortes = params.pontosFortes ?? [];
+  const fracos = params.pontosFracos ?? [];
+  const alertsArr = (params.alerts ?? []).filter(a => a.severity === "ALTA" || a.severity === "MODERADA").slice(0, 5).map(a => a.message);
+  const analiseHtml = `${stitle("Análise")}
+  <div class="ana-grid">
+    <div class="ana-col f"><div class="ana-h">Pontos Fortes</div>${fortes.map(f=>`<div class="ana-item">${esc(f)}</div>`).join("") || '<div class="ana-item" style="color:var(--x4)">—</div>'}</div>
+    <div class="ana-col w"><div class="ana-h">Pontos Fracos</div>${fracos.map(f=>`<div class="ana-item">${esc(f)}</div>`).join("") || '<div class="ana-item" style="color:var(--x4)">—</div>'}</div>
+    <div class="ana-col a"><div class="ana-h">Alertas</div>${alertsArr.map(a=>`<div class="ana-item">${esc(a)}</div>`).join("") || '<div class="ana-item" style="color:var(--x4)">—</div>'}</div>
+  </div>`;
 
-  // ── BLOCO 11 — Percepção do Analista (CONDITIONAL) ─────────────────────
-  const parecerObj11 = typeof p.aiAnalysis?.parecer === "object" && p.aiAnalysis?.parecer !== null
-    ? p.aiAnalysis.parecer as { resumoExecutivo?: string; textoCompleto?: string }
-    : null;
-  let parecerTxt11 = (resumoExecutivo
-    || parecerObj11?.resumoExecutivo
-    || parecerObj11?.textoCompleto
-    || (typeof p.aiAnalysis?.parecer === "string" ? p.aiAnalysis.parecer : "")
-    || p.aiAnalysis?.sinteseExecutiva
-    || "").trim();
-  if (parecerTxt11.length > 600) parecerTxt11 = parecerTxt11.substring(0, 600).trimEnd() + "\u2026";
-  const block11 = parecerTxt11 ? `<div style="background:${PAL.gray50};border:1px solid ${PAL.gray200};border-radius:4px;padding:10px 14px;margin-bottom:10px;page-break-inside:avoid">
-    <div style="font:400 9px/1.5 Helvetica,Arial,sans-serif;color:${PAL.gray700}">${esc(parecerTxt11)}</div>
-    <div style="margin-top:8px;display:flex;align-items:center;gap:6px">
-      <span style="font:400 8.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray500}">Recomendação:</span>
-      <span style="display:inline-block;padding:3px 8px;background:${decColor};color:#fff;font:700 7.5px/1 Helvetica,Arial,sans-serif;border-radius:3px;letter-spacing:.04em">${esc(dec)}</span>
-    </div>
-    <div style="font:400 7.5px/1 Helvetica,Arial,sans-serif;color:${PAL.gray400};margin-top:5px">Ver parecer completo na seção 02.</div>
-  </div>` : "";
+  // Percepção
+  const resumo = params.resumoExecutivo || (typeof params.aiAnalysis?.parecer === "object" ? params.aiAnalysis.parecer.resumoExecutivo : "") || "";
+  const percHtml = `${stitle("Percepção do analista")}
+  <div class="perc">
+    <div class="perc-text">${esc(resumo) || "—"}</div>
+    <div class="perc-rec">Recomendação: <span class="dec" style="background:${decBg};font-size:10px">${esc(params.decision ?? "—")}</span></div>
+  </div>`;
 
-  return `<div class="sec" style="padding:8px 14px">
-  ${block1}
-  ${block2}
-  ${block3}
-  ${block4}
-  ${block5}
-  ${block6}
-  ${block7}
-  ${block8}
-  ${block9}
-  ${block10}
-  ${block11}
-</div>`;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 3.5: PARECER PRELIMINAR
-// ═══════════════════════════════════════════════════════════════════════════════
-function secParecer(p: PDFReportParams): string {
-  // Resolve data from multiple possible sources
-  const parecerObj = p.aiAnalysis?.parecer;
-  const parecerIsObj = parecerObj && typeof parecerObj === "object";
-
-  const textoCompleto = parecerIsObj ? (parecerObj as { textoCompleto?: string }).textoCompleto : undefined;
-
-  const resumo = p.resumoExecutivo
-    || (parecerIsObj ? (parecerObj as { resumoExecutivo?: string }).resumoExecutivo : undefined)
-    || p.aiAnalysis?.sinteseExecutiva
-    || "";
-
-  const pontosFortes: string[] = p.pontosFortes?.length
-    ? p.pontosFortes
-    : (parecerIsObj ? ((parecerObj as { pontosFortes?: string[] }).pontosFortes || []) : []);
-
-  const pontosFracos: string[] = p.pontosFracos?.length
-    ? p.pontosFracos
-    : (parecerIsObj ? ((parecerObj as { pontosNegativosOuFracos?: string[] }).pontosNegativosOuFracos || []) : []);
-
-  const perguntasVisita: { pergunta: string; contexto: string }[] = p.perguntasVisita?.length
-    ? p.perguntasVisita
-    : (parecerIsObj ? ((parecerObj as { perguntasVisita?: { pergunta: string; contexto: string }[] }).perguntasVisita || []) : []);
-
-  const rc = p.finalRating >= 7 ? "#16a34a" : p.finalRating >= 4 ? "#d97706" : "#dc2626";
-
-  // Diagnostico: lista o que veio do Gemini e o que nao veio
-  const aiOk = !!p.aiAnalysis;
-  const fieldsStatus = [
-    { label: "Resumo executivo", ok: !!resumo },
-    { label: "Análise completa", ok: !!textoCompleto },
-    { label: "Pontos fortes", ok: pontosFortes.length > 0 },
-    { label: "Pontos fracos", ok: pontosFracos.length > 0 },
-    { label: "Perguntas para visita", ok: perguntasVisita.length > 0 },
-  ];
-  const allEmpty = !resumo && !textoCompleto && pontosFortes.length === 0 && pontosFracos.length === 0 && perguntasVisita.length === 0;
-
-  // Banner placeholder quando o parecer nao foi gerado/veio vazio
-  const placeholderBanner = allEmpty ? `<div style="padding:16px 20px;background:#fffbeb;border-left:4px solid #d97706;border-radius:0 8px 8px 0;margin-bottom:20px">
-    <div style="font-size:13px;font-weight:800;color:#92400e;margin-bottom:8px">${aiOk ? "Parecer da IA veio vazio" : "Parecer ainda não foi gerado pela IA"}</div>
-    <div style="font-size:11px;color:#78350f;line-height:1.7;margin-bottom:10px">${aiOk
-      ? "O endpoint /api/analyze foi chamado mas o Gemini não retornou nenhum dos campos esperados (resumo, pontos fortes/fracos, análise completa, perguntas de visita). Provavel falha de parsing JSON ou rate limit. Tente clicar em <strong>Analisar com IA</strong> novamente."
-      : "Antes de gerar o relatório, clique no botão <strong>Analisar com IA</strong> para que o Gemini produza o parecer (resumo executivo, pontos fortes, pontos fracos, análise completa e perguntas de visita)."}
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:10px">
-      ${fieldsStatus.map(f => `<div style="padding:6px 8px;background:${f.ok ? '#dcfce7' : '#fee2e2'};border:1px solid ${f.ok ? '#bbf7d0' : '#fecaca'};border-radius:6px;text-align:center">
-        <div style="font-size:9px;font-weight:700;color:${f.ok ? '#166534' : '#991b1b'}">${f.ok ? '✓' : '✗'} ${esc(f.label)}</div>
-      </div>`).join("")}
-    </div>
-  </div>` : "";
-
-  return `<div class="sec">${secHdr("03b","Parecer Preliminar")}
-  ${placeholderBanner}
-
-  <!-- Decision banner with rating -->
-  <div style="display:flex;align-items:center;justify-content:center;gap:24px;padding:20px;margin-bottom:20px;background:linear-gradient(135deg,#f8f9fb 0%,#edf2fb 100%);border-radius:12px;border:1px solid #e0e4ec">
-    <div style="text-align:center">
-      <div style="font-size:36px;font-weight:900;color:${rc};line-height:1">${p.finalRating}</div>
-      <div style="font-size:9px;color:#9ca3af;margin-top:2px">/ 10</div>
-    </div>
-    <div style="width:1px;height:50px;background:#e0e4ec"></div>
-    <div>${decisaoBadge(p.decision, true)}</div>
-  </div>
-
-  ${resumo ? `<!-- Resumo Executivo -->
-  ${subTitle("Resumo Executivo")}
-  <div style="background:linear-gradient(135deg,#f8f9fb 0%,#edf2fb 100%);border-left:4px solid #203B88;border-radius:0 8px 8px 0;padding:16px 18px;font-size:12px;line-height:1.8;color:#374151;page-break-inside:avoid;margin-bottom:20px">${esc(resumo)}</div>` : ""}
-
-  ${textoCompleto ? `<!-- Analise Completa -->
-  ${subTitle("Analise de Credito")}
-  <div style="background:#fff;border:1px solid #e0e4ec;border-radius:8px;padding:18px 20px;font-size:11.5px;line-height:1.9;color:#374151;page-break-inside:avoid;margin-bottom:20px;text-align:justify">${textoCompleto.split(/\n\n|\n/).filter(p => p.trim()).map(p => `<p style="margin:0 0 12px 0">${esc(p.trim())}</p>`).join("")}</div>` : ""}
-
-  ${pontosFortes.length > 0 ? `<!-- Pontos Fortes -->
-  ${subTitle("Pontos Fortes")}
-  <div style="margin-bottom:20px">${pontosFortes.map(pt =>
-    `<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 14px;margin-bottom:8px;background:#f0fdf4;border-left:4px solid #22c55e;border-radius:0 8px 8px 0;page-break-inside:avoid">
-      <span style="color:#22c55e;font-size:14px;font-weight:900;flex-shrink:0;line-height:1.3">\u2713</span>
-      <span style="font-size:11px;color:#166534;line-height:1.6;font-weight:500">${esc(pt)}</span>
-    </div>`
-  ).join("")}</div>` : ""}
-
-  ${pontosFracos.length > 0 ? `<!-- Pontos Fracos -->
-  ${subTitle("Pontos Fracos")}
-  <div style="margin-bottom:20px">${pontosFracos.map(pt =>
-    `<div style="display:flex;align-items:flex-start;gap:10px;padding:10px 14px;margin-bottom:8px;background:#fff1f2;border-left:4px solid #ef4444;border-radius:0 8px 8px 0;page-break-inside:avoid">
-      <span style="color:#ef4444;font-size:14px;font-weight:900;flex-shrink:0;line-height:1.3">\u2717</span>
-      <span style="font-size:11px;color:#991b1b;line-height:1.6;font-weight:500">${esc(pt)}</span>
-    </div>`
-  ).join("")}</div>` : ""}
-
-  ${perguntasVisita.length > 0 ? `<!-- Perguntas para a Visita -->
-  ${subTitle("Perguntas para a Visita")}
-  <div style="margin-bottom:20px">${perguntasVisita.map((pv, i) =>
-    `<div style="padding:12px 14px;margin-bottom:10px;background:#fff;border:1px solid #e0e4ec;border-radius:8px;page-break-inside:avoid">
-      <div style="display:flex;align-items:flex-start;gap:10px">
-        <span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;background:#203B88;color:#fff;font-size:10px;font-weight:800;border-radius:50%;flex-shrink:0">${i + 1}</span>
-        <div>
-          <div style="font-size:11px;font-weight:700;color:#111827;line-height:1.5">${esc(pv.pergunta)}</div>
-          ${pv.contexto ? `<div style="font-size:9.5px;color:#9ca3af;margin-top:4px;line-height:1.5;font-style:italic">${esc(pv.contexto)}</div>` : ""}
-        </div>
+  // Map/address
+  let mapHtml = "";
+  if (params.streetViewBase64 || params.mapStaticBase64) {
+    const imgSrc = params.streetViewBase64 ?? params.mapStaticBase64 ?? "";
+    mapHtml = `
+    <div class="map-row">
+      <div class="map-frame"><img src="${esc(imgSrc)}" alt="Localização" /></div>
+      <div class="addr-box">
+        <div class="l">Endereço</div>
+        <div class="a">${esc(cnpj?.endereco ?? "—")}</div>
+        <div class="t">Tipo: ${esc(cnpj?.tipoEmpresa ?? "Matriz")}</div>
       </div>
-    </div>`
-  ).join("")}</div>` : ""}
+    </div>`;
+  } else {
+    mapHtml = `<div class="addr-box" style="margin-bottom:18px">
+      <div class="l">Endereço</div>
+      <div class="a">${esc(cnpj?.endereco ?? "—")}</div>
+      <div class="t">Tipo: ${esc(cnpj?.tipoEmpresa ?? "Matriz")}</div>
+    </div>`;
+  }
 
-</div>`;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 4: PARAMETROS OPERACIONAIS DO CEDENTE
-// ═══════════════════════════════════════════════════════════════════════════════
-function secParametros(p: PDFReportParams): string {
-  const v=p.data.relatorioVisita;
-  const cl=p.creditLimit;
-  const params:[string,string][]=[
-    ["Taxa Convencional",v?.taxaConvencional?v.taxaConvencional+"%":"\u2014"],
-    ["Taxa Comissaria",v?.taxaComissaria?v.taxaComissaria+"%":"\u2014"],
-    ["Limite Total",fmtMoney(v?.limiteTotal||cl?.limiteAjustado)],
-    ["Limite Convencional",fmtMoney(v?.limiteConvencional)],
-    ["Limite Comissaria",fmtMoney(v?.limiteComissaria)],
-    ["Limite por Sacado",fmtMoney(v?.limitePorSacado||cl?.limiteConcentracao)],
-    ["Ticket Medio",fmtMoney(v?.ticketMedio)],
-    ["Valor Cobranca de Boleto",fmt(v?.valorCobrancaBoleto)],
-    ["Prazo Recompra",v?.prazoRecompraCedente?v.prazoRecompraCedente+" dias":"\u2014"],
-    ["Envio Cartorio",v?.prazoEnvioCartorio?v.prazoEnvioCartorio+" dias":"\u2014"],
-    ["Prazo Maximo",v?.prazoMaximoOp?v.prazoMaximoOp+" dias":(cl?.prazo?cl.prazo+" dias":"\u2014")],
-    ["Cobranca TAC",fmt(v?.cobrancaTAC)],
-    ["Tranche",fmtMoney(v?.tranche)],
-    ["Prazo em Tranche",fmt(v?.prazoTranche)],
-  ];
-  return `<div class="sec">${secHdr("04","Parametros Operacionais do Cedente")}
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
-    ${params.map(([l,v2])=>dataCard(l,v2)).join("")}
-  </div>
-</div>`;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 5: CONFORMIDADE COM AS POLITICAS DO FUNDO
-// ═══════════════════════════════════════════════════════════════════════════════
-function secFundo(p: PDFReportParams): string {
-  if(!p.fundValidation||!p.fundValidation.criteria.length) return "";
-  const fv=p.fundValidation;
-  const aprov=fv.failCount===0&&!fv.hasEliminatoria;
-  const vClr=aprov?"#166534":"#991b1b";
-  const vBg=aprov?"#f0fdf4":"#fff1f2";
-  const vBrd=aprov?"#86efac":"#fca5a5";
-
-  // Collect failed eliminatorio criteria for alert boxes
-  const failedEliminatorios = fv.criteria.filter((cr: FundCriterion) => cr.eliminatoria && cr.status !== "ok");
-
-  return `<div class="sec">${secHdr("05","Conformidade com as Politicas do Fundo")}
-  <table style="${TS}">
-    <thead>${row(["Criterio","Limite","Apurado","Status"],true)}</thead>
-    <tbody>${fv.criteria.map((cr: FundCriterion)=>{
-      const ok=cr.status==="ok",err=cr.status==="error";
-      const st=ok?"ok":err?"fail":"warn";
-      const stLabel=ok?"APROVADO":err?"REPROVADO":"ATENCAO";
-      return `<tr><td style="border-left:3px solid ${ok?"#16a34a":err?"#dc2626":"#d97706"}"><strong>${esc(cr.label)}</strong></td><td>${esc(cr.threshold)}</td><td style="font-weight:700">${esc(cr.actual||"\u2014")}</td><td style="text-align:center">${statusBadge(stLabel,st)}</td></tr>`;
-    }).join("")}</tbody>
-  </table>
-  ${failedEliminatorios.length > 0 ? failedEliminatorios.map((cr: FundCriterion) =>
-    `<div style="display:flex;gap:12px;align-items:flex-start;background:#fff1f2;border-left:5px solid #ef4444;border-radius:0 8px 8px 0;padding:12px 16px;margin-bottom:10px;page-break-inside:avoid;box-shadow:0 1px 4px rgba(0,0,0,.04)">
-      <span style="font-size:18px;flex-shrink:0;line-height:1">\u26A0\uFE0F</span>
+  const content = `
+    <!-- 1. Empresa + Rating -->
+    <div class="emp">
       <div>
-        <div style="font-size:8.5px;font-weight:800;color:#991b1b;text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px">CRITERIO ELIMINATORIO NAO ATENDIDO</div>
-        <div style="font-size:11px;color:#991b1b;line-height:1.55">${esc(cr.label)}${cr.actual ? ". Apurado: " + esc(cr.actual) : ""}</div>
+        <div class="emp-name">${esc(cnpj?.razaoSocial ?? "—")}</div>
+        ${cnpj?.nomeFantasia ? `<div class="emp-fan">${esc(cnpj.nomeFantasia)}</div>` : ""}
+        <div class="emp-cnpj">CNPJ: <b>${fmtCnpj(cnpj?.cnpj)}</b> <span class="sit${isAtiva ? "" : " inactive"}">${esc(cnpj?.situacaoCadastral ?? "—")}</span></div>
       </div>
-    </div>`
-  ).join("") : ""}
-  <div style="border-radius:10px;padding:16px 20px;background:${vBg};border:2px solid ${vBrd};page-break-inside:avoid;box-shadow:0 2px 8px rgba(0,0,0,.04)">
-    <div style="font-size:14px;font-weight:800;color:${vClr}">${aprov?"\u2713 ELEGIVEL - Todos os criterios atendidos":"\u2717 NAO ELEGIVEL - Criterio(s) nao atendido(s)"}</div>
-    <div style="font-size:10px;color:#9ca3af;margin-top:4px">${fv.passCount} de ${fv.criteria.length} criterios aprovados</div>
-  </div>
-</div>`;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 6: FATURAMENTO
-// ═══════════════════════════════════════════════════════════════════════════════
-function secFaturamento(p: PDFReportParams): string {
-  const fat=p.data.faturamento;
-  if(!fat||!fat.meses?.length) return `<div class="sec">${secHdr("06","Faturamento")}<div style="color:#9ca3af;font-size:11px">Dados de faturamento nao disponiveis.</div></div>`;
-  const meses=sortMeses(fat.meses);
-
-  // FMM - correct calculation (always /12)
-  const fmmNum = computeFmm(fat);
-
-  // Last 12 months for media and total
-  const validMeses = meses.filter(m => m?.mes && m?.valor);
-  const last12 = validMeses.slice(-12);
-  const values12 = last12.map(m => numVal(m.valor));
-  const total12 = values12.reduce((s, v) => s + v, 0);
-  const media12 = values12.length > 0 ? total12 / values12.length : 0;
-
-  const lastThree = values12.slice(-3);
-  const prevThree = values12.slice(-6, -3);
-  const tendencia = prevThree.length >= 3 && lastThree.length >= 3
-    ? (lastThree.reduce((s,v)=>s+v,0)/3 > prevThree.reduce((s,v)=>s+v,0)/3 ? "\u25B2 Crescente" : "\u25BC Decrescente")
-    : "\u2014";
-  const tendColor = tendencia.includes("Crescente") ? "#16a34a" : tendencia.includes("Decrescente") ? "#dc2626" : "#6b7280";
-
-  // Trend indicator: last 3 months vs previous 3 months
-  const trendHtml = (() => {
-    if (prevThree.length < 3 || lastThree.length < 3) return "";
-    const sumLast = lastThree.reduce((s, v) => s + v, 0);
-    const sumPrev = prevThree.reduce((s, v) => s + v, 0);
-    if (sumPrev === 0) return "";
-    const pctChange = ((sumLast - sumPrev) / sumPrev) * 100;
-    const absPct = Math.abs(pctChange).toFixed(1);
-    if (pctChange > 5) {
-      return `<div style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:99px;background:#dcfce7;border:1px solid #bbf7d0;margin-bottom:14px">
-        <span style="font-size:14px;color:#16a34a;font-weight:900">\u2191</span>
-        <span style="font-size:10px;font-weight:700;color:#166534">Crescimento de ${absPct}% (ultimos 3 meses vs anteriores)</span>
-      </div>`;
-    }
-    if (pctChange < -5) {
-      return `<div style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:99px;background:#fee2e2;border:1px solid #fecaca;margin-bottom:14px">
-        <span style="font-size:14px;color:#dc2626;font-weight:900">\u2193</span>
-        <span style="font-size:10px;font-weight:700;color:#991b1b">Queda de ${absPct}% (ultimos 3 meses vs anteriores)</span>
-      </div>`;
-    }
-    return `<div style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:99px;background:#f3f4f6;border:1px solid #e5e7eb;margin-bottom:14px">
-      <span style="font-size:14px;color:#6b7280;font-weight:900">\u2192</span>
-      <span style="font-size:10px;font-weight:700;color:#6b7280">Estavel (variacao de ${absPct}%)</span>
-    </div>`;
-  })();
-
-  return `<div class="sec">${secHdr("06","Faturamento")}
-  ${grid(4,[
-    kpi("FMM 12m", fmmNum > 0 ? fmtMoneyRound(String(fmmNum)) : "\u2014", "#203B88", "media mensal"),
-    kpi("Total (12m)", fmtMoneyRound(String(total12)), "#111827", `soma ultimos 12 meses`),
-    kpi("Meses", String(last12.length), "#111827", media12 > 0 ? `media ${fmtMoneyRound(String(media12))}` : undefined),
-    kpi("Tendencia", tendencia, tendColor),
-  ])}
-  ${trendHtml}
-  ${faturamentoChart(meses, fmmNum > 0 ? fmmNum : undefined)}
-  <table style="${TS}">
-    <thead>${row(["Mes","Faturamento (R$)"],true)}</thead>
-    <tbody>${meses.map(m=>row([esc(m.mes),`<span class="money">${fmtMoney(m.valor)}</span>`])).join("")}</tbody>
-  </table>
-</div>`;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 7: PROTESTOS
-// ═══════════════════════════════════════════════════════════════════════════════
-function secProtestos(p: PDFReportParams): string {
-  const prot=p.data.protestos;
-  if(!prot) return "";
-  const vig=parseInt(prot.vigentesQtd||"0");
-  const reg=parseInt(prot.regularizadosQtd||"0");
-  if(vig===0&&reg===0&&(!prot.detalhes||prot.detalhes.length===0)) return "";
-  const detalhes=prot.detalhes||[];
-  const top10Rec=detalhes.slice(0,10);
-  const top10Val=[...detalhes].sort((a,b)=>numVal(b.valor)-numVal(a.valor)).slice(0,10);
-
-  // Distribuicao Temporal - correct date handling
-  const now = new Date();
-  const parseDate = (d: string | undefined): Date | null => {
-    if (!d) return null;
-    // Handle DD/MM/YYYY format explicitly
-    const parts = d.split("/");
-    if (parts.length === 3) {
-      const day = parseInt(parts[0], 10);
-      const month = parseInt(parts[1], 10) - 1;
-      const year = parseInt(parts[2], 10);
-      const dt = new Date(year, month, day);
-      return isNaN(dt.getTime()) ? null : dt;
-    }
-    const t = new Date(d);
-    return isNaN(t.getTime()) ? null : t;
-  };
-  const daysDiff = (d: Date): number => Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
-
-  type DistTemp = { label: string; qtd: number; valor: number };
-  const temporal: DistTemp[] = [
-    { label: "Ultimo mes (30 dias)", qtd: 0, valor: 0 },
-    { label: "Ultimos 3 meses (90 dias)", qtd: 0, valor: 0 },
-    { label: "Ultimos 12 meses (365 dias)", qtd: 0, valor: 0 },
-    { label: "Mais de 12 meses", qtd: 0, valor: 0 },
-  ];
-  detalhes.forEach(d => {
-    const dt = parseDate(d.data);
-    const v = Number(numVal(d.valor)) || 0;
-    // Sanity: ignora valores absurdos
-    if (!isFinite(v) || Math.abs(v) > 100_000_000_000) return;
-    if (!dt) { temporal[3].qtd++; temporal[3].valor = Number(temporal[3].valor) + v; return; }
-    const days = daysDiff(dt);
-    if (days <= 30) { temporal[0].qtd++; temporal[0].valor = Number(temporal[0].valor) + v; }
-    else if (days <= 90) { temporal[1].qtd++; temporal[1].valor = Number(temporal[1].valor) + v; }
-    else if (days <= 365) { temporal[2].qtd++; temporal[2].valor = Number(temporal[2].valor) + v; }
-    else { temporal[3].qtd++; temporal[3].valor = Number(temporal[3].valor) + v; }
-  });
-
-  // Distribuicao por Faixa de Valor
-  type DistFaixa = { label: string; qtd: number; valor: number };
-  const faixas: DistFaixa[] = [
-    { label: "Abaixo de R$ 1.000", qtd: 0, valor: 0 },
-    { label: "R$ 1.000 a R$ 10.000", qtd: 0, valor: 0 },
-    { label: "R$ 10.000 a R$ 50.000", qtd: 0, valor: 0 },
-    { label: "R$ 50.000 a R$ 100.000", qtd: 0, valor: 0 },
-    { label: "Acima de R$ 100.000", qtd: 0, valor: 0 },
-  ];
-  detalhes.forEach(d => {
-    const v = Number(numVal(d.valor)) || 0;
-    // Sanity: ignora valores absurdos (> R$ 100 bilhões)
-    if (!isFinite(v) || Math.abs(v) > 100_000_000_000) return;
-    if (v < 1000) { faixas[0].qtd++; faixas[0].valor = Number(faixas[0].valor) + v; }
-    else if (v < 10000) { faixas[1].qtd++; faixas[1].valor = Number(faixas[1].valor) + v; }
-    else if (v < 50000) { faixas[2].qtd++; faixas[2].valor = Number(faixas[2].valor) + v; }
-    else if (v < 100000) { faixas[3].qtd++; faixas[3].valor = Number(faixas[3].valor) + v; }
-    else { faixas[4].qtd++; faixas[4].valor = Number(faixas[4].valor) + v; }
-  });
-
-  const hasDistributions = detalhes.length > 0;
-
-  return `<div class="sec">${secHdr("07","Protestos")}
-  ${grid(4,[
-    kpi("Vigentes Qtd",String(vig),vig>0?"#dc2626":"#111827",undefined,vig>0?"#dc2626":"#203B88"),
-    kpi("Vigentes R$",fmtMoneyRound(prot.vigentesValor),vig>0?"#dc2626":"#111827",undefined,vig>0?"#dc2626":"#203B88"),
-    kpi("Regularizados Qtd",String(reg),"#111827",undefined,"#73B815"),
-    kpi("Regularizados R$",fmtMoneyRound(prot.regularizadosValor),"#111827",undefined,"#73B815"),
-  ])}
-  ${hasDistributions ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-    <div>
-      ${subTitle("Distribuicao Temporal")}
-      <table style="${TS}">
-        <thead>${row(["Periodo","Qtd","Valor"],true)}</thead>
-        <tbody>${temporal.map(t => row([esc(t.label), String(t.qtd), fmtMoneyRound(String(t.valor))])).join("")}</tbody>
-      </table>
-    </div>
-    <div>
-      ${subTitle("Distribuicao por Faixa de Valor")}
-      <table style="${TS}">
-        <thead>${row(["Faixa","Qtd","Valor"],true)}</thead>
-        <tbody>${faixas.map(f => row([esc(f.label), String(f.qtd), fmtMoneyRound(String(f.valor))])).join("")}</tbody>
-      </table>
-    </div>
-  </div>` : ""}
-  ${top10Rec.length>0?`${subTitle("Top 10 Mais Recentes")}
-  <table style="${TS}"><thead>${row(["Data","Credor","Valor","Regularizado"],true)}</thead>
-  <tbody>${top10Rec.map(d=>row([fmt(d.data),esc(d.apresentante||d.credor||"\u2014"),fmtMoney(d.valor),d.regularizado?statusBadge("Sim","ok"):statusBadge("Nao","fail")])).join("")}</tbody></table>`:""}
-  ${top10Val.length>0?`${subTitle("Top 10 por Valor")}
-  <table style="${TS}"><thead>${row(["Data","Credor","Valor","Regularizado"],true)}</thead>
-  <tbody>${top10Val.map(d=>row([fmt(d.data),esc(d.apresentante||d.credor||"\u2014"),fmtMoney(d.valor),d.regularizado?statusBadge("Sim","ok"):statusBadge("Nao","fail")])).join("")}</tbody></table>`:""}
-</div>`;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 8: PROCESSOS JUDICIAIS
-// ═══════════════════════════════════════════════════════════════════════════════
-function secProcessos(p: PDFReportParams): string {
-  const proc=p.data.processos;
-  if(!proc) return `<div class="sec">${secHdr("08","Processos Judiciais")}<div style="color:#9ca3af;font-size:11px">Dados nao disponiveis.</div></div>`;
-  const total=parseInt(proc.passivosTotal||"0");
-  const ativo=parseInt(proc.poloAtivoQtd||"0");
-  const passiv=parseInt(proc.poloPassivoQtd||"0");
-  const temRJ=proc.temRJ||proc.temFalencia;
-
-  function renderProcessoStatus(status: string | undefined): string {
-    const translated = translateProcessoStatus(status);
-    const lower = (status || "").toLowerCase();
-    const type: "ok"|"fail"|"warn"|"info" = lower.includes("arquivado") || lower.includes("transitado") ? "ok"
-      : lower.includes("andamento") || lower.includes("distribuido") ? "warn"
-      : "info";
-    return statusBadge(translated, type);
-  }
-
-  return `<div class="sec">${secHdr("08","Processos Judiciais")}
-  ${temRJ?alertBox("Pedido de RJ/Falencia identificado","ALTA"):""}
-  ${grid(4,[
-    kpi("Total Processos",String(total),total>20?"#dc2626":"#111827"),
-    kpi("Polo Ativo",String(ativo),"#203B88"),
-    kpi("Polo Passivo",String(passiv),passiv>10?"#dc2626":"#111827"),
-    kpi("Falencia/RJ",temRJ?"SIM":"NAO",temRJ?"#dc2626":"#16a34a"),
-  ])}
-  ${proc.distribuicao?.length?`${subTitle("Distribuicao por Tipo")}
-  <table style="${TS}"><thead>${row(["Tipo","Qtd","%"],true)}</thead>
-  <tbody>${proc.distribuicao.map(d=>{
-    const t=parseInt(d.qtd||"0");
-    const pct=total>0?Math.round(t/total*100):0;
-    return row([esc(d.tipo),fmt(d.qtd),pct+"%"]);
-  }).join("")}</tbody></table>`:""}
-  ${(proc.top10Recentes as ProcessoItem[]|undefined)?.length?`${subTitle("Top 10 Mais Recentes")}
-  <table style="${TS}"><thead>${row(["Tipo","Distrib.","Ult. Movto.","Assunto","Valor","Status","Fase"],true)}</thead>
-  <tbody>${(proc.top10Recentes as ProcessoItem[]).slice(0,10).map(pr=>row([esc(pr.tipo),fmt(pr.data),fmt((pr as {ultimaMovimentacao?:string}).ultimaMovimentacao),esc(pr.assunto),fmtMoney(pr.valor),renderProcessoStatus(pr.status),fmt((pr as {fase?:string}).fase)])).join("")}</tbody></table>`:""}
-</div>`;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 9: TOP 10 POR VALOR (PROCESSOS)
-// ═══════════════════════════════════════════════════════════════════════════════
-function secProcessosTop10Valor(p: PDFReportParams): string {
-  const proc=p.data.processos;
-  const top=(proc?.top10Valor as ProcessoItem[]|undefined);
-  if(!top?.length) return "";
-
-  function renderProcessoStatus(status: string | undefined): string {
-    const translated = translateProcessoStatus(status);
-    const lower = (status || "").toLowerCase();
-    const type: "ok"|"fail"|"warn"|"info" = lower.includes("arquivado") || lower.includes("transitado") ? "ok"
-      : lower.includes("andamento") || lower.includes("distribuido") ? "warn"
-      : "info";
-    return statusBadge(translated, type);
-  }
-
-  return `<div class="sec">${secHdr("09","Processos - Top 10 por Valor")}
-  <table style="${TS}"><thead>${row(["Tipo","Distrib.","Ult. Movto.","Assunto","Valor","Status","Fase"],true)}</thead>
-  <tbody>${top.slice(0,10).map(pr=>row([esc(pr.tipo),fmt(pr.data),fmt((pr as {ultimaMovimentacao?:string}).ultimaMovimentacao),esc(pr.assunto),fmtMoney(pr.valor),renderProcessoStatus(pr.status),fmt((pr as {fase?:string}).fase)])).join("")}</tbody></table>
-
-  <!-- Glossario de Status/Fase -->
-  <div style="margin-top:12px;padding:14px 18px;background:#f8f9fb;border:1px solid #e0e4ec;border-radius:8px;page-break-inside:avoid">
-    <div style="font-size:9px;font-weight:800;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Glossario</div>
-    <div style="font-size:10px;color:#6b7280;line-height:1.8">
-      <div><strong style="color:#374151">Definitivo:</strong> Decisao transitada em julgado, sem possibilidade de recurso</div>
-      <div><strong style="color:#374151">Confirmada:</strong> Decisao mantida em instancia superior</div>
-      <div><strong style="color:#374151">Primeiro Grau:</strong> Processo em tramitacao na primeira instancia</div>
-      <div><strong style="color:#374151">Segundo Grau:</strong> Processo em fase de recurso/apelacao</div>
-      <div><strong style="color:#374151">Decurso de Prazo:</strong> Prazo processual esgotado sem manifestacao</div>
-      <div><strong style="color:#374151">Juizado Especial:</strong> Tramita no juizado de pequenas causas</div>
-    </div>
-  </div>
-</div>`;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 10: CCF
-// ═══════════════════════════════════════════════════════════════════════════════
-function secCcf(p: PDFReportParams): string {
-  const ccf=p.data.ccf;
-  if(!ccf||ccf.qtdRegistros===0) return "";
-  return `<div class="sec">${secHdr("10","CCF - Cheques Sem Fundo")}
-  ${grid(3,[
-    kpi("Total Ocorrencias",String(ccf.qtdRegistros||0),"#dc2626"),
-    kpi("Bancos Registrados",String(ccf.bancos?.length||0)),
-    kpi("Situacao",ccf.qtdRegistros>0?"Com ocorrencias":"Sem ocorrencias"),
-  ])}
-  ${ccf.bancos?.length?`<table style="${TS}"><thead>${row(["Banco","Quantidade","Ultima Ocorrencia","Motivo"],true)}</thead>
-  <tbody>${ccf.bancos.map(b=>row([esc(b.banco),String(b.quantidade),fmt(b.dataUltimo),fmt(b.motivo)])).join("")}</tbody></table>`:""}
-</div>`;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 11: CURVA ABC
-// ═══════════════════════════════════════════════════════════════════════════════
-function secCurvaAbc(p: PDFReportParams): string {
-  const abc=p.data.curvaABC;
-  if(!abc||!abc.clientes?.length) return "";
-  const top5=abc.clientes.slice(0,5);
-
-  // Concentration alert
-  const concTop3Num = numVal(abc.concentracaoTop3);
-  const showAlert = !!(abc as { alertaConcentracao?: boolean }).alertaConcentracao || concTop3Num > 60;
-
-  return `<div class="sec">${secHdr("11","Curva ABC")}
-  ${showAlert ? alertBox(`Alta concentracao de receita: os 3 maiores clientes representam ${concTop3Num > 0 ? concTop3Num.toFixed(0) + "%" : fmt(abc.concentracaoTop3)} do faturamento total.`, "MODERADA") : ""}
-  ${grid(3,[
-    kpi("Top 3 Clientes %",fmt(abc.concentracaoTop3)),
-    kpi("Top 5 Clientes %",fmt(abc.concentracaoTop5)),
-    kpi("Total Clientes",String(abc.totalClientesNaBase||abc.totalClientesExtraidos||abc.clientes.length)),
-  ])}
-  <table style="${TS}"><thead>${row(["#","Cliente","Faturamento","% Receita","Classe"],true)}</thead>
-  <tbody>${top5.map((c,i)=>row([String(c.posicao||i+1),`<strong>${esc(c.nome)}</strong>`,fmtMoney(c.valorFaturado),fmt(c.percentualReceita),statusBadge(c.classe,c.classe==="A"?"ok":c.classe==="B"?"warn":"info")])).join("")}</tbody></table>
-</div>`;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 12: CARTAO CNPJ
-// ═══════════════════════════════════════════════════════════════════════════════
-function secCnpj(p: PDFReportParams): string {
-  const c=p.data.cnpj;
-  if(!c) return "";
-  const ok=(c.situacaoCadastral||"").toUpperCase().includes("ATIVA");
-  const cap=p.data.qsa?.capitalSocial||c.capitalSocialCNPJ||"";
-  return `<div class="sec">${secHdr("12","Cartao CNPJ")}
-  <div style="background:linear-gradient(135deg,#203B88 0%,#2a4da6 100%);border-radius:12px;padding:22px 26px;margin-bottom:18px;page-break-inside:avoid;box-shadow:0 4px 12px rgba(32,59,136,.2)">
-    <div style="font-family:'Open Sans',Arial,sans-serif;font-size:22px;font-weight:800;color:#fff;margin-bottom:4px;letter-spacing:.03em">${esc(c.razaoSocial||"\u2014")}</div>
-    ${c.nomeFantasia&&c.nomeFantasia!==c.razaoSocial?`<div style="font-size:11px;color:rgba(255,255,255,.45);font-style:italic;margin-bottom:4px">"${esc(c.nomeFantasia)}"</div>`:""}
-    <div style="font-size:12px;color:rgba(255,255,255,.5);margin-bottom:8px">CNPJ ${fmtCnpj(c.cnpj)}</div>
-    <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:6px;background:${ok?"rgba(34,197,94,.15)":"rgba(239,68,68,.15)"};color:${ok?"#4ade80":"#fca5a5"};font-size:9px;font-weight:700;letter-spacing:.04em;border:1px solid ${ok?"rgba(34,197,94,.3)":"rgba(239,68,68,.3)"}"><span style="font-size:10px">${ok?"\u2713":"\u2717"}</span> ${esc(c.situacaoCadastral||"\u2014")}</span>
-  </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
-    ${dataCard("Razao Social",`<strong>${esc(c.razaoSocial||"\u2014")}</strong>`)}
-    ${dataCard("Nome Fantasia",fmt(c.nomeFantasia))}
-    ${dataCard("Data de Abertura",fmt(c.dataAbertura))}
-    ${dataCard("Natureza Juridica",fmt(c.naturezaJuridica))}
-    ${dataCard("Porte",fmt(c.porte))}
-    ${dataCard("Capital Social",fmtMoney(cap))}
-    ${c.tipoEmpresa?dataCard("Tipo Empresa",fmt(c.tipoEmpresa)):""}
-    ${c.telefone?dataCard("Telefone",fmt(c.telefone)):""}
-    ${c.email?dataCard("Email",fmt(c.email)):""}
-    ${dataCard("Data Situacao",fmt(c.dataSituacaoCadastral))}
-  </div>
-  ${c.endereco?`<div style="margin-bottom:12px">${dataCard("Endereco Principal",esc(c.endereco))}</div>`:""}
-  ${c.cnaePrincipal?`<div style="margin-bottom:12px">${dataCard("CNAE Principal",esc(c.cnaePrincipal))}</div>`:""}
-  ${c.cnaeSecundarios?`<div style="margin-bottom:12px">${dataCard("CNAEs Secundarios",esc(c.cnaeSecundarios))}</div>`:""}
-  ${p.streetViewBase64||p.mapStaticBase64?`<div style="display:grid;grid-template-columns:${p.streetViewBase64&&p.mapStaticBase64?"1fr 1fr":"1fr"};gap:12px;margin-top:12px;margin-bottom:16px;page-break-inside:avoid">
-    ${p.mapStaticBase64?`<div><div style="font-size:9px;color:#6b7280;margin-bottom:4px;font-weight:700;text-transform:uppercase;letter-spacing:.04em">LOCALIZACAO</div><img src="data:image/jpeg;base64,${p.mapStaticBase64}" style="width:100%;border-radius:8px;border:1px solid #e0e4ec" /></div>`:""}
-    ${p.streetViewBase64?`<div><div style="font-size:9px;color:#6b7280;margin-bottom:4px;font-weight:700;text-transform:uppercase;letter-spacing:.04em">STREET VIEW</div><img src="data:image/jpeg;base64,${p.streetViewBase64}" style="width:100%;border-radius:8px;border:1px solid #e0e4ec" /></div>`:""}
-  </div>`:""}
-</div>`;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 13: QUADRO SOCIETARIO (QSA)
-// ═══════════════════════════════════════════════════════════════════════════════
-function secQsa(p: PDFReportParams): string {
-  const qsa=p.data.qsa;
-  if(!qsa?.quadroSocietario?.length) return "";
-  const cap=qsa.capitalSocial||p.data.cnpj?.capitalSocialCNPJ||"";
-  return `<div class="sec">${secHdr("13","Quadro Societario")}
-  ${cap?`<div style="margin-bottom:16px;padding:14px 18px;background:linear-gradient(135deg,#f8f9fb 0%,#edf2fb 100%);border-radius:8px;border:1px solid #e0e4ec;font-size:12px;color:#374151">Capital Social: <strong style="font-size:14px;color:#203B88">${fmtMoney(cap)}</strong></div>`:""}
-  <table style="${TS}">
-    <thead>${row(["Nome","CPF/CNPJ","Qualificacao","Participacao"],true)}</thead>
-    <tbody>${qsa.quadroSocietario.filter(s=>s.nome).map(s=>{
-      const digits = s.cpfCnpj ? s.cpfCnpj.replace(/\D/g,"") : "";
-      const docFormatted = digits.length > 11 ? fmtCnpj(s.cpfCnpj) : digits.length > 0 ? fmtCpf(s.cpfCnpj) : "\u2014";
-      const partStr = s.participacao != null
-        ? (String(s.participacao).includes("%") ? esc(String(s.participacao)) : esc(String(s.participacao)) + "%")
-        : "\u2014";
-      return row([
-        `<strong>${esc(s.nome)}</strong>`,
-        docFormatted,
-        fmt(s.qualificacao),
-        partStr,
-      ]);
-    }).join("")}</tbody>
-  </table>
-</div>`;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 14: CONTRATO SOCIAL
-// ═══════════════════════════════════════════════════════════════════════════════
-function secContrato(p: PDFReportParams): string {
-  const ct=p.data.contrato;
-  if(!ct) return "";
-  return `<div class="sec">${secHdr("14","Contrato Social")}
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
-    ${ct.capitalSocial?dataCard("Capital Social",fmtMoney(ct.capitalSocial)):""}
-    ${ct.dataConstituicao?dataCard("Data de Constituicao",fmt(ct.dataConstituicao)):""}
-    ${ct.prazoDuracao?dataCard("Prazo de Duracao",fmt(ct.prazoDuracao)):""}
-    ${ct.foro?dataCard("Foro",fmt(ct.foro)):""}
-  </div>
-  ${ct.objetoSocial?`<div style="margin-bottom:12px">${dataCard("Objeto Social",esc(ct.objetoSocial))}</div>`:""}
-  ${ct.administracao?`<div style="margin-bottom:12px">${dataCard("Administracao e Poderes",esc(ct.administracao))}</div>`:""}
-</div>`;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 15: GESTAO E GRUPO ECONOMICO
-// ═══════════════════════════════════════════════════════════════════════════════
-function secGrupoEconomico(p: PDFReportParams): string {
-  const ge=p.data.grupoEconomico;
-  if(!ge?.empresas?.length) return "";
-  return `<div class="sec">${secHdr("15","Gestao e Grupo Economico")}
-  <table style="${TS}">
-    <thead>${row(["Empresa","CNPJ","Relacao","Situacao"],true)}</thead>
-    <tbody>${ge.empresas.map(e=>row([
-      `<strong>${esc(e.razaoSocial||"\u2014")}</strong>`,
-      fmtCnpj(e.cnpj),
-      fmt(e.relacao),
-      fmt(e.situacao),
-    ])).join("")}</tbody>
-  </table>
-  ${ge.alertaParentesco?alertBox("Parentesco detectado entre socios de empresas do grupo","MODERADA"):""}
-  ${ge.parentescosDetectados?.length?`${subTitle("Parentescos Detectados")}
-  <ul style="padding-left:18px;font-size:11px;color:#374151">${ge.parentescosDetectados.map(pr=>`<li style="margin-bottom:4px;line-height:1.5">${esc(pr.socio1)} e ${esc(pr.socio2)} - sobrenome: ${esc(pr.sobrenomeComum||"comum")}</li>`).join("")}</ul>`:""}
-</div>`;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 16: COMPARATIVO SCR
-// ═══════════════════════════════════════════════════════════════════════════════
-function secComparativoScr(p: PDFReportParams): string {
-  const scr=p.data.scr;
-  if(!scr) return "";
-  const prev=p.data.scrAnterior;
-  if(!prev) return "";
-  const perAnt=fmt(prev.periodoReferencia);
-  const perAtual=fmt(scr.periodoReferencia);
-  type R={grupo:string;metrica:string;ant:string;atual:string;variacao:string};
-  const rows:R[]=[];
-  /** addRow for monetary values — formats with fmtMoney */
-  function addRow(grupo:string,metrica:string,antVal:string|undefined,atualVal:string|undefined){
-    const v=delta(atualVal,antVal)||"\u2014";
-    rows.push({grupo,metrica,ant:prev ? fmtMoney(antVal) : "\u2014",atual:fmtMoney(atualVal),variacao:v});
-  }
-  /** addRowNum for plain numeric counts — formats with fmt (no R$) */
-  function addRowNum(grupo:string,metrica:string,antVal:string|undefined,atualVal:string|undefined){
-    const v=delta(atualVal,antVal)||"\u2014";
-    rows.push({grupo,metrica,ant:prev ? fmt(antVal) : "\u2014",atual:fmt(atualVal),variacao:v});
-  }
-  addRow("CARTEIRA","Curto Prazo",prev.carteiraCurtoPrazo,scr.carteiraCurtoPrazo);
-  addRow("CARTEIRA","Longo Prazo",prev.carteiraLongoPrazo,scr.carteiraLongoPrazo);
-  addRow("CARTEIRA","A Vencer",prev.carteiraAVencer,scr.carteiraAVencer);
-  addRow("INADIMPLENCIA","Total Dividas",prev.totalDividasAtivas,scr.totalDividasAtivas);
-  addRow("INADIMPLENCIA","Vencidos",prev.vencidos,scr.vencidos);
-  addRow("CAPACIDADE","Limite Credito",prev.limiteCredito,scr.limiteCredito);
-  addRowNum("CAPACIDADE","IFs",prev.qtdeInstituicoes,scr.qtdeInstituicoes);
-  addRowNum("CAPACIDADE","Operacoes",prev.qtdeOperacoes,scr.qtdeOperacoes);
-  const fmmNum=computeFmm(p.data.faturamento);
-  const alvAtualNum = fmmNum>0 ? numVal(scr.totalDividasAtivas)/fmmNum : 0;
-  const alvAntNum = fmmNum>0 ? numVal(prev.totalDividasAtivas)/fmmNum : 0;
-  const alvAtual = fmmNum>0 ? `${alvAtualNum.toFixed(2)}x` : "\u2014";
-  const alvAnt = fmmNum>0 ? `${alvAntNum.toFixed(2)}x` : "\u2014";
-  let alvVar = "\u2014";
-  if (alvAntNum > 0 && alvAtualNum > 0) {
-    const diffPct = Math.round(((alvAtualNum - alvAntNum) / alvAntNum) * 100);
-    const up = diffPct > 0;
-    const color = up ? "#dc2626" : "#16a34a";
-    const barW = Math.min(Math.abs(diffPct), 100);
-    alvVar = `<span style="font-size:13px;font-weight:900;color:${color};margin-left:6px">${up?"\u25B2":"\u25BC"} ${Math.abs(diffPct)}%</span><span style="display:inline-block;width:${barW}px;height:6px;background:${color};border-radius:3px;margin-left:6px;vertical-align:middle"></span>`;
-  }
-  rows.push({grupo:"RESUMO",metrica:"Alavancagem",ant:alvAnt,atual:alvAtual,variacao:alvVar});
-
-  // ── PJ Comparativo Table ──
-  const cnpjFmt = fmtCnpj(p.data.cnpj?.cnpj);
-  const razaoFmt = esc(p.data.cnpj?.razaoSocial || "Empresa");
-  void razaoFmt;
-  let html = `<div class="sec">${secHdr("16","Comparativo SCR - Empresa (PJ)")}
-  <div style="font-size:10px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;padding:6px 12px;background:#edf2fb;border-radius:6px;display:inline-block">Empresa (PJ) — ${cnpjFmt}</div>
-  <div style="display:flex;gap:16px;margin-bottom:16px">
-    <div style="flex:1;padding:12px 16px;background:#f8f9fb;border-radius:8px;border:1px solid #e0e4ec;text-align:center">
-      <div style="font-size:8px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Periodo Anterior</div>
-      <div style="font-size:13px;font-weight:800;color:#203B88">${perAnt}</div>
-    </div>
-    <div style="flex:1;padding:12px 16px;background:#203B88;border-radius:8px;text-align:center">
-      <div style="font-size:8px;font-weight:700;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Periodo Atual</div>
-      <div style="font-size:13px;font-weight:800;color:#fff">${perAtual}</div>
-    </div>
-  </div>
-  <table style="${TS}">
-    <thead>${row(["Metrica",`${perAnt}`,`${perAtual}`,"Variacao"],true)}</thead>
-    <tbody>${rows.map(r=>{
-      const isRisk = (r.metrica === "Vencidos" || r.metrica === "Prejuizo") && numVal(r.atual) > 0;
-      const isTotalDividas = r.metrica === "Total Dividas";
-      const isAlav = r.metrica === "Alavancagem";
-      const rowStyle = isAlav
-        ? "background:linear-gradient(90deg,#edf2fb 0%,#f8f9fb 100%);border-top:2px solid #203B88"
-        : isRisk ? "background:#fff5f5" : "";
-      const metricStyle = isAlav
-        ? "font-weight:900;font-size:13px;color:#203B88"
-        : isTotalDividas ? "font-weight:900;font-size:12px" : "font-weight:700";
-      const atualStyle = isAlav ? "font-weight:900;font-size:14px;color:#203B88" : "font-weight:700";
-      return `<tr style="${rowStyle}"><td><strong style="${metricStyle}">${esc(r.metrica)}</strong><br/><span style="font-size:8px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em">${esc(r.grupo)}</span></td><td>${r.ant}</td><td style="${atualStyle}">${r.atual}</td><td style="text-align:center">${r.variacao}</td></tr>`;
-    }).join("")}</tbody>
-  </table>`;
-
-  // Note: Socios (PF) are rendered separately by secScrSocios() to keep PJ and PF as 2 distinct sections.
-  html += `</div>`;
-  return html;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 17: SCR VENCIMENTOS
-// ═══════════════════════════════════════════════════════════════════════════════
-function secScrVencimentos(p: PDFReportParams): string {
-  const scr=p.data.scr;
-  if(!scr) return "";
-  const faixas=scr.faixasAVencer;
-  if(!faixas) return "";
-  const ordem=[
-    {k:"ate30d",l:"Ate 30d"},{k:"d31_60",l:"31-60d"},{k:"d61_90",l:"61-90d"},
-    {k:"d91_180",l:"91-180d"},{k:"d181_360",l:"181-360d"},{k:"acima360d",l:">360d"},
-  ];
-  const vals=ordem.map(o=>({l:o.l,v:numVal((faixas as unknown as Record<string,string>)[o.k])})).filter(x=>x.v>0);
-  if(vals.length===0) return "";
-  return `<div class="sec">${secHdr("17","SCR Vencimentos")}
-  <table style="${TS}">
-    <thead>${row(["Faixa","Valor"],true)}</thead>
-    <tbody>${vals.map(v=>row([v.l,fmtMoney(String(v.v))])).join("")}</tbody>
-  </table>
-</div>`;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 18: MODALIDADES SCR
-// ═══════════════════════════════════════════════════════════════════════════════
-function secModalidadesScr(p: PDFReportParams): string {
-  const scr=p.data.scr;
-  if(!scr?.modalidades?.length) return "";
-  const prev=p.data.scrAnterior;
-  const prevMods=prev?.modalidades||[];
-  return `<div class="sec">${secHdr("18","Modalidades SCR")}
-  <table style="${TS}">
-    <thead><tr><th rowspan="2">Modalidade</th>${prev?`<th colspan="4" style="text-align:center">${fmt(prev.periodoReferencia)} (ant.)</th>`:""}<th colspan="4" style="text-align:center">${fmt(scr.periodoReferencia)} (atual)</th></tr>
-    <tr>${prev?"<th>Total</th><th>A Vencer</th><th>Vencido</th><th>Part%</th>":""}<th>Total</th><th>A Vencer</th><th>Vencido</th><th>Part%</th></tr></thead>
-    <tbody>${scr.modalidades.filter(m=>m.nome).map(m=>{
-      const pm=prevMods.find(x=>x.nome===m.nome);
-      const vencClr=m.vencido&&m.vencido!=="0"?"color:#dc2626;font-weight:700":"";
-      return `<tr><td><strong>${esc(m.nome)}</strong></td>${prev?`<td>${fmtMoney(pm?.total)}</td><td>${fmtMoney(pm?.aVencer)}</td><td>${fmtMoney(pm?.vencido)}</td><td>${fmt(pm?.participacao)}</td>`:""}<td>${fmtMoney(m.total)}</td><td>${fmtMoney(m.aVencer)}</td><td style="${vencClr}">${fmtMoney(m.vencido)}</td><td>${fmt(m.participacao)}</td></tr>`;
-    }).join("")}</tbody>
-  </table>
-</div>`;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 18b: SCR SOCIOS
-// ═══════════════════════════════════════════════════════════════════════════════
-function secScrSocios(p: PDFReportParams): string {
-  const socios = p.data.scrSocios;
-  // Sócios PF do QSA — pra mostrar quem está na empresa quando não há SCR
-  const sociosQsa = (p.data.qsa?.quadroSocietario || []).filter(s => {
-    const digits = (s.cpfCnpj || "").replace(/\D/g, "");
-    return digits.length === 11; // somente PF
-  });
-
-  // Vazio: renderiza placeholder com lista do QSA pra ficar visível o gap
-  if (!socios || socios.length === 0) {
-    if (sociosQsa.length === 0) return "";
-    return `<div class="sec">${secHdr("16b","Comparativo SCR - Socios PF")}
-      <div style="padding:14px 18px;background:#fffbeb;border-left:4px solid #d97706;border-radius:0 8px 8px 0;margin-bottom:16px">
-        <div style="font-size:12px;font-weight:800;color:#92400e;margin-bottom:6px">SCR dos socios nao foi enviado/extraido</div>
-        <div style="font-size:11px;color:#78350f;line-height:1.6">A analise FIDC ideal exige o SCR de cada socio pessoa fisica para mensurar a exposicao consolidada (alavancagem total = divida PJ + divida PF). Sem esses dados, a alavancagem reportada cobre apenas a empresa.</div>
+      <div class="rat">
+        <div class="rat-c" style="border-color:${sb}">
+          <div class="rat-n" style="color:${sc}">${score.toFixed(1)}</div>
+          <div class="rat-d">/10</div>
+        </div>
+        <div class="rat-l" style="color:${sc}">${ratingLabel}</div>
+        <div class="dec" style="background:${decBg}">${esc(params.decision ?? "—")}</div>
       </div>
-      <div style="font-size:10px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">Socios PF identificados (${sociosQsa.length}) - SCR pendente</div>
-      <table style="${TS}">
-        <thead>${row(["Socio","CPF","Qualificacao","Participacao","Status SCR"], true)}</thead>
-        <tbody>${sociosQsa.map(s => `<tr>
-          <td><strong>${esc(s.nome || "\u2014")}</strong></td>
-          <td>${fmtCpf(s.cpfCnpj)}</td>
-          <td>${esc(s.qualificacao || "\u2014")}</td>
-          <td>${esc(s.participacao || "\u2014")}</td>
-          <td><span class="badge fail">PENDENTE</span></td>
-        </tr>`).join("")}</tbody>
-      </table>
-    </div>`;
-  }
+    </div>
 
-  const cards = socios.map((socio) => {
-    const scr = socio.periodoAtual;
-    const prev = socio.periodoAnterior;
-    const perAtual = fmt(scr?.periodoReferencia);
-    const perAnt = prev ? fmt(prev.periodoReferencia) : "";
+    <!-- 2. Info strip -->
+    <div class="istrip c6">
+      <div class="icell"><div class="l">Fundação</div><div class="v">${fmt(cnpj?.dataAbertura)}</div></div>
+      <div class="icell"><div class="l">Idade</div><div class="v">${fmt(params.companyAge)}</div></div>
+      <div class="icell"><div class="l">Porte</div><div class="v">${fmt(cnpj?.porte)}</div></div>
+      <div class="icell"><div class="l">Capital Social</div><div class="v mono">${fmtMoneyAbr(capitalSocial)}</div></div>
+      <div class="icell"><div class="l">Tipo</div><div class="v">${fmt(cnpj?.tipoEmpresa ?? "Matriz")}</div></div>
+      <div class="icell"><div class="l">Local</div><div class="v">${fmt(local)}</div></div>
+    </div>
 
-    // Comparativo table
-    type R = { metrica: string; ant: string; atual: string; variacao: string };
-    const rows: R[] = [];
-    function addRow(metrica: string, antVal: string | undefined, atualVal: string | undefined) {
-      const v = prev ? (delta(atualVal, antVal) || "\u2014") : "\u2014";
-      rows.push({ metrica, ant: prev ? fmtMoney(antVal) : "\u2014", atual: fmtMoney(atualVal), variacao: v });
-    }
-    if (scr) {
-      addRow("Total Dividas", prev?.totalDividasAtivas, scr.totalDividasAtivas);
-      addRow("Vencidos", prev?.vencidos, scr.vencidos);
-      addRow("A Vencer", prev?.carteiraAVencer, scr.carteiraAVencer);
-      addRow("Limite Credito", prev?.limiteCredito, scr.limiteCredito);
-    }
+    <!-- 3. Segmento -->
+    ${cnpj?.cnaePrincipal ? `<div class="seg"><b>${esc(cnpj.cnaePrincipal)}</b>${cnpj.cnaeSecundarios ? `<div class="sec">CNAEs sec.: ${esc(cnpj.cnaeSecundarios)}</div>` : ""}</div>` : ""}
 
-    // Modalidades
-    const mods = scr?.modalidades || [];
-    void perAnt; // may be used for display
+    <!-- 4. Localização -->
+    ${stitle("Localização")}
+    ${mapHtml}
 
-    return `<div class="sec" style="margin-top:18px;padding:16px 18px;background:#fff;border-radius:8px;border:1px solid #e0e4ec;border-left:4px solid #203B88;page-break-inside:avoid">
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
-        <span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:linear-gradient(135deg,#203B88,#2a4da6);color:#fff;font-size:9px;font-weight:800;border-radius:8px;flex-shrink:0;box-shadow:0 2px 4px rgba(32,59,136,.2)">PF</span>
-        <div>
-          <div style="font-size:14px;font-weight:800;color:#111827">${esc(socio.nomeSocio)}</div>
-          <div style="font-size:10px;color:#6b7280">CPF ${fmtCpf(socio.cpfSocio)} &middot; Ref: ${perAtual}</div>
+    <!-- 5. Sócios -->
+    ${stitle("Quadro societário")}
+    <table class="soc-tbl">
+      <thead><tr><th>Sócio</th><th>CPF/CNPJ</th><th>Qualificação</th><th>Part.</th><th>Patrim. (IR)</th></tr></thead>
+      <tbody>${socRows || `<tr><td colspan="5" style="color:var(--x4);text-align:center">—</td></tr>`}</tbody>
+    </table>
+    <div class="soc-extra">Capital Social: <b>${fmtMoney(capitalSocial)}</b> · Grupo Econômico: <b>${d.grupoEconomico?.empresas?.length > 0 ? d.grupoEconomico.empresas.length + " empresa(s)" : "Não identificado"}</b></div>
+
+    <!-- 6. Risco Consolidado -->
+    ${stitle("Risco consolidado")}
+    <div class="risk-section">
+      <div class="scr-strip">
+        <div class="scr-card"><div class="l">SCR Total</div><div class="v mono">${fmtMoneyAbr(totalDivida)}</div></div>
+        <div class="scr-card"><div class="l">SCR Vencido</div><div class="v ${vencNum > 0 ? "" : "green"}">${fmtMoneyAbr(vencidos)}</div></div>
+        <div class="scr-card"><div class="l">% Vencido</div><div class="v ${vencNum > 0 ? "" : "green"}">${pctVencido}</div></div>
+        <div class="scr-card"><div class="l">Alavancagem</div><div class="v" style="color:var(--x4)">${esc(alavStr)}</div></div>
+        <div class="scr-card"><div class="l">Nº IFs</div><div class="v">${fmt(nIfs)}</div></div>
+      </div>
+      <div class="risk-cols">
+        <div class="risk-block">
+          <div class="risk-block-hdr">
+            <div><div class="title">Protestos</div><div style="font-size:10px;color:var(--x5)">${fmtMoneyAbr(protVal)} vigentes</div></div>
+            <div class="big ${protColor}">${protQtd}</div>
+          </div>
+          <div class="risk-block-body">
+            <div class="risk-detail"><span class="label">Por tipo</span></div>
+            ${protRows || '<div class="risk-detail"><span class="label" style="color:var(--g6)">Sem protestos vigentes</span></div>'}
+            ${lastProt ? `<div class="risk-sep"></div>
+            <div class="risk-detail"><span class="label">Último protesto</span><span class="val">${fmtDate(lastProt.data)}</span></div>
+            <div class="risk-detail"><span class="label">Apresentante</span><span class="val" style="font-size:10px">${esc(lastProt.apresentante ?? lastProt.credor)}</span></div>
+            <div class="risk-detail"><span class="label">Valor</span><span class="val red">${fmtMoney(lastProt.valor)}</span></div>` : ""}
+          </div>
+        </div>
+        <div class="risk-block">
+          <div class="risk-block-hdr">
+            <div><div class="title">Processos Judiciais</div><div style="font-size:10px;color:var(--x5)">Passivo: ${fmt(proc?.poloPassivoQtd ?? proc?.passivosTotal)} · Ativo: ${fmt(proc?.poloAtivoQtd ?? proc?.ativosTotal)}</div></div>
+            <div class="big ${procColor}">${procTotal}</div>
+          </div>
+          <div class="risk-block-body">
+            <div class="risk-detail"><span class="label">Por tipo</span></div>
+            ${procDistRows || '<div class="risk-detail"><span class="label" style="color:var(--g6)">Sem processos</span></div>'}
+            ${lastProc ? `<div class="risk-sep"></div>
+            <div class="risk-detail"><span class="label">Último processo</span><span class="val">${fmtDate(lastProc.data)}</span></div>
+            <div class="risk-detail"><span class="label">Tipo</span><span class="val" style="font-size:10px">${esc(lastProc.tipo)}</span></div>
+            <div class="risk-detail"><span class="label">Fase</span><span class="val" style="font-size:10px">${fmt(lastProc.fase)}</span></div>` : ""}
+          </div>
         </div>
       </div>
-      ${rows.length > 0 ? `<table style="${TS}">
-        <thead>${row(prev ? ["Metrica", perAnt, perAtual, "Var."] : ["Metrica", perAtual], true)}</thead>
-        <tbody>${rows.map(r => prev
-          ? `<tr><td><strong>${esc(r.metrica)}</strong></td><td>${r.ant}</td><td style="font-weight:700">${r.atual}</td><td style="text-align:center">${r.variacao}</td></tr>`
-          : `<tr><td><strong>${esc(r.metrica)}</strong></td><td style="font-weight:700">${r.atual}</td></tr>`
-        ).join("")}</tbody>
-      </table>` : ""}
-      ${mods.length > 0 ? `<div style="font-size:9px;font-weight:700;color:#203B88;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Modalidades</div>
-      <table style="${TS}">
-        <thead><tr><th>Modalidade</th><th>Total</th><th>A Vencer</th><th>Vencido</th><th>Part%</th></tr></thead>
-        <tbody>${mods.filter(m => m.nome).map(m => {
-          const vencClr = m.vencido && m.vencido !== "0" ? "color:#dc2626;font-weight:700" : "";
-          return `<tr><td><strong>${esc(m.nome)}</strong></td><td>${fmtMoney(m.total)}</td><td>${fmtMoney(m.aVencer)}</td><td style="${vencClr}">${fmtMoney(m.vencido)}</td><td>${fmt(m.participacao)}</td></tr>`;
-        }).join("")}</tbody>
-      </table>` : ""}
+      <div class="risk-detail" style="padding:6px 0"><span class="label" style="font-size:11px">CCF (Cheques sem Fundo)</span>${ccfText}</div>
+      <div style="margin-top:10px">${alertsHtml}</div>
+    </div>
+
+    <!-- 7. Faturamento + SCR -->
+    ${stitle("Faturamento & SCR")}
+    <div class="fin-row">
+      <div class="fin-box">
+        <div class="fin-title">Faturamento mensal — últimos 12 meses</div>
+        <div class="chart">${fatBars}</div>
+        <div class="kpi-row">
+          <span>FMM: <b>${fmtMoneyAbr(fmm)}</b></span>
+          <span>Total 12M: <b>${fmtMoneyAbr(total12)}</b></span>
+          <span>Tendência: <span style="color:${tendColor};font-weight:600">${esc(tendLabel)}</span></span>
+        </div>
+      </div>
+      <div class="fin-box">
+        <div class="fin-title">SCR comparativo</div>
+        ${scrTable || '<div style="color:var(--x4);font-size:12px">SCR não disponível</div>'}
+      </div>
+    </div>
+
+    <!-- 8. Curva ABC -->
+    ${abcHtml}
+
+    <!-- 9. Pleito -->
+    ${pleitoHtml}
+
+    <!-- 10. Análise -->
+    ${analiseHtml}
+
+    <!-- 11. Percepção -->
+    ${percHtml}
+  `;
+
+  return page(content, 2, date);
+}
+
+// ─── Page 3: Parecer Preliminar ───────────────────────────────────────────────
+function pageParecer(params: PDFReportParams, date: string): string {
+  const ai = params.aiAnalysis;
+  const parecer = ai?.parecer;
+  const resumo = params.resumoExecutivo ||
+    (typeof parecer === "object" ? parecer?.resumoExecutivo : "") ||
+    ai?.resumoExecutivo || "";
+  const fortes = params.pontosFortes?.length ? params.pontosFortes :
+    (typeof parecer === "object" ? parecer?.pontosFortes : []) ??
+    ai?.pontosFortes ?? [];
+  const fracos = params.pontosFracos?.length ? params.pontosFracos :
+    (typeof parecer === "object" ? parecer?.pontosNegativosOuFracos : []) ??
+    ai?.pontosFracos ?? [];
+  const perguntas = params.perguntasVisita?.length ? params.perguntasVisita :
+    (typeof parecer === "object" ? parecer?.perguntasVisita : []) ??
+    ai?.perguntasVisita ?? [];
+
+  const score = params.finalRating ?? 0;
+  const sc = scoreColor(score);
+  const sb = scoreBorder(score);
+  const decBg2 = decisionBg(params.decision ?? "");
+
+  let content = "";
+  if (!resumo && !ai) {
+    content = `<div style="text-align:center;padding:40px;color:var(--x4)">Parecer pendente — análise de IA não disponível</div>`;
+  } else {
+    content = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;gap:20px">
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:700;color:var(--n9);margin-bottom:8px">Resumo Executivo</div>
+        <div style="font-size:12px;color:var(--x7);line-height:1.7">${esc(resumo) || "—"}</div>
+      </div>
+      <div style="text-align:center;min-width:100px">
+        <div style="width:72px;height:72px;border-radius:50%;border:3px solid ${sb};display:flex;flex-direction:column;align-items:center;justify-content:center;margin:0 auto 6px">
+          <div style="font-size:26px;font-weight:700;color:${sc};line-height:1">${score.toFixed(1)}</div>
+          <div style="font-size:10px;color:var(--x4)">/10</div>
+        </div>
+        <div style="display:inline-block;padding:4px 14px;border-radius:4px;font-size:10px;font-weight:700;text-transform:uppercase;background:${decBg2};color:#fff">${esc(params.decision ?? "—")}</div>
+      </div>
+    </div>
+    ${stitle("Pontos Fortes & Fracos")}
+    <div class="ana-grid" style="grid-template-columns:1fr 1fr;margin-bottom:18px">
+      <div class="ana-col f">
+        <div class="ana-h">Pontos Fortes</div>
+        ${(fortes as string[]).map((f: string) => `<div class="ana-item">${esc(f)}</div>`).join("") || '<div class="ana-item" style="color:var(--x4)">—</div>'}
+      </div>
+      <div class="ana-col w">
+        <div class="ana-h">Pontos Fracos</div>
+        ${(fracos as string[]).map((f: string) => `<div class="ana-item">${esc(f)}</div>`).join("") || '<div class="ana-item" style="color:var(--x4)">—</div>'}
+      </div>
+    </div>
+    ${perguntas.length > 0 ? `
+    ${stitle("Perguntas para visita")}
+    <div class="perc" style="margin-bottom:0">
+      ${(perguntas as {pergunta:string;contexto:string}[]).map((p: {pergunta:string;contexto:string}) => `<div style="padding:8px 0;border-bottom:1px solid var(--x1)">
+        <div style="font-size:12px;font-weight:600;color:var(--x9)">${esc(p.pergunta)}</div>
+        ${p.contexto ? `<div style="font-size:11px;color:var(--x5);margin-top:3px">${esc(p.contexto)}</div>` : ""}
+      </div>`).join("")}
+    </div>` : ""}
+    ${params.observacoes ? `${stitle("Observações")}
+    <div class="perc"><div class="perc-text">${esc(params.observacoes)}</div></div>` : ""}
+    `;
+  }
+
+  return page(`${stitle("03 · Parecer Preliminar")}${content}`, 3, date);
+}
+
+// ─── Page 4: Parâmetros + Conformidade ───────────────────────────────────────
+function pageParametros(params: PDFReportParams, date: string): string {
+  const rv = params.data.relatorioVisita;
+  const fv = params.fundValidation;
+
+  const criteriaRows = (fv?.criteria ?? []).map((c: FundCriterion) => {
+    const isPass = c.status === "ok";
+    const iconCls = isPass ? "pass" : "fail";
+    const iconChar = isPass ? "✓" : "✗";
+    const valCls = isPass ? "pass" : "fail";
+    return `<div class="pf-row">
+      <div class="pf-icon ${iconCls}">${iconChar}</div>
+      <div class="pf-name">${esc(c.label)}${c.eliminatoria ? `<span class="pf-tag">Eliminatório</span>` : ""}</div>
+      <div class="pf-lim"><div class="lbl">Limite</div>${esc(c.threshold)}</div>
+      <div class="pf-val"><div class="lbl">Apurado</div><div class="v ${valCls}">${esc(c.actual)}</div>${c.detail ? `<div class="pf-note">${esc(c.detail)}</div>` : ""}</div>
     </div>`;
   }).join("");
 
-  // Tabela consolidada — 1 linha por sócio
-  const fmmNumPf = computeFmm(p.data.faturamento);
-  const consolidRows = socios.map(s => {
-    const cur = s.periodoAtual;
-    const div = numVal(cur?.totalDividasAtivas);
-    const venc = numVal(cur?.vencidos);
-    const aVenc = numVal(cur?.carteiraAVencer);
-    const alav = fmmNumPf > 0 && div > 0 ? `${(div / fmmNumPf).toFixed(2)}x` : "\u2014";
-    return { nome: s.nomeSocio, cpf: s.cpfSocio, div, venc, aVenc, alav };
-  });
-  const totalDiv = consolidRows.reduce((s, r) => s + r.div, 0);
-  const totalVenc = consolidRows.reduce((s, r) => s + r.venc, 0);
-  const totalAVenc = consolidRows.reduce((s, r) => s + r.aVenc, 0);
-  const alavPfTotal = fmmNumPf > 0 && totalDiv > 0 ? `${(totalDiv / fmmNumPf).toFixed(2)}x` : "\u2014";
+  const hasEliminatoria = fv?.hasEliminatoria ?? false;
+  const failCount = fv?.failCount ?? 0;
+  const passCount = fv?.passCount ?? 0;
+  const totalCount = fv?.criteria?.length ?? 0;
+  const verdictCls = failCount > 0 ? "fail" : "pass";
+  const verdictText = failCount > 0 ? (hasEliminatoria ? "Empresa não elegível — critério eliminatório" : "Empresa com restrições") : "Empresa elegível";
+  const verdictSub = `${passCount} de ${totalCount} critérios aprovados · ${failCount} reprovado(s)`;
+  const verdictBtn = failCount > 0 ? "Não elegível" : "Elegível";
 
-  const consolidTable = `<table style="${TS}">
-    <thead>${row(["Socio","CPF","Dividas Totais","A Vencer","Vencidos","Alav. (Div/FMM)"], true)}</thead>
-    <tbody>${consolidRows.map(r => `<tr>
-      <td><strong>${esc(r.nome || "\u2014")}</strong></td>
-      <td>${fmtCpf(r.cpf)}</td>
-      <td class="money">${r.div > 0 ? fmtMoneyRound(String(r.div)) : "\u2014"}</td>
-      <td class="money">${r.aVenc > 0 ? fmtMoneyRound(String(r.aVenc)) : "\u2014"}</td>
-      <td class="money${r.venc > 0 ? " neg" : ""}">${r.venc > 0 ? fmtMoneyRound(String(r.venc)) : "\u2014"}</td>
-      <td class="money" style="font-weight:700">${r.alav}</td>
-    </tr>`).join("")}
-    <tr style="background:#edf2fb">
-      <td colspan="2"><strong style="color:#203B88">CONSOLIDADO PF (${consolidRows.length})</strong></td>
-      <td class="money" style="font-weight:900;color:#203B88">${totalDiv > 0 ? fmtMoneyRound(String(totalDiv)) : "\u2014"}</td>
-      <td class="money" style="font-weight:900">${totalAVenc > 0 ? fmtMoneyRound(String(totalAVenc)) : "\u2014"}</td>
-      <td class="money${totalVenc > 0 ? " neg" : ""}" style="font-weight:900">${totalVenc > 0 ? fmtMoneyRound(String(totalVenc)) : "\u2014"}</td>
-      <td class="money" style="font-weight:900;color:#203B88">${alavPfTotal}</td>
-    </tr>
-    </tbody>
-  </table>`;
-
-  // Mostra cards detalhados apenas para sócios com dívida relevante
-  const sociosComDivida = socios.filter(s => numVal(s.periodoAtual?.totalDividasAtivas) > 0);
-  const cardsRelevantes = sociosComDivida.length > 0 && sociosComDivida.length < socios.length
-    ? socios.filter(s => numVal(s.periodoAtual?.totalDividasAtivas) > 0).map((_, idx) => {
-        const arr = socios.filter(s => numVal(s.periodoAtual?.totalDividasAtivas) > 0);
-        return arr[idx];
-      })
-    : socios;
-  void cardsRelevantes;
-
-  return `<div class="sec" style="page-break-before:always">${secHdr("16b","Comparativo SCR - Socios PF (TABELA SEPARADA)")}
-    <div style="padding:12px 16px;background:#edf2fb;border-left:4px solid #203B88;border-radius:0 8px 8px 0;margin-bottom:18px">
-      <div style="font-size:12px;font-weight:800;color:#203B88;margin-bottom:4px">Tabela exclusiva da exposicao bancaria dos socios pessoa fisica</div>
-      <div style="font-size:10px;color:#374151;line-height:1.6">Esta secao e <strong>independente</strong> da tabela SCR PJ (secao 16). Mostra o resumo consolidado dos ${socios.length} socio(s) e o detalhamento individual de cada um por modalidade bancaria.</div>
+  const content = `
+    ${stitle("04 · Parâmetros operacionais do cedente")}
+    <div class="stitle" style="margin-top:8px">Taxas e limites</div>
+    <div class="istrip c4">
+      <div class="icell navy"><div class="l">Taxa Convencional</div><div class="v ${rv?.taxaConvencional ? "" : "muted"}">${rv?.taxaConvencional ? esc(rv.taxaConvencional) + "%" : "—"}</div></div>
+      <div class="icell navy"><div class="l">Taxa Comissária</div><div class="v ${rv?.taxaComissaria ? "" : "muted"}">${rv?.taxaComissaria ? esc(rv.taxaComissaria) + "%" : "—"}</div></div>
+      <div class="icell navy"><div class="l">Limite Total</div><div class="v sm mono">${rv?.limiteTotal ? fmtMoneyAbr(rv.limiteTotal) : "—"}</div></div>
+      <div class="icell navy"><div class="l">Limite por Sacado</div><div class="v sm mono">${rv?.limitePorSacado ? fmtMoneyAbr(rv.limitePorSacado) : "—"}</div></div>
     </div>
-    <div style="font-size:10px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">Resumo consolidado PF (${socios.length} socio${socios.length !== 1 ? "s" : ""})</div>
-    ${consolidTable}
-    <div style="font-size:10px;font-weight:800;color:#203B88;text-transform:uppercase;letter-spacing:.08em;margin:24px 0 10px">Detalhamento individual por socio</div>
-    ${cards}
-  </div>`;
+    <div class="istrip c4">
+      <div class="icell navy"><div class="l">Ticket Médio</div><div class="v sm mono">${rv?.ticketMedio ? fmtMoneyAbr(rv.ticketMedio) : "—"}</div></div>
+      <div class="icell navy"><div class="l">Cobr. Boleto</div><div class="v ${rv?.valorCobrancaBoleto ? "" : "muted"}">${rv?.valorCobrancaBoleto ? fmtMoney(rv.valorCobrancaBoleto) : "—"}</div></div>
+      <div class="icell navy"><div class="l">Modalidade</div><div class="v sm">${rv?.modalidade ? esc(rv.modalidade.toUpperCase()) : "—"}</div></div>
+      <div class="icell navy"><div class="l">Prazo Máximo</div><div class="v ${rv?.prazoMaximoOp ? "" : "muted"}">${rv?.prazoMaximoOp ? esc(rv.prazoMaximoOp) + " dias" : "—"}</div></div>
+    </div>
+    <div class="stitle">Condições</div>
+    <div class="istrip c4">
+      <div class="icell"><div class="l">Prazo Recompra</div><div class="v ${rv?.prazoRecompraCedente ? "" : "muted"}">${rv?.prazoRecompraCedente ? esc(rv.prazoRecompraCedente) + " dias" : "—"}</div></div>
+      <div class="icell"><div class="l">Envio Cartório</div><div class="v ${rv?.prazoEnvioCartorio ? "" : "muted"}">${rv?.prazoEnvioCartorio ? esc(rv.prazoEnvioCartorio) + " dias" : "—"}</div></div>
+      <div class="icell"><div class="l">Cobrança TAC</div><div class="v ${rv?.cobrancaTAC ? "" : "muted"}">${rv?.cobrancaTAC ? esc(rv.cobrancaTAC) : "—"}</div></div>
+      <div class="icell"><div class="l">Tranche</div><div class="v ${rv?.tranche ? "" : "muted"}">${rv?.tranche ? fmtMoneyAbr(rv.tranche) : "—"}</div></div>
+    </div>
+    ${stitle("05 · Conformidade com políticas do fundo")}
+    ${criteriaRows || '<div style="color:var(--x4);font-size:12px;padding:12px 0">Validação de fundo não disponível</div>'}
+    ${fv ? `<div class="verdict ${verdictCls}">
+      <div><div class="vt">${verdictText}</div><div class="vs">${verdictSub}</div></div>
+      <div class="vb">${verdictBtn}</div>
+    </div>` : ""}
+  `;
+
+  return page(content, 4, date);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 19: DRE
-// ═══════════════════════════════════════════════════════════════════════════════
-/** Reconstrói campos faltantes do DRE quando o extrator não pegou (margens, receita líquida, lucro bruto). */
-function enrichDreAno(a: Record<string, string>): Record<string, string> & { _calcFlags?: Set<string> } {
-  const out: Record<string, string> & { _calcFlags?: Set<string> } = { ...a };
-  const calcFlags = new Set<string>();
-  const toBR = (n: number) => n.toFixed(2).replace(".", ",");
+// ─── Page 5: Faturamento Detalhado ────────────────────────────────────────────
+function pageFaturamento(params: PDFReportParams, date: string): string {
+  const fat = params.data.faturamento;
+  const meses = (fat?.meses ?? []).slice(-12);
+  const fmm = fat?.fmm12m ?? fat?.mediaAno ?? "—";
+  const total12 = fat?.somatoriaAno ?? "—";
+  const nMeses = meses.length;
+  const tendencia = fat?.tendencia ?? "indefinido";
+  const tendLabel = tendencia === "crescimento" ? "↑ crescimento" : tendencia === "queda" ? "↓ queda" : "→ estável";
+  const tendColor2 = tendencia === "crescimento" ? "var(--g6)" : tendencia === "queda" ? "var(--r6)" : "var(--x5)";
+  const tendCell = tendencia === "queda" ? "danger" : tendencia === "crescimento" ? "success" : "";
 
-  const rb = numVal(a.receitaBruta);
-  const ded = numVal(a.deducoes); // tipicamente negativo
-  const cps = numVal(a.custoProdutosServicos); // tipicamente negativo
-  const ll = numVal(a.lucroLiquido);
-  const eb = numVal(a.ebitda);
+  const bars = meses.length > 0 ? buildBars(meses) : "";
 
-  // Receita Liquida: prefere extraida, senao RB - |Deducoes|
-  let rl = numVal(a.receitaLiquida);
-  if (rl === 0 && rb > 0) {
-    rl = ded !== 0 ? rb + ded : rb; // se ded ja vier negativo a soma reduz
-    if (rl > 0 && rl <= rb) {
-      out.receitaLiquida = toBR(rl);
-      calcFlags.add("receitaLiquida");
-    } else if (rb > 0) {
-      // sem deducoes, assume RL = RB para nao mostrar zero
-      rl = rb;
-      out.receitaLiquida = toBR(rl);
-      calcFlags.add("receitaLiquida");
-    }
-  }
+  const content = `
+    ${stitle("06 · Faturamento")}
+    <div class="istrip c4" style="margin-bottom:16px">
+      <div class="icell navy"><div class="l">FMM 12M</div><div class="v">${fmtMoneyAbr(fmm)}</div><div class="sub">média mensal</div></div>
+      <div class="icell navy"><div class="l">Total 12M</div><div class="v">${fmtMoneyAbr(total12)}</div><div class="sub">soma 12 meses</div></div>
+      <div class="icell"><div class="l">Meses</div><div class="v">${nMeses}</div><div class="sub">dados disponíveis</div></div>
+      <div class="icell ${tendCell}"><div class="l">Tendência</div><div class="v" style="color:${tendColor2}">${esc(tendLabel)}</div><div class="sub">últ. 3 vs anteriores</div></div>
+    </div>
+    <div class="chart-box">
+      <div class="chart-title">Faturamento mensal — últimos 12 meses</div>
+      <div class="bars">${bars || '<div style="color:var(--x4);font-size:12px;align-self:center">Dados não disponíveis</div>'}</div>
+      <div class="kpi-row"><span>FMM: <b>${fmtMoneyAbr(fmm)}</b></span><span>Total: <b>${fmtMoneyAbr(total12)}</b></span><span>Var: <b style="color:${tendColor2}">${esc(tendLabel)}</b></span></div>
+    </div>
+  `;
 
-  // Lucro Bruto: prefere extraido, senao RL - |CPS|
-  let lb = numVal(a.lucroBruto);
-  if (lb === 0 && rl > 0 && cps !== 0) {
-    lb = rl + cps;
-    if (lb !== 0) {
-      out.lucroBruto = toBR(lb);
-      calcFlags.add("lucroBruto");
-    }
-  }
-
-  // Margem Bruta
-  if (numVal(a.margemBruta) === 0 && lb > 0 && rl > 0) {
-    out.margemBruta = toBR((lb / rl) * 100);
-    calcFlags.add("margemBruta");
-  }
-
-  // Margem EBITDA
-  if (numVal(a.margemEbitda) === 0 && eb > 0 && rl > 0) {
-    out.margemEbitda = toBR((eb / rl) * 100);
-    calcFlags.add("margemEbitda");
-  }
-
-  // Margem Liquida — base preferida: receita liquida; fallback: receita bruta
-  if (numVal(a.margemLiquida) === 0 && ll !== 0) {
-    const base = rl > 0 ? rl : rb;
-    if (base > 0) {
-      out.margemLiquida = toBR((ll / base) * 100);
-      calcFlags.add("margemLiquida");
-    }
-  }
-
-  if (calcFlags.size > 0) out._calcFlags = calcFlags;
-  return out;
+  return page(content, 5, date);
 }
 
-function secDre(p: PDFReportParams): string {
-  const dre=p.data.dre;
-  if(!dre?.anos?.length) return "";
-  // Deduplication by ano + chronological sort
-  const anosUnicos = dre.anos.filter((a, i, arr) => arr.findIndex(x => x.ano === a.ano) === i);
-  const anosOrdenados = [...anosUnicos].sort((a, b) => parseInt(a.ano || "0") - parseInt(b.ano || "0"));
-  const anosRaw = anosOrdenados.slice(-3);
-  // Enriquece cada ano com fallbacks calculados
-  const anos = anosRaw.map(a => enrichDreAno(a as unknown as Record<string, string>));
-  const anyHasCalc = anos.some(a => a._calcFlags && a._calcFlags.size > 0);
+// ─── Page 6: Protestos + Processos ───────────────────────────────────────────
+function pageProtestosProcessos(params: PDFReportParams, date: string): string {
+  const prot = params.data.protestos;
+  const proc = params.data.processos;
 
-  type M={label:string;key:string;isMoney:boolean;isPct:boolean};
-  const metricas:M[]=[
-    {label:"Receita Bruta",key:"receitaBruta",isMoney:true,isPct:false},
-    {label:"Receita Liquida",key:"receitaLiquida",isMoney:true,isPct:false},
-    {label:"Lucro Bruto",key:"lucroBruto",isMoney:true,isPct:false},
-    {label:"Margem Bruta",key:"margemBruta",isMoney:false,isPct:true},
-    {label:"EBITDA",key:"ebitda",isMoney:true,isPct:false},
-    {label:"Margem EBITDA",key:"margemEbitda",isMoney:false,isPct:true},
-    {label:"Lucro Liquido",key:"lucroLiquido",isMoney:true,isPct:false},
-    {label:"Margem Liquida",key:"margemLiquida",isMoney:false,isPct:true},
-  ];
-  return `<div class="sec">${secHdr("19","DRE")}
-  ${anyHasCalc ? `<div style="font-size:10px;color:#6b7280;margin-bottom:10px;padding:8px 12px;background:#f8f9fb;border-left:3px solid #203B88;border-radius:0 6px 6px 0">
-    <strong>Nota:</strong> Valores marcados com <em>(calc)</em> foram reconstruidos a partir dos campos disponiveis (Receita Bruta, Lucro Liquido, Custo, etc) quando o extrator nao identificou diretamente. Verificar com a DRE original.
-  </div>` : ""}
-  <table style="${TS}">
-    <thead>${row(["Metrica",...anos.map(a=>`<strong>${esc(a.ano)}</strong>`)],true)}</thead>
-    <tbody>${metricas.map(m=>{
-      const vals=anos.map(a=>{
-        const v=(a as Record<string,string>)[m.key];
-        if(!v||v==="0"||v==="") return "\u2014";
-        const wasCalc = a._calcFlags?.has(m.key) === true;
-        const calcMark = wasCalc ? `<span style="font-size:8px;color:#6b7280;font-style:italic;margin-left:4px">(calc)</span>` : "";
-        if(m.isPct) return fmtPct(v) + calcMark;
-        if(m.isMoney){
-          const n=numVal(v);
-          return `<span class="money${n<0?" neg":""}">${fmtMoney(v)}</span>` + calcMark;
-        }
-        return fmt(v) + calcMark;
-      });
-      if(vals.every(v=>v==="\u2014")) return "";
-      return row([`<strong>${esc(m.label)}</strong>`,...vals]);
-    }).filter(Boolean).join("")}</tbody>
-  </table>
-</div>`;
-}
+  // Protestos
+  const vigQtd = numVal(prot?.vigentesQtd ?? "0");
+  const vigVal = prot?.vigentesValor ?? "0";
+  const regQtd = numVal(prot?.regularizadosQtd ?? "0");
+  const regVal = prot?.regularizadosValor ?? "0";
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 20: BALANCO PATRIMONIAL
-// ═══════════════════════════════════════════════════════════════════════════════
-function secBalanco(p: PDFReportParams): string {
-  const bal=p.data.balanco;
-  if(!bal?.anos?.length) return "";
-  // Deduplication by ano + chronological sort
-  const anosUnicos = bal.anos.filter((a, i, arr) => arr.findIndex(x => x.ano === a.ano) === i);
-  const anosOrdenados = [...anosUnicos].sort((a, b) => parseInt(a.ano || "0") - parseInt(b.ano || "0"));
-  const anos=anosOrdenados.slice(-3);
-  type M={label:string;key:string;isMoney:boolean;isPct:boolean};
-  const metricas:M[]=[
-    {label:"Ativo Total",key:"ativoTotal",isMoney:true,isPct:false},
-    {label:"Ativo Circulante",key:"ativoCirculante",isMoney:true,isPct:false},
-    {label:"Ativo Nao Circulante",key:"ativoNaoCirculante",isMoney:true,isPct:false},
-    {label:"Passivo Total",key:"passivoTotal",isMoney:true,isPct:false},
-    {label:"Passivo Circulante",key:"passivoCirculante",isMoney:true,isPct:false},
-    {label:"Passivo Nao Circulante",key:"passivoNaoCirculante",isMoney:true,isPct:false},
-    {label:"Patrimonio Liquido",key:"patrimonioLiquido",isMoney:true,isPct:false},
-    {label:"Liquidez Corrente",key:"liquidezCorrente",isMoney:false,isPct:false},
-    {label:"Endividamento",key:"endividamentoTotal",isMoney:false,isPct:true},
-    {label:"Capital de Giro Liq.",key:"capitalDeGiroLiquido",isMoney:true,isPct:false},
-    {label:"NCG (Necess. Cap. Giro)",key:"_ncg",isMoney:true,isPct:false},
-  ];
-  return `<div class="sec">${secHdr("20","Balanco Patrimonial")}
-  <table style="${TS}">
-    <thead>${row(["Metrica",...anos.map(a=>`<strong>${esc(a.ano)}</strong>`)],true)}</thead>
-    <tbody>${metricas.map(m=>{
-      const vals=anos.map(a=>{
-        // NCG = Ativo Circulante - Passivo Circulante (calculado)
-        if(m.key==="_ncg"){
-          const ac=numVal((a as unknown as Record<string,string>).ativoCirculante);
-          const pc=numVal((a as unknown as Record<string,string>).passivoCirculante);
-          if(ac===0&&pc===0) return "\u2014";
-          const ncg=ac-pc;
-          return `<span class="money${ncg<0?" neg":""}" title="Ativo Circ. ${fmtMoney(String(ac))} - Passivo Circ. ${fmtMoney(String(pc))}">${fmtMoney(String(ncg))}</span><span style="font-size:8px;color:#6b7280;font-style:italic;margin-left:4px">(calc)</span>`;
-        }
-        const v=(a as unknown as Record<string,string>)[m.key];
-        if(!v||v==="0"||v==="") return "\u2014";
-        if(m.isPct) return fmtPct(v);
-        if(m.isMoney){
-          const n=numVal(v);
-          return `<span class="money${n<0?" neg":""}">${fmtMoney(v)}</span>`;
-        }
-        if(m.key==="liquidezCorrente"){
-          const n=parseFloat(v||"0");
-          return `<span style="color:${n>=1?"#16a34a":"#dc2626"};font-weight:700">${n.toFixed(2)}x</span>`;
-        }
-        return fmt(v);
-      });
-      if(vals.every(v=>v==="\u2014")) return "";
-      return row([`<strong>${esc(m.label)}</strong>`,...vals]);
-    }).filter(Boolean).join("")}</tbody>
-  </table>
-</div>`;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 21: HISTORICO DE CONSULTAS
-// ═══════════════════════════════════════════════════════════════════════════════
-function secHistoricoConsultas(p: PDFReportParams): string {
-  const hist=p.data.historicoConsultas;
-  if(!hist?.length) return "";
-  return `<div class="sec">${secHdr("21","Historico de Consultas")}
-  <table style="${TS}">
-    <thead>${row(["Instituicao","Data da Consulta"],true)}</thead>
-    <tbody>${hist.map(h=>row([esc(h.usuario||"\u2014"),fmt(h.ultimaConsulta)])).join("")}</tbody>
-  </table>
-</div>`;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 22: IR DOS SOCIOS
-// ═══════════════════════════════════════════════════════════════════════════════
-function secIrSocios(p: PDFReportParams): string {
-  const socios = p.data.irSocios;
-  // Sócios PF do QSA — para mostrar pendências quando IR não foi extraído
-  const sociosQsa = (p.data.qsa?.quadroSocietario || []).filter(s => {
-    const digits = (s.cpfCnpj || "").replace(/\D/g, "");
-    return digits.length === 11;
+  // Group credores
+  const credorMap: Record<string, {qtd:number;valor:number;ultimo:string}> = {};
+  (prot?.detalhes ?? []).filter(p => !p.regularizado).forEach(p => {
+    const k = p.credor || "Desconhecido";
+    if (!credorMap[k]) credorMap[k] = {qtd:0,valor:0,ultimo:""};
+    credorMap[k].qtd++;
+    credorMap[k].valor += numVal(p.valor);
+    if (!credorMap[k].ultimo || p.data > credorMap[k].ultimo) credorMap[k].ultimo = p.data;
   });
+  const credorRows = Object.entries(credorMap).slice(0, 5).map(([nome, d]) =>
+    `<tr><td class="b">${esc(nome)}</td><td class="r">${d.qtd}</td><td class="r red">${fmtMoney(d.valor)}</td><td class="r">${fmtDate(d.ultimo)}</td></tr>`
+  ).join("");
 
-  // Vazio: renderiza placeholder com sócios pendentes
-  if (!socios?.length) {
-    if (sociosQsa.length === 0) return "";
-    return `<div class="sec">${secHdr("22","IR dos Socios")}
-      <div style="padding:14px 18px;background:#fffbeb;border-left:4px solid #d97706;border-radius:0 8px 8px 0;margin-bottom:16px">
-        <div style="font-size:12px;font-weight:800;color:#92400e;margin-bottom:6px">IR dos socios nao foi coletado/extraido</div>
-        <div style="font-size:11px;color:#78350f;line-height:1.6">A declaracao de IR dos socios PF e o instrumento mais confiavel para validar capacidade financeira pessoal, patrimonio liquido individual, dividas/onus declarados e participacao em outras sociedades. Recomenda-se solicitar a Receita Federal ou o documento "Recibo de Entrega" da DIRPF.</div>
-      </div>
-      <table style="${TS}">
-        <thead>${row(["Socio","CPF","Qualificacao","Participacao","Status IR"], true)}</thead>
-        <tbody>${sociosQsa.map(s => `<tr>
-          <td><strong>${esc(s.nome || "\u2014")}</strong></td>
-          <td>${fmtCpf(s.cpfCnpj)}</td>
-          <td>${esc(s.qualificacao || "\u2014")}</td>
-          <td>${esc(s.participacao || "\u2014")}</td>
-          <td><span class="badge fail">PENDENTE</span></td>
-        </tr>`).join("")}</tbody>
+  const top5Prot = [...(prot?.detalhes ?? [])].filter(p => !p.regularizado).sort((a,b) => numVal(b.valor)-numVal(a.valor)).slice(0,5);
+  const top5ProtRows = top5Prot.map(p =>
+    `<tr><td>${fmtDate(p.data)}</td><td>${esc(p.credor)}</td><td class="r red">${fmtMoney(p.valor)}</td><td>${p.regularizado ? "Regularizado" : "Vigente"}</td></tr>`
+  ).join("");
+
+  // Processos
+  const totalProc = numVal(proc?.passivosTotal ?? "0");
+  const passivo = proc?.poloPassivoQtd ?? proc?.passivosTotal ?? "—";
+  const ativo = proc?.poloAtivoQtd ?? proc?.ativosTotal ?? "—";
+  const temRJ = proc?.temRJ || proc?.temFalencia;
+
+  const distRows = (proc?.distribuicao ?? []).map(d => {
+    const pct = parseFloat(d.pct) || 0;
+    const isFiscal = d.tipo.toLowerCase().includes("fiscal");
+    return `<div class="prop-row"><span class="prop-label">${esc(d.tipo)}</span><div class="prop-fill${isFiscal ? " red" : ""}" style="width:${Math.min(pct,100)}%"></div><span class="prop-pct">${d.qtd} (${d.pct})</span></div>`;
+  }).join("");
+
+  const top5Proc = (proc?.top10Recentes ?? []).slice(0,5);
+  const top5ProcRows = top5Proc.map(p =>
+    `<tr><td class="${p.tipo.toLowerCase().includes("fiscal") ? "red" : ""}">${esc(p.tipo)}</td><td>${fmtDate(p.data)}</td><td>${esc(p.assunto)}</td><td>${fmt(p.fase)}</td></tr>`
+  ).join("");
+
+  const content = `
+    ${stitle("07 · Protestos")}
+    <div class="istrip c4" style="margin-bottom:14px">
+      <div class="icell ${vigQtd > 0 ? "danger" : ""}"><div class="l">Vigentes</div><div class="v ${vigQtd > 0 ? "red" : "green"}">${vigQtd}</div></div>
+      <div class="icell ${vigQtd > 0 ? "danger" : ""}"><div class="l">Vigentes R$</div><div class="v ${vigQtd > 0 ? "red" : "muted"} sm mono">${fmtMoney(vigVal)}</div></div>
+      <div class="icell ${regQtd > 0 ? "success" : ""}"><div class="l">Regularizados</div><div class="v ${regQtd > 0 ? "green" : "muted"}">${regQtd}</div></div>
+      <div class="icell"><div class="l">Regularizados R$</div><div class="v muted">${fmtMoney(regVal)}</div></div>
+    </div>
+    ${credorRows ? `${stitle("Agrupamento por credor")}
+    <table class="tbl">
+      <thead><tr><th>Credor</th><th class="r">Qtd</th><th class="r">Valor Total</th><th class="r">Último</th></tr></thead>
+      <tbody>${credorRows}</tbody>
+    </table>` : ""}
+    ${top5ProtRows ? `${stitle("Top 5 por valor")}
+    <table class="tbl">
+      <thead><tr><th>Data</th><th>Credor</th><th class="r">Valor</th><th>Status</th></tr></thead>
+      <tbody>${top5ProtRows}</tbody>
+    </table>` : ""}
+    ${vigQtd > 2 ? `<div class="alert alta"><span class="atag">ALTA</span> ${vigQtd} protestos vigentes — ${fmtMoneyAbr(vigVal)}</div>` : ""}
+
+    ${stitle("08 · Processos judiciais")}
+    <div class="istrip c4" style="margin-bottom:14px">
+      <div class="icell ${totalProc > 5 ? "danger" : ""}"><div class="l">Total</div><div class="v ${totalProc > 5 ? "red" : ""}">${totalProc}</div></div>
+      <div class="icell ${numVal(passivo) > 5 ? "danger" : ""}"><div class="l">Polo Passivo</div><div class="v ${numVal(passivo) > 5 ? "red" : ""}">${fmt(passivo)}</div></div>
+      <div class="icell"><div class="l">Polo Ativo</div><div class="v">${fmt(ativo)}</div></div>
+      <div class="icell ${temRJ ? "danger" : "success"}"><div class="l">Falência / RJ</div><div class="v ${temRJ ? "red" : "green"}">${temRJ ? "Sim" : "Não"}</div></div>
+    </div>
+    ${distRows ? `${stitle("Distribuição por tipo")}<div style="margin-bottom:14px">${distRows}</div>` : ""}
+    ${top5ProcRows ? `${stitle("Top 5 mais recentes")}
+    <table class="tbl">
+      <thead><tr><th>Tipo</th><th>Data</th><th>Assunto</th><th>Fase</th></tr></thead>
+      <tbody>${top5ProcRows}</tbody>
+    </table>` : ""}
+    ${totalProc > 5 ? `<div class="alert alta"><span class="atag">ALTA</span> ${totalProc} processos — verificar detalhes</div>` : ""}
+    ${temRJ ? `<div class="alert alta"><span class="atag">ALTA</span> Pedido de falência ou recuperação judicial identificado</div>` : ""}
+  `;
+
+  return page(content, 6, date);
+}
+
+// ─── Page 7: SCR + DRE ───────────────────────────────────────────────────────
+function pageSCRDRE(params: PDFReportParams, date: string): string {
+  const scr = params.data.scr;
+  const scrAnt = params.data.scrAnterior;
+  const dre = params.data.dre;
+
+  // SCR table
+  let scrRows = "";
+  if (scr) {
+    const prev = (field: keyof typeof scr) => scrAnt ? String(scrAnt[field] ?? "—") : "—";
+    const curr = (field: keyof typeof scr) => String(scr[field] ?? "—");
+    type SCRRow = {label:string;cat:string;prevV:string;currV:string;varCls:string;varVal:string};
+    const rows: SCRRow[] = [
+      {label:"Curto Prazo",cat:"Carteira",prevV:fmtMoneyAbr(prev("carteiraCurtoPrazo")),currV:fmtMoneyAbr(curr("carteiraCurtoPrazo")),varCls:"neutral",varVal:"—"},
+      {label:"Longo Prazo",cat:"Carteira",prevV:fmtMoneyAbr(prev("carteiraLongoPrazo")),currV:fmtMoneyAbr(curr("carteiraLongoPrazo")),varCls:"neutral",varVal:"—"},
+      {label:"A Vencer",cat:"Carteira",prevV:fmtMoneyAbr(prev("carteiraAVencer")),currV:fmtMoneyAbr(curr("carteiraAVencer")),varCls:"neutral",varVal:"—"},
+      {label:"Vencidos",cat:"Inadimplência",prevV:fmtMoneyAbr(prev("vencidos")),currV:fmtMoneyAbr(curr("vencidos")),varCls:"neutral",varVal:"—"},
+      {label:"Limite Crédito",cat:"Capacidade",prevV:fmtMoneyAbr(prev("limiteCredito")),currV:fmtMoneyAbr(curr("limiteCredito")),varCls:"neutral",varVal:"—"},
+      {label:"IFs",cat:"Capacidade",prevV:fmt(prev("qtdeInstituicoes")),currV:fmt(curr("qtdeInstituicoes")),varCls:"neutral",varVal:"—"},
+      {label:"Operações",cat:"Capacidade",prevV:fmt(prev("qtdeOperacoes")),currV:fmt(curr("qtdeOperacoes")),varCls:"neutral",varVal:"—"},
+    ];
+    scrRows = rows.map(r => `<tr><td class="b">${esc(r.label)}</td><td style="color:var(--x4)">${esc(r.cat)}</td><td class="r">${r.prevV}</td><td class="r">${r.currV}</td><td class="r ${r.varCls === "neutral" ? "" : r.varCls}">${r.varVal}</td></tr>`).join("");
+    scrRows += `<tr class="total"><td class="b">Total Dívidas</td><td>Resumo</td><td class="r">${fmtMoneyAbr(prev("totalDividasAtivas"))}</td><td class="r">${fmtMoneyAbr(curr("totalDividasAtivas"))}</td><td class="r" style="color:var(--x4)">—</td></tr>`;
+  }
+
+  // DRE table
+  let dreRows = "";
+  if (dre && dre.anos.length > 0) {
+    const anos = dre.anos.slice(-2);
+    const headers = anos.map(a => `<th class="r">${esc(a.ano)}</th>`).join("");
+    const fields: Array<{label:string;key:keyof typeof anos[0];isRed?:boolean}> = [
+      {label:"Receita Bruta",key:"receitaBruta"},
+      {label:"Receita Líquida",key:"receitaLiquida"},
+      {label:"Lucro Bruto",key:"lucroBruto"},
+      {label:"Margem Bruta",key:"margemBruta"},
+      {label:"EBITDA",key:"ebitda"},
+      {label:"Margem EBITDA",key:"margemEbitda"},
+      {label:"Lucro Líquido",key:"lucroLiquido"},
+      {label:"Margem Líquida",key:"margemLiquida"},
+    ];
+    dreRows = fields.map(f => {
+      const cells = anos.map(a => {
+        const v = String(a[f.key] ?? "—");
+        const isNeg = v.startsWith("-") || v.startsWith("R$\u00a0-");
+        return `<td class="r ${isNeg ? "red" : ""}">${v.includes("%") ? esc(v) : fmtMoney(v)}</td>`;
+      }).join("");
+      return `<tr><td class="b">${esc(f.label)}</td>${cells}</tr>`;
+    }).join("");
+
+    // DRE alerts
+    const lastAno = dre.anos[dre.anos.length - 1];
+    const ml = numVal(lastAno?.margemLiquida ?? "0");
+    const dreAlerts = [
+      ml < -30 ? `<div class="alert alta"><span class="atag">ALTA</span> Margem líquida ${fmtPct(lastAno?.margemLiquida)} — operação deficitária</div>` : "",
+      numVal(lastAno?.ebitda ?? "0") < 0 ? `<div class="alert alta"><span class="atag">ALTA</span> EBITDA negativo ${fmtMoneyAbr(lastAno?.ebitda)} — não gera caixa operacional</div>` : "",
+    ].filter(Boolean).join("");
+
+    dreRows = `<thead><tr><th>Métrica</th>${headers}</tr></thead><tbody>${dreRows}</tbody>`;
+    dreRows += dreAlerts ? `__ALERTS__${dreAlerts}` : "";
+  }
+
+  const scrPeriodoAtual = scr?.periodoReferencia ?? "—";
+  const scrPeriodoAnt = scrAnt?.periodoReferencia ?? "—";
+
+  let scrSection = "";
+  if (scr) {
+    scrSection = `
+    ${stitle("16 · Comparativo SCR — Empresa (PJ)")}
+    <div class="inf">Período anterior: <b>${esc(scrPeriodoAnt)}</b> · Período atual: <b>${esc(scrPeriodoAtual)}</b></div>
+    <table class="tbl">
+      <thead><tr><th>Métrica</th><th>Categoria</th><th class="r">${esc(scrPeriodoAnt)}</th><th class="r">${esc(scrPeriodoAtual)}</th><th class="r">Var.</th></tr></thead>
+      <tbody>${scrRows}</tbody>
+    </table>`;
+  }
+
+  let dreSection = "";
+  if (dre && dre.anos.length > 0) {
+    const [tableBody, ...alertParts] = dreRows.split("__ALERTS__");
+    dreSection = `
+    ${stitle("19 · Demonstração de Resultado (DRE)")}
+    <table class="tbl">${tableBody}</table>
+    ${alertParts[0] ?? ""}`;
+  }
+
+  const content = `${scrSection}${dreSection}`;
+  return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de SCR/DRE não disponíveis</div>`, 7, date);
+}
+
+// ─── Page 8: Balanço + ABC ───────────────────────────────────────────────────
+function pageBalancoABC(params: PDFReportParams, date: string): string {
+  const bal = params.data.balanco;
+  const abc = params.data.curvaABC;
+
+  let balSection = "";
+  if (bal && bal.anos.length > 0) {
+    const anos = bal.anos.slice(-2);
+    const headers = anos.map(a => `<th class="r">${esc(a.ano)}</th>`).join("");
+    const indentStyle = "padding-left:28px;color:var(--x5)";
+    type BalRow = {label:string;key:keyof import("@/types").BalancoAno;bold:boolean;indent?:boolean;total?:boolean};
+    const rows: BalRow[] = [
+      {label:"Ativo Total",key:"ativoTotal",bold:true},
+      {label:"Ativo Circulante",key:"ativoCirculante",bold:false,indent:true},
+      {label:"Ativo Não Circulante",key:"ativoNaoCirculante",bold:false,indent:true},
+      {label:"Passivo Circulante",key:"passivoCirculante",bold:true},
+      {label:"Passivo Não Circulante",key:"passivoNaoCirculante",bold:true},
+      {label:"Patrimônio Líquido",key:"patrimonioLiquido",bold:true,total:true},
+    ];
+    const balRows = rows.map(r => {
+      const cells = anos.map(a => {
+        const v = String(a[r.key] ?? "—");
+        const isNeg = numVal(v) < 0;
+        return `<td class="r ${isNeg ? "red" : ""}">${fmtMoney(v)}</td>`;
+      }).join("");
+      const tdStyle = r.indent ? ` style="${indentStyle}"` : "";
+      const cls = r.total || r.bold ? " class=\"b\"" : "";
+      const rowCls = r.total ? " class=\"total\"" : "";
+      return `<tr${rowCls}><td${cls}${tdStyle}>${esc(r.label)}</td>${cells}</tr>`;
+    }).join("");
+
+    const lastBal = bal.anos[bal.anos.length - 1];
+    const lc = numVal(lastBal?.liquidezCorrente ?? "0");
+    const enDiv = numVal(lastBal?.endividamentoTotal ?? "0");
+    const cg = numVal(lastBal?.capitalDeGiroLiquido ?? "0");
+    const pl = numVal(lastBal?.patrimonioLiquido ?? "0");
+
+    balSection = `
+    ${stitle("20 · Balanço Patrimonial")}
+    <table class="tbl">
+      <thead><tr><th>Métrica</th>${headers}</tr></thead>
+      <tbody>${balRows}</tbody>
+    </table>
+    ${stitle("Indicadores")}
+    <div class="istrip c4">
+      <div class="icell ${lc < 1 ? "danger" : ""}"><div class="l">Liquidez Corrente</div><div class="v ${lc < 1 ? "red" : "green"}">${fmtPct(lastBal?.liquidezCorrente)}x</div></div>
+      <div class="icell ${enDiv > 100 ? "danger" : ""}"><div class="l">Endividamento</div><div class="v ${enDiv > 100 ? "red" : "green"} sm">${fmtPct(lastBal?.endividamentoTotal)}</div></div>
+      <div class="icell ${cg < 0 ? "danger" : ""}"><div class="l">Capital de Giro</div><div class="v ${cg < 0 ? "red" : "green"} sm">${fmtMoneyAbr(lastBal?.capitalDeGiroLiquido)}</div></div>
+      <div class="icell ${pl < 0 ? "danger" : ""}"><div class="l">Patrimônio Líq.</div><div class="v ${pl < 0 ? "red" : "green"} sm">${fmtMoneyAbr(lastBal?.patrimonioLiquido)}</div></div>
+    </div>
+    ${pl < 0 ? `<div class="alert alta"><span class="atag">ALTA</span> PL negativo ${fmtMoneyAbr(lastBal?.patrimonioLiquido)} — passivo a descoberto</div>` : ""}
+    ${lc < 0.5 ? `<div class="alert alta"><span class="atag">ALTA</span> Liquidez ${lastBal?.liquidezCorrente} — incapaz de cobrir obrigações de curto prazo</div>` : ""}`;
+  }
+
+  let abcSection = "";
+  if (abc && abc.clientes.length > 0) {
+    const top3Pct = abc.concentracaoTop3 ?? "—";
+    const top5Pct = abc.concentracaoTop5 ?? "—";
+    const totalCli = abc.totalClientesNaBase ?? 0;
+    const maxVal2 = numVal(abc.clientes[0]?.valorFaturado ?? "0");
+    const abcRows = abc.clientes.slice(0, 7).map((c, i) => {
+      const barW2 = maxVal2 > 0 ? Math.round((numVal(c.valorFaturado)/maxVal2)*100) : 0;
+      const clsCls2 = (c.classe ?? "c").toLowerCase();
+      return `<tr>
+        <td><span class="abc-rank">${i+1}</span></td>
+        <td class="b">${esc(c.nome)}<div class="abc-bar" style="width:${barW2}%"></div></td>
+        <td class="r">${fmtMoney(c.valorFaturado)}</td>
+        <td class="r b">${fmtPct(c.percentualReceita)}</td>
+        <td class="r b">${fmtPct(c.percentualAcumulado)}</td>
+        <td><span class="abc-cl ${clsCls2}">${esc(c.classe)}</span></td>
+      </tr>`;
+    }).join("");
+
+    abcSection = `
+    ${stitle("11 · Concentração de clientes (Curva ABC)")}
+    <div class="istrip c3" style="margin-bottom:10px">
+      <div class="icell warn"><div class="l">Top 3 Clientes</div><div class="v" style="color:var(--a5)">${fmt(top3Pct)}</div></div>
+      <div class="icell warn"><div class="l">Top 5 Clientes</div><div class="v" style="color:var(--a5)">${fmt(top5Pct)}</div></div>
+      <div class="icell"><div class="l">Total Clientes</div><div class="v">${totalCli}</div></div>
+    </div>
+    <div class="abc-wrap">
+      <table class="tbl" style="border:none;margin:0">
+        <thead><tr><th style="width:40px">#</th><th>Cliente</th><th class="r">Faturamento</th><th class="r">% Rec.</th><th class="r">% Acum.</th><th style="width:50px">Cl.</th></tr></thead>
+        <tbody>${abcRows}</tbody>
       </table>
-    </div>`;
+    </div>
+    <div class="abc-summary">Top 3: <b>${fmt(top3Pct)}</b> · Top 5: <b>${fmt(top5Pct)}</b> · Total clientes: <b>${totalCli}</b></div>
+    ${abc.alertaConcentracao && abc.clientes[0] ? `<div class="alert alta" style="margin-top:8px"><span class="atag">ALTA</span> ${esc(abc.clientes[0].nome)} concentra ${fmtPct(abc.clientes[0].percentualReceita)} da receita — acima do limite recomendado</div>` : ""}`;
   }
-  return `<div class="sec">${secHdr("22","IR dos Socios")}
-  ${socios.map(s=>{
-    return `<div style="border:1px solid #e0e4ec;border-left:5px solid #203B88;border-radius:0 10px 10px 0;padding:16px 18px;margin-bottom:16px;page-break-inside:avoid;box-shadow:0 2px 8px rgba(32,59,136,.04)">
-      <div style="font-size:15px;font-weight:800;color:#111827;margin-bottom:3px">${esc(s.nomeSocio)}</div>
-      <div style="font-size:10px;color:#6b7280;margin-bottom:14px">CPF ${fmtCpf(s.cpf)} ${s.anoBase?` &middot; Ano-base ${esc(s.anoBase)}`:""}</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-        ${dataCard("Renda Total",fmtMoney(s.rendimentoTotal))}
-        ${dataCard("Rendimentos Tributaveis",fmtMoney(s.rendimentosTributaveis))}
-        ${dataCard("Rendimentos Isentos",fmtMoney(s.rendimentosIsentos))}
-        ${dataCard("Imposto Definido",fmtMoney(s.impostoDefinido))}
-        ${s.valorQuota?dataCard("Valor da Quota",fmtMoney(s.valorQuota)):""}
-        ${dataCard("Total Bens e Direitos",fmtMoney(s.totalBensDireitos))}
-        ${dataCard("Dividas e Onus",fmtMoney(s.dividasOnus))}
-        ${dataCard("Patrimonio Liquido",fmtMoney(s.patrimonioLiquido))}
+
+  const content = `${balSection}${abcSection}`;
+  return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de balanço/ABC não disponíveis</div>`, 8, date);
+}
+
+// ─── Page 9: IR Sócios + Visita ───────────────────────────────────────────────
+function pageIRVisita(params: PDFReportParams, date: string): string {
+  const irSocios = params.data.irSocios ?? [];
+  const rv = params.data.relatorioVisita;
+
+  let irSection = "";
+  if (irSocios.length > 0) {
+    const irBlocks = irSocios.map(ir => {
+      const initials = ir.nomeSocio.split(" ").slice(0,2).map(w => w[0]).join("").toUpperCase();
+      const pl = numVal(ir.patrimonioLiquido ?? "0");
+      return `<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--x2)">
+        <div class="avatar">${esc(initials)}</div>
+        <div><div style="font-size:14px;font-weight:600">${esc(ir.nomeSocio)}</div><div style="font-size:10px;color:var(--x5);font-family:'JetBrains Mono',monospace">CPF: ${fmtCpf(ir.cpf)} · Ano-base: ${fmt(ir.anoBase)}</div></div>
       </div>
+      <div class="istrip c4">
+        <div class="icell"><div class="l">Renda Total</div><div class="v sm mono">${fmtMoneyAbr(ir.rendimentoTotal)}</div></div>
+        <div class="icell"><div class="l">Rend. Tributáveis</div><div class="v sm mono">${fmtMoneyAbr(ir.rendimentosTributaveis)}</div></div>
+        <div class="icell"><div class="l">Bens e Direitos</div><div class="v sm mono">${fmtMoneyAbr(ir.totalBensDireitos)}</div></div>
+        <div class="icell ${pl > 0 ? "success" : "danger"}"><div class="l">Patrimônio Líq.</div><div class="v ${pl > 0 ? "green" : "red"} sm mono">${fmtMoneyAbr(ir.patrimonioLiquido)}</div></div>
+      </div>
+      ${!ir.debitosEmAberto ? `<div class="alert ok"><span class="atag">OK</span> Sem débitos com a Receita Federal</div>` : `<div class="alert alta"><span class="atag">ALTA</span> Débitos em aberto: ${esc(ir.descricaoDebitos ?? "")}</div>`}`;
+    }).join("");
+    irSection = `${stitle("22 · IR dos sócios")}${irBlocks}`;
+  }
+
+  let visitaSection = "";
+  if (rv) {
+    const recMap = {aprovado:"green", condicional:"warn", reprovado:"danger"} as const;
+    const recCls = recMap[rv.recomendacaoVisitante] ?? "";
+    const recLabel = {aprovado:"Aprovado", condicional:"Condicional", reprovado:"Reprovado"}[rv.recomendacaoVisitante] ?? fmt(rv.recomendacaoVisitante);
+
+    const positRows = rv.pontosPositivos?.map(p => `<div class="ana-i">• ${esc(p)}</div>`).join("") || '<div class="ana-i" style="color:var(--x4)">—</div>';
+    const atencRows = rv.pontosAtencao?.map(p => `<div class="ana-i">• ${esc(p)}</div>`).join("") || '<div class="ana-i" style="color:var(--x4)">—</div>';
+    const ctxText = rv.observacoesLivres || rv.descricaoEstrutura || "";
+
+    visitaSection = `
+    ${stitle("23 · Relatório de visita")}
+    <div class="istrip c3" style="margin-bottom:14px">
+      <div class="icell"><div class="l">Responsável</div><div class="v sm">${fmt(rv.responsavelVisita)}</div></div>
+      <div class="icell"><div class="l">Local</div><div class="v sm">${fmt(rv.localVisita)}</div></div>
+      <div class="icell ${recCls}"><div class="l">Recomendação</div><div class="v ${recCls === "green" ? "green" : recCls === "danger" ? "red" : ""} sm">${esc(recLabel)}</div></div>
+    </div>
+    <div class="ana-grid">
+      <div class="ana-col f"><div class="ana-h">Pontos positivos</div>${positRows}</div>
+      <div class="ana-col a"><div class="ana-h">Pontos de atenção</div>${atencRows}</div>
+      <div class="ana-col n"><div class="ana-h">Contexto</div><div class="ana-i" style="line-height:1.6">${esc(ctxText) || "—"}</div></div>
+    </div>
+    ${stitle("Dados da empresa")}
+    <div class="istrip c4">
+      <div class="icell"><div class="l">Funcionários</div><div class="v">${rv.funcionariosObservados ?? "—"}</div></div>
+      <div class="icell"><div class="l">Folha Pagamento</div><div class="v sm mono">${fmtMoneyAbr(rv.folhaPagamento)}</div></div>
+      <div class="icell"><div class="l">Vendas Duplicata</div><div class="v">${fmt(rv.vendasDuplicata)}</div></div>
+      <div class="icell"><div class="l">Vendas Outras</div><div class="v">${fmt(rv.vendasOutras)}</div></div>
+    </div>
+    <div class="istrip c4">
+      <div class="icell"><div class="l">Prazo Faturamento</div><div class="v sm">${fmt(rv.prazoMedioFaturamento)}</div></div>
+      <div class="icell"><div class="l">Prazo Entrega</div><div class="v sm">${fmt(rv.prazoMedioEntrega)}</div></div>
+      <div class="icell"><div class="l">Endiv. Banco</div><div class="v ${rv.endividamentoBanco ? "" : "muted"}">${fmtMoneyAbr(rv.endividamentoBanco)}</div></div>
+      <div class="icell"><div class="l">Endiv. FIDC</div><div class="v ${rv.endividamentoFactoring ? "" : "muted"}">${fmtMoneyAbr(rv.endividamentoFactoring)}</div></div>
     </div>`;
-  }).join("")}
-</div>`;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 23: RELATORIO DE VISITA
-// ═══════════════════════════════════════════════════════════════════════════════
-function secVisita(p: PDFReportParams): string {
-  const v=p.data.relatorioVisita;
-  if(!v) return "";
-  const pontosPositivos=(v.pontosPositivos||[]) as string[];
-  const pontosNegativos=(v.pontosAtencao||[]) as string[];
-  return `<div class="sec">${secHdr("23","Relatorio de Visita")}
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
-    ${v.dataVisita?dataCard("Data",fmt(v.dataVisita)):""}
-    ${v.responsavelVisita?dataCard("Responsavel",fmt(v.responsavelVisita)):""}
-    ${v.duracaoVisita?dataCard("Duracao",fmt(v.duracaoVisita)):""}
-    ${v.localVisita||v.descricaoEstrutura?dataCard("Local",fmt(v.localVisita||v.descricaoEstrutura)):""}
-  </div>
-  ${pontosPositivos.length>0?`${subTitle("Pontos Positivos")}
-  <div style="margin-bottom:16px">${pontosPositivos.map(pt=>`<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 12px;margin-bottom:6px;background:#f0fdf4;border-radius:6px;border:1px solid #bbf7d0"><span style="color:#16a34a;font-size:13px;font-weight:800;flex-shrink:0">\u2713</span><span style="font-size:11px;color:#166534;line-height:1.5">${esc(pt)}</span></div>`).join("")}</div>`:""}
-  ${pontosNegativos.length>0?`${subTitle("Pontos de Atencao")}
-  <div style="margin-bottom:16px">${pontosNegativos.map(pt=>`<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 12px;margin-bottom:6px;background:#fff1f2;border-radius:6px;border:1px solid #fecaca"><span style="color:#dc2626;font-size:13px;font-weight:800;flex-shrink:0">\u26A0</span><span style="font-size:11px;color:#991b1b;line-height:1.5">${esc(pt)}</span></div>`).join("")}</div>`:""}
-  ${v.recomendacaoVisitante?`${subTitle("Recomendacao")}<div style="font-size:12px;color:#374151;margin-bottom:14px;padding:12px 16px;background:#eff6ff;border-radius:8px;border:1px solid #bfdbfe">${esc(v.recomendacaoVisitante)}</div>`:""}
-  ${v.observacoesLivres?`${subTitle("Observacoes")}${paraBox(v.observacoesLivres)}`:""}
-</div>`;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 24: DADOS DA EMPRESA
-// ═══════════════════════════════════════════════════════════════════════════════
-function secDadosEmpresa(p: PDFReportParams): string {
-  const v=p.data.relatorioVisita;
-  if(!v) return "";
-  const params:[string,string][]=[
-    ["N Funcionarios",String(v.funcionariosObservados||"\u2014")],
-    ["Folha Pagamento",fmtMoney(v.folhaPagamento)],
-    ["Endividamento Banco",fmtMoney(v.endividamentoBanco)],
-    ["Endividamento Factoring/FIDC",fmtMoney(v.endividamentoFactoring)],
-    ["Vendas (Cheque)",v.vendasCheque?v.vendasCheque+"%":"\u2014"],
-    ["Vendas (Duplicata)",v.vendasDuplicata?v.vendasDuplicata+"%":"\u2014"],
-    ["Vendas (Outras)",v.vendasOutras?v.vendasOutras+"%":"\u2014"],
-    ["Prazo Medio Faturamento",v.prazoMedioFaturamento?v.prazoMedioFaturamento+" dias":"\u2014"],
-    ["Prazo Medio Entrega",v.prazoMedioEntrega?v.prazoMedioEntrega+" dias":"\u2014"],
-    ["Referencias Comerciais",fmt(v.referenciasFornecedores)],
-  ];
-  return `<div class="sec">${secHdr("24","Dados da Empresa")}
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
-    ${params.map(([l,val])=>dataCard(l,val)).join("")}
-  </div>
-</div>`;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 25: HISTORICO DE OPERACOES COM O FUNDO
-// ═══════════════════════════════════════════════════════════════════════════════
-function secHistoricoOperacoes(p: PDFReportParams): string {
-  const ops = p.histOperacoes;
-  if (!ops || ops.length === 0) return "";
-
-  function opStatusBadge(status: string): string {
-    const s = (status || "").toLowerCase();
-    if (s === "ativa") return statusBadge("Ativa", "info");
-    if (s === "liquidada") return statusBadge("Liquidada", "ok");
-    if (s === "inadimplente") return statusBadge("Inadimplente", "fail");
-    if (s === "prorrogada") return statusBadge("Prorrogada", "warn");
-    return statusBadge(status || "\u2014", "info");
   }
 
-  function fmtIsoDate(d: string | null | undefined): string {
-    if (!d) return "\u2014";
-    try {
-      const dt = new Date(d);
-      if (isNaN(dt.getTime())) return esc(d);
-      return dt.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
-    } catch { return esc(d); }
-  }
-
-  // Sort by data_operacao descending
-  const sorted = [...ops].sort((a, b) => {
-    const da = a.data_operacao ? new Date(a.data_operacao).getTime() : 0;
-    const db = b.data_operacao ? new Date(b.data_operacao).getTime() : 0;
-    return db - da;
-  });
-
-  // KPIs
-  const totalOps = sorted.length;
-  const totalValor = sorted.reduce((s, o) => s + (o.valor || 0), 0);
-  const ativas = sorted.filter(o => o.status === "ativa").length;
-  const inadimplentes = sorted.filter(o => o.status === "inadimplente").length;
-
-  return `<div class="sec">${secHdr("25","Historico de Operacoes com o Fundo")}
-  ${grid(4, [
-    kpi("Total Operacoes", String(totalOps)),
-    kpi("Volume Total", fmtMoneyRound(String(totalValor))),
-    kpi("Ativas", String(ativas), "#203B88"),
-    kpi("Inadimplentes", String(inadimplentes), inadimplentes > 0 ? "#dc2626" : "#16a34a"),
-  ])}
-  <table style="${TS}">
-    <thead>${row(["Data", "N\u00BA", "Valor", "Taxa", "Prazo", "Modalidade", "Status", "Sacado"], true)}</thead>
-    <tbody>${sorted.map(o => `<tr>
-      <td>${fmtIsoDate(o.data_operacao)}</td>
-      <td>${fmt(o.numero_operacao)}</td>
-      <td class="money">${fmtMoney(o.valor)}</td>
-      <td>${o.taxa_mensal != null ? o.taxa_mensal.toFixed(2) + "%" : "\u2014"}</td>
-      <td>${o.prazo != null ? o.prazo + "d" : "\u2014"}</td>
-      <td>${fmt(o.modalidade)}</td>
-      <td>${opStatusBadge(o.status)}</td>
-      <td>${esc(o.sacado || "\u2014")}</td>
-    </tr>`).join("")}</tbody>
-  </table>
-</div>`;
+  const content = `${irSection}${visitaSection}`;
+  return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de IR/Visita não disponíveis</div>`, 9, date);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// MAIN EXPORT
-// ═══════════════════════════════════════════════════════════════════════════════
-export function gerarHtmlRelatorio(p: PDFReportParams): {
-  html: string;
-  headerTemplate: string;
-  footerTemplate: string;
-} {
-  const razao=esc(p.data?.cnpj?.razaoSocial||"Cedente");
+// ─── Main export ──────────────────────────────────────────────────────────────
+export function gerarHtmlRelatorio(params: PDFReportParams): { html: string; headerTemplate: string; footerTemplate: string } {
+  const now = new Date();
+  const date = now.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
 
-  const html=`<!DOCTYPE html><html lang="pt-BR"><head>
-  <meta charset="UTF-8">
-  <title>Relatorio de Credito \u2014 ${razao}</title>
-  <style>${CSS}</style>
-</head><body>
-  ${secCapa(p)}
-  ${secChecklist(p)}
-  ${secSintese(p)}
-  ${secParecer(p)}
-  ${secParametros(p)}
-  ${secHistoricoOperacoes(p)}
-  ${secFundo(p)}
-  ${secFaturamento(p)}
-  ${secProtestos(p)}
-  ${secProcessos(p)}
-  ${secProcessosTop10Valor(p)}
-  ${secCcf(p)}
-  ${secCurvaAbc(p)}
-  ${secCnpj(p)}
-  ${secQsa(p)}
-  ${secContrato(p)}
-  ${secGrupoEconomico(p)}
-  ${secComparativoScr(p)}
-  ${secScrSocios(p)}
-  ${secScrVencimentos(p)}
-  ${secModalidadesScr(p)}
-  ${secDre(p)}
-  ${secBalanco(p)}
-  ${secHistoricoConsultas(p)}
-  ${secIrSocios(p)}
-  ${secVisita(p)}
-  ${secDadosEmpresa(p)}
-</body></html>`;
+  const pages = [
+    pageCapa(params, date),
+    pageSintese(params, date),
+    pageParecer(params, date),
+    pageParametros(params, date),
+    pageFaturamento(params, date),
+    pageProtestosProcessos(params, date),
+    pageSCRDRE(params, date),
+    pageBalancoABC(params, date),
+    pageIRVisita(params, date),
+  ].join("\n");
 
-  const headerTemplate=`<div style="width:100%;font-family:'Open Sans','Helvetica Neue',Arial,sans-serif">
-    <div style="height:3px;background:#203B88"></div>
-    <div style="padding:6px 16mm 4px;display:flex;justify-content:space-between;align-items:center;font-size:8px;color:#6b7280">
-      <span style="font-weight:800;color:#203B88;letter-spacing:.06em;font-size:9px">CAPITAL <span style="color:#73B815">FINANCAS</span></span>
-      <span style="max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#9ca3af">${razao}</span>
-      <span></span>
-    </div>
-  </div>`;
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Relatório Capital Finanças — ${esc(params.data.cnpj?.razaoSocial ?? "")}</title>
+${CSS}
+</head>
+<body>
+${pages}
+</body>
+</html>`;
 
-  const footerTemplate=`<div style="width:100%;font-family:'Open Sans','Helvetica Neue',Arial,sans-serif">
-    <div style="height:1.5px;background:#73B815"></div>
-    <div style="padding:5px 16mm 6px;display:flex;justify-content:space-between;align-items:center;font-size:8px;color:#9ca3af">
-      <span>Capital Financas &middot; Analise de Credito &middot; Confidencial</span>
-      <span>Pagina <span class="pageNumber"></span> de <span class="totalPages"></span></span>
-    </div>
-  </div>`;
-
-  return {html,headerTemplate,footerTemplate};
+  return { html, headerTemplate: "", footerTemplate: "" };
 }
