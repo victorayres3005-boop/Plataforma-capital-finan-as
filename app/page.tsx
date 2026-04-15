@@ -277,6 +277,20 @@ export default function HomePage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showDashboard, setShowDashboard] = useState(savedNav?.showDashboard ?? true);
 
+  // Volta ao dashboard limpando ?resume= e ?step= da URL para evitar que
+  // o F5 releia o param e redirecione para a coleta anterior.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const goToDashboard = useCallback(() => {
+    setShowDashboard(true);
+    setStep("upload");
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("resume");
+      url.searchParams.delete("step");
+      window.history.replaceState({}, "", url.toString());
+    } catch { /* ignore */ }
+  }, []);
+
   // Persistir estado de navegação sempre que mudar
   useEffect(() => {
     saveNavState(step, showDashboard);
@@ -562,7 +576,7 @@ export default function HomePage() {
 
           {/* ── Left: Logo ── */}
           <div>
-            <a href="#" onClick={e => { e.preventDefault(); setShowDashboard(true); setStep("upload"); }} style={{ cursor: "pointer" }}><Logo height={24} /></a>
+            <a href="#" onClick={e => { e.preventDefault(); goToDashboard(); }} style={{ cursor: "pointer" }}><Logo height={24} /></a>
           </div>
 
           {/* ── Right: nav actions ── */}
@@ -1664,7 +1678,7 @@ export default function HomePage() {
           {/* Botão voltar + Step header */}
           <div className="mb-6">
             <button onClick={() => {
-              if (step === "upload") { setShowDashboard(true); }
+              if (step === "upload") { goToDashboard(); }
               else { setStep("upload"); }
             }} className="flex items-center gap-1.5 text-xs font-semibold text-cf-text-3 hover:text-cf-navy mb-4 transition-colors" style={{ minHeight: "auto" }}>
               {step === "upload" ? <><Home size={13} /> Voltar ao painel</> : <><ArrowLeft size={13} /> Voltar</>}
