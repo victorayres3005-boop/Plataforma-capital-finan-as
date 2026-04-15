@@ -141,7 +141,7 @@ function ParecerContent() {
   const [saving, setSaving] = useState(false);
   // Estado de erro persistente do autosave — mostra no header para o analista
   // saber que precisa agir (sessao expirada, rede, RLS violacao).
-  const [autoSaveError, setAutoSaveError] = useState<string | null>(null);
+  const [, setAutoSaveError] = useState<string | null>(null);
   const [autoSaved, setAutoSaved] = useState(false);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialLoadDone = useRef(false);
