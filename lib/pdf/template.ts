@@ -710,7 +710,114 @@ function pageSintese(params: PDFReportParams, date: string): string {
   return page(content, 2, date);
 }
 
-// ─── Page 3: Parecer Preliminar ───────────────────────────────────────────────
+// ─── Page 3: Cartão CNPJ + Quadro Societário ─────────────────────────────────
+function pageCNPJQSA(params: PDFReportParams, date: string): string {
+  const cnpj = params.data.cnpj;
+  const qsa = params.data.qsa;
+  const contrato = params.data.contrato;
+  const grupo = params.data.grupoEconomico;
+  const isAtiva = (cnpj?.situacaoCadastral ?? "").toUpperCase().includes("ATIVA");
+
+  type IRSocio = NonNullable<typeof params.data.irSocios>[0];
+  const irMap: Record<string, IRSocio> = {};
+  (params.data.irSocios ?? []).forEach(ir => { irMap[ir.cpf] = ir; });
+
+  // Sócios com dados do IR
+  const socios = qsa?.quadroSocietario ?? [];
+  const socRows = socios.map(s => {
+    const ir = irMap[s.cpfCnpj];
+    const pl = ir?.patrimonioLiquido ? fmtMoneyAbr(ir.patrimonioLiquido) : "—";
+    const renda = ir?.rendimentoTotal ? fmtMoneyAbr(ir.rendimentoTotal) : "—";
+    return `<tr>
+      <td class="b">${esc(s.nome)}</td>
+      <td style="font-family:'JetBrains Mono',monospace;font-size:10px">${fmtCpf(s.cpfCnpj)}</td>
+      <td>${esc(s.qualificacao)}</td>
+      <td class="r">${fmt(s.participacao)}</td>
+      ${s.dataEntrada ? `<td class="r">${fmtDate(s.dataEntrada)}</td>` : `<td class="r" style="color:var(--x4)">—</td>`}
+      <td class="r">${renda}</td>
+      <td class="r">${pl}</td>
+    </tr>`;
+  }).join("");
+
+  // Endereços adicionais
+  const enderecos = cnpj?.enderecos ?? [];
+  const endAddHtml = enderecos.length > 1 ? `
+    ${stitle("Endereços cadastrados")}
+    <table class="tbl">
+      <thead><tr><th>#</th><th>Endereço</th></tr></thead>
+      <tbody>${enderecos.map((e, i) => `<tr><td class="r" style="width:32px">${i+1}</td><td>${esc(e)}</td></tr>`).join("")}</tbody>
+    </table>` : "";
+
+  // Grupo econômico
+  const grupoEmpresas = grupo?.empresas ?? [];
+  const grupoHtml = grupoEmpresas.length > 0 ? `
+    ${stitle("Grupo econômico")}
+    <table class="tbl">
+      <thead><tr><th>Razão Social</th><th>CNPJ</th><th>Participação</th><th>Situação</th></tr></thead>
+      <tbody>${grupoEmpresas.map(e => `<tr>
+        <td class="b">${esc(e.razaoSocial)}</td>
+        <td style="font-family:'JetBrains Mono',monospace;font-size:10px">${fmtCnpj(e.cnpj)}</td>
+        <td class="r">${fmt(e.participacao)}</td>
+        <td>${esc(e.situacao ?? "—")}</td>
+      </tr>`).join("")}</tbody>
+    </table>` : "";
+
+  const content = `
+    ${stitle("12 · Cartão CNPJ — dados cadastrais")}
+    <div class="istrip c4" style="margin-bottom:8px">
+      <div class="icell ${isAtiva ? "success" : "danger"}">
+        <div class="l">Situação Cadastral</div>
+        <div class="v ${isAtiva ? "green" : "red"} sm">${esc(cnpj?.situacaoCadastral ?? "—")}</div>
+        ${cnpj?.dataSituacaoCadastral ? `<div class="sub">desde ${fmtDate(cnpj.dataSituacaoCadastral)}</div>` : ""}
+      </div>
+      <div class="icell"><div class="l">CNPJ</div><div class="v sm mono">${fmtCnpj(cnpj?.cnpj)}</div></div>
+      <div class="icell"><div class="l">Fundação</div><div class="v">${fmt(cnpj?.dataAbertura)}</div></div>
+      <div class="icell"><div class="l">Porte</div><div class="v">${fmt(cnpj?.porte)}</div></div>
+    </div>
+    <div class="istrip c4" style="margin-bottom:8px">
+      <div class="icell"><div class="l">Natureza Jurídica</div><div class="v sm">${esc(cnpj?.naturezaJuridica ?? "—")}</div></div>
+      <div class="icell"><div class="l">Regime Tributário</div><div class="v sm">${esc(cnpj?.regimeTributario ?? "—")}</div></div>
+      <div class="icell"><div class="l">Capital Social</div><div class="v sm mono">${fmtMoney(cnpj?.capitalSocialCNPJ)}</div></div>
+      <div class="icell"><div class="l">Tipo</div><div class="v">${esc(cnpj?.tipoEmpresa ?? "Matriz")}</div></div>
+    </div>
+    <div class="istrip c4" style="margin-bottom:8px">
+      <div class="icell"><div class="l">Telefone</div><div class="v sm mono">${esc(cnpj?.telefone ?? "—")}</div></div>
+      <div class="icell"><div class="l">E-mail</div><div class="v sm">${esc(cnpj?.email ?? "—")}</div></div>
+      ${cnpj?.site ? `<div class="icell"><div class="l">Site</div><div class="v sm">${esc(cnpj.site)}</div></div>` : ""}
+      ${cnpj?.funcionarios ? `<div class="icell"><div class="l">Funcionários</div><div class="v">${esc(cnpj.funcionarios)}</div></div>` : ""}
+    </div>
+    <div class="seg" style="margin-bottom:8px"><b>${esc(cnpj?.cnaePrincipal ?? "—")}</b>${cnpj?.cnaeSecundarios ? `<div class="sec">CNAEs sec.: ${esc(cnpj.cnaeSecundarios)}</div>` : ""}</div>
+    ${cnpj?.motivoSituacao && !isAtiva ? `<div class="alert alta" style="margin-bottom:14px"><span class="atag">ALTA</span> Motivo: ${esc(cnpj.motivoSituacao)}</div>` : ""}
+    <div class="addr-box" style="margin-bottom:18px">
+      <div class="l">Endereço</div>
+      <div class="a">${esc(cnpj?.endereco ?? "—")}</div>
+    </div>
+    ${endAddHtml}
+
+    ${stitle("13 · Quadro societário")}
+    <table class="tbl">
+      <thead><tr><th>Sócio</th><th>CPF/CNPJ</th><th>Qualificação</th><th class="r">Part.</th><th class="r">Entrada</th><th class="r">Renda (IR)</th><th class="r">Patrim. (IR)</th></tr></thead>
+      <tbody>${socRows || `<tr><td colspan="7" style="color:var(--x4);text-align:center">—</td></tr>`}</tbody>
+    </table>
+    <div class="inf">Capital Social: <b>${fmtMoney(qsa?.capitalSocial || cnpj?.capitalSocialCNPJ)}</b></div>
+
+    ${contrato ? `${stitle("14 · Contrato Social")}
+    <div class="istrip c4" style="margin-bottom:8px">
+      <div class="icell"><div class="l">Constituição</div><div class="v">${fmt(contrato.dataConstituicao)}</div></div>
+      <div class="icell"><div class="l">Capital Social</div><div class="v sm mono">${fmtMoney(contrato.capitalSocial)}</div></div>
+      <div class="icell"><div class="l">Prazo de Duração</div><div class="v sm">${fmt(contrato.prazoDuracao) || "Indeterminado"}</div></div>
+      <div class="icell"><div class="l">Alterações</div><div class="v ${contrato.temAlteracoes ? "" : "green"}">${contrato.temAlteracoes ? "Sim" : "Não"}</div></div>
+    </div>
+    ${contrato.objetoSocial ? `<div class="perc" style="margin-bottom:8px"><div class="l" style="font-size:9px;font-weight:700;text-transform:uppercase;color:var(--x4);margin-bottom:6px">Objeto Social</div><div class="perc-text">${esc(contrato.objetoSocial)}</div></div>` : ""}
+    ${contrato.administracao ? `<div class="inf">Administração: <b>${esc(contrato.administracao)}</b>${contrato.foro ? ` · Foro: <b>${esc(contrato.foro)}</b>` : ""}</div>` : ""}` : ""}
+
+    ${grupoHtml}
+  `;
+
+  return page(content, 3, date);
+}
+
+// ─── Page 4: Parecer Preliminar ───────────────────────────────────────────────
 function pageParecer(params: PDFReportParams, date: string): string {
   const ai = params.aiAnalysis;
   const parecer = ai?.parecer;
@@ -774,7 +881,7 @@ function pageParecer(params: PDFReportParams, date: string): string {
     `;
   }
 
-  return page(`${stitle("03 · Parecer Preliminar")}${content}`, 3, date);
+  return page(`${stitle("03 · Parecer Preliminar")}${content}`, 4, date);
 }
 
 // ─── Page 4: Parâmetros + Conformidade ───────────────────────────────────────
@@ -845,10 +952,10 @@ function pageParametros(params: PDFReportParams, date: string): string {
     ${contrato.administracao ? `<div class="inf">Administração: <b>${esc(contrato.administracao)}</b>${contrato.foro ? ` · Foro: <b>${esc(contrato.foro)}</b>` : ""}</div>` : ""}` : ""}
   `;
 
-  return page(content, 4, date);
+  return page(content, 5, date);
 }
 
-// ─── Page 5: Faturamento Detalhado ────────────────────────────────────────────
+// ─── Page 6: Faturamento Detalhado ────────────────────────────────────────────
 function pageFaturamento(params: PDFReportParams, date: string): string {
   const fat = params.data.faturamento;
   const meses = (fat?.meses ?? []).slice(-12);
@@ -906,10 +1013,10 @@ function pageFaturamento(params: PDFReportParams, date: string): string {
     </div>` : ""}
   `;
 
-  return page(content, 5, date);
+  return page(content, 6, date);
 }
 
-// ─── Page 6: Protestos + Processos ───────────────────────────────────────────
+// ─── Page 7: Protestos + Processos ───────────────────────────────────────────
 function pageProtestosProcessos(params: PDFReportParams, date: string): string {
   const prot = params.data.protestos;
   const proc = params.data.processos;
@@ -1009,7 +1116,7 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
     ${temRJ ? `<div class="alert alta"><span class="atag">ALTA</span> Pedido de falência ou recuperação judicial identificado</div>` : ""}
   `;
 
-  return page(content, 6, date);
+  return page(content, 7, date);
 }
 
 // ─── SCR variation helper ──────────────────────────────────────────────────────
@@ -1168,7 +1275,7 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
   }
 
   const content = `${scrSection}${dreSection}`;
-  return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de SCR/DRE não disponíveis</div>`, 7, date);
+  return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de SCR/DRE não disponíveis</div>`, 8, date);
 }
 
 // ─── Page 8: Balanço + ABC ───────────────────────────────────────────────────
@@ -1262,7 +1369,7 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
   }
 
   const content = `${balSection}${abcSection}`;
-  return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de balanço/ABC não disponíveis</div>`, 8, date);
+  return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de balanço/ABC não disponíveis</div>`, 9, date);
 }
 
 // ─── Page 9: IR Sócios + Visita ───────────────────────────────────────────────
@@ -1344,7 +1451,7 @@ function pageIRVisita(params: PDFReportParams, date: string): string {
   }
 
   const content = `${irSection}${historicoSection}${visitaSection}`;
-  return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de IR/Visita não disponíveis</div>`, 9, date);
+  return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de IR/Visita não disponíveis</div>`, 10, date);
 }
 
 // ─── Main export ──────────────────────────────────────────────────────────────
@@ -1355,6 +1462,7 @@ export function gerarHtmlRelatorio(params: PDFReportParams): { html: string; hea
   const pages = [
     pageCapa(params, date),
     pageSintese(params, date),
+    pageCNPJQSA(params, date),
     pageParecer(params, date),
     pageParametros(params, date),
     pageFaturamento(params, date),
