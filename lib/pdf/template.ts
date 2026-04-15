@@ -13,7 +13,17 @@ function fmt(v: string | number | null | undefined): string {
 }
 function numVal(v: string | number | null | undefined): number {
   if (v == null || v === "") return 0;
-  const n = parseFloat(String(v).replace(/[^\d.,-]/g,"").replace(",","."));
+  if (typeof v === "number") return isNaN(v) ? 0 : v;
+  let s = String(v).replace(/[R$\s%]/g, "").trim();
+  if (!s) return 0;
+  // Brazilian format: dots=thousands separator, comma=decimal separator
+  // e.g. "303.842,32" → remove dots → "303842,32" → comma→dot → "303842.32"
+  if (s.includes(",")) {
+    s = s.replace(/\./g, "").replace(",", ".");
+  } else {
+    s = s.replace(/,/g, "");
+  }
+  const n = parseFloat(s.replace(/[^\d.\-]/g, ""));
   return isNaN(n) ? 0 : n;
 }
 function fmtMoney(v: string | number | null | undefined): string {
@@ -89,13 +99,24 @@ function page(content: string, pageNum: number, date: string): string {
 
 // ─── Bar chart ────────────────────────────────────────────────────────────────
 function buildBars(meses: {mes:string;valor:string}[]): string {
+  const MONTHS = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+  function parseMesLabel(mes: string): string {
+    // "01/2025" or "1/2025"
+    const mSlash = mes.match(/^(\d{1,2})\//);
+    if (mSlash) { const idx = parseInt(mSlash[1]) - 1; return MONTHS[idx] ?? mes; }
+    // "2025-01"
+    const mDash = mes.match(/^(\d{4})-(\d{2})/);
+    if (mDash) { const idx = parseInt(mDash[2]) - 1; return MONTHS[idx] ?? mes; }
+    // Already short label or unknown — take first 3 chars as fallback
+    return mes.slice(0, 3);
+  }
   const vals = meses.map(m => numVal(m.valor));
   const max = Math.max(...vals, 1);
   return meses.map(m => {
     const v = numVal(m.valor);
     const pct = Math.round((v/max)*100);
     const lbl = fmtMoneyAbr(v).replace("R$\u00a0","");
-    return `<div class="bar-col"><div class="bar nv" style="height:${pct}%"><div class="bar-v">${lbl}</div></div><div class="bar-l">${esc(m.mes.slice(0,3))}</div></div>`;
+    return `<div class="bar-col"><div class="bar nv" style="height:${pct}%"><div class="bar-v">${lbl}</div></div><div class="bar-l">${esc(parseMesLabel(m.mes))}</div></div>`;
   }).join("");
 }
 
@@ -1059,7 +1080,8 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
   if (dre && dre.anos.length > 0) {
     const anos = dre.anos.slice(-2);
     const headers = anos.map(a => `<th class="r">${esc(a.ano)}</th>`).join("");
-    const fields: Array<{label:string;key:keyof typeof anos[0];isRed?:boolean}> = [
+    const PCT_FIELDS = new Set(["margemBruta","margemEbitda","margemLiquida"]);
+    const fields: Array<{label:string;key:keyof typeof anos[0]}> = [
       {label:"Receita Bruta",key:"receitaBruta"},
       {label:"Receita Líquida",key:"receitaLiquida"},
       {label:"Lucro Bruto",key:"lucroBruto"},
@@ -1070,10 +1092,17 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
       {label:"Margem Líquida",key:"margemLiquida"},
     ];
     dreRows = fields.map(f => {
+      const isPct = PCT_FIELDS.has(f.key as string);
       const cells = anos.map(a => {
-        const v = String(a[f.key] ?? "—");
-        const isNeg = v.startsWith("-") || v.startsWith("R$\u00a0-");
-        return `<td class="r ${isNeg ? "red" : ""}">${v.includes("%") ? esc(v) : fmtMoney(v)}</td>`;
+        const v = a[f.key];
+        if (v == null || v === "" || v === "—") return `<td class="r">—</td>`;
+        if (isPct) {
+          const formatted = fmtPct(v);
+          const isNeg = numVal(v) < 0;
+          return `<td class="r ${isNeg ? "red" : ""}">${formatted}</td>`;
+        }
+        const isNeg = numVal(v) < 0;
+        return `<td class="r ${isNeg ? "red" : ""}">${fmtMoney(v)}</td>`;
       }).join("");
       return `<tr><td class="b">${esc(f.label)}</td>${cells}</tr>`;
     }).join("");
