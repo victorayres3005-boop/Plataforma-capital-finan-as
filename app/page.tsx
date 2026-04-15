@@ -378,6 +378,24 @@ export default function HomePage() {
     }
   }, [handleResumeCollection]);
 
+  // ── Sincroniza ?step= na URL sempre que o step mudar ──
+  // Sem isso, F5 na aba de analise/review volta pro upload porque o forceStep
+  // lido no mount fica null. Agora toda troca de step atualiza a URL via
+  // replaceState (sem navegar), e o reload respeita o step correto.
+  useEffect(() => {
+    if (showDashboard) return; // dashboard nao tem step
+    try {
+      const url = new URL(window.location.href);
+      const hasResume = url.searchParams.get("resume");
+      if (!hasResume) return; // sem coleta, sem step na URL
+      const currentInUrl = url.searchParams.get("step");
+      if (currentInUrl !== step) {
+        url.searchParams.set("step", step);
+        window.history.replaceState({}, "", url.toString());
+      }
+    } catch { /* ignore */ }
+  }, [step, showDashboard]);
+
   // ── Draft localStorage: hoje o Supabase é fonte de verdade. So mostra o
   // draft local quando NAO ha ?resume= na URL (Supabase ja cuidaria) e quando
   // nao existe coleta in_progress recente do usuario (que tambem cuidaria). ──
@@ -1655,10 +1673,13 @@ export default function HomePage() {
 
           {step === "upload" && (
             <UploadStep
-              onComplete={(d, files) => { setExtractedData(d); setOriginalFiles(files); setResumedDocs(undefined); setLocalDraft(null); try { localStorage.removeItem(DRAFT_KEY); } catch {/**/} setStep("review"); }}
+              onComplete={(d, files) => { setExtractedData(d); setOriginalFiles(files); setLocalDraft(null); try { localStorage.removeItem(DRAFT_KEY); } catch {/**/} setStep("review"); }}
               onDataChange={(d) => { setExtractedData(d); autoSaveCollection(d); }}
-              resumedDocs={resumedDocs}
-              initialData={resumedDocs && resumedDocs.length > 0 ? extractedData : undefined}
+              // Quando voltamos pra upload vindo de review/generate, reconstroi a
+              // lista de docs a partir do extractedData atual (mesma funcao usada
+              // no save) para repovoar as sections. Evita "arquivos zerados".
+              resumedDocs={resumedDocs && resumedDocs.length > 0 ? resumedDocs : (buildCollectionDocs(extractedData) as import("@/types").CollectionDocument[])}
+              initialData={extractedData}
             />
           )}
           {step === "review" && (
