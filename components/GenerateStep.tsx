@@ -750,15 +750,13 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         .single();
       if (error || !row?.ai_analysis) return false;
       const cached = row.ai_analysis as Record<string, unknown>;
-      if (!cached.decisao && !cached.rating) return false;
+      // Aceita cache se tiver rating OU decisao — antes exigia tambem parametrosOperacionais
+      // e alertas[0].mitigacao, o que fazia o cache ser REJEITADO com frequencia e forcava
+      // nova chamada ao Gemini (com tempo 0.3, gerando rating diferente a cada retomada).
+      // Agora qualquer cache minimamente utilizavel e aceito; campos ausentes recebem
+      // defaults ou ficam undefined para o render decidir.
+      if (cached.rating == null && !cached.decisao) return false;
       const parecerNorm = normalizeParecer(cached.parecer);
-      const cacheValido =
-        cached.parametrosOperacionais &&
-        (cached.alertas as Array<Record<string, unknown>> | undefined)?.[0]?.mitigacao !== undefined &&
-        parecerNorm.resumoExecutivo;
-      if (!cacheValido) {
-        return false;
-      }
       applyAnalysis({ ...cached, parecer: parecerNorm } as unknown as AIAnalysis);
       setAnalysisFromCache(true);
       return true;
@@ -772,37 +770,44 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       const supabase = createClient();
       const analysisData = analysis as unknown as Record<string, unknown>;
 
-      // Tentativa 1: UPDATE atômico — só atualiza se a coleta NÃO foi finalizada.
-      // Isso elimina a race condition (TOCTOU) entre o check e o update.
-      const { data: updated } = await supabase
+      // Busca o estado atual para decidir se preserva rating/decisao do analista.
+      // Se o analista ja definiu um rating manual em parecer/page, NUNCA sobrescreve.
+      const { data: existing } = await supabase
         .from("document_collections")
-        .update({
-          ai_analysis: analysisData,
-          rating: analysis.rating ?? null,
-          decisao: (analysis.decisao as DocumentCollection["decisao"]) ?? null,
-        })
+        .select("ai_analysis, rating, decisao, status")
         .eq("id", colId)
-        .neq("status", "finished")
-        .select("id")
         .maybeSingle();
+      const existingAi = (existing?.ai_analysis as Record<string, unknown>) || {};
+      const parecerAnalista = existingAi.parecerAnalista as { ratingAnalista?: number | null; decisaoComite?: string | null } | undefined;
+      const analistaRating = parecerAnalista?.ratingAnalista;
+      const analistaDecisao = parecerAnalista?.decisaoComite;
+      const finished = existing?.status === "finished";
 
-      // Se a coleta já está finished (parecer registrado), faz merge seguro do JSONB
-      // preservando parecerAnalista e sem tocar em rating/decisao.
-      if (!updated) {
-        const { data: existing } = await supabase
-          .from("document_collections")
-          .select("ai_analysis")
-          .eq("id", colId)
-          .single();
-        if (!existing) return; // row deleted
-        const existingAi = (existing.ai_analysis as Record<string, unknown>) || {};
-        // Preserva chaves do analista: parecerAnalista nunca é sobrescrito pela IA
-        const parecerAnalista = existingAi.parecerAnalista;
-        const mergedAi = { ...existingAi, ...analysisData };
-        if (parecerAnalista) mergedAi.parecerAnalista = parecerAnalista;
+      // Merge do ai_analysis preservando parecerAnalista
+      const mergedAi: Record<string, unknown> = { ...existingAi, ...analysisData };
+      if (parecerAnalista) mergedAi.parecerAnalista = parecerAnalista;
+
+      // rating da coluna: se analista ja setou, mantem; senao usa o da IA
+      const ratingParaGravar = analistaRating != null ? analistaRating : (analysis.rating ?? null);
+      // decisao: se analista setou decisaoComite, mantem a decisao atual (que ja reflete ele)
+      const decisaoParaGravar = analistaDecisao
+        ? (existing?.decisao as DocumentCollection["decisao"] ?? null)
+        : ((analysis.decisao as DocumentCollection["decisao"]) ?? null);
+
+      if (finished) {
+        // Coleta finalizada: nao mexe em rating/decisao, so merge do JSONB
         await supabase
           .from("document_collections")
           .update({ ai_analysis: mergedAi })
+          .eq("id", colId);
+      } else {
+        await supabase
+          .from("document_collections")
+          .update({
+            ai_analysis: mergedAi,
+            rating: ratingParaGravar,
+            decisao: decisaoParaGravar,
+          })
           .eq("id", colId);
       }
     } catch (err) {

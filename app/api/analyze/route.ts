@@ -191,7 +191,10 @@ async function callGemini(prompt: string, data: string): Promise<string> {
               body: JSON.stringify({
                 contents: [{ parts }],
                 generationConfig: {
-                  temperature: 0.3,
+                  // temperature: 0 para analise DETERMINISTICA — mesmo input = mesmo rating
+                  // sempre. Bug do usuario: "rating muda toda hora ao retomar analise"
+                  // era causado por 0.3 + re-analise automatica no mount do GenerateStep.
+                  temperature: 0,
                   maxOutputTokens: 16384,
                   responseMimeType: "application/json",
                   // Desativa "thinking" do gemini-2.5-flash para não consumir tokens

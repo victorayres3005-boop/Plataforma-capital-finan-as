@@ -139,6 +139,9 @@ function ParecerContent() {
   const [decisao, setDecisao] = useState<DecisaoValue | null>(null);
   const [ratingAnalista, setRatingAnalista] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  // Estado de erro persistente do autosave — mostra no header para o analista
+  // saber que precisa agir (sessao expirada, rede, RLS violacao).
+  const [autoSaveError, setAutoSaveError] = useState<string | null>(null);
   const [autoSaved, setAutoSaved] = useState(false);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialLoadDone = useRef(false);
@@ -253,13 +256,35 @@ function ParecerContent() {
         if (analista?.notaComite) setNotaComite(analista.notaComite as string);
 
         // Recupera dados pendentes do localStorage (salvos no beforeunload anterior)
+        // IMPORTANTE: so aplica se o pending for mais recente que o ultimo save
+        // do Supabase. Se outra sessao editou a coleta depois do pending ser
+        // gravado, pergunta ao analista antes de sobrescrever.
         try {
           const pendingRaw = localStorage.getItem(`cf_parecer_pending_${id}`);
           if (pendingRaw) {
             const pending = JSON.parse(pendingRaw);
-            // Só usa se for mais recente que os dados do Supabase (máx 1h)
-            const age = Date.now() - new Date(pending.savedAt).getTime();
-            if (age < 3600 * 1000 && pending.parecerAnalista) {
+            const pendingAt = new Date(pending.savedAt).getTime();
+            const age = Date.now() - pendingAt;
+            // Supabase retorna updated_at em alguns schemas — usa created_at como proxy
+            // se nao houver updated_at. Se o timestamp do Supabase for MAIS RECENTE que
+            // o pending, pergunta ao usuario antes de aplicar.
+            const supaUpdatedAt = new Date(
+              (data as unknown as { updated_at?: string; finished_at?: string; created_at?: string })
+                .updated_at ||
+              (data as unknown as { finished_at?: string }).finished_at ||
+              data.created_at ||
+              0,
+            ).getTime();
+            const supabaseIsNewer = supaUpdatedAt > pendingAt;
+            const shouldApplyPending =
+              age < 3600 * 1000 &&
+              pending.parecerAnalista &&
+              (!supabaseIsNewer ||
+                (typeof window !== "undefined" &&
+                  window.confirm(
+                    "Foram encontradas alteracoes locais pendentes desta coleta, mas o banco tem dados mais recentes. Aplicar as alteracoes locais mesmo assim? (OK = aplicar pending, Cancelar = descartar pending e usar Supabase)",
+                  )));
+            if (shouldApplyPending) {
               const p = pending.parecerAnalista;
               // Sobrescreve com dados pendentes (são mais recentes que o Supabase)
               if (p.limiteCredito) setLimiteCredito(p.limiteCredito);
@@ -333,10 +358,17 @@ function ParecerContent() {
     try {
       const f = formRef.current;
       const supabase = createClient();
-      const { data: session } = await supabase.auth.getUser();
-      if (!session.user) return;
-      const { data: current } = await supabase
+      const { data: session, error: authErr } = await supabase.auth.getUser();
+      if (authErr || !session.user) {
+        setAutoSaveError("Sessão expirada — faça login de novo para salvar.");
+        return;
+      }
+      const { data: current, error: fetchErr } = await supabase
         .from("document_collections").select("ai_analysis").eq("id", id).single();
+      if (fetchErr) {
+        setAutoSaveError(`Erro ao ler coleta: ${fetchErr.message}`);
+        return;
+      }
       const existingAi = (current?.ai_analysis as Record<string, unknown>) || {};
       const parecerAnalista = {
         limiteCredito: f.limiteCredito.trim() || null,
@@ -360,16 +392,27 @@ function ParecerContent() {
         decisaoComite: f.decisaoComite ?? null,
         notaComite: f.notaComite.trim() || null,
       };
-      await supabase.from("document_collections").update({
+      // Agora sempre grava os 3 campos principais (inclusive null/vazio),
+      // para que limpar um valor limpe no banco tambem.
+      const { error: updateErr } = await supabase.from("document_collections").update({
         ai_analysis: { ...existingAi, parecerAnalista },
-        ...(f.decisao ? { decisao: f.decisao } : {}),
-        ...(f.ratingAnalista != null ? { rating: f.ratingAnalista } : {}),
-        ...(f.notas.trim() ? { observacoes: f.notas.trim() } : {}),
+        decisao: f.decisao ?? null,
+        rating: f.ratingAnalista ?? null,
+        observacoes: f.notas.trim() || null,
       }).eq("id", id).eq("user_id", session.user.id);
+      if (updateErr) {
+        setAutoSaveError(`Erro ao salvar: ${updateErr.message}`);
+        return;
+      }
       pendingSave.current = false;
+      setAutoSaveError(null);
       setAutoSaved(true);
       setTimeout(() => setAutoSaved(false), 2000);
-    } catch { /* silently ignore auto-save errors */ }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setAutoSaveError(`Erro ao salvar: ${msg.substring(0, 80)}`);
+      console.warn("[parecer] autosave falhou:", msg);
+    }
   }, [id]);
 
   // ── Auto-save (debounced 2s) ──────────────────────────────────────────────
