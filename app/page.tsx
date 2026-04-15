@@ -333,8 +333,17 @@ export default function HomePage() {
         .single();
 
       if (error || !col) {
-        toast.error("Coleta não encontrada.");
+        toast.error("Coleta nao encontrada ou sem acesso.");
         setResumingCollection(false);
+        // Limpa a URL e volta pro dashboard em vez de deixar o usuario travado
+        // num estado de erro com ?resume= invalido (F5 repetia o erro).
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.delete("resume");
+          url.searchParams.delete("step");
+          window.history.replaceState({}, "", url.toString());
+        } catch { /* ignore */ }
+        setShowDashboard(true);
         return;
       }
 

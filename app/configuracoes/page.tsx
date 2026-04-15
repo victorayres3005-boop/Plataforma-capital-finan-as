@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Save, Loader2, RotateCcw, Plus, Trash2, Check, ChevronRight, Zap } from "lucide-react";
@@ -92,6 +92,12 @@ export default function ConfiguracoesPage() {
   const [activating, setActivating] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
+  // Autosave — tracking de mudancas nao salvas
+  const [isDirty, setIsDirty] = useState(false);
+  // setter apenas — status exposto futuramente via indicator visual se precisar
+  const [, setAutoSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipNextDirty = useRef(true); // ignora primeiro render e load de preset
 
   useEffect(() => {
     if (!user) { setLoading(false); return; }
@@ -108,9 +114,11 @@ export default function ConfiguracoesPage() {
         setActivePresetId(aid);
         const toSelect = aid ? loaded.find(p => p.id === aid) : loaded[0];
         if (toSelect) {
+          skipNextDirty.current = true;
           setSelectedId(toSelect.id);
           setEditing({ ...toSelect });
           setIsNew(false);
+          setIsDirty(false);
         }
       } catch { /* ignore */ }
       finally { setLoading(false); }
@@ -121,13 +129,16 @@ export default function ConfiguracoesPage() {
   const set = (key: keyof FundSettings, value: number) => setEditing(prev => ({ ...prev, [key]: value }));
 
   const handleSelect = (p: FundPreset) => {
+    skipNextDirty.current = true; // troca de preset nao e "edicao suja"
     setSelectedId(p.id);
     setEditing({ ...p });
     setIsNew(false);
+    setIsDirty(false);
     setShowTemplates(false);
   };
 
   const handleNew = (template?: Omit<FundPreset, "id" | "user_id">) => {
+    skipNextDirty.current = true;
     setSelectedId(null);
     setIsNew(true);
     setEditing({
@@ -136,8 +147,78 @@ export default function ConfiguracoesPage() {
       color: template?.color ?? PRESET_COLORS[0],
       ...(template ? presetToSettings(template) : DEFAULT_FUND_SETTINGS),
     });
+    setIsDirty(false);
     setShowTemplates(false);
   };
+
+  // ── Dirty tracking: qualquer mudanca em `editing` depois do primeiro load
+  // marca como suja. Autosave silencioso dispara apos 1.5s de inatividade
+  // (so para presets ja existentes; perfis novos precisam de save explicito
+  // porque require nome valido).
+  useEffect(() => {
+    if (skipNextDirty.current) {
+      skipNextDirty.current = false;
+      return;
+    }
+    setIsDirty(true);
+    setAutoSaveStatus("idle");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+
+  // Autosave silencioso com debounce
+  useEffect(() => {
+    if (!isDirty || isNew || !selectedId || !user) return;
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(async () => {
+      // Validacao silenciosa — se invalido, nao salva mas mantem dirty
+      const err = validate(editing as FundSettings);
+      if (err || !editing.name?.trim()) {
+        setAutoSaveStatus("error");
+        return;
+      }
+      setAutoSaveStatus("saving");
+      try {
+        const supabase = createClient();
+        const payload = {
+          user_id: user.id,
+          name: editing.name,
+          description: editing.description || undefined,
+          color: editing.color || PRESET_COLORS[0],
+          fmm_minimo: editing.fmm_minimo, idade_minima_anos: editing.idade_minima_anos,
+          alavancagem_saudavel: editing.alavancagem_saudavel, alavancagem_maxima: editing.alavancagem_maxima,
+          prazo_maximo_aprovado: editing.prazo_maximo_aprovado, prazo_maximo_condicional: editing.prazo_maximo_condicional,
+          concentracao_max_sacado: editing.concentracao_max_sacado, fator_limite_base: editing.fator_limite_base,
+          revisao_aprovado_dias: editing.revisao_aprovado_dias, revisao_condicional_dias: editing.revisao_condicional_dias,
+          protestos_max: editing.protestos_max, processos_passivos_max: editing.processos_passivos_max,
+          scr_vencidos_max_pct: editing.scr_vencidos_max_pct,
+          updated_at: new Date().toISOString(),
+        };
+        const { error } = await supabase.from("fund_presets").update(payload).eq("id", selectedId).eq("user_id", user.id);
+        if (error) throw error;
+        setPresets(prev => prev.map(p => p.id === selectedId ? { ...p, ...payload, id: p.id, description: payload.description ?? undefined } : p));
+        setIsDirty(false);
+        setAutoSaveStatus("saved");
+        setTimeout(() => setAutoSaveStatus(s => s === "saved" ? "idle" : s), 2000);
+      } catch (e) {
+        console.warn("[configuracoes] autosave falhou:", e instanceof Error ? e.message : e);
+        setAutoSaveStatus("error");
+      }
+    }, 1500);
+    return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, isDirty, isNew, selectedId, user]);
+
+  // beforeunload: avisa se tiver mudancas nao salvas
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (!isDirty) return;
+      e.preventDefault();
+      e.returnValue = "Voce tem alteracoes nao salvas. Sair mesmo assim?";
+      return e.returnValue;
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
 
   const handleSave = async () => {
     const err = validate(editing as FundSettings);
@@ -166,14 +247,18 @@ export default function ConfiguracoesPage() {
         if (error) throw error;
         setPresets(prev => [...prev, data]);
         setSelectedId(data.id);
+        skipNextDirty.current = true;
         setEditing({ ...data });
         setIsNew(false);
+        setIsDirty(false);
         toast.success("Perfil criado!");
       } else {
         const { error } = await supabase.from("fund_presets").update(payload).eq("id", selectedId!).eq("user_id", user!.id);
         if (error) throw error;
         setPresets(prev => prev.map(p => p.id === selectedId ? { ...p, ...payload, id: p.id, description: payload.description ?? undefined } : p));
+        skipNextDirty.current = true;
         setEditing(prev => ({ ...prev, ...payload, description: payload.description ?? undefined }));
+        setIsDirty(false);
         toast.success("Perfil salvo!");
       }
     } catch (err) {

@@ -47,14 +47,30 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
     }
+    // Preserva URL original em ?next= para redirecionar de volta apos login.
+    // Sem isso, sessao expirada no meio de uma analise perdia o contexto.
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
+    const fullPath = pathname + (request.nextUrl.search || "");
+    if (fullPath !== "/" && !fullPath.startsWith("/login")) {
+      loginUrl.searchParams.set("next", fullPath);
+    }
     return NextResponse.redirect(loginUrl);
   }
 
   if (user && pathname === "/login") {
+    // Respeita ?next= quando o usuario ja estava tentando ir pra algum lugar
+    const next = request.nextUrl.searchParams.get("next");
     const homeUrl = request.nextUrl.clone();
-    homeUrl.pathname = "/";
+    if (next && next.startsWith("/") && !next.startsWith("//")) {
+      // Preserva o path + query inteiros
+      const parsed = new URL(next, request.nextUrl.origin);
+      homeUrl.pathname = parsed.pathname;
+      homeUrl.search = parsed.search;
+    } else {
+      homeUrl.pathname = "/";
+      homeUrl.search = "";
+    }
     return NextResponse.redirect(homeUrl);
   }
 

@@ -100,7 +100,13 @@ function LoginContent() {
           const { error } = await supabase.auth.signInWithPassword({ email, password });
           if (error) throw error;
           toast.success("Login realizado!");
-          router.push("/");
+          // Respeita ?next= para voltar ao contexto original (coleta em andamento, parecer, etc.)
+          const next = searchParams.get("next");
+          if (next && next.startsWith("/") && !next.startsWith("//")) {
+            router.push(next);
+          } else {
+            router.push("/");
+          }
         }, setLoadingLogin);
       } catch (err) {
         toast.error(mapAuthError(err instanceof Error ? err : new Error(String(err))));
