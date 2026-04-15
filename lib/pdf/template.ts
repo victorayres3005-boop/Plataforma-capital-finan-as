@@ -472,14 +472,20 @@ function pageSintese(params: PDFReportParams, date: string): string {
   const scrAnt = d.scrAnterior;
   let scrTable = "";
   if (scr && scrAnt) {
-    const rows: Array<{label:string;curr:string;prev:string;varCls:string;varVal:string}> = [
-      { label:"Curto Prazo", curr:fmtMoneyAbr(scr.carteiraCurtoPrazo), prev:fmtMoneyAbr(scrAnt.carteiraCurtoPrazo), varCls:"down", varVal:"—" },
-      { label:"Longo Prazo", curr:fmtMoneyAbr(scr.carteiraLongoPrazo), prev:fmtMoneyAbr(scrAnt.carteiraLongoPrazo), varCls:"down", varVal:"—" },
-      { label:"Vencidos", curr:fmt(scr.vencidos), prev:fmt(scrAnt.vencidos), varCls:"neutral", varVal:"—" },
-      { label:"Prejuízos", curr:fmt(scr.prejuizos), prev:fmt(scrAnt.prejuizos), varCls:"neutral", varVal:"—" },
-      { label:"Limite Crédito", curr:fmtMoneyAbr(scr.limiteCredito), prev:fmtMoneyAbr(scrAnt.limiteCredito), varCls:"up", varVal:"—" },
+    type SCRRow = {label:string;curr:string;prev:string;varCls:string;varVal:string};
+    const mkRow = (label:string, currV:string|null|undefined, prevV:string|null|undefined, fmt2:(v:string|number|null|undefined)=>string, higherIsBad:boolean): SCRRow => {
+      const v = scrVar(currV, prevV, higherIsBad);
+      return {label, curr:fmt2(currV), prev:fmt2(prevV), varCls:v.cls, varVal:v.val};
+    };
+    const rows: SCRRow[] = [
+      mkRow("Curto Prazo",  scr.carteiraCurtoPrazo,  scrAnt.carteiraCurtoPrazo,  fmtMoneyAbr, true),
+      mkRow("Longo Prazo",  scr.carteiraLongoPrazo,  scrAnt.carteiraLongoPrazo,  fmtMoneyAbr, true),
+      mkRow("Vencidos",     scr.vencidos,             scrAnt.vencidos,             fmtMoneyAbr, true),
+      mkRow("Prejuízos",    scr.prejuizos,            scrAnt.prejuizos,            fmtMoneyAbr, true),
+      mkRow("Limite Créd.", scr.limiteCredito,        scrAnt.limiteCredito,        fmtMoneyAbr, false),
     ];
-    const totalRows = `<tr class="total"><td>Total Dívidas</td><td>${fmtMoneyAbr(scr.totalDividasAtivas)}</td><td>${fmtMoneyAbr(scrAnt.totalDividasAtivas)}</td><td class="var-cell neutral">—</td></tr>`;
+    const vTotal = scrVar(scr.totalDividasAtivas, scrAnt.totalDividasAtivas, true);
+    const totalRows = `<tr class="total"><td>Total Dívidas</td><td>${fmtMoneyAbr(scr.totalDividasAtivas)}</td><td>${fmtMoneyAbr(scrAnt.totalDividasAtivas)}</td><td class="var-cell ${vTotal.cls}">${esc(vTotal.val)}</td></tr>`;
     scrTable = `<table class="scr-tbl">
       <thead><tr><th>Métrica</th><th>Atual</th><th>Anterior</th><th>Var.</th></tr></thead>
       <tbody>${rows.map(r=>`<tr><td>${esc(r.label)}</td><td>${r.curr}</td><td>${r.prev}</td><td class="var-cell ${r.varCls}">${r.varVal}</td></tr>`).join("")}${totalRows}</tbody>
@@ -949,6 +955,19 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
     `<tr><td class="${p.tipo.toLowerCase().includes("fiscal") ? "red" : ""}">${esc(p.tipo)}</td><td>${fmtDate(p.data)}</td><td>${esc(p.assunto)}</td><td>${fmt(p.fase)}</td></tr>`
   ).join("");
 
+  // Top 10 por valor
+  const top10Valor = (proc?.top10Valor ?? []).slice(0,10);
+  const top10ValorRows = top10Valor.map(p => {
+    const isFiscal = p.tipo.toLowerCase().includes("fiscal");
+    return `<tr>
+      <td class="${isFiscal ? "red" : "b"}">${esc(p.tipo)}</td>
+      <td>${esc(p.partes)}</td>
+      <td>${fmtDate(p.data)}</td>
+      <td class="r red">${p.valor && p.valor !== "0" ? fmtMoney(p.valor) : "—"}</td>
+      <td>${fmt(p.fase)}</td>
+    </tr>`;
+  }).join("");
+
   const content = `
     ${stitle("07 · Protestos")}
     <div class="istrip c4" style="margin-bottom:14px">
@@ -977,7 +996,11 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
       <div class="icell ${temRJ ? "danger" : "success"}"><div class="l">Falência / RJ</div><div class="v ${temRJ ? "red" : "green"}">${temRJ ? "Sim" : "Não"}</div></div>
     </div>
     ${distRows ? `${stitle("Distribuição por tipo")}<div style="margin-bottom:14px">${distRows}</div>` : ""}
-    ${top5ProcRows ? `${stitle("Top 5 mais recentes")}
+    ${top10ValorRows ? `${stitle("Top 10 por valor")}
+    <table class="tbl">
+      <thead><tr><th>Tipo</th><th>Contraparte</th><th>Data</th><th class="r">Valor</th><th>Fase</th></tr></thead>
+      <tbody>${top10ValorRows}</tbody>
+    </table>` : top5ProcRows ? `${stitle("Top 5 mais recentes")}
     <table class="tbl">
       <thead><tr><th>Tipo</th><th>Data</th><th>Assunto</th><th>Fase</th></tr></thead>
       <tbody>${top5ProcRows}</tbody>
@@ -1304,7 +1327,23 @@ function pageIRVisita(params: PDFReportParams, date: string): string {
     </div>`;
   }
 
-  const content = `${irSection}${visitaSection}`;
+  // Histórico de Consultas
+  let historicoSection = "";
+  const historico = params.data.historicoConsultas ?? [];
+  if (historico.length > 0) {
+    const histRows = historico.map(h =>
+      `<tr><td>${esc(h.usuario)}</td><td class="r">${fmt(h.ultimaConsulta)}</td></tr>`
+    ).join("");
+    historicoSection = `
+    ${stitle("21 · Histórico de consultas ao CNPJ")}
+    <table class="tbl">
+      <thead><tr><th>Instituição / Consulente</th><th class="r">Última Consulta</th></tr></thead>
+      <tbody>${histRows}</tbody>
+    </table>
+    <div class="inf" style="margin-top:4px">${historico.length} consulta(s) nos últimos 6 meses</div>`;
+  }
+
+  const content = `${irSection}${historicoSection}${visitaSection}`;
   return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de IR/Visita não disponíveis</div>`, 9, date);
 }
 
