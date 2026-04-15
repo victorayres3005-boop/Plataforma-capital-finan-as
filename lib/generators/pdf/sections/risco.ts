@@ -1,748 +1,356 @@
 /**
- * Seções 05, 06, CCF, HISTÓRICO DE CONSULTAS
- * Protestos (KPIs + distribuição + tabelas detalhadas)
- * Processos Judiciais (KPIs + distribuição + tops)
- * CCF — Cheques sem Fundo
- * Histórico de Consultas ao Mercado
+ * Seções 07+08 — PROTESTOS · PROCESSOS JUDICIAIS
+ * Fiel ao HTML de referência secoes-restantes-estetica-v3.html
  */
 import type { PdfCtx } from "../context";
-import {
-  checkPageBreak, drawSectionTitle, drawSpacer,
-  drawAlertDeduped, dsMiniHeader, dsMetricCard, autoT,
-  fmtMoney, fmtBR, parseMoneyToNumber,
-} from "../helpers";
+import { newPage, drawHeader, checkPageBreak, parseMoneyToNumber, fmtBR } from "../helpers";
+
+// ── Paleta ────────────────────────────────────────────────────────────────────
+const P = {
+  n9:  [12,  27,  58]  as [number,number,number],
+  n8:  [19,  41,  82]  as [number,number,number],
+  n1:  [220, 230, 245] as [number,number,number],
+  n0:  [238, 243, 251] as [number,number,number],
+  n7:  [26,  58, 107]  as [number,number,number],
+  a5:  [212, 149,  10] as [number,number,number],
+  a1:  [253, 243, 215] as [number,number,number],
+  a0:  [254, 249, 236] as [number,number,number],
+  r6:  [197,  48,  48] as [number,number,number],
+  r1:  [254, 226, 226] as [number,number,number],
+  r0:  [254, 242, 242] as [number,number,number],
+  g6:  [ 22, 101,  58] as [number,number,number],
+  g1:  [209, 250, 229] as [number,number,number],
+  g0:  [236, 253, 245] as [number,number,number],
+  x9:  [ 17,  24,  39] as [number,number,number],
+  x7:  [ 55,  65,  81] as [number,number,number],
+  x5:  [107, 114, 128] as [number,number,number],
+  x4:  [156, 163, 175] as [number,number,number],
+  x2:  [229, 231, 235] as [number,number,number],
+  x1:  [243, 244, 246] as [number,number,number],
+  x0:  [249, 250, 251] as [number,number,number],
+  wh:  [255, 255, 255] as [number,number,number],
+};
+
+const mo = (v: string | number | null | undefined): string => {
+  if (v == null || v === "") return "—";
+  const n = typeof v === "number" ? v : parseMoneyToNumber(String(v));
+  if (!isFinite(n) || n === 0) return "—";
+  const a = Math.abs(n);
+  const s = n < 0 ? "-" : "";
+  if (a >= 1_000_000) return `${s}R$ ${fmtBR(a / 1_000_000, 2)}M`;
+  if (a >= 1_000)     return `${s}R$ ${fmtBR(a / 1_000, 0)}k`;
+  return `${s}R$ ${fmtBR(Math.round(a), 0)}`;
+};
+
+const tr = (s: string, n: number) => {
+  const t = (s || "").trim();
+  return t.length > n ? t.slice(0, n - 1) + "…" : t;
+};
 
 export function renderRisco(ctx: PdfCtx): void {
-  _renderProtestos(ctx);
-  _renderProcessos(ctx);
-  _renderCCF(ctx);
-  _renderHistoricoConsultas(ctx);
-}
+  const { doc, pos, params, data, margin: ML, contentW: CW } = ctx;
+  const GAP = 3.5;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PROTESTOS
-// ─────────────────────────────────────────────────────────────────────────────
-
-function _renderProtestos(ctx: PdfCtx): void {
-  const { doc, DS, pos, data, params, margin, contentW } = ctx;
-  void DS;
-  const { protestosVigentes } = params;
-  const protestosNaoConsultados = !data.protestos;
-
-  drawSpacer(ctx, 10);
-  checkPageBreak(ctx, 50);
-  drawSectionTitle(ctx, "05", "PROTESTOS");
-
-  // ── KPI Cards ──
-  {
-    checkPageBreak(ctx, 22);
-    const kpiGapP = DS.space.kpiCardGap;
-    const kpiWP = (contentW - kpiGapP * 3) / 4;
-    const kpiHP = DS.space.kpiCardH;
-    const vigQtdP = parseInt(data.protestos?.vigentesQtd || '0');
-    const regQtdP = parseInt(data.protestos?.regularizadosQtd || '0');
-    const kpiDataP = [
-      { label: 'Vigentes Qtd', value: protestosNaoConsultados ? 'N/C' : String(vigQtdP), border: vigQtdP > 0 ? DS.colors.danger : DS.colors.success, valColor: vigQtdP > 0 ? DS.colors.danger : DS.colors.textPrimary },
-      { label: 'Vigentes R$', value: protestosNaoConsultados ? 'N/C' : (vigQtdP > 0 ? `R$ ${fmtMoney(data.protestos?.vigentesValor)}` : '—'), border: vigQtdP > 0 ? DS.colors.danger : DS.colors.success, valColor: vigQtdP > 0 ? DS.colors.danger : DS.colors.textLight2 },
-      { label: 'Regularizados Qtd', value: protestosNaoConsultados ? 'N/C' : String(regQtdP), border: regQtdP > 0 ? DS.colors.success : DS.colors.borderRGB, valColor: regQtdP > 0 ? DS.colors.success : DS.colors.textPrimary },
-      { label: 'Regularizados R$', value: protestosNaoConsultados ? 'N/C' : (regQtdP > 0 ? `R$ ${fmtMoney(data.protestos?.regularizadosValor)}` : '—'), border: regQtdP > 0 ? DS.colors.success : DS.colors.borderRGB, valColor: regQtdP > 0 ? DS.colors.success : DS.colors.textLight2 },
-    ];
-    kpiDataP.forEach((k, i) => {
-      dsMetricCard(ctx, margin + i * (kpiWP + kpiGapP), pos.y, kpiWP, kpiHP, k.label, k.value, undefined, k.border, k.valColor);
-    });
-    pos.y += kpiHP + 4;
-  }
-
-  // ── Processos como contexto de risco ──
-  {
-    const procTotalSint = parseInt(data.processos?.passivosTotal || "0");
-    const poloAtivoSint = parseInt(data.processos?.poloAtivoQtd || "0");
-    const poloPassivoSint = parseInt(data.processos?.poloPassivoQtd || "0");
-    const temFalSint = !!data.processos?.temFalencia;
-    if (procTotalSint > 0 || temFalSint) {
-      checkPageBreak(ctx, 22);
-      const kpiGapP2 = DS.space.kpiCardGap;
-      const kpiWP2 = (contentW - kpiGapP2 * 3) / 4;
-      const kpiHP2 = DS.space.kpiCardH;
-      const procKpis = [
-        { label: "Processos Judiciais", value: String(procTotalSint), border: procTotalSint > 0 ? ([...DS.colors.warning] as [number, number, number]) : DS.colors.borderRGB, valColor: procTotalSint > 0 ? ([...DS.colors.warning] as [number, number, number]) : DS.colors.textPrimary },
-        { label: "Polo Ativo (Autor)", value: poloAtivoSint > 0 ? String(poloAtivoSint) : "—", border: [59, 130, 246] as [number, number, number], valColor: [29, 78, 216] as [number, number, number] },
-        { label: "Polo Passivo (Réu)", value: poloPassivoSint > 0 ? String(poloPassivoSint) : "—", border: poloPassivoSint > 0 ? DS.colors.danger : DS.colors.borderRGB, valColor: poloPassivoSint > 0 ? DS.colors.danger : DS.colors.textPrimary },
-        { label: "Falência / RJ", value: temFalSint ? "ALERTA" : (data.processos?.temRJ ? "RJ" : "—"), border: (temFalSint || data.processos?.temRJ) ? DS.colors.danger : DS.colors.borderRGB, valColor: (temFalSint || data.processos?.temRJ) ? DS.colors.danger : DS.colors.textLight2 },
-      ];
-      procKpis.forEach((k, i) => {
-        dsMetricCard(ctx, margin + i * (kpiWP2 + kpiGapP2), pos.y, kpiWP2, kpiHP2, k.label, k.value, undefined, k.border, k.valColor);
-      });
-      pos.y += kpiHP2 + 4;
-    }
-  }
-
-  if (protestosNaoConsultados) {
-    drawSpacer(ctx, 4);
-    _drawBannerNaoConsultadoLocal(ctx, "Protestos");
-  } else if (protestosVigentes > 0) {
-    const valorProt = parseMoneyToNumber(data.protestos?.vigentesValor || "0");
-    const msgProt = valorProt > 0
-      ? `${protestosVigentes} protesto(s) vigente(s) — R$ ${fmtMoney(data.protestos?.vigentesValor)}`
-      : `${protestosVigentes} protesto(s) vigente(s) — valor não disponível no bureau (confirmar junto ao cartório)`;
-    drawAlertDeduped(ctx, msgProt, "ALTA");
-  }
-
-  const protestoDetalhes = data.protestos?.detalhes || [];
-
-  if (!protestosNaoConsultados && protestoDetalhes.length === 0) {
-    drawSpacer(ctx, 4);
-    checkPageBreak(ctx, 12);
-    doc.setFillColor(...DS.colors.successBg);
-    doc.roundedRect(margin, pos.y, contentW, 10, 1, 1, "F");
-    doc.setFillColor(...DS.colors.success);
-    doc.roundedRect(margin, pos.y, 3, 10, 0.5, 0.5, "F");
-    doc.setFontSize(DS.font.caption);
+  const stitle = (label: string) => {
+    const y = pos.y;
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(...DS.colors.success);
-    doc.text("Nenhum protesto identificado", margin + 8, pos.y + 6.5);
-    pos.y += 14;
-  } else if (!protestosNaoConsultados) {
-    const parseDate = (d: string): Date | null => {
-      if (!d) return null;
-      const parts = d.split("/");
-      if (parts.length !== 3) return null;
-      const [dd, mm, aaaa] = parts.map(Number);
-      if (!dd || !mm || !aaaa) return null;
-      return new Date(aaaa, mm - 1, dd);
-    };
-    const parseProt = (v: string) => parseFloat((v || "0").replace(/\./g, "").replace(",", ".")) || 0;
-    const fmtProt = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    doc.setFontSize(7);
+    doc.setTextColor(...P.x5);
+    const up = label.toUpperCase();
+    doc.text(up, ML, y + 3);
+    const tw = doc.getTextWidth(up);
+    doc.setDrawColor(...P.x2);
+    doc.setLineWidth(0.3);
+    doc.line(ML + tw + 2.5, y + 2.5, ML + CW, y + 2.5);
+    pos.y += 7;
+  };
 
-    const now = new Date();
-    const ms30 = 30 * 24 * 60 * 60 * 1000;
-    const ms90 = 90 * 24 * 60 * 60 * 1000;
-    const ms365 = 365 * 24 * 60 * 60 * 1000;
-
-    type TempBucket = { label: string; qtd: number; valor: number };
-    const tempBuckets: TempBucket[] = [
-      { label: "Ultimo mes (30 dias)", qtd: 0, valor: 0 },
-      { label: "Ultimos 3 meses", qtd: 0, valor: 0 },
-      { label: "Ultimos 12 meses", qtd: 0, valor: 0 },
-      { label: "Mais de 12 meses", qtd: 0, valor: 0 },
-    ];
-    protestoDetalhes.forEach((p: { data?: string; valor?: string }) => {
-      const dt = parseDate(p.data || "");
-      const val = parseProt(p.valor || "0");
-      if (!dt) return;
-      const age = now.getTime() - dt.getTime();
-      if (age <= ms30) { tempBuckets[0].qtd++; tempBuckets[0].valor += val; }
-      if (age <= ms90) { tempBuckets[1].qtd++; tempBuckets[1].valor += val; }
-      if (age <= ms365) { tempBuckets[2].qtd++; tempBuckets[2].valor += val; }
-      else { tempBuckets[3].qtd++; tempBuckets[3].valor += val; }
-    });
-
-    type ValBucket = { label: string; min: number; max: number; qtd: number; valor: number };
-    const valBuckets: ValBucket[] = [
-      { label: "Abaixo de R$ 1.000", min: 0, max: 1000, qtd: 0, valor: 0 },
-      { label: "R$ 1.000 a R$ 10.000", min: 1000, max: 10000, qtd: 0, valor: 0 },
-      { label: "R$ 10.000 a R$ 50.000", min: 10000, max: 50000, qtd: 0, valor: 0 },
-      { label: "R$ 50.000 a R$ 100.000", min: 50000, max: 100000, qtd: 0, valor: 0 },
-      { label: "Acima de R$ 100.000", min: 100000, max: Infinity, qtd: 0, valor: 0 },
-    ];
-    protestoDetalhes.forEach((p: { valor?: string }) => {
-      const val = parseProt(p.valor || "0");
-      const bucket = valBuckets.find(b => val >= b.min && val < b.max);
-      if (bucket) { bucket.qtd++; bucket.valor += val; }
-    });
-
-    // Dois blocos lado a lado: distribuição temporal + faixas
-    {
-      const colGapD = 4;
-      const colWD = (contentW - colGapD) / 2;
-      const rowHD = DS.space.tableRowH;
-      const maxRowsD = Math.max(tempBuckets.length, valBuckets.length);
-      const neededD = 7 + maxRowsD * rowHD + 8;
-      drawSpacer(ctx, 4);
-      checkPageBreak(ctx, neededD);
-
-      const yDistStart = pos.y;
-
-      // Headers
-      _dsMiniHeaderAt(ctx, margin, yDistStart, colWD, 'DISTRIBUICAO TEMPORAL', DS.colors.headerBg);
-      _dsMiniHeaderAt(ctx, margin + colWD + colGapD, yDistStart, colWD, 'DISTRIBUICAO POR FAIXA', DS.colors.headerBg);
-
-      let yL = yDistStart + 7;
-      let yR = yDistStart + 7;
-
-      const drawSubHeader2 = (cx: number, startY: number, cw: number, c1: string, c2: string, c3: string) => {
-        doc.setFillColor(50, 70, 110);
-        doc.rect(cx, startY, cw, DS.space.tableRowH, 'F');
-        doc.setFontSize(DS.font.micro);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(255, 255, 255);
-        doc.text(c1, cx + 2, startY + 5.5);
-        doc.text(c2, cx + cw * 0.72, startY + 5.5, { align: 'right' });
-        doc.text(c3, cx + cw - 1, startY + 5.5, { align: 'right' });
-        return startY + DS.space.tableRowH;
-      };
-      yL = drawSubHeader2(margin, yL, colWD, 'PERIODO', 'QTD', 'VALOR');
-      yR = drawSubHeader2(margin + colWD + colGapD, yR, colWD, 'FAIXA', 'QTD', 'VALOR');
-
-      tempBuckets.forEach((b, idx) => {
-        doc.setFillColor(...(idx % 2 === 0 ? DS.colors.zebraRow : DS.colors.cardBg));
-        doc.rect(margin, yL, colWD, rowHD, 'F');
-        doc.setFontSize(DS.font.micro);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(...DS.colors.textPrimary);
-        const labTrunc = b.label.length > 22 ? b.label.substring(0, 21) + '…' : b.label;
-        doc.text(labTrunc, margin + 2, yL + 5.5);
-        doc.text(String(b.qtd), margin + colWD * 0.72, yL + 5.5, { align: 'right' });
-        doc.setTextColor(...(b.qtd > 0 ? DS.colors.danger : DS.colors.textLight2));
-        doc.text(b.qtd > 0 ? fmtProt(b.valor) : '—', margin + colWD - 1, yL + 5.5, { align: 'right' });
-        doc.setDrawColor(...DS.colors.borderRGB);
-        doc.line(margin, yL + rowHD, margin + colWD, yL + rowHD);
-        yL += rowHD;
-      });
-
-      valBuckets.forEach((b, idx) => {
-        const cx2 = margin + colWD + colGapD;
-        doc.setFillColor(...(idx % 2 === 0 ? DS.colors.zebraRow : DS.colors.cardBg));
-        doc.rect(cx2, yR, colWD, rowHD, 'F');
-        doc.setFontSize(DS.font.micro);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(...DS.colors.textPrimary);
-        const labTrunc2 = b.label.length > 20 ? b.label.substring(0, 19) + '…' : b.label;
-        doc.text(labTrunc2, cx2 + 2, yR + 5.5);
-        doc.text(String(b.qtd), cx2 + colWD * 0.72, yR + 5.5, { align: 'right' });
-        doc.setTextColor(...(b.qtd > 0 ? DS.colors.textPrimary : DS.colors.textLight2));
-        doc.text(b.qtd > 0 ? fmtProt(b.valor) : '—', cx2 + colWD - 1, yR + 5.5, { align: 'right' });
-        doc.setDrawColor(...DS.colors.borderRGB);
-        doc.line(cx2, yR + rowHD, cx2 + colWD, yR + rowHD);
-        yR += rowHD;
-      });
-
-      pos.y = Math.max(yL, yR) + 4;
-    }
-
-    const protWidths = [28, contentW - 28 - 38 - 22, 38, 22];
-    const drawProtTable = (rows: typeof protestoDetalhes) => {
-      checkPageBreak(ctx, 6.5 + rows.length * 6 + 2);
-      autoT(ctx,
-        ["Data", "Credor / Apresentante", "Valor (R$)", "Regularizado"],
-        rows.map((p: { data?: string; credor?: string; apresentante?: string; especie?: string; valor?: string; regularizado?: boolean }) => {
-          const regLabel = p.regularizado ? "Sim" : "Não";
-          const valColor: [number, number, number] = p.regularizado ? DS.colors.successText : DS.colors.danger;
-          const regColor: [number, number, number] = p.regularizado ? DS.colors.successText : DS.colors.danger;
-          return [
-            p.data || "—",
-            [p.credor || p.apresentante || "—", p.especie ? ` (${p.especie})` : ""].join(""),
-            { content: p.valor || "—", styles: { textColor: valColor } },
-            { content: regLabel, styles: { textColor: regColor } },
-          ];
-        }),
-        protWidths,
-      );
-    };
-
-    const semDetalhesReais = protestoDetalhes.every((p: { data?: string; apresentante?: string; valor?: string }) => !p.data && !p.apresentante && parseProt(p.valor || "0") === 0);
-
-    if (semDetalhesReais) {
-      drawSpacer(ctx, 4);
-      checkPageBreak(ctx, 16);
-      dsMiniHeader(ctx, 'LOCAIS DOS PROTESTOS');
-      drawProtTable(protestoDetalhes.slice(0, 10));
-      checkPageBreak(ctx, 10);
-      doc.setFontSize(DS.font.micro);
-      doc.setFont("helvetica", "italic");
-      doc.setTextColor(...DS.colors.textMuted);
-      doc.text("* Detalhes (valor, data, apresentante) nao disponiveis no plano atual do Credit Hub — confirmar diretamente nos cartorios.", margin, pos.y);
-      pos.y += 7;
-    } else {
-      drawSpacer(ctx, 4);
-      checkPageBreak(ctx, 16);
-      dsMiniHeader(ctx, 'TOP 10 MAIS RECENTES');
-      const top10Recentes = [...protestoDetalhes]
-        .sort((a: { data?: string }, b: { data?: string }) => {
-          const da = parseDate(a.data || "");
-          const db = parseDate(b.data || "");
-          if (!da && !db) return 0;
-          if (!da) return 1;
-          if (!db) return -1;
-          return db.getTime() - da.getTime();
-        })
-        .slice(0, 10);
-      drawProtTable(top10Recentes);
-
-      drawSpacer(ctx, 4);
-      checkPageBreak(ctx, 16);
-      dsMiniHeader(ctx, 'TOP 10 POR VALOR');
-      const top10Valor = [...protestoDetalhes]
-        .sort((a: { valor?: string }, b: { valor?: string }) => parseProt(b.valor || "0") - parseProt(a.valor || "0"))
-        .slice(0, 10);
-      drawProtTable(top10Valor);
-    }
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PROCESSOS JUDICIAIS
-// ─────────────────────────────────────────────────────────────────────────────
-
-function _renderProcessos(ctx: PdfCtx): void {
-  const { doc, DS, pos, data, margin, contentW } = ctx;
-  const colors = DS.colors;
-  const processosNaoConsultados = !data.processos;
-
-  drawSpacer(ctx, 10);
-  checkPageBreak(ctx, 50);
-  drawSectionTitle(ctx, "06", "PROCESSOS JUDICIAIS");
-
-  // KPI Cards
-  {
-    checkPageBreak(ctx, 52);
-    const kpiGapQ = DS.space.kpiCardGap;
-    const kpiWQ = (contentW - kpiGapQ * 2) / 3;
-    const kpiHQ = DS.space.kpiCardH;
-    const passivosN = parseInt(data.processos?.passivosTotal || '0');
-    const poloAtivoN = parseInt(data.processos?.poloAtivoQtd || '0');
-    const poloPassN = parseInt(data.processos?.poloPassivoQtd || '0');
-    const temRJN = !!data.processos?.temRJ;
-    const temFalN = !!data.processos?.temFalencia;
-    const dividasQN = parseInt(data.processos?.dividasQtd || '0');
-
-    const nc = processosNaoConsultados ? 'N/C' : null;
-    const kpiRowsQ = [
-      [
-        { label: 'Total Processos', value: nc ?? String(passivosN), border: passivosN > 0 ? DS.colors.warn : DS.colors.borderRGB, valColor: passivosN > 0 ? DS.colors.warn : DS.colors.textPrimary },
-        { label: 'Polo Ativo (Autor)', value: nc ?? (poloAtivoN > 0 ? String(poloAtivoN) : '—'), border: DS.colors.info, valColor: [59, 130, 246] as [number, number, number] },
-        { label: 'Polo Passivo (Reu)', value: nc ?? (poloPassN > 0 ? String(poloPassN) : '—'), border: poloPassN > 0 ? DS.colors.warn : DS.colors.borderRGB, valColor: poloPassN > 0 ? DS.colors.warn : DS.colors.textPrimary },
-      ],
-      [
-        { label: 'Rec. Judicial / Falencia', value: nc ?? (temFalN ? 'FALENCIA' : temRJN ? 'RJ' : 'Nao'), border: (temFalN || temRJN) ? DS.colors.danger : DS.colors.success, valColor: (temFalN || temRJN) ? DS.colors.danger : DS.colors.success },
-        { label: 'Dividas Qtd', value: nc ?? String(dividasQN), border: dividasQN > 0 ? DS.colors.danger : DS.colors.borderRGB, valColor: dividasQN > 0 ? DS.colors.danger : DS.colors.textPrimary },
-        { label: 'Dividas R$', value: nc ?? (dividasQN > 0 ? `R$ ${fmtMoney(data.processos?.dividasValor)}` : '—'), border: dividasQN > 0 ? DS.colors.danger : DS.colors.borderRGB, valColor: dividasQN > 0 ? DS.colors.danger : DS.colors.textLight2 },
-      ],
-    ];
-    kpiRowsQ.forEach((row, ri) => {
-      row.forEach((k, ci) => {
-        dsMetricCard(ctx, margin + ci * (kpiWQ + kpiGapQ), pos.y + ri * (kpiHQ + kpiGapQ), kpiWQ, kpiHQ, k.label, k.value, undefined, k.border, k.valColor);
-      });
-    });
-    pos.y += kpiHQ * 2 + kpiGapQ * 2 + 4;
-  }
-
-  if (processosNaoConsultados) {
-    drawSpacer(ctx, 4);
-    _drawBannerNaoConsultadoLocal(ctx, "Processos judiciais");
-  } else if (data.processos?.temFalencia) {
-    drawAlertDeduped(ctx, "PEDIDO DE FALENCIA identificado nos processos judiciais", "ALTA");
-  } else if (data.processos?.temRJ) {
-    drawAlertDeduped(ctx, "RECUPERACAO JUDICIAL identificada", "ALTA");
-  }
-
-  const proc = data.processos;
-  const distribuicao = proc?.distribuicao || [];
-  const bancarios = proc?.bancarios || [];
-  const fiscais = proc?.fiscais || [];
-  const fornecedores = proc?.fornecedores || [];
-  const outrosProc = proc?.outros || [];
-
-  const semDados = !proc
-    || (parseInt(proc.passivosTotal || "0") === 0
-      && parseInt(proc.ativosTotal || "0") === 0
-      && distribuicao.length === 0
-      && bancarios.length === 0
-      && fiscais.length === 0
-      && fornecedores.length === 0
-      && outrosProc.length === 0
-      && (proc.top10Valor?.length ?? 0) === 0
-      && (proc.top10Recentes?.length ?? 0) === 0);
-
-  if (!processosNaoConsultados && semDados) {
-    drawSpacer(ctx, 4);
-    checkPageBreak(ctx, 12);
-    doc.setFillColor(...DS.colors.successBg);
-    doc.roundedRect(margin, pos.y, contentW, 10, 1, 1, "F");
-    doc.setFillColor(...DS.colors.success);
-    doc.roundedRect(margin, pos.y, 3, 10, 0.5, 0.5, "F");
-    doc.setFontSize(DS.font.caption);
+  const icell = (
+    x: number, y: number, w: number, h: number,
+    label: string, value: string,
+    bg: [number,number,number] = P.x0,
+    bd: [number,number,number] = P.x1,
+    valColor: [number,number,number] = P.n9,
+  ) => {
+    doc.setFillColor(...bg);
+    doc.setDrawColor(...bd);
+    doc.setLineWidth(0.25);
+    doc.roundedRect(x, y, w, h, 2, 2, "FD");
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(...DS.colors.success);
-    doc.text("Nenhum processo judicial identificado", margin + 8, pos.y + 6.5);
-    pos.y += 14;
-  } else if (!processosNaoConsultados) {
-    const drawProcLabel = (title: string) => {
-      drawSpacer(ctx, 4);
-      checkPageBreak(ctx, 14);
-      dsMiniHeader(ctx, title);
-    };
+    doc.setFontSize(5);
+    doc.setTextColor(...P.x4);
+    doc.text(label.toUpperCase(), x + 4, y + 5);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(value.length > 10 ? 7 : 10);
+    doc.setTextColor(...valColor);
+    doc.text(value || "—", x + 4, y + 14);
+  };
 
-    const statusColor = (s: string): [number, number, number] =>
-      /arquivado/i.test(s) ? ([...colors.success] as [number, number, number]) : colors.warning;
+  const alertRow = (sev: "alta"|"mod"|"info"|"ok", msg: string) => {
+    const bg: [number,number,number] = sev==="alta"?P.r0:sev==="mod"?P.a0:sev==="ok"?P.g0:P.n0;
+    const bd: [number,number,number] = sev==="alta"?P.r1:sev==="mod"?P.a1:sev==="ok"?P.g1:P.n1;
+    const fg: [number,number,number] = sev==="alta"?P.r6:sev==="mod"?P.a5:sev==="ok"?P.g6:P.n7;
+    const tag = sev==="alta"?"ALTA":sev==="mod"?"MOD":sev==="ok"?"OK":"INFO";
+    const lines = doc.splitTextToSize(msg, CW - 26) as string[];
+    const H = Math.max(8, lines.length * 4.5 + 5);
+    checkPageBreak(ctx, H + 2);
+    doc.setFillColor(...bg);
+    doc.setDrawColor(...bd);
+    doc.setLineWidth(0.25);
+    doc.roundedRect(ML, pos.y, CW, H, 2, 2, "FD");
+    const tw = doc.getTextWidth(tag);
+    doc.setFont("helvetica","bold"); doc.setFontSize(6); doc.setTextColor(...fg);
+    doc.setFillColor(...bd);
+    doc.roundedRect(ML + 3, pos.y + (H-4.5)/2, tw+4, 4.5, 1, 1, "F");
+    doc.text(tag, ML + 5, pos.y + H/2 + 1);
+    doc.setFont("helvetica","normal"); doc.setFontSize(7);
+    doc.text(lines, ML + tw + 10, pos.y + H/2 - (lines.length-1)*2.25 + 1);
+    pos.y += H + 2.5;
+  };
 
-    type ProcCell = { text: string; color?: [number, number, number]; bold?: boolean; align?: "left" | "right" };
-
-    const drawProcAutoTable = (headers: string[], cellRows: ProcCell[][], colWidths: number[]) => {
-      checkPageBreak(ctx, 6.5 + cellRows.length * 6 + 2);
-      autoT(ctx,
-        headers,
-        cellRows.map(row =>
-          row.map(cell =>
-            cell.color || cell.bold
-              ? { content: cell.text, styles: { textColor: cell.color, fontStyle: cell.bold ? "bold" : "normal" } as Record<string, unknown> }
-              : cell.text
-          )
-        ),
-        colWidths,
-      );
-    };
-
-    if (distribuicao.length > 0) {
-      drawProcLabel("DISTRIBUICAO POR TIPO");
-      const distCW = [contentW * 0.55, contentW * 0.20, contentW * 0.25];
-      const totalQtd = distribuicao.reduce((s: number, d: { qtd?: string }) => s + (parseInt(d.qtd || "0") || 0), 0);
-      drawProcAutoTable(
-        ["TIPO", "QTD", "%"],
-        [
-          ...distribuicao.map((d: { tipo?: string; qtd?: string; pct?: string }) => {
-            const qtdN = parseInt(d.qtd || "0") || 0;
-            const isHigh = qtdN > 10;
-            return [
-              { text: d.tipo || "—", color: isHigh ? colors.danger : colors.text, bold: isHigh },
-              { text: String(qtdN), color: isHigh ? colors.danger : colors.text, bold: isHigh },
-              { text: d.pct ? `${d.pct}%` : "—" },
-            ] as ProcCell[];
-          }),
-          [{ text: "TOTAL", bold: true }, { text: String(totalQtd), bold: true }, { text: "100%", bold: true }] as ProcCell[],
-        ],
-        distCW,
-      );
-    }
-
-    if (bancarios.length > 0) {
-      drawProcLabel(`PROCESSOS BANCARIOS (${bancarios.length})`);
-      drawProcAutoTable(
-        ["BANCO", "ASSUNTO", "VALOR", "STATUS", "DATA"],
-        bancarios.map((b: { banco?: string; assunto?: string; valor?: string; status?: string; data?: string }) => [
-          { text: b.banco || "—" },
-          { text: b.assunto || "—" },
-          { text: b.valor || "—" },
-          { text: b.status || "—", color: statusColor(b.status || "") },
-          { text: b.data || "—" },
-        ]),
-        [0.22, 0.28, 0.18, 0.18, 0.14].map(r => contentW * r),
-      );
-    }
-
-    if (fiscais.length > 0) {
-      const fiscalQtdDist = distribuicao.find((d: { tipo?: string }) => /fiscal/i.test(d.tipo || ""))?.qtd || String(fiscais.length);
-      const fiscaisShow = fiscais.slice(0, 3);
-      drawProcLabel(`TOP ${fiscaisShow.length} FISCAIS (de ${fiscalQtdDist} total)`);
-      drawProcAutoTable(
-        ["CONTRAPARTE", "VALOR", "STATUS", "DATA"],
-        fiscaisShow.map((f: { contraparte?: string; valor?: string; status?: string; data?: string }) => [
-          { text: f.contraparte || "—" },
-          { text: f.valor || "—" },
-          { text: f.status || "—", color: statusColor(f.status || "") },
-          { text: f.data || "—" },
-        ]),
-        [0.38, 0.22, 0.20, 0.20].map(r => contentW * r),
-      );
-    }
-
-    if (fornecedores.length > 0) {
-      drawProcLabel(`PROCESSOS FORNECEDORES (${fornecedores.length})`);
-      drawProcAutoTable(
-        ["CONTRAPARTE", "ASSUNTO", "VALOR", "STATUS", "DATA"],
-        fornecedores.map((f: { contraparte?: string; assunto?: string; valor?: string; status?: string; data?: string }) => [
-          { text: f.contraparte || "—" },
-          { text: f.assunto || "—" },
-          { text: f.valor || "—" },
-          { text: f.status || "—", color: statusColor(f.status || "") },
-          { text: f.data || "—" },
-        ]),
-        [0.28, 0.24, 0.16, 0.18, 0.14].map(r => contentW * r),
-      );
-    }
-
-    if (outrosProc.length > 0) {
-      drawProcLabel("TOP 5 OUTROS");
-      drawProcAutoTable(
-        ["CONTRAPARTE", "ASSUNTO", "VALOR", "STATUS", "DATA"],
-        outrosProc.slice(0, 5).map((o: { contraparte?: string; assunto?: string; valor?: string; status?: string; data?: string }) => [
-          { text: o.contraparte || "—" },
-          { text: o.assunto || "—" },
-          { text: o.valor || "—" },
-          { text: o.status || "—", color: statusColor(o.status || "") },
-          { text: o.data || "—" },
-        ]),
-        [0.28, 0.24, 0.16, 0.18, 0.14].map(r => contentW * r),
-      );
-    }
-
-    if ((proc?.distribuicaoTemporal?.length ?? 0) > 0) {
-      drawProcLabel("DISTRIBUIÇÃO TEMPORAL");
-      drawProcAutoTable(
-        ["PERÍODO", "QTD", "VALOR ESTIMADO"],
-        proc!.distribuicaoTemporal!.map((dt: { periodo: string; qtd: string; valor?: string }) => [
-          { text: dt.periodo },
-          { text: dt.qtd, align: "right" as const },
-          { text: `R$ ${fmtMoney(dt.valor)}`, align: "right" as const },
-        ]),
-        [0.40, 0.25, 0.35].map(r => contentW * r),
-      );
-    }
-
-    const procSemDetalhesReais = (proc?.top10Valor ?? []).every((p: { valorNum?: number; data?: string; partes?: string; assunto?: string }) => p.valorNum === 0 && !p.data && !p.partes && !p.assunto);
-
-    const faixaTemValor = (proc?.distribuicaoPorFaixa ?? []).some((f: { valor?: string }) => parseFloat((f.valor || "0").replace(/\./g, "").replace(",", ".")) > 0);
-    if ((proc?.distribuicaoPorFaixa?.length ?? 0) > 0 && faixaTemValor) {
-      drawProcLabel("DISTRIBUIÇÃO POR FAIXA DE VALOR");
-      const totalFaixaQtd = proc!.distribuicaoPorFaixa!.reduce((s: number, f: { qtd?: string }) => s + parseInt(f.qtd || "0"), 0);
-      drawProcAutoTable(
-        ["FAIXA", "QTD", "VALOR TOTAL", "%"],
-        proc!.distribuicaoPorFaixa!.map((f: { faixa: string; qtd: string; valor?: string }) => {
-          const pctN = totalFaixaQtd > 0 ? fmtBR((parseInt(f.qtd) / totalFaixaQtd) * 100, 0) : "0";
-          const isHigh = parseInt(f.qtd) > 0 && (f.faixa === "> R$1M" || f.faixa === "R$200k-1M");
-          return [
-            { text: f.faixa, color: isHigh ? colors.danger : colors.text, bold: isHigh },
-            { text: f.qtd, align: "right" as const, color: isHigh ? colors.danger : colors.text },
-            { text: `R$ ${fmtMoney(f.valor)}`, align: "right" as const },
-            { text: `${pctN}%`, align: "right" as const, color: colors.textMuted },
-          ] as ProcCell[];
-        }),
-        [0.35, 0.18, 0.32, 0.15].map(r => contentW * r),
-      );
-    }
-
-    if ((proc?.top10Recentes?.length ?? 0) > 0 && !procSemDetalhesReais) {
-      drawProcLabel(`TOP ${proc!.top10Recentes!.length} MAIS RECENTES`);
-      drawProcAutoTable(
-        ["TIPO", "DISTRIB.", "ULT.MOVTO.", "ASSUNTO / PARTES", "VALOR", "STATUS", "FASE / UF"],
-        proc!.top10Recentes!.map((p: { tipo?: string; data?: string; dataUltimoAndamento?: string; assunto?: string; partes?: string; valor?: string; status?: string; fase?: string; uf?: string }) => {
-          const descTxt = [p.assunto, p.partes].filter(Boolean).join(" · ");
-          const faseTxt = [p.fase, p.uf].filter(Boolean).join(" · ") || "—";
-          return [
-            { text: p.tipo || "—" },
-            { text: p.data || "—" },
-            { text: p.dataUltimoAndamento || "—" },
-            { text: descTxt || "—" },
-            { text: `R$ ${fmtMoney(p.valor)}`, align: "right" as const },
-            { text: p.status || "—", color: statusColor(p.status || "") },
-            { text: faseTxt },
-          ] as ProcCell[];
-        }),
-        [0.10, 0.10, 0.10, 0.28, 0.13, 0.14, 0.15].map(r => contentW * r),
-      );
-    }
-
-    if ((proc?.top10Valor?.length ?? 0) > 0 && !procSemDetalhesReais) {
-      drawProcLabel(`TOP ${proc!.top10Valor!.length} POR VALOR`);
-      drawProcAutoTable(
-        ["TIPO", "POLO ATIVO", "POLO PASSIVO", "ASSUNTO / Nº", "VALOR", "STATUS", "UF/COMARCA"],
-        proc!.top10Valor!.map((p: { tipo?: string; partes?: string; polo_passivo?: string; assunto?: string; numero?: string; valor?: string; status?: string; uf?: string; comarca?: string; tribunal?: string }) => {
-          const assuntoTxt = p.numero ? `${p.assunto || "—"} · ${p.numero}` : (p.assunto || "—");
-          const localTxt = [p.uf, p.comarca].filter(Boolean).join(" · ") || p.tribunal || "—";
-          const vencido = /venc|inadimp|atraso/i.test(p.status || "");
-          return [
-            { text: p.tipo || "—" },
-            { text: p.partes || "—" },
-            { text: p.polo_passivo || "—" },
-            { text: assuntoTxt },
-            { text: `R$ ${fmtMoney(p.valor)}`, align: "right" as const, color: vencido ? colors.danger : colors.text, bold: vencido },
-            { text: p.status || "—", color: statusColor(p.status || "") },
-            { text: localTxt },
-          ] as ProcCell[];
-        }),
-        [0.11, 0.16, 0.16, 0.20, 0.13, 0.12, 0.12].map(r => contentW * r),
-      );
-    }
-
-    if (parseInt(proc?.passivosTotal || "0") > 0 && procSemDetalhesReais) {
-      drawSpacer(ctx, 4);
-      drawAlertDeduped(ctx,
-        `${proc?.passivosTotal} processo(s) identificado(s) — valores e partes não disponíveis no plano atual`,
-        "MODERADA",
-        "O Credit Hub retornou apenas a contagem e UF dos processos. Solicitar relatório detalhado ou consultar diretamente."
-      );
-    } else if (parseInt(proc?.passivosTotal || "0") > 0
-      && (proc?.top10Valor?.length ?? 0) === 0
-      && (proc?.top10Recentes?.length ?? 0) === 0
-      && distribuicao.length === 0) {
-      drawSpacer(ctx, 4);
-      drawAlertDeduped(ctx,
-        `${proc?.passivosTotal} processo(s) identificado(s) — detalhamento não disponível`,
-        "MODERADA",
-        "Consultar diretamente nos tribunais competentes."
-      );
-    }
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// CCF
-// ─────────────────────────────────────────────────────────────────────────────
-
-function _renderCCF(ctx: PdfCtx): void {
-  const { doc, DS, pos, data, margin, contentW } = ctx;
-  const colors = DS.colors;
-
-  const ccf = data.ccf;
-  const ccfConsultado = !!ccf;
-  drawSpacer(ctx, 10);
-  checkPageBreak(ctx, 40);
-  drawSectionTitle(ctx, "07", "CCF — CHEQUES SEM FUNDO");
-
-  if (!ccfConsultado) {
-    drawSpacer(ctx, 4);
-    _drawBannerNaoConsultadoLocal(ctx, "CCF (Cheques sem Fundo)");
-  } else {
-    const temCCF = ccf.qtdRegistros > 0 || ccf.bancos.length > 0;
-
-    // Field row
-    checkPageBreak(ctx, 12);
-    const rowH = 8;
-    const fieldCols = [
-      { label: "Ocorrências (Total)", value: String(ccf.qtdRegistros) },
-      { label: "Bancos com Registro", value: String(ccf.bancos.length) },
-      { label: "Situação", value: temCCF ? "POSSUI REGISTROS" : "Sem ocorrências" },
-    ];
-    const fieldW = (contentW - 6) / fieldCols.length;
-    fieldCols.forEach((f, i) => {
-      const fx = margin + i * (fieldW + 2);
-      doc.setFillColor(...DS.colors.surface2);
-      doc.rect(fx, pos.y, fieldW, rowH, "F");
-      doc.setFontSize(DS.font.micro);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(...DS.colors.textMuted);
-      doc.text(f.label, fx + 2, pos.y + 3.5);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(...DS.colors.textPrimary);
-      doc.text(f.value, fx + 2, pos.y + 7);
-    });
-    pos.y += rowH + 4;
-
-    if (temCCF) {
-      drawAlertDeduped(ctx, `[ALTA] CCF: ${ccf.qtdRegistros} ocorrência(s) de Cheque sem Fundo — indicativo grave de inadimplência bancária`, "ALTA");
-      if (ccf.tendenciaLabel === "crescimento" && (ccf.tendenciaVariacao ?? 0) > 10) {
-        drawAlertDeduped(ctx, `[ALTA] Tendência CCF: crescimento de ${ccf.tendenciaVariacao}% nas ocorrências — deterioração bancária em curso`, "ALTA");
+  const tableHeader = (y0: number, cols: {label:string;x:number;align:"left"|"right"}[], HH=9) => {
+    doc.setFillColor(...P.n9);
+    doc.roundedRect(ML, y0, CW, HH, 2, 2, "F");
+    doc.rect(ML, y0 + 3, CW, HH - 3, "F");
+    doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(...P.wh);
+    cols.forEach(c => {
+      if (c.align === "right") {
+        doc.text(c.label, ML + c.x, y0 + 6.5, { align: "right" });
+      } else {
+        doc.text(c.label, ML + c.x, y0 + 6.5);
       }
+    });
+  };
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // SEÇÃO 07 — PROTESTOS
+  // ════════════════════════════════════════════════════════════════════════════
+  newPage(ctx);
+  drawHeader(ctx);
+  stitle("07 · Protestos");
+
+  const protestos = data.protestos;
+  const vigQtd = parseInt(protestos?.vigentesQtd || "0") || params.protestosVigentes || 0;
+  const regQtd = parseInt(protestos?.regularizadosQtd || "0") || 0;
+  const vigValN = parseMoneyToNumber(protestos?.vigentesValor || "0");
+  const regValN = parseMoneyToNumber(protestos?.regularizadosValor || "0");
+
+  // KPI cards
+  checkPageBreak(ctx, 22);
+  {
+    const CH = 18; const cw = (CW - GAP * 3) / 4; const y0 = pos.y;
+    icell(ML,              y0, cw, CH, "Vigentes",         String(vigQtd),  vigQtd>0?P.r0:P.g0, vigQtd>0?P.r1:P.g1, vigQtd>0?P.r6:P.g6);
+    icell(ML+cw+GAP,       y0, cw, CH, "Vigentes R$",      mo(vigValN),     vigQtd>0?P.r0:P.g0, vigQtd>0?P.r1:P.g1, vigQtd>0?P.r6:P.x4);
+    icell(ML+(cw+GAP)*2,   y0, cw, CH, "Regularizados",    String(regQtd),  regQtd>0?P.g0:P.x0, regQtd>0?P.g1:P.x1, regQtd>0?P.g6:P.x4);
+    icell(ML+(cw+GAP)*3,   y0, cw, CH, "Regularizados R$", mo(regValN),     P.x0, P.x1, regValN>0?P.g6:P.x4);
+    pos.y = y0 + CH + 5;
+  }
+
+  // Group by creditor table
+  if (protestos?.detalhes && protestos.detalhes.length > 0) {
+    // Build creditor map
+    const credMap = new Map<string, {qtd:number; valor:number; ultimo:string}>();
+    protestos.detalhes.forEach(p => {
+      if (p.regularizado) return;
+      const k = (p.credor || p.apresentante || "Desconhecido").trim();
+      const e = credMap.get(k) || { qtd: 0, valor: 0, ultimo: "" };
+      const vn = parseMoneyToNumber(p.valor || "0");
+      const dt = p.data || "";
+      credMap.set(k, {
+        qtd: e.qtd + 1,
+        valor: e.valor + vn,
+        ultimo: dt > e.ultimo ? dt : e.ultimo,
+      });
+    });
+    const credList = Array.from(credMap.entries())
+      .sort((a, b) => b[1].valor - a[1].valor)
+      .slice(0, 8);
+
+    if (credList.length > 0) {
+      checkPageBreak(ctx, 14);
+      stitle("Agrupamento por credor");
+      const RH = 9; const HH = 9;
+      const cols = [
+        { label: "Credor",       x: 4,         align: "left" as const },
+        { label: "Qtd",          x: CW*0.67,   align: "right" as const },
+        { label: "Valor Total",  x: CW*0.83,   align: "right" as const },
+        { label: "Último",       x: CW - 2,    align: "right" as const },
+      ];
+      const TH = HH + credList.length * RH + 2;
+      checkPageBreak(ctx, TH + 4);
+      const y0 = pos.y;
+
+      doc.setFillColor(...P.wh);
+      doc.setDrawColor(...P.x2);
+      doc.setLineWidth(0.25);
+      doc.roundedRect(ML, y0, CW, TH, 2, 2, "FD");
+      tableHeader(y0, cols, HH);
+
+      credList.forEach(([name, info], i) => {
+        const ry = y0 + HH + i * RH;
+        if (i % 2 !== 0) { doc.setFillColor(...P.x0); doc.rect(ML, ry, CW, RH, "F"); }
+        doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(...P.x7);
+        doc.text(tr(name, 36), ML + 4, ry + 6.5);
+        doc.setFont("helvetica","normal"); doc.setFontSize(7);
+        doc.text(String(info.qtd), ML + CW*0.67, ry + 6.5, { align: "right" });
+        doc.setTextColor(...(info.valor > 0 ? P.r6 : P.x4));
+        doc.setFont("helvetica","bold");
+        doc.text(mo(info.valor), ML + CW*0.83, ry + 6.5, { align: "right" });
+        doc.setFont("helvetica","normal"); doc.setTextColor(...P.x5);
+        doc.text(info.ultimo || "—", ML + CW - 2, ry + 6.5, { align: "right" });
+        doc.setDrawColor(...P.x1); doc.setLineWidth(0.15);
+        doc.line(ML + 2, ry + RH, ML + CW - 2, ry + RH);
+      });
+
+      pos.y = y0 + TH + 5;
     }
 
-    if (temCCF && ccf.bancos.length > 0) {
-      drawSpacer(ctx, 4);
+    // Top 5 by value
+    const sorted = [...protestos.detalhes].filter(p => !p.regularizado).sort((a, b) => parseMoneyToNumber(b.valor||"0") - parseMoneyToNumber(a.valor||"0")).slice(0, 5);
+    if (sorted.length > 0) {
       checkPageBreak(ctx, 14);
-      doc.setFontSize(DS.font.micro);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(...colors.textMuted);
-      doc.text("OCORRÊNCIAS POR BANCO", margin, pos.y + 4);
-      pos.y += 7;
+      stitle("Top 5 por valor");
+      const RH = 9; const HH = 9;
+      const cols = [
+        { label: "Data",    x: 4,         align: "left" as const },
+        { label: "Credor",  x: CW*0.18,   align: "left" as const },
+        { label: "Valor",   x: CW*0.78,   align: "right" as const },
+        { label: "Status",  x: CW - 2,    align: "right" as const },
+      ];
+      const TH = HH + sorted.length * RH + 2;
+      checkPageBreak(ctx, TH + 4);
+      const y0 = pos.y;
 
-      const temMotivo = ccf.bancos.some((b: { motivo?: string }) => b.motivo);
-      autoT(ctx,
-        temMotivo ? ["BANCO / INSTITUIÇÃO", "QTD", "ÚLTIMA OCORR.", "MOTIVO"] : ["BANCO / INSTITUIÇÃO", "QTD", "ÚLTIMA OCORRÊNCIA"],
-        ccf.bancos.map((b: { banco: string; quantidade: number; dataUltimo?: string; motivo?: string }) => temMotivo
-          ? [
-            { content: b.banco, styles: { textColor: colors.danger } },
-            String(b.quantidade),
-            { content: b.dataUltimo || "—", styles: { textColor: colors.textMuted } },
-            b.motivo || "—",
-          ]
-          : [
-            { content: b.banco, styles: { textColor: colors.danger } },
-            String(b.quantidade),
-            { content: b.dataUltimo || "—", styles: { textColor: colors.textMuted } },
-          ]
-        ),
-        temMotivo
-          ? [0.32, 0.10, 0.18, 0.40].map(r => contentW * r)
-          : [0.50, 0.20, 0.30].map(r => contentW * r),
-        { fontSize: DS.font.micro },
-      );
-    } else if (!temCCF) {
-      drawSpacer(ctx, 4);
-      checkPageBreak(ctx, 12);
-      doc.setFillColor(...DS.colors.successBg);
-      doc.roundedRect(margin, pos.y, contentW, 10, 1, 1, "F");
-      doc.setFillColor(...DS.colors.success);
-      doc.roundedRect(margin, pos.y, 3, 10, 0.5, 0.5, "F");
-      doc.setFontSize(DS.font.caption);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(...DS.colors.success);
-      doc.text("Nenhuma ocorrência de Cheque sem Fundo identificada", margin + 8, pos.y + 6.5);
-      pos.y += 14;
+      doc.setFillColor(...P.wh);
+      doc.setDrawColor(...P.x2);
+      doc.setLineWidth(0.25);
+      doc.roundedRect(ML, y0, CW, TH, 2, 2, "FD");
+      tableHeader(y0, cols, HH);
+
+      sorted.forEach((p, i) => {
+        const ry = y0 + HH + i * RH;
+        if (i % 2 !== 0) { doc.setFillColor(...P.x0); doc.rect(ML, ry, CW, RH, "F"); }
+        doc.setFont("helvetica","normal"); doc.setFontSize(7); doc.setTextColor(...P.x7);
+        doc.text(p.data || "—", ML + 4, ry + 6.5);
+        doc.text(tr(p.credor || p.apresentante || "—", 32), ML + CW*0.18, ry + 6.5);
+        doc.setTextColor(...P.r6); doc.setFont("helvetica","bold");
+        doc.text(mo(p.valor), ML + CW*0.78, ry + 6.5, { align: "right" });
+        doc.setFont("helvetica","normal"); doc.setTextColor(...P.x5);
+        doc.text("Vigente", ML + CW - 2, ry + 6.5, { align: "right" });
+        doc.setDrawColor(...P.x1); doc.setLineWidth(0.15);
+        doc.line(ML + 2, ry + RH, ML + CW - 2, ry + RH);
+      });
+
+      pos.y = y0 + TH + 5;
     }
   }
-}
 
-// ─────────────────────────────────────────────────────────────────────────────
-// HISTÓRICO DE CONSULTAS
-// ─────────────────────────────────────────────────────────────────────────────
+  // Protestos alerts
+  if (vigQtd > 0) {
+    const fmm12m = (() => {
+      const last12 = (data.faturamento?.meses || []).slice(-12);
+      const f = data.faturamento?.fmm12m ? parseMoneyToNumber(data.faturamento.fmm12m) : 0;
+      if (f > 0) return f;
+      const s = last12.reduce((acc, m) => acc + parseMoneyToNumber(m.valor||"0"), 0);
+      return last12.length > 0 ? s / last12.length : 0;
+    })();
+    const pctFMM = fmm12m > 0 ? (vigValN / fmm12m * 100) : 0;
+    alertRow("alta", `${vigQtd} protesto(s) vigente(s) — ${mo(vigValN)}${pctFMM > 0 ? ` (${fmtBR(pctFMM,0)}% do FMM)` : ""}`);
+  }
 
-function _renderHistoricoConsultas(ctx: PdfCtx): void {
-  const { doc, DS, pos, data, margin, contentW } = ctx;
-  const colors = DS.colors;
+  // ════════════════════════════════════════════════════════════════════════════
+  // SEÇÃO 08 — PROCESSOS JUDICIAIS
+  // ════════════════════════════════════════════════════════════════════════════
+  checkPageBreak(ctx, 14);
+  pos.y += 4;
+  stitle("08 · Processos Judiciais");
 
-  const hist = data.historicoConsultas;
-  if (!hist || hist.length === 0) return;
+  const processos = data.processos;
+  const passivo = parseInt(processos?.poloPassivoQtd || processos?.passivosTotal || "0") || 0;
+  const ativo   = parseInt(processos?.poloAtivoQtd   || processos?.ativosTotal   || "0") || 0;
+  const total   = passivo + ativo;
+  const temFal  = processos?.temFalencia || processos?.temRJ;
 
-  drawSpacer(ctx, 10);
-  checkPageBreak(ctx, 40);
-  drawSectionTitle(ctx, "08", "HISTORICO DE CONSULTAS AO MERCADO");
+  // KPI cards
+  checkPageBreak(ctx, 22);
+  {
+    const CH = 18; const cw = (CW - GAP * 3) / 4; const y0 = pos.y;
+    icell(ML,              y0, cw, CH, "Total",         String(total),   total>0?P.r0:P.g0, total>0?P.r1:P.g1, total>0?P.r6:P.g6);
+    icell(ML+cw+GAP,       y0, cw, CH, "Polo Passivo",  String(passivo), passivo>0?P.r0:P.g0, passivo>0?P.r1:P.g1, passivo>0?P.r6:P.g6);
+    icell(ML+(cw+GAP)*2,   y0, cw, CH, "Polo Ativo",    String(ativo),   P.x0, P.x1, P.x7);
+    icell(ML+(cw+GAP)*3,   y0, cw, CH, "Falência/RJ",   temFal ? "Sim" : "Não", temFal?P.r0:P.g0, temFal?P.r1:P.g1, temFal?P.r6:P.g6);
+    pos.y = y0 + CH + 5;
+  }
 
-  drawSpacer(ctx, 4);
-  checkPageBreak(ctx, 8 + Math.min(hist.length, 15) * 6 + 4);
+  // Distribution by type (prop bars)
+  const dist = processos?.distribuicao || [];
+  if (dist.length > 0) {
+    checkPageBreak(ctx, 14);
+    stitle("Distribuição por tipo");
+    const maxDist = Math.max(...dist.map(d => parseInt(d.qtd || "0") || 0), 1);
+    dist.forEach(d => {
+      const qtd = parseInt(d.qtd || "0") || 0;
+      const barW = Math.max(qtd / maxDist * (CW * 0.55), 1);
+      checkPageBreak(ctx, 9);
+      const y0 = pos.y;
+      const isDanger = /fiscal|execu|sefaz|pgfn/i.test(d.tipo);
+      const barC: [number,number,number] = isDanger ? P.r6 : P.n8;
+      doc.setFont("helvetica","normal"); doc.setFontSize(7); doc.setTextColor(...P.x7);
+      doc.text(tr(d.tipo || "Outros", 28), ML, y0 + 6);
+      doc.setFillColor(...barC);
+      doc.roundedRect(ML + CW * 0.42, y0 + 1.5, barW, 5, 1, 1, "F");
+      doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(...P.x5);
+      doc.text(`${qtd} (${d.pct || "0"}%)`, ML + CW * 0.42 + barW + 3, y0 + 6);
+      pos.y = y0 + 9;
+    });
+    pos.y += 3;
+  }
 
-  doc.setFontSize(DS.font.micro);
-  doc.setFont("helvetica", "normal");
-  doc.setTextColor(...colors.textMuted);
-  doc.text(`${hist.length} consulta(s) registrada(s) — mostrando as mais recentes`, margin, pos.y + 4);
-  pos.y += 7;
+  // Top 10 recentes
+  const top10 = processos?.top10Recentes || [];
+  if (top10.length > 0) {
+    checkPageBreak(ctx, 14);
+    stitle("Top 5 mais recentes");
+    const shown = top10.slice(0, 5);
+    const RH = 9; const HH = 9;
+    const cols = [
+      { label: "Tipo",     x: 4,         align: "left" as const },
+      { label: "Data",     x: CW*0.42,   align: "left" as const },
+      { label: "Assunto",  x: CW*0.59,   align: "left" as const },
+      { label: "Fase",     x: CW - 2,    align: "right" as const },
+    ];
+    const TH = HH + shown.length * RH + 2;
+    checkPageBreak(ctx, TH + 4);
+    const y0 = pos.y;
 
-  autoT(ctx,
-    ["INSTITUIÇÃO / USUÁRIO", "DATA DA CONSULTA"],
-    hist.slice(0, 15).map((h: { usuario: string; ultimaConsulta?: string }) => [
-      h.usuario,
-      { content: h.ultimaConsulta ? new Date(h.ultimaConsulta).toLocaleDateString("pt-BR") : "—", styles: { textColor: colors.textMuted } },
-    ]),
-    [contentW * 0.70, contentW * 0.30],
-    { fontSize: DS.font.micro },
-  );
-}
+    doc.setFillColor(...P.wh);
+    doc.setDrawColor(...P.x2);
+    doc.setLineWidth(0.25);
+    doc.roundedRect(ML, y0, CW, TH, 2, 2, "FD");
+    tableHeader(y0, cols, HH);
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers locais
-// ─────────────────────────────────────────────────────────────────────────────
+    shown.forEach((p, i) => {
+      const ry = y0 + HH + i * RH;
+      if (i % 2 !== 0) { doc.setFillColor(...P.x0); doc.rect(ML, ry, CW, RH, "F"); }
+      const isFisc = /fiscal|fazenda|sefaz|pgfn/i.test((p.tipo||"")+(p.assunto||""));
+      const typeFg: [number,number,number] = isFisc ? P.r6 : P.x7;
+      doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(...typeFg);
+      doc.text(tr(p.tipo || p.assunto || "—", 22), ML + 4, ry + 6.5);
+      doc.setFont("helvetica","normal"); doc.setTextColor(...P.x7);
+      doc.text(p.data || "—", ML + CW*0.42, ry + 6.5);
+      doc.text(tr(p.assunto || "—", 18), ML + CW*0.59, ry + 6.5);
+      doc.setTextColor(...P.x5);
+      doc.text(tr(p.fase || "—", 10), ML + CW - 2, ry + 6.5, { align: "right" });
+      doc.setDrawColor(...P.x1); doc.setLineWidth(0.15);
+      doc.line(ML + 2, ry + RH, ML + CW - 2, ry + RH);
+    });
 
-function _dsMiniHeaderAt(ctx: PdfCtx, cx: number, cy: number, cw: number, title: string, fillColor: [number, number, number]): void {
-  const { doc, DS } = ctx;
-  doc.setFillColor(...fillColor);
-  doc.rect(cx, cy, cw, 7, "F");
-  doc.setFontSize(DS.font.micro);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(255, 255, 255);
-  doc.text(title.toUpperCase(), cx + 3, cy + 4.8);
-}
+    pos.y = y0 + TH + 5;
+  }
 
-function _drawBannerNaoConsultadoLocal(ctx: PdfCtx, secao: string): void {
-  const { doc, DS, pos, margin, contentW } = ctx;
-  const padV = 10; const padH = 14;
-  const textW = contentW - padH * 2 - 3;
-  doc.setFontSize(DS.font.micro);
-  doc.setFont("helvetica", "normal");
-  const descText = `${secao}: consulta não realizada nesta análise — dado não disponível no momento da geração do relatório.`;
-  const descLines = doc.splitTextToSize(descText, textW);
-  const bannerH = padV + 8 + descLines.length * 4 + padV;
-  checkPageBreak(ctx, bannerH + 4);
-  doc.setFillColor(...DS.colors.warningBg);
-  doc.roundedRect(margin, pos.y, contentW, bannerH, DS.radius.md, DS.radius.md, "F");
-  doc.setFillColor(...DS.colors.warn);
-  doc.roundedRect(margin, pos.y, 3, bannerH, 0.5, 0.5, "F");
-  doc.setFontSize(DS.font.bodySmall);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(...DS.colors.warn);
-  doc.text("Consulta não realizada", margin + padH, pos.y + padV);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(DS.font.micro);
-  doc.setTextColor(120, 80, 0);
-  descLines.forEach((l: string, i: number) => {
-    doc.text(l, margin + padH, pos.y + padV + 7 + i * 4);
-  });
-  pos.y += bannerH + 4;
+  // Processos alerts
+  const execFiscQtd = dist.filter(d => /fiscal|fazenda|sefaz/i.test(d.tipo)).reduce((s,d) => s + (parseInt(d.qtd)||0), 0);
+  if (execFiscQtd > 0) alertRow("alta", `${execFiscQtd} Execução(ões) Fiscal(is) ativa(s) — risco de bloqueio de bens`);
+  if (temFal) alertRow("alta", "Pedido de falência ou recuperação judicial identificado");
+  if (passivo > 15) alertRow("mod", `${passivo} processos no polo passivo — acima do limite recomendado (15)`);
 }

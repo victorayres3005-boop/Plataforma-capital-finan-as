@@ -7,8 +7,7 @@ import Image from "next/image";
 import { buildHTMLReport } from "@/lib/generators/html";
 import { buildDOCXReport } from "@/lib/generators/docx";
 import { buildExcelReport } from "@/lib/generators/excel";
-import { buildPDFReport } from "@/lib/generators/pdf";
-import { gerarHtmlRelatorio } from "@/lib/pdf/template";
+import { buildPDFReport, generatePDF as generatePDFViaAPI, generateHTMLPreview } from "@/lib/generators/pdf";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { uploadFile } from "@/lib/storage";
@@ -1427,31 +1426,33 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         committeMembers: committeMembers.trim() || undefined,
       };
 
-      // Tenta API Puppeteer primeiro (servidor com Chromium)
+      // Tenta nova API Puppeteer (funciona local + prod)
       let usedApi = false;
       try {
-        const res = await fetch("/api/exportar-pdf", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-
-        if (res.ok) {
-          const blob = await res.blob();
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = `capital-financas-${safeName}-${dateStr}.pdf`;
-          a.click();
-          URL.revokeObjectURL(url);
-          usedApi = true;
-        }
-      } catch { /* API indisponível */ }
+        const blob = await generatePDFViaAPI(payload);
+        triggerDownload(blob, `capital-financas-${safeName}-${dateStr}.pdf`);
+        usedApi = true;
+      } catch (apiErr) {
+        console.warn("API /api/generate-pdf falhou, tentando /api/exportar-pdf:", apiErr);
+        // Fallback para rota legada (Vercel com CHROMIUM_URL)
+        try {
+          const res = await fetch("/api/exportar-pdf", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          if (res.ok) {
+            const blob = await res.blob();
+            triggerDownload(blob, `capital-financas-${safeName}-${dateStr}.pdf`);
+            usedApi = true;
+          }
+        } catch { /* API legada indisponível */ }
+      }
 
       // Fallback: abre HTML template numa nova janela para salvar como PDF
       if (!usedApi) {
-        console.warn("API Puppeteer indisponível, abrindo relatório HTML para salvar como PDF");
-        const { html } = gerarHtmlRelatorio(payload);
+        console.warn("APIs Puppeteer indisponíveis, abrindo HTML para salvar como PDF");
+        const html = await generateHTMLPreview(payload);
         const w = window.open("", "_blank");
         if (w) {
           w.document.write(html);
@@ -1529,7 +1530,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         creditLimit,
         committeMembers: committeMembers.trim() || undefined,
       };
-      const { html } = gerarHtmlRelatorio(payload);
+      const html = await generateHTMLPreview(payload);
       const w = window.open("", "_blank");
       if (w) {
         w.document.write(html);

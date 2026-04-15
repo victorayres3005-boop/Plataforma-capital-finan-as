@@ -1,78 +1,189 @@
 /**
- * Seção 08 — PARECER PRELIMINAR
- * Wrapper que adapta o novo PdfCtx para o renderParecer existente em pdf-parecer.ts
+ * Seção 04 — PARECER PRELIMINAR
+ * Exibe o parecer da IA (resumo executivo, análise, fortes/fracos, perguntas)
+ * Se não disponível, mostra card "pendente"
  */
-import type { PdfCtx as NewPdfCtx } from "../context";
-import type { PdfCtx as LegacyPdfCtx } from "../../pdf-ctx";
-import { renderParecer } from "../../sections/pdf-parecer";
-import {
-  checkPageBreak as _checkPageBreak,
-  drawSectionTitle,
-  drawSpacer as _drawSpacer,
-  dsMiniHeader as _dsMiniHeader,
-  autoT as _autoT,
-} from "../helpers";
-import { parseMoneyToNumber } from "../helpers";
+import type { PdfCtx } from "../context";
+import { newPage, drawHeader, checkPageBreak } from "../helpers";
 
-export function renderParecerSection(ctx: NewPdfCtx): void {
-  const { doc, DS, pos, params, data, aiAnalysis, W, margin, contentW, autoTable } = ctx;
+const P = {
+  n9:  [12,  27,  58]  as [number,number,number],
+  n8:  [19,  41,  82]  as [number,number,number],
+  n0:  [238, 243, 251] as [number,number,number],
+  n1:  [220, 230, 245] as [number,number,number],
+  n7:  [26,  58, 107]  as [number,number,number],
+  a5:  [212, 149,  10] as [number,number,number],
+  a1:  [253, 243, 215] as [number,number,number],
+  r6:  [197,  48,  48] as [number,number,number],
+  r1:  [254, 226, 226] as [number,number,number],
+  r0:  [254, 242, 242] as [number,number,number],
+  g6:  [ 22, 101,  58] as [number,number,number],
+  g1:  [209, 250, 229] as [number,number,number],
+  g0:  [236, 253, 245] as [number,number,number],
+  x9:  [ 17,  24,  39] as [number,number,number],
+  x7:  [ 55,  65,  81] as [number,number,number],
+  x5:  [107, 114, 128] as [number,number,number],
+  x4:  [156, 163, 175] as [number,number,number],
+  x2:  [229, 231, 235] as [number,number,number],
+  x1:  [243, 244, 246] as [number,number,number],
+  x0:  [249, 250, 251] as [number,number,number],
+  wh:  [255, 255, 255] as [number,number,number],
+};
 
-  // Pre-compute validMeses for fmmNum
-  const validMeses = [...(data.faturamento?.meses || [])]
-    .filter(m => m?.mes && m?.valor)
-    .sort((a, b) => {
-      const dk = (s: string) => {
-        const parts = s.split("/");
-        if (parts.length !== 2) return 0;
-        const [p1, p2] = parts;
-        const mm: Record<string, number> = { jan: 1, fev: 2, mar: 3, abr: 4, mai: 5, jun: 6, jul: 7, ago: 8, set: 9, out: 10, nov: 11, dez: 12 };
-        const month = isNaN(Number(p1)) ? (mm[p1.toLowerCase()] || 0) : Number(p1);
-        const year = Number(p2) < 100 ? Number(p2) + 2000 : Number(p2);
-        return year * 100 + month;
-      };
-      return dk(a.mes) - dk(b.mes);
-    });
+const tr = (s: string, n: number) => {
+  const t = (s || "").trim();
+  return t.length > n ? t.slice(0, n - 1) + "…" : t;
+};
 
-  const fmmNum = data.faturamento?.fmm12m
-    ? parseMoneyToNumber(data.faturamento.fmm12m)
-    : validMeses.slice(-12).reduce((s, m) => s + parseMoneyToNumber(m.valor), 0) / Math.max(validMeses.slice(-12).length, 1);
+export function renderParecerSection(ctx: PdfCtx): void {
+  const { doc, pos, params, aiAnalysis, margin: ML, contentW: CW } = ctx;
+  const { decision, finalRating, pontosFortes, pontosFracos, resumoExecutivo } = params;
+  const GAP = 3.5;
 
-  // Build legacy ctx from new ctx
-  const legacyCtx: LegacyPdfCtx = {
-    doc,
-    pos,
-    W,
-    margin,
-    contentW,
-    colors: DS.colors as unknown as LegacyPdfCtx["colors"],
-    DS: { colors: DS.colors, font: DS.font, space: DS.space, radius: DS.radius, lineH: DS.lineH },
-    newPage: () => { _drawSpacer(ctx, ctx.DS.space.sectionGap); _checkPageBreak(ctx, 50); },
-    drawHeader: () => {},
-    checkPageBreak: (needed: number) => _checkPageBreak(ctx, needed),
-    dsSectionHeader: (num: string, title: string) => drawSectionTitle(ctx, num, title),
-    dsMiniHeader: (startY: number, title: string) => {
-      ctx.pos.y = startY;
-      return _dsMiniHeader(ctx, title);
-    },
-    autoT: (headers, rows, colWidths, opts) => _autoT(ctx, headers, rows, colWidths, opts),
+  const dec        = (decision || "PENDENTE").replace(/_/g," ").toUpperCase();
+  const decAprov   = /APROV/i.test(dec) && !/CONDIC/i.test(dec);
+  const decReprov  = /REPROV/i.test(dec);
+  const decColor: [number,number,number] = decAprov ? P.g6 : decReprov ? P.r6 : P.a5;
+  const decBg:    [number,number,number] = decAprov ? P.g1 : decReprov ? P.r1 : P.a1;
+  const score      = finalRating || 0;
+  const scoreColor: [number,number,number] = score >= 6.5 ? P.g6 : score >= 5 ? P.a5 : P.r6;
+
+  const stitle = (label: string) => {
+    const y = pos.y;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7);
+    doc.setTextColor(...P.x5);
+    const up = label.toUpperCase();
+    doc.text(up, ML, y + 3);
+    const tw = doc.getTextWidth(up);
+    doc.setDrawColor(...P.x2);
+    doc.setLineWidth(0.3);
+    doc.line(ML + tw + 2.5, y + 2.5, ML + CW, y + 2.5);
+    pos.y += 7;
   };
 
-  void autoTable; // used via ctx.autoTable internally
+  newPage(ctx);
+  drawHeader(ctx);
+  stitle("04 · Parecer Preliminar");
 
-  renderParecer(legacyCtx, {
-    aiAnalysis,
-    decision: params.decision,
-    finalRating: params.finalRating,
-    resumoExecutivo: params.resumoExecutivo,
-    pontosFortes: params.pontosFortes,
-    pontosFracos: params.pontosFracos,
-    perguntasVisita: params.perguntasVisita,
-    observacoes: params.observacoes,
-    data,
-    vencidosSCR: params.vencidosSCR,
-    fmmNum,
-    protestosVigentes: params.protestosVigentes,
-    alavancagem: params.alavancagem,
-    validMeses,
-  });
+  if (!aiAnalysis && !resumoExecutivo) {
+    // Pending card
+    checkPageBreak(ctx, 30);
+    doc.setFillColor(...P.x0);
+    doc.setDrawColor(...P.x2);
+    doc.setLineWidth(0.25);
+    doc.roundedRect(ML, pos.y, CW, 28, 3, 3, "FD");
+    doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(...P.x4);
+    doc.text("Parecer pendente — análise com IA não disponível", ML + CW/2, pos.y + 12, { align: "center" });
+    doc.setFont("helvetica","normal"); doc.setFontSize(7.5); doc.setTextColor(...P.x4);
+    doc.text("Clique em 'Analisar com IA' na plataforma para gerar o parecer", ML + CW/2, pos.y + 19, { align: "center" });
+    pos.y += 33;
+    return;
+  }
+
+  // Resumo executivo
+  const texto = (resumoExecutivo || "").trim();
+  if (texto) {
+    checkPageBreak(ctx, 30);
+    const lines = doc.splitTextToSize(texto, CW - 12) as string[];
+    const TH = Math.max(25, lines.length * 4.5 + 14);
+    doc.setFillColor(...P.x0);
+    doc.setDrawColor(...P.x2);
+    doc.setLineWidth(0.25);
+    doc.roundedRect(ML, pos.y, CW, TH, 2, 2, "FD");
+    doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(...P.x7);
+    doc.text(lines, ML + 6, pos.y + 9);
+
+    // Rating + decision footer
+    const fy = pos.y + TH - 9;
+    doc.setDrawColor(...P.x1); doc.setLineWidth(0.2);
+    doc.line(ML + 4, fy - 1, ML + CW - 4, fy - 1);
+
+    const sR = 5.5;
+    const sCx = ML + CW - sR - 4;
+    const sCy = fy + 4.5;
+    doc.setDrawColor(...scoreColor); doc.setLineWidth(1.8); doc.circle(sCx, sCy, sR, "S");
+    doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.setTextColor(...scoreColor);
+    doc.text(score.toFixed(1), sCx, sCy + 1.5, { align: "center" });
+
+    const dlbl = dec.length > 14 ? dec.slice(0, 14) : dec;
+    doc.setFont("helvetica","bold"); doc.setFontSize(6.5);
+    const dw = doc.getTextWidth(dlbl) + 9;
+    doc.setFillColor(...decBg);
+    doc.roundedRect(sCx - sR*2 - dw - 4, fy, dw, 5.5, 1.5, 1.5, "F");
+    doc.setTextColor(...decColor);
+    doc.text(dlbl, sCx - sR*2 - dw/2 - 4, fy + 4, { align: "center" });
+
+    pos.y += TH + 5;
+  }
+
+  // Pontos Fortes & Fracos
+  const pf = pontosFortes.slice(0, 6);
+  const pw = pontosFracos.slice(0, 6);
+  if (pf.length > 0 || pw.length > 0) {
+    checkPageBreak(ctx, 14);
+    stitle("Análise");
+    const rows   = Math.max(pf.length, pw.length, 1);
+    const RH4    = 6.5; const HH4 = 8;
+    const CARDH  = HH4 + rows * RH4 + 4;
+    const hw     = (CW - GAP) / 2;
+
+    checkPageBreak(ctx, CARDH + 8);
+    const y0 = pos.y;
+
+    doc.setFillColor(...P.g0); doc.setDrawColor(...P.g1); doc.setLineWidth(0.25);
+    doc.roundedRect(ML, y0, hw, CARDH, 2, 2, "FD");
+    doc.setFillColor(...P.g6);
+    doc.roundedRect(ML, y0, hw, HH4, 2, 2, "F"); doc.rect(ML, y0+3, hw, HH4-3, "F");
+    doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(...P.wh);
+    doc.text("PONTOS FORTES", ML + 4, y0 + 5.8);
+    pf.forEach((item, i) => {
+      const iy = y0 + HH4 + i * RH4;
+      doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
+      doc.setTextColor(...P.g6); doc.text("✓", ML + 3, iy + 5);
+      doc.setTextColor(...P.x7); doc.text(tr(item, 46), ML + 8, iy + 5);
+      doc.setDrawColor(...P.g1); doc.setLineWidth(0.15);
+      doc.line(ML + 2, iy + RH4, ML + hw - 2, iy + RH4);
+    });
+
+    const fx = ML + hw + GAP;
+    doc.setFillColor(...P.r0); doc.setDrawColor(...P.r1);
+    doc.roundedRect(fx, y0, hw, CARDH, 2, 2, "FD");
+    doc.setFillColor(...P.r6);
+    doc.roundedRect(fx, y0, hw, HH4, 2, 2, "F"); doc.rect(fx, y0+3, hw, HH4-3, "F");
+    doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(...P.wh);
+    doc.text("PONTOS FRACOS", fx + 4, y0 + 5.8);
+    pw.forEach((item, i) => {
+      const iy = y0 + HH4 + i * RH4;
+      doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
+      doc.setTextColor(...P.r6); doc.text("✕", fx + 3, iy + 5);
+      doc.setTextColor(...P.x7); doc.text(tr(item, 46), fx + 8, iy + 5);
+      doc.setDrawColor(...P.r1); doc.setLineWidth(0.15);
+      doc.line(fx + 2, iy + RH4, fx + hw - 2, iy + RH4);
+    });
+
+    pos.y = y0 + CARDH + 5;
+  }
+
+  // Perguntas para visita
+  const perguntas = params.perguntasVisita || [];
+  if (perguntas.length > 0) {
+    checkPageBreak(ctx, 14);
+    stitle("Perguntas para Visita");
+    const RHp = 6.5; const Hp = perguntas.length * RHp + 8;
+    checkPageBreak(ctx, Hp + 4);
+    const y0 = pos.y;
+    doc.setFillColor(...P.n0); doc.setDrawColor(...P.n1); doc.setLineWidth(0.25);
+    doc.roundedRect(ML, y0, CW, Hp, 2, 2, "FD");
+    perguntas.slice(0, 8).forEach((pq, i) => {
+      const iy = y0 + 5 + i * RHp;
+      doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(...P.n7);
+      doc.text(`${i+1}.`, ML + 4, iy + 4);
+      doc.setFont("helvetica","normal"); doc.setTextColor(...P.x7);
+      doc.text(tr(pq.pergunta || String(pq), 80), ML + 10, iy + 4);
+    });
+    pos.y = y0 + Hp + 5;
+  }
+
+  void GAP;
 }

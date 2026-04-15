@@ -1,157 +1,174 @@
 /**
- * Seção 12 — IR DOS SÓCIOS
- * Dados patrimoniais por sócio, alertas de malhas/débitos, sociedades, coerência
+ * Seção 20 — IR DOS SÓCIOS
+ * Fiel ao HTML de referência secoes-restantes-estetica-v3.html
  */
 import type { PdfCtx } from "../context";
-import {
-  checkPageBreak, drawSectionTitle, drawSpacer,
-  drawAlertDeduped, drawDetAlerts,
-  fmtMoney, gerarAlertasIRSocios,
-} from "../helpers";
+import { checkPageBreak, parseMoneyToNumber, fmtBR } from "../helpers";
+
+const P = {
+  n9:  [12,  27,  58]  as [number,number,number],
+  n8:  [19,  41,  82]  as [number,number,number],
+  n0:  [238, 243, 251] as [number,number,number],
+  n1:  [220, 230, 245] as [number,number,number],
+  n7:  [26,  58, 107]  as [number,number,number],
+  a5:  [212, 149,  10] as [number,number,number],
+  a1:  [253, 243, 215] as [number,number,number],
+  a0:  [254, 249, 236] as [number,number,number],
+  r6:  [197,  48,  48] as [number,number,number],
+  r1:  [254, 226, 226] as [number,number,number],
+  r0:  [254, 242, 242] as [number,number,number],
+  g6:  [ 22, 101,  58] as [number,number,number],
+  g1:  [209, 250, 229] as [number,number,number],
+  g0:  [236, 253, 245] as [number,number,number],
+  x9:  [ 17,  24,  39] as [number,number,number],
+  x7:  [ 55,  65,  81] as [number,number,number],
+  x5:  [107, 114, 128] as [number,number,number],
+  x4:  [156, 163, 175] as [number,number,number],
+  x2:  [229, 231, 235] as [number,number,number],
+  x1:  [243, 244, 246] as [number,number,number],
+  x0:  [249, 250, 251] as [number,number,number],
+  wh:  [255, 255, 255] as [number,number,number],
+};
+
+const mo = (v: string | number | null | undefined): string => {
+  if (v == null || v === "") return "—";
+  const n = typeof v === "number" ? v : parseMoneyToNumber(String(v));
+  if (!isFinite(n) || n === 0) return "—";
+  const a = Math.abs(n);
+  const s = n < 0 ? "-" : "";
+  if (a >= 1_000_000) return `${s}R$ ${fmtBR(a / 1_000_000, 2)}M`;
+  if (a >= 1_000)     return `${s}R$ ${fmtBR(a / 1_000, 0)}k`;
+  return `${s}R$ ${fmtBR(Math.round(a), 0)}`;
+};
 
 export function renderSocios(ctx: PdfCtx): void {
-  const { doc, DS, pos, data, margin, contentW } = ctx;
-  const colors = DS.colors;
+  const { doc, pos, data, margin: ML, contentW: CW } = ctx;
+  const irList = data.irSocios;
 
-  if (!data.irSocios || data.irSocios.length === 0 || !data.irSocios.some((s: { nomeSocio?: string; anoBase?: string }) => s.nomeSocio || s.anoBase)) {
+  if (!irList || irList.length === 0 || !irList.some(s => s.nomeSocio || s.anoBase)) {
     return;
   }
 
-  const alertasIR = gerarAlertasIRSocios(data.irSocios, new Date().getFullYear());
+  const GAP = 3.5;
 
-  drawSpacer(ctx, 10);
-  checkPageBreak(ctx, 50);
-  drawSectionTitle(ctx, "12", "IR DOS SOCIOS");
+  const stitle = (label: string) => {
+    const y = pos.y;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7);
+    doc.setTextColor(...P.x5);
+    const up = label.toUpperCase();
+    doc.text(up, ML, y + 3);
+    const tw = doc.getTextWidth(up);
+    doc.setDrawColor(...P.x2);
+    doc.setLineWidth(0.3);
+    doc.line(ML + tw + 2.5, y + 2.5, ML + CW, y + 2.5);
+    pos.y += 7;
+  };
 
-  for (let idx = 0; idx < data.irSocios.length; idx++) {
-    const ir = data.irSocios[idx];
+  const icell = (
+    x: number, y: number, w: number, h: number,
+    label: string, value: string,
+    bg: [number,number,number] = P.x0,
+    bd: [number,number,number] = P.x1,
+    valColor: [number,number,number] = P.n9,
+  ) => {
+    doc.setFillColor(...bg);
+    doc.setDrawColor(...bd);
+    doc.setLineWidth(0.25);
+    doc.roundedRect(x, y, w, h, 2, 2, "FD");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(5);
+    doc.setTextColor(...P.x4);
+    doc.text(label.toUpperCase(), x + 4, y + 5);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(value.length > 14 ? 6.5 : 9);
+    doc.setTextColor(...valColor);
+    doc.text(value || "—", x + 4, y + 14);
+  };
+
+  const alertRow = (sev: "alta"|"mod"|"info"|"ok", msg: string) => {
+    const bg: [number,number,number] = sev==="alta"?P.r0:sev==="mod"?P.a0:sev==="ok"?P.g0:P.n0;
+    const bd: [number,number,number] = sev==="alta"?P.r1:sev==="mod"?P.a1:sev==="ok"?P.g1:P.n1;
+    const fg: [number,number,number] = sev==="alta"?P.r6:sev==="mod"?P.a5:sev==="ok"?P.g6:P.n7;
+    const tag = sev==="alta"?"ALTA":sev==="mod"?"MOD":sev==="ok"?"OK":"INFO";
+    const lines = doc.splitTextToSize(msg, CW - 26) as string[];
+    const H = Math.max(8, lines.length * 4.5 + 5);
+    checkPageBreak(ctx, H + 2);
+    doc.setFillColor(...bg);
+    doc.setDrawColor(...bd);
+    doc.setLineWidth(0.25);
+    doc.roundedRect(ML, pos.y, CW, H, 2, 2, "FD");
+    const tw = doc.getTextWidth(tag);
+    doc.setFont("helvetica","bold"); doc.setFontSize(6); doc.setTextColor(...fg);
+    doc.setFillColor(...bd);
+    doc.roundedRect(ML + 3, pos.y + (H-4.5)/2, tw+4, 4.5, 1, 1, "F");
+    doc.text(tag, ML + 5, pos.y + H/2 + 1);
+    doc.setFont("helvetica","normal"); doc.setFontSize(7);
+    doc.text(lines, ML + tw + 10, pos.y + H/2 - (lines.length-1)*2.25 + 1);
+    pos.y += H + 2.5;
+  };
+
+  stitle("22 · IR dos Sócios");
+
+  for (let idx = 0; idx < irList.length; idx++) {
+    const ir = irList[idx];
     if (!ir.nomeSocio && !ir.anoBase) continue;
 
-    checkPageBreak(ctx, 60);
+    checkPageBreak(ctx, 55);
 
-    // Separador entre sócios
+    // Divider between socios
     if (idx > 0) {
-      doc.setDrawColor(...colors.border);
-      doc.setLineWidth(0.3);
-      doc.line(margin, pos.y, margin + contentW, pos.y);
+      doc.setDrawColor(...P.x2);
+      doc.setLineWidth(0.2);
+      doc.line(ML, pos.y, ML + CW, pos.y);
       pos.y += 6;
     }
 
-    // Header do sócio
-    doc.setFillColor(240, 246, 255);
-    doc.rect(margin, pos.y, contentW, 8, "F");
-    doc.setFontSize(DS.font.bodySmall);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...colors.primary);
-    doc.text(`Sócio ${idx + 1} — ${ir.nomeSocio || "Nome não informado"}`, margin + 3, pos.y + 5.2);
+    // Avatar + name
+    const initials = (ir.nomeSocio || "?").split(" ").slice(0,2).map(w => w[0]||"").join("").toUpperCase();
+    const avR = 8;
+    const avCx = ML + avR;
+    const avCy = pos.y + avR + 2;
+    doc.setFillColor(...P.n0);
+    doc.circle(avCx, avCy, avR, "F");
+    doc.setFont("helvetica","bold"); doc.setFontSize(9); doc.setTextColor(...P.n8);
+    doc.text(initials, avCx, avCy + 1.5, { align: "center" });
 
-    doc.setFontSize(DS.font.micro);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(...colors.textMuted);
-    const cpfAno = [ir.cpf && `CPF: ${ir.cpf}`, ir.anoBase && `Ano-base: ${ir.anoBase}`]
-      .filter(Boolean).join("   |   ");
-    if (cpfAno) {
-      doc.text(cpfAno, margin + contentW - 3, pos.y + 5.2, { align: "right" });
-    }
-    pos.y += 10;
+    doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.setTextColor(...P.x9);
+    doc.text(ir.nomeSocio || "Sócio", ML + avR*2 + 4, pos.y + 8);
+    doc.setFont("courier","normal"); doc.setFontSize(7.5); doc.setTextColor(...P.x5);
+    doc.text(`CPF: ${ir.cpf || "—"} · Ano-base: ${ir.anoBase || "—"}`, ML + avR*2 + 4, pos.y + 14);
 
-    // Tipo do documento
-    const tipoLabel = ir.tipoDocumento === "declaracao" ? "Declaração Completa" : "Recibo de Entrega";
-    doc.setFontSize(DS.font.micro);
-    doc.setFont("helvetica", "italic");
-    doc.setTextColor(...colors.textMuted);
-    doc.text(`Documento: ${tipoLabel}`, margin + 3, pos.y);
-    pos.y += 6;
+    pos.y += avR * 2 + 8;
 
-    // Alertas de malhas e débitos
-    if (ir.situacaoMalhas) {
-      drawAlertDeduped(ctx, `Sócio ${ir.nomeSocio || ""} — Pendência de malhas fiscais na Receita Federal`.trim(), "ALTA");
-    }
-    if (ir.debitosEmAberto) {
-      const _desc = ir.descricaoDebitos?.trim();
-      const _debitosSubtitle = _desc && _desc.length < 100 && !_desc.toLowerCase().includes("constavam débitos") ? _desc : undefined;
-      drawAlertDeduped(ctx,
-        `Sócio ${ir.nomeSocio || ""} — Débitos em aberto perante a Receita Federal / PGFN`.trim(),
-        "ALTA",
-        _debitosSubtitle
+    // KPI cards
+    checkPageBreak(ctx, 22);
+    {
+      const CH = 18; const cw = (CW - GAP * 3) / 4; const y0 = pos.y;
+      const plv = parseMoneyToNumber(ir.patrimonioLiquido || "0");
+      icell(ML,              y0, cw, CH, "Renda Total",       mo(ir.rendimentoTotal));
+      icell(ML+cw+GAP,       y0, cw, CH, "Rend. Tributáveis", mo(ir.rendimentosTributaveis));
+      icell(ML+(cw+GAP)*2,   y0, cw, CH, "Bens e Direitos",   mo(ir.totalBensDireitos));
+      icell(ML+(cw+GAP)*3,   y0, cw, CH, "Patrimônio Líq.",   mo(plv),
+        plv > 0 ? P.g0 : plv < 0 ? P.r0 : P.x0,
+        plv > 0 ? P.g1 : plv < 0 ? P.r1 : P.x1,
+        plv > 0 ? P.g6 : plv < 0 ? P.r6 : P.x4,
       );
+      pos.y = y0 + CH + 5;
     }
 
-    // Tabela de dados patrimoniais
-    const linhasIR: { label: string; valor: string; bold?: boolean }[] = [
-      { label: "Renda Total", valor: `R$ ${fmtMoney(ir.rendimentoTotal || "0,00")}` },
-      { label: "Rendimentos Tributáveis", valor: `R$ ${fmtMoney(ir.rendimentosTributaveis || "0,00")}`, bold: true },
-      { label: "Rendimentos Isentos", valor: `R$ ${fmtMoney(ir.rendimentosIsentos || "0,00")}` },
-      { label: "Imposto Definido", valor: `R$ ${fmtMoney((ir as unknown as Record<string, string>).impostoDefinido || "0,00")}`, bold: true },
-      { label: "Valor da Quota", valor: `R$ ${fmtMoney((ir as unknown as Record<string, string>).valorQuota || "0,00")}` },
-      { label: "Total Bens e Direitos", valor: `R$ ${fmtMoney(ir.totalBensDireitos || "0,00")}`, bold: true },
-      { label: "Dívidas e Ônus", valor: `R$ ${fmtMoney(ir.dividasOnus || "0,00")}` },
-      { label: "Patrimônio Líquido", valor: `R$ ${fmtMoney(ir.patrimonioLiquido || "0,00")}`, bold: true },
-    ];
-
-    linhasIR.forEach((linha, i) => {
-      const bg: [number, number, number] = i % 2 === 0 ? colors.zebraRow : colors.cardBg;
-      doc.setFillColor(...bg);
-      doc.rect(margin, pos.y, contentW, DS.space.tableRowH, "F");
-      doc.setFontSize(DS.font.micro);
-      doc.setFont("helvetica", linha.bold ? "bold" : "normal");
-      doc.setTextColor(...colors.text);
-      doc.text(linha.label, margin + 3, pos.y + 5.2);
-      doc.text(linha.valor, margin + contentW - 3, pos.y + 5.2, { align: "right" });
-      pos.y += DS.space.tableRowH;
-    });
-
-    pos.y += 4;
-
-    // Participação em outras sociedades
-    if (ir.temSociedades && ir.sociedades && ir.sociedades.length > 0) {
-      doc.setFontSize(DS.font.micro);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(...colors.primary);
-      doc.text("Participação em outras sociedades:", margin + 3, pos.y);
-      pos.y += 5;
-      ir.sociedades.forEach((soc: { razaoSocial?: string; cnpj?: string; participacao?: string }) => {
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(...colors.text);
-        doc.setFontSize(DS.font.micro);
-        doc.text(
-          `• ${soc.razaoSocial || "N/D"}${soc.cnpj ? ` — CNPJ: ${soc.cnpj}` : ""}${soc.participacao ? ` (${soc.participacao})` : ""}`,
-          margin + 5,
-          pos.y
-        );
-        pos.y += 4.5;
-      });
-      pos.y += 3;
-    }
-
-    // Indicador de coerência
-    doc.setFontSize(DS.font.micro);
-    doc.setFont("helvetica", "bold");
-    if (ir.coerenciaComEmpresa) {
-      doc.setTextColor(...colors.success);
-      doc.text("✓ Renda compatível com o porte da empresa", margin + 3, pos.y);
-    } else {
-      doc.setTextColor(...colors.danger);
-      doc.text("⚠ Renda incompatível com o porte da empresa", margin + 3, pos.y);
-    }
-    pos.y += 6;
-
-    // Observações
-    if (ir.observacoes) {
-      doc.setFont("helvetica", "italic");
-      doc.setFontSize(DS.font.micro);
-      doc.setTextColor(...colors.textMuted);
-      const obsLines = doc.splitTextToSize(ir.observacoes, contentW - 6);
-      obsLines.forEach((l: string) => {
-        doc.text(l, margin + 3, pos.y);
-        pos.y += 4;
-      });
-      pos.y += 2;
-    }
+    // Alerts
+    const anoAtual = new Date().getFullYear();
+    if (ir.debitosEmAberto) alertRow("alta", `${ir.nomeSocio || "Sócio"} — Débitos em aberto perante a Receita Federal`);
+    const impostoPagar = parseMoneyToNumber(ir.valorQuota || "0");
+    if (impostoPagar > 0) alertRow("mod", `${ir.nomeSocio || "Sócio"} — Imposto a pagar: ${mo(impostoPagar)}`);
+    const anoBase = parseInt(ir.anoBase || "0");
+    if (anoBase > 0 && anoBase < anoAtual - 1) alertRow("mod", `IR do sócio ${ir.nomeSocio || ""} desatualizado — ano-base ${anoBase}`);
+    const allZero = !parseMoneyToNumber(ir.rendimentoTotal || "0") && !parseMoneyToNumber(ir.totalBensDireitos || "0");
+    if (allZero) alertRow("mod", "IR com valores zerados — possível extração incompleta");
+    const plv = parseMoneyToNumber(ir.patrimonioLiquido || "0");
+    if (plv > 0) alertRow("ok", `Sem débitos com a Receita Federal`);
   }
 
-  // Alertas determinísticos — IR Sócios
-  if (alertasIR.length > 0) { drawSpacer(ctx, 4); drawDetAlerts(ctx, alertasIR); }
-
-  pos.y += 6;
+  pos.y += 3;
 }

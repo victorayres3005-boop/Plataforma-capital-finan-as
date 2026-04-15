@@ -1,22 +1,57 @@
 /**
- * Seção 13 — RELATÓRIO DE VISITA
- * Cabeçalho, checklist, pontos positivos/atenção, recomendação, observações livres,
- * parâmetros operacionais, dados da empresa
+ * Seção 21 — RELATÓRIO DE VISITA + DADOS DA EMPRESA
+ * Fiel ao HTML de referência secoes-restantes-estetica-v3.html
  */
 import type { PdfCtx } from "../context";
-import {
-  checkPageBreak, drawSectionTitle, drawSpacer, dsMiniHeader,
-} from "../helpers";
+import { checkPageBreak, parseMoneyToNumber, fmtBR } from "../helpers";
+
+const P = {
+  n9:  [12,  27,  58]  as [number,number,number],
+  n8:  [19,  41,  82]  as [number,number,number],
+  n0:  [238, 243, 251] as [number,number,number],
+  n1:  [220, 230, 245] as [number,number,number],
+  n7:  [26,  58, 107]  as [number,number,number],
+  a5:  [212, 149,  10] as [number,number,number],
+  a1:  [253, 243, 215] as [number,number,number],
+  a0:  [254, 249, 236] as [number,number,number],
+  r6:  [197,  48,  48] as [number,number,number],
+  r1:  [254, 226, 226] as [number,number,number],
+  r0:  [254, 242, 242] as [number,number,number],
+  g6:  [ 22, 101,  58] as [number,number,number],
+  g1:  [209, 250, 229] as [number,number,number],
+  g0:  [236, 253, 245] as [number,number,number],
+  x9:  [ 17,  24,  39] as [number,number,number],
+  x7:  [ 55,  65,  81] as [number,number,number],
+  x5:  [107, 114, 128] as [number,number,number],
+  x4:  [156, 163, 175] as [number,number,number],
+  x2:  [229, 231, 235] as [number,number,number],
+  x1:  [243, 244, 246] as [number,number,number],
+  x0:  [249, 250, 251] as [number,number,number],
+  wh:  [255, 255, 255] as [number,number,number],
+};
+
+const mo = (v: string | number | null | undefined): string => {
+  if (v == null || v === "") return "—";
+  const n = typeof v === "number" ? v : parseMoneyToNumber(String(v));
+  if (!isFinite(n) || n === 0) return "—";
+  const a = Math.abs(n);
+  const s = n < 0 ? "-" : "";
+  if (a >= 1_000_000) return `${s}R$ ${fmtBR(a / 1_000_000, 2)}M`;
+  if (a >= 1_000)     return `${s}R$ ${fmtBR(a / 1_000, 0)}k`;
+  return `${s}R$ ${fmtBR(Math.round(a), 0)}`;
+};
+
+const tr = (s: string, n: number) => {
+  const t = (s || "").trim();
+  return t.length > n ? t.slice(0, n - 1) + "…" : t;
+};
 
 export function renderVisita(ctx: PdfCtx): void {
-  const { doc, DS, pos, data, margin, contentW } = ctx;
-  const colors = DS.colors;
+  const { doc, pos, data, margin: ML, contentW: CW } = ctx;
   const rv = data.relatorioVisita;
 
   if (!rv || (
-    !rv.dataVisita &&
-    !rv.responsavelVisita &&
-    !rv.descricaoEstrutura &&
+    !rv.dataVisita && !rv.responsavelVisita && !rv.descricaoEstrutura &&
     !rv.observacoesLivres &&
     (!rv.pontosPositivos || rv.pontosPositivos.length === 0) &&
     (!rv.pontosAtencao || rv.pontosAtencao.length === 0)
@@ -24,182 +59,152 @@ export function renderVisita(ctx: PdfCtx): void {
     return;
   }
 
-  drawSpacer(ctx, 10);
-  checkPageBreak(ctx, 55);
-  drawSectionTitle(ctx, "13", "RELATORIO DE VISITA");
-  pos.y += 8;
+  const GAP = 3.5;
 
-  // Cabeçalho da visita
-  doc.setFontSize(DS.font.caption);
-  doc.setFont("helvetica", "normal");
-  doc.setTextColor(...colors.text);
-  doc.text(`Data: ${rv.dataVisita || "—"}   |   Responsavel: ${rv.responsavelVisita || "—"}   |   Duracao: ${rv.duracaoVisita || "—"}`, margin + 2, pos.y);
-  pos.y += 6;
-  doc.text(`Local: ${rv.localVisita || "—"}`, margin + 2, pos.y);
-  pos.y += 8;
-
-  // Checklist
-  const checklist = [
-    { label: "Estrutura fisica confirmada no endereco", ok: rv.estruturaFisicaConfirmada },
-    { label: "Operacao compativel com faturamento declarado", ok: rv.operacaoCompativelFaturamento },
-    { label: "Estoque visivel no local", ok: rv.estoqueVisivel },
-    { label: "Maquinas e equipamentos observados", ok: rv.maquinasEquipamentos },
-    { label: "Socios presentes durante a visita", ok: rv.presencaSocios },
-  ];
-
-  checklist.forEach((item, i) => {
-    const bg: [number, number, number] = i % 2 === 0 ? colors.zebraRow : colors.cardBg;
-    doc.setFillColor(...bg);
-    doc.rect(margin, pos.y, contentW, DS.space.tableRowH, "F");
-    doc.setFontSize(DS.font.micro);
-    const itemColor: [number, number, number] = item.ok ? colors.success : colors.danger;
-    doc.setTextColor(...itemColor);
-    doc.text(item.ok ? "+" : "x", margin + 3, pos.y + 5.2);
-    doc.setTextColor(...colors.text);
-    doc.text(item.label, margin + 10, pos.y + 5.2);
-    pos.y += DS.space.tableRowH;
-  });
-
-  pos.y += 4;
-
-  // Pontos positivos
-  if (rv.pontosPositivos?.length > 0) {
-    doc.setFontSize(DS.font.caption);
+  const stitle = (label: string) => {
+    const y = pos.y;
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(...colors.primary);
-    doc.text("Pontos Positivos:", margin + 2, pos.y);
-    pos.y += 5;
-    rv.pontosPositivos.forEach((p: string) => {
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(DS.font.micro);
-      doc.setTextColor(...colors.success);
-      doc.text(`+ ${p}`, margin + 4, pos.y);
-      pos.y += 4.5;
-    });
-    pos.y += 2;
-  }
-
-  // Pontos de atenção
-  if (rv.pontosAtencao?.length > 0) {
-    doc.setFontSize(DS.font.caption);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...colors.primary);
-    doc.text("Pontos de Atencao:", margin + 2, pos.y);
-    pos.y += 5;
-    rv.pontosAtencao.forEach((p: string) => {
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(DS.font.micro);
-      doc.setTextColor(...colors.danger);
-      doc.text(`! ${p}`, margin + 4, pos.y);
-      pos.y += 4.5;
-    });
-    pos.y += 2;
-  }
-
-  // Recomendação
-  pos.y += 4;
-  const recCor: [number, number, number] = rv.recomendacaoVisitante === "aprovado" ? colors.success :
-    rv.recomendacaoVisitante === "condicional" ? colors.warning : colors.danger;
-  doc.setFillColor(...recCor);
-  doc.roundedRect(margin, pos.y, contentW, 9, 1, 1, "F");
-  doc.setFontSize(DS.font.bodySmall);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(255, 255, 255);
-  const recTexto = rv.recomendacaoVisitante === "aprovado" ? "Recomendação do visitante: Aprovado" :
-    rv.recomendacaoVisitante === "condicional" ? "Recomendação do visitante: Condicional" :
-      "Recomendação do visitante: Reprovado";
-  doc.text(recTexto, margin + 4, pos.y + 6);
-  pos.y += 11;
-
-  // Observações livres
-  if (rv.observacoesLivres) {
-    pos.y += 12;
-    checkPageBreak(ctx, 16);
-    doc.setFontSize(DS.font.caption);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(...colors.textMuted);
-    doc.text("Observações:", margin + 2, pos.y);
-    pos.y += 6;
-    doc.setFont("helvetica", "italic");
-    doc.setFontSize(DS.font.micro);
-    doc.setTextColor(...colors.text);
-    const obsLines = doc.splitTextToSize(rv.observacoesLivres, contentW - 6);
-    obsLines.forEach((l: string) => { checkPageBreak(ctx, 5); doc.text(l, margin + 2, pos.y); pos.y += 4.5; });
-    pos.y += 4;
-  }
-
-  // ── Parâmetros Operacionais ──
-  const rvR = rv as unknown as Record<string, string | undefined>;
-  const temParamsOp = [
-    rvR.taxaConvencional, rvR.taxaComissaria, rvR.limiteTotal, rvR.limiteConvencional,
-    rvR.limiteComissaria, rvR.limitePorSacado, rvR.ticketMedio, rvR.valorCobrancaBoleto,
-    rvR.prazoRecompraCedente, rvR.prazoEnvioCartorio, rvR.prazoMaximoOp, rvR.cobrancaTAC,
-    rvR.tranche, rvR.prazoTranche,
-  ].some(v => v && v.trim() !== "");
-
-  const temDadosEmpresa = [
-    rvR.folhaPagamento, rvR.endividamentoBanco, rvR.endividamentoFactoring,
-    rvR.vendasCheque, rvR.vendasDuplicata, rvR.vendasOutras,
-    rvR.prazoMedioFaturamento, rvR.prazoMedioEntrega, rvR.referenciasFornecedores,
-  ].some(v => v && v.trim() !== "");
-
-  const drawOpTable = (rows: [string, string][]) => {
-    const colLW = 90;
-    const colRW = contentW - colLW;
-    rows.forEach(([label, value], i) => {
-      checkPageBreak(ctx, DS.space.tableRowH);
-      const bg: [number, number, number] = i % 2 === 0 ? colors.zebraRow : colors.cardBg;
-      doc.setFillColor(...bg);
-      doc.rect(margin, pos.y, contentW, DS.space.tableRowH, "F");
-      doc.setFontSize(DS.font.micro);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(...colors.textMuted);
-      doc.text(label, margin + 3, pos.y + 5.2);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(...colors.text);
-      doc.text(value || "—", margin + colLW, pos.y + 5.2, { maxWidth: colRW - 4 });
-      pos.y += DS.space.tableRowH;
-    });
-    pos.y += 3;
+    doc.setFontSize(7);
+    doc.setTextColor(...P.x5);
+    const up = label.toUpperCase();
+    doc.text(up, ML, y + 3);
+    const tw = doc.getTextWidth(up);
+    doc.setDrawColor(...P.x2);
+    doc.setLineWidth(0.3);
+    doc.line(ML + tw + 2.5, y + 2.5, ML + CW, y + 2.5);
+    pos.y += 7;
   };
 
-  if (temParamsOp) {
-    checkPageBreak(ctx, 20);
-    pos.y += 6;
-    dsMiniHeader(ctx, 'PARAMETROS OPERACIONAIS');
-    drawOpTable([
-      ["Taxa Convencional", rvR.taxaConvencional || ""],
-      ["Taxa Comissaria", rvR.taxaComissaria || ""],
-      ["Limite Total", rvR.limiteTotal ? `R$ ${rvR.limiteTotal}` : ""],
-      ["Limite Convencional", rvR.limiteConvencional ? `R$ ${rvR.limiteConvencional}` : ""],
-      ["Limite Comissaria", rvR.limiteComissaria ? `R$ ${rvR.limiteComissaria}` : ""],
-      ["Limite por Sacado", rvR.limitePorSacado ? `R$ ${rvR.limitePorSacado}` : ""],
-      ["Ticket Medio", rvR.ticketMedio ? `R$ ${rvR.ticketMedio}` : ""],
-      ["Valor Cobranca de Boleto", rvR.valorCobrancaBoleto ? `R$ ${rvR.valorCobrancaBoleto}` : ""],
-      ["Cond. Cobranca — Prazo de Recompra (Cedente)", rvR.prazoRecompraCedente ? `${rvR.prazoRecompraCedente} dias` : ""],
-      ["Cond. Cobranca — Envio para Cartorio em", rvR.prazoEnvioCartorio ? `${rvR.prazoEnvioCartorio} dias` : ""],
-      ["Prazo Maximo", rvR.prazoMaximoOp ? `${rvR.prazoMaximoOp} dias` : ""],
-      ["Cobranca de TAC", rvR.cobrancaTAC || ""],
-      ["Tranche", rvR.tranche ? `R$ ${rvR.tranche}` : ""],
-      ["Prazo em Tranche", rvR.prazoTranche ? `${rvR.prazoTranche} dias` : ""],
-    ]);
+  const icell = (
+    x: number, y: number, w: number, h: number,
+    label: string, value: string,
+    bg: [number,number,number] = P.x0,
+    bd: [number,number,number] = P.x1,
+    valColor: [number,number,number] = P.n9,
+  ) => {
+    doc.setFillColor(...bg);
+    doc.setDrawColor(...bd);
+    doc.setLineWidth(0.25);
+    doc.roundedRect(x, y, w, h, 2, 2, "FD");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(5);
+    doc.setTextColor(...P.x4);
+    doc.text(label.toUpperCase(), x + 4, y + 5);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(value.length > 14 ? 6.5 : 9);
+    doc.setTextColor(...valColor);
+    doc.text(value || "—", x + 4, y + 14);
+  };
+
+  stitle("23 · Relatório de Visita");
+
+  // Header: 3 KPI cards
+  checkPageBreak(ctx, 22);
+  {
+    const CH = 18; const cw = (CW - GAP * 2) / 3; const y0 = pos.y;
+    const rec = rv.recomendacaoVisitante || "";
+    const recAprov = /aprovado/i.test(rec);
+    const recReprov = /reprovado/i.test(rec);
+    const recBg: [number,number,number] = recAprov ? P.g0 : recReprov ? P.r0 : P.a0;
+    const recBd: [number,number,number] = recAprov ? P.g1 : recReprov ? P.r1 : P.a1;
+    const recFg: [number,number,number] = recAprov ? P.g6 : recReprov ? P.r6 : P.a5;
+    const recLabel = rec.charAt(0).toUpperCase() + rec.slice(1) || "—";
+
+    icell(ML,          y0, cw, CH, "Responsável",   tr(rv.responsavelVisita || "—", 20));
+    icell(ML+cw+GAP,   y0, cw, CH, "Local",         tr(rv.localVisita || "—", 20));
+    icell(ML+(cw+GAP)*2, y0, cw, CH, "Recomendação", recLabel, recBg, recBd, recFg);
+    pos.y = y0 + CH + 5;
   }
 
-  if (temDadosEmpresa) {
-    checkPageBreak(ctx, 20);
-    pos.y += 2;
-    dsMiniHeader(ctx, 'DADOS DA EMPRESA');
-    drawOpTable([
-      ["Numero de Funcionarios", String(rv.funcionariosObservados || "")],
-      ["Folha de Pagamento", rvR.folhaPagamento ? `R$ ${rvR.folhaPagamento}` : ""],
-      ["Endividamento Banco", rvR.endividamentoBanco || ""],
-      ["Endividamento Factoring/FIDC", rvR.endividamentoFactoring ? `R$ ${rvR.endividamentoFactoring}` : ""],
-      ["Vendas (Cheque)", rvR.vendasCheque || ""],
-      ["Vendas (Duplicata)", rvR.vendasDuplicata || ""],
-      ["Vendas (Outras)", rvR.vendasOutras || ""],
-      ["Prazo Medio de Faturamento", rvR.prazoMedioFaturamento ? `${rvR.prazoMedioFaturamento} dias` : ""],
-      ["Prazo Medio de Entrega das Mercadorias", rvR.prazoMedioEntrega ? `${rvR.prazoMedioEntrega} dias` : ""],
-      ["Referencias Comerciais / Fornecedores", rvR.referenciasFornecedores || ""],
-    ]);
+  // 3 columns: Pontos positivos | Pontos de atenção | Contexto
+  const positivos = rv.pontosPositivos || [];
+  const atencao   = rv.pontosAtencao   || [];
+  const contexto  = rv.observacoesLivres || rv.descricaoEstrutura || "";
+
+  if (positivos.length > 0 || atencao.length > 0 || contexto) {
+    const cols3w = (CW - GAP * 2) / 3;
+    const rowH3 = 6.5;
+    const maxRows = Math.max(positivos.length, atencao.length, contexto ? 4 : 0, 1);
+    const HH = 9;
+    const CARDH = HH + maxRows * rowH3 + 6;
+
+    checkPageBreak(ctx, CARDH + 8);
+    const y0 = pos.y;
+
+    // Pontos positivos (verde)
+    doc.setFillColor(...P.g0);
+    doc.setDrawColor(...P.g1);
+    doc.setLineWidth(0.25);
+    doc.roundedRect(ML, y0, cols3w, CARDH, 2, 2, "FD");
+    doc.setFillColor(...P.g6);
+    doc.roundedRect(ML, y0, cols3w, HH, 2, 2, "F");
+    doc.rect(ML, y0+3, cols3w, HH-3, "F");
+    doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(...P.wh);
+    doc.text("Pontos Positivos", ML + 4, y0 + 6.5);
+    positivos.slice(0, 7).forEach((item, i) => {
+      const iy = y0 + HH + i * rowH3;
+      doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
+      doc.setTextColor(...P.g6); doc.text("•", ML + 3, iy + 5);
+      doc.setTextColor(...P.x7); doc.text(tr(item, 34), ML + 7, iy + 5);
+    });
+
+    // Pontos de atenção (âmbar)
+    const ax = ML + cols3w + GAP;
+    doc.setFillColor(...P.a0);
+    doc.setDrawColor(...P.a1);
+    doc.roundedRect(ax, y0, cols3w, CARDH, 2, 2, "FD");
+    doc.setFillColor(...P.a5);
+    doc.roundedRect(ax, y0, cols3w, HH, 2, 2, "F");
+    doc.rect(ax, y0+3, cols3w, HH-3, "F");
+    doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(...P.wh);
+    doc.text("Pontos de Atenção", ax + 4, y0 + 6.5);
+    atencao.slice(0, 7).forEach((item, i) => {
+      const iy = y0 + HH + i * rowH3;
+      doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
+      doc.setTextColor(...P.a5); doc.text("•", ax + 3, iy + 5);
+      doc.setTextColor(...P.x7); doc.text(tr(item, 34), ax + 7, iy + 5);
+    });
+
+    // Contexto (cinza)
+    const cx = ML + (cols3w + GAP) * 2;
+    doc.setFillColor(...P.x0);
+    doc.setDrawColor(...P.x1);
+    doc.roundedRect(cx, y0, cols3w, CARDH, 2, 2, "FD");
+    doc.setFillColor(...P.x5);
+    doc.roundedRect(cx, y0, cols3w, HH, 2, 2, "F");
+    doc.rect(cx, y0+3, cols3w, HH-3, "F");
+    doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(...P.wh);
+    doc.text("Contexto", cx + 4, y0 + 6.5);
+    if (contexto) {
+      const ctxLines = doc.splitTextToSize(contexto, cols3w - 8) as string[];
+      doc.setFont("helvetica","normal"); doc.setFontSize(6.5); doc.setTextColor(...P.x7);
+      ctxLines.slice(0, 7).forEach((line, i) => {
+        doc.text(line, cx + 4, y0 + HH + i * rowH3 + 5);
+      });
+    }
+
+    pos.y = y0 + CARDH + 5;
+  }
+
+  // Dados da empresa
+  stitle("Dados da Empresa");
+  checkPageBreak(ctx, 22);
+  {
+    const CH = 18; const cw = (CW - GAP * 3) / 4; const y0 = pos.y;
+    const numFunc = rv.funcionariosObservados ? String(rv.funcionariosObservados) : "—";
+    icell(ML,              y0, cw, CH, "Funcionários",     numFunc);
+    icell(ML+cw+GAP,       y0, cw, CH, "Folha Pagamento",  mo(rv.folhaPagamento));
+    icell(ML+(cw+GAP)*2,   y0, cw, CH, "Endiv. Banco",     mo(rv.endividamentoBanco));
+    icell(ML+(cw+GAP)*3,   y0, cw, CH, "Endiv. FIDC",      mo(rv.endividamentoFactoring));
+    pos.y = y0 + CH + GAP;
+  }
+  checkPageBreak(ctx, 22);
+  {
+    const CH = 18; const cw = (CW - GAP * 3) / 4; const y0 = pos.y;
+    icell(ML,              y0, cw, CH, "Vendas Duplicata", rv.vendasDuplicata ? rv.vendasDuplicata+"%" : "—");
+    icell(ML+cw+GAP,       y0, cw, CH, "Vendas Outras",    rv.vendasOutras    ? rv.vendasOutras+"%" : "—");
+    icell(ML+(cw+GAP)*2,   y0, cw, CH, "Prazo Faturam.",   rv.prazoMedioFaturamento ? rv.prazoMedioFaturamento+" dias" : "—");
+    icell(ML+(cw+GAP)*3,   y0, cw, CH, "Prazo Entrega",    rv.prazoMedioEntrega ? rv.prazoMedioEntrega+" dias" : "—");
+    pos.y = y0 + CH + 5;
   }
 }

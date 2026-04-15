@@ -4,14 +4,17 @@
  * Public signature: buildPDFReport(params: PDFReportParams): Promise<Blob>
  *
  * Rendering order:
- *  1. Capa
- *  2. Índice
- *  3. Síntese Preliminar (+ Parâmetros do Fundo + Limite de Crédito + CNPJ + QSA)
- *  4. Faturamento / SCR (+ DRE + Balanço + Curva ABC)
- *  5. Risco (Protestos + Processos + CCF + Histórico Consultas)
- *  6. IR dos Sócios
- *  7. Relatório de Visita
- *  8. Parecer Preliminar
+ *  01. Capa
+ *  02. Checklist de Documentos
+ *  03. Síntese Preliminar
+ *  04. Parecer Preliminar
+ *  05. Parâmetros Operacionais + Conformidade com Políticas do Fundo
+ *  06. Faturamento + DRE + Balanço
+ *  07. Protestos + Processos
+ *  08. SCR Comparativo
+ *  09. Curva ABC
+ *  10. IR dos Sócios
+ *  11. Relatório de Visita
  *  → Footer em todas as páginas (exceto capa)
  */
 import type { PDFReportParams } from "./context";
@@ -21,11 +24,14 @@ import { clearAlertDedup, drawFooterAllPages, parseMoneyToNumber } from "./helpe
 import { renderCapa } from "./sections/capa";
 import { renderIndice } from "./sections/indice";
 import { renderSintese } from "./sections/sintese";
+import { renderParecerSection } from "./sections/parecer";
+import { renderConformidade } from "./sections/conformidade";
 import { renderFaturamento } from "./sections/faturamento";
 import { renderRisco } from "./sections/risco";
+import { renderSCR } from "./sections/scr";
+import { renderABC } from "./sections/abc";
 import { renderSocios } from "./sections/socios";
 import { renderVisita } from "./sections/visita";
-import { renderParecerSection } from "./sections/parecer";
 
 export type { PDFReportParams };
 
@@ -51,9 +57,13 @@ export async function buildPDFReport(params: PDFReportParams): Promise<Blob> {
 
   // ── Pre-compute derived params ──
   const { data } = params;
-  const validMesesForFmm = [...(data.faturamento?.meses || [])]
-    .filter(m => m?.mes && m?.valor)
-    .sort((a, b) => {
+  const validMesesForFmm = Array.from(
+    new Map(
+      [...(data.faturamento?.meses || [])]
+        .filter(m => m?.mes && m?.valor)
+        .map(m => [m.mes, m])
+    ).values()
+  ).sort((a, b) => {
       const dk = (s: string) => {
         const parts = s.split("/");
         if (parts.length !== 2) return 0;
@@ -96,13 +106,16 @@ export async function buildPDFReport(params: PDFReportParams): Promise<Blob> {
 
   // ── Render sections ──
   renderCapa(ctx);
+  renderIndice(ctx);
   renderSintese(ctx);
   renderParecerSection(ctx);
+  renderConformidade(ctx);
   renderFaturamento(ctx);
   renderRisco(ctx);
+  renderSCR(ctx);
+  renderABC(ctx);
   renderSocios(ctx);
   renderVisita(ctx);
-  renderIndice(ctx);
 
   // ── Footer on all pages (except cover = page 1) ──
   drawFooterAllPages(ctx);
