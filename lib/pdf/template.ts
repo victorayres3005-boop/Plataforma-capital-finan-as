@@ -363,22 +363,59 @@ function pageCapa(params: PDFReportParams, date: string): string {
   const sb = scoreBorder(score);
   const decBg = decisionBg(params.decision ?? "");
   const ratingLabel = score >= 7 ? "Baixo Risco" : score >= 4 ? "Risco Moderado" : "Alto Risco";
+
+  // Data por extenso (ex: 15 de abril de 2026)
+  const now = new Date();
+  const MESES_EXT = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+  const dateExt = `${now.getDate()} de ${MESES_EXT[now.getMonth()]} de ${now.getFullYear()}`;
+
+  // Código de verificação — últimos 8 chars do CNPJ sem formatação + score
+  const cnpjRaw = (cnpj?.cnpj ?? "").replace(/\D/g,"");
+  const verCode = cnpjRaw.length >= 8 ? `${cnpjRaw.slice(0,4)}-${cnpjRaw.slice(4,8)}-${score.toFixed(1).replace(".","")}-CF` : "CF-2026";
+
   return `
-<div class="page" style="background:var(--n8);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:60px 40px;min-height:600px">
-  <div style="font-size:28px;font-weight:700;color:#fff">capital<span style="color:#73b815">finanças</span></div>
-  <div style="font-size:11px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.15em;margin-top:4px">Análise de Crédito</div>
-  <div style="width:60px;height:2px;background:#73b815;margin:28px auto"></div>
-  <div style="font-size:22px;font-weight:700;color:#fff;max-width:450px">${esc(cnpj?.razaoSocial ?? "—")}</div>
-  <div style="font-size:12px;font-family:'JetBrains Mono',monospace;color:rgba(255,255,255,0.5);margin-top:10px">CNPJ: ${fmtCnpj(cnpj?.cnpj)}</div>
-  <div style="margin-top:32px;display:flex;flex-direction:column;align-items:center">
-    <div style="width:88px;height:88px;border-radius:50%;border:3px solid ${sb};display:flex;flex-direction:column;align-items:center;justify-content:center;margin-bottom:10px">
-      <div style="font-size:32px;font-weight:700;color:${sc};line-height:1">${score.toFixed(1)}</div>
-      <div style="font-size:10px;color:rgba(255,255,255,0.4)">/10</div>
-    </div>
-    <div style="font-size:11px;font-weight:700;color:${sc};margin-bottom:8px">${esc(ratingLabel)}</div>
-    <div style="display:inline-block;padding:5px 18px;border-radius:4px;font-size:11px;font-weight:700;text-transform:uppercase;background:${decBg};color:#fff">${esc(params.decision ?? "—")}</div>
+<div class="page" style="background:var(--n8);min-height:700px;display:flex;flex-direction:column;padding:0;position:relative;overflow:hidden">
+  <!-- topo: barra com logo -->
+  <div style="padding:32px 48px 0;display:flex;justify-content:space-between;align-items:center">
+    <div style="font-size:22px;font-weight:700;color:#fff">capital<span style="color:#73b815">finanças</span></div>
+    <div style="font-size:9px;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:0.12em">ANÁLISE DE CRÉDITO · DUE DILIGENCE</div>
   </div>
-  <div style="margin-top:32px;font-size:10px;color:rgba(255,255,255,0.35)">${date}${params.committeMembers ? " · " + esc(params.committeMembers) : ""}</div>
+
+  <!-- divisor verde -->
+  <div style="height:2px;background:linear-gradient(90deg,#73b815,rgba(115,184,21,0.3));margin:28px 48px"></div>
+
+  <!-- bloco central -->
+  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:0 48px">
+    <div style="font-size:11px;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:0.18em;margin-bottom:18px">Relatório de Crédito</div>
+    <div style="font-size:26px;font-weight:700;color:#fff;max-width:500px;line-height:1.25">${esc(cnpj?.razaoSocial ?? "—")}</div>
+    ${cnpj?.nomeFantasia ? `<div style="font-size:13px;color:rgba(255,255,255,0.45);margin-top:6px">${esc(cnpj.nomeFantasia)}</div>` : ""}
+    <div style="font-size:12px;font-family:'JetBrains Mono',monospace;color:rgba(255,255,255,0.4);margin-top:10px">CNPJ: ${fmtCnpj(cnpj?.cnpj)}</div>
+
+    <!-- Score circular -->
+    <div style="margin-top:36px;display:flex;flex-direction:column;align-items:center;gap:10px">
+      <div style="width:100px;height:100px;border-radius:50%;border:4px solid ${sb};display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(255,255,255,0.05)">
+        <div style="font-size:36px;font-weight:700;color:${sc};line-height:1">${score.toFixed(1)}</div>
+        <div style="font-size:10px;color:rgba(255,255,255,0.35)">/10</div>
+      </div>
+      <div style="font-size:12px;font-weight:700;color:${sc}">${esc(ratingLabel)}</div>
+      <div style="padding:6px 22px;border-radius:5px;font-size:12px;font-weight:700;text-transform:uppercase;background:${decBg};color:#fff;letter-spacing:0.05em">${esc(params.decision ?? "—")}</div>
+    </div>
+
+    <!-- Comitê -->
+    ${params.committeMembers ? `<div style="margin-top:24px;font-size:10px;color:rgba(255,255,255,0.3)">Comitê: ${esc(params.committeMembers)}</div>` : ""}
+  </div>
+
+  <!-- rodapé -->
+  <div style="padding:20px 48px 28px;display:flex;justify-content:space-between;align-items:flex-end;border-top:1px solid rgba(255,255,255,0.08)">
+    <div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.25);text-transform:uppercase;letter-spacing:0.1em">Data de emissão</div>
+      <div style="font-size:12px;color:rgba(255,255,255,0.55);margin-top:2px">${esc(dateExt)}</div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-size:10px;color:rgba(255,255,255,0.25);text-transform:uppercase;letter-spacing:0.1em">Cód. verificação</div>
+      <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:rgba(255,255,255,0.4);margin-top:2px">${esc(verCode)}</div>
+    </div>
+  </div>
 </div>`;
 }
 
