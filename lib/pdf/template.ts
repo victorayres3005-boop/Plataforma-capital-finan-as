@@ -1360,7 +1360,7 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
     </table>
     ${stitle("Indicadores")}
     <div class="istrip c4">
-      <div class="icell ${lc < 1 ? "danger" : ""}"><div class="l">Liquidez Corrente</div><div class="v ${lc < 1 ? "red" : "green"}">${fmtPct(lastBal?.liquidezCorrente)}x</div></div>
+      <div class="icell ${lc < 1 ? "danger" : ""}"><div class="l">Liquidez Corrente</div><div class="v ${lc < 1 ? "red" : "green"}">${lc > 0 ? lc.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+"x" : "—"}</div></div>
       <div class="icell ${enDiv > 100 ? "danger" : ""}"><div class="l">Endividamento</div><div class="v ${enDiv > 100 ? "red" : "green"} sm">${fmtPct(lastBal?.endividamentoTotal)}</div></div>
       <div class="icell ${cg < 0 ? "danger" : ""}"><div class="l">Capital de Giro</div><div class="v ${cg < 0 ? "red" : "green"} sm">${fmtMoneyAbr(lastBal?.capitalDeGiroLiquido)}</div></div>
       <div class="icell ${pl < 0 ? "danger" : ""}"><div class="l">Patrimônio Líq.</div><div class="v ${pl < 0 ? "red" : "green"} sm">${fmtMoneyAbr(lastBal?.patrimonioLiquido)}</div></div>
