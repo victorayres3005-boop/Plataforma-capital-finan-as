@@ -583,6 +583,12 @@ function pageSintese(params: PDFReportParams, date: string): string {
       <div class="icell"><div class="l">Tipo</div><div class="v">${fmt(cnpj?.tipoEmpresa ?? "Matriz")}</div></div>
       <div class="icell"><div class="l">Local</div><div class="v">${fmt(local)}</div></div>
     </div>
+    ${(cnpj?.telefone || cnpj?.email || cnpj?.naturezaJuridica || cnpj?.regimeTributario) ? `<div class="istrip c4">
+      ${cnpj?.naturezaJuridica ? `<div class="icell"><div class="l">Natureza Jurídica</div><div class="v sm">${esc(cnpj.naturezaJuridica)}</div></div>` : ""}
+      ${cnpj?.regimeTributario ? `<div class="icell"><div class="l">Regime Tributário</div><div class="v sm">${esc(cnpj.regimeTributario)}</div></div>` : ""}
+      ${cnpj?.telefone ? `<div class="icell"><div class="l">Telefone</div><div class="v sm mono">${esc(cnpj.telefone)}</div></div>` : ""}
+      ${cnpj?.email ? `<div class="icell"><div class="l">E-mail</div><div class="v sm">${esc(cnpj.email)}</div></div>` : ""}
+    </div>` : ""}
 
     <!-- 3. Segmento -->
     ${cnpj?.cnaePrincipal ? `<div class="seg"><b>${esc(cnpj.cnaePrincipal)}</b>${cnpj.cnaeSecundarios ? `<div class="sec">CNAEs sec.: ${esc(cnpj.cnaeSecundarios)}</div>` : ""}</div>` : ""}
@@ -748,6 +754,7 @@ function pageParecer(params: PDFReportParams, date: string): string {
 function pageParametros(params: PDFReportParams, date: string): string {
   const rv = params.data.relatorioVisita;
   const fv = params.fundValidation;
+  const contrato = params.data.contrato;
 
   const criteriaRows = (fv?.criteria ?? []).map((c: FundCriterion) => {
     const isPass = c.status === "ok";
@@ -799,6 +806,16 @@ function pageParametros(params: PDFReportParams, date: string): string {
       <div><div class="vt">${verdictText}</div><div class="vs">${verdictSub}</div></div>
       <div class="vb">${verdictBtn}</div>
     </div>` : ""}
+
+    ${contrato ? `${stitle("Contrato Social")}
+    <div class="istrip c4" style="margin-bottom:10px">
+      <div class="icell"><div class="l">Constituição</div><div class="v">${fmt(contrato.dataConstituicao)}</div></div>
+      <div class="icell"><div class="l">Capital Social</div><div class="v sm mono">${fmtMoney(contrato.capitalSocial)}</div></div>
+      <div class="icell"><div class="l">Prazo de Duração</div><div class="v sm">${fmt(contrato.prazoDuracao) || "Indeterminado"}</div></div>
+      <div class="icell"><div class="l">Alterações</div><div class="v ${contrato.temAlteracoes ? "" : "green"}">${contrato.temAlteracoes ? "Sim" : "Não"}</div></div>
+    </div>
+    ${contrato.objetoSocial ? `<div class="perc" style="margin-bottom:10px"><div class="l" style="font-size:9px;font-weight:700;text-transform:uppercase;color:var(--x4);margin-bottom:6px">Objeto Social</div><div class="perc-text">${esc(contrato.objetoSocial)}</div></div>` : ""}
+    ${contrato.administracao ? `<div class="inf">Administração: <b>${esc(contrato.administracao)}</b>${contrato.foro ? ` · Foro: <b>${esc(contrato.foro)}</b>` : ""}</div>` : ""}` : ""}
   `;
 
   return page(content, 4, date);
@@ -818,6 +835,24 @@ function pageFaturamento(params: PDFReportParams, date: string): string {
 
   const bars = meses.length > 0 ? buildBars(meses) : "";
 
+  // Meses zerados
+  const mesesZerados = fat?.mesesZerados ?? [];
+  const zeradosNote = mesesZerados.length > 0
+    ? `<div class="alert mod" style="margin-top:8px"><span class="atag">MOD</span> ${mesesZerados.length} mês(es) com faturamento zerado: ${mesesZerados.map(m => esc(m.mes)).join(", ")}</div>`
+    : "";
+
+  // FMM por ano
+  const fmmAnual = fat?.fmmAnual ? Object.entries(fat.fmmAnual) : [];
+  const fmmAnualHtml = fmmAnual.length > 1 ? `${stitle("FMM por ano")}
+    <div class="istrip" style="grid-template-columns:repeat(${Math.min(fmmAnual.length,4)},1fr)">
+      ${fmmAnual.slice(-4).map(([ano, v]) => `<div class="icell"><div class="l">${esc(ano)}</div><div class="v sm mono">${fmtMoneyAbr(v)}</div></div>`).join("")}
+    </div>` : "";
+
+  // Monthly table (last 12)
+  const fatTableRows = meses.slice(-12).map(m =>
+    `<tr><td>${esc(m.mes)}</td><td class="r mono">${fmtMoney(m.valor)}</td></tr>`
+  ).join("");
+
   const content = `
     ${stitle("06 · Faturamento")}
     <div class="istrip c4" style="margin-bottom:16px">
@@ -831,6 +866,17 @@ function pageFaturamento(params: PDFReportParams, date: string): string {
       <div class="bars">${bars || '<div style="color:var(--x4);font-size:12px;align-self:center">Dados não disponíveis</div>'}</div>
       <div class="kpi-row"><span>FMM: <b>${fmtMoneyAbr(fmm)}</b></span><span>Total: <b>${fmtMoneyAbr(total12)}</b></span><span>Var: <b style="color:${tendColor2}">${esc(tendLabel)}</b></span></div>
     </div>
+    ${zeradosNote}
+    ${fmmAnualHtml}
+    ${fatTableRows ? `${stitle("Detalhe mensal")}
+    <div class="fin-row">
+      <div class="fin-box" style="overflow:auto">
+        <table class="tbl" style="border:none;margin:0">
+          <thead><tr><th>Mês</th><th class="r">Faturamento</th></tr></thead>
+          <tbody>${fatTableRows}</tbody>
+        </table>
+      </div>
+    </div>` : ""}
   `;
 
   return page(content, 5, date);
@@ -922,29 +968,90 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
   return page(content, 6, date);
 }
 
+// ─── SCR variation helper ──────────────────────────────────────────────────────
+function scrVar(currV: string | undefined | null, prevV: string | undefined | null, higherIsBad: boolean): {cls:string;val:string} {
+  const c = numVal(currV);
+  const p = numVal(prevV);
+  if (!p || p === 0) return {cls:"neutral",val:"—"};
+  const diff = ((c - p) / Math.abs(p)) * 100;
+  const absDiff = Math.abs(diff).toFixed(1);
+  if (Math.abs(diff) < 0.5) return {cls:"neutral",val:"—"};
+  if (diff > 0) return {cls: higherIsBad ? "up" : "down", val:`+${absDiff}%`};
+  return {cls: higherIsBad ? "down" : "up", val:`-${absDiff}%`};
+}
+
 // ─── Page 7: SCR + DRE ───────────────────────────────────────────────────────
 function pageSCRDRE(params: PDFReportParams, date: string): string {
   const scr = params.data.scr;
   const scrAnt = params.data.scrAnterior;
   const dre = params.data.dre;
 
-  // SCR table
+  // SCR comparative table with real variation
   let scrRows = "";
   if (scr) {
-    const prev = (field: keyof typeof scr) => scrAnt ? String(scrAnt[field] ?? "—") : "—";
-    const curr = (field: keyof typeof scr) => String(scr[field] ?? "—");
-    type SCRRow = {label:string;cat:string;prevV:string;currV:string;varCls:string;varVal:string};
-    const rows: SCRRow[] = [
-      {label:"Curto Prazo",cat:"Carteira",prevV:fmtMoneyAbr(prev("carteiraCurtoPrazo")),currV:fmtMoneyAbr(curr("carteiraCurtoPrazo")),varCls:"neutral",varVal:"—"},
-      {label:"Longo Prazo",cat:"Carteira",prevV:fmtMoneyAbr(prev("carteiraLongoPrazo")),currV:fmtMoneyAbr(curr("carteiraLongoPrazo")),varCls:"neutral",varVal:"—"},
-      {label:"A Vencer",cat:"Carteira",prevV:fmtMoneyAbr(prev("carteiraAVencer")),currV:fmtMoneyAbr(curr("carteiraAVencer")),varCls:"neutral",varVal:"—"},
-      {label:"Vencidos",cat:"Inadimplência",prevV:fmtMoneyAbr(prev("vencidos")),currV:fmtMoneyAbr(curr("vencidos")),varCls:"neutral",varVal:"—"},
-      {label:"Limite Crédito",cat:"Capacidade",prevV:fmtMoneyAbr(prev("limiteCredito")),currV:fmtMoneyAbr(curr("limiteCredito")),varCls:"neutral",varVal:"—"},
-      {label:"IFs",cat:"Capacidade",prevV:fmt(prev("qtdeInstituicoes")),currV:fmt(curr("qtdeInstituicoes")),varCls:"neutral",varVal:"—"},
-      {label:"Operações",cat:"Capacidade",prevV:fmt(prev("qtdeOperacoes")),currV:fmt(curr("qtdeOperacoes")),varCls:"neutral",varVal:"—"},
-    ];
-    scrRows = rows.map(r => `<tr><td class="b">${esc(r.label)}</td><td style="color:var(--x4)">${esc(r.cat)}</td><td class="r">${r.prevV}</td><td class="r">${r.currV}</td><td class="r ${r.varCls === "neutral" ? "" : r.varCls}">${r.varVal}</td></tr>`).join("");
-    scrRows += `<tr class="total"><td class="b">Total Dívidas</td><td>Resumo</td><td class="r">${fmtMoneyAbr(prev("totalDividasAtivas"))}</td><td class="r">${fmtMoneyAbr(curr("totalDividasAtivas"))}</td><td class="r" style="color:var(--x4)">—</td></tr>`;
+    type SCRMoneyField = "carteiraCurtoPrazo"|"carteiraLongoPrazo"|"carteiraAVencer"|"vencidos"|"limiteCredito"|"totalDividasAtivas";
+    type SCRStrField = "qtdeInstituicoes"|"qtdeOperacoes";
+    const moneyRow = (label:string, cat:string, field:SCRMoneyField, higherIsBad:boolean) => {
+      const c = scr[field] ?? "—"; const p = scrAnt ? scrAnt[field] ?? "—" : "—";
+      const v = scrVar(c, p, higherIsBad);
+      return `<tr><td class="b">${esc(label)}</td><td style="color:var(--x4)">${esc(cat)}</td><td class="r">${fmtMoneyAbr(p)}</td><td class="r">${fmtMoneyAbr(c)}</td><td class="r var-cell ${v.cls}">${esc(v.val)}</td></tr>`;
+    };
+    const strRow = (label:string, cat:string, field:SCRStrField, higherIsBad:boolean) => {
+      const c = scr[field] ?? "—"; const p = scrAnt ? scrAnt[field] ?? "—" : "—";
+      const v = scrVar(c, p, higherIsBad);
+      return `<tr><td class="b">${esc(label)}</td><td style="color:var(--x4)">${esc(cat)}</td><td class="r">${fmt(p)}</td><td class="r">${fmt(c)}</td><td class="r var-cell ${v.cls}">${esc(v.val)}</td></tr>`;
+    };
+    scrRows = [
+      moneyRow("Curto Prazo","Carteira","carteiraCurtoPrazo",true),
+      moneyRow("Longo Prazo","Carteira","carteiraLongoPrazo",true),
+      moneyRow("A Vencer","Carteira","carteiraAVencer",true),
+      moneyRow("Vencidos","Inadimplência","vencidos",true),
+      moneyRow("Limite Crédito","Capacidade","limiteCredito",false),
+      strRow("IFs","Capacidade","qtdeInstituicoes",false),
+      strRow("Operações","Capacidade","qtdeOperacoes",false),
+    ].join("");
+    const vTotal = scrVar(scr.totalDividasAtivas, scrAnt?.totalDividasAtivas, true);
+    scrRows += `<tr class="total"><td class="b">Total Dívidas</td><td>Resumo</td><td class="r">${fmtMoneyAbr(scrAnt?.totalDividasAtivas)}</td><td class="r">${fmtMoneyAbr(scr.totalDividasAtivas)}</td><td class="r var-cell ${vTotal.cls}">${esc(vTotal.val)}</td></tr>`;
+  }
+
+  // SCR Modalidades
+  let modalSection = "";
+  if (scr?.modalidades?.length) {
+    const modRows = scr.modalidades.map(m => `<tr>
+      <td class="b">${esc(m.nome)}</td>
+      <td class="r">${fmtMoneyAbr(m.total)}</td>
+      <td class="r">${fmtMoneyAbr(m.aVencer)}</td>
+      <td class="r ${numVal(m.vencido) > 0 ? "red" : ""}">${fmtMoneyAbr(m.vencido)}</td>
+      <td class="r">${fmtPct(m.participacao)}</td>
+    </tr>`).join("");
+    modalSection = `
+    ${stitle("17 · Modalidades SCR")}
+    <table class="tbl">
+      <thead><tr><th>Modalidade</th><th class="r">Total</th><th class="r">A Vencer</th><th class="r">Vencido</th><th class="r">%</th></tr></thead>
+      <tbody>${modRows}</tbody>
+    </table>`;
+  }
+
+  // SCR Sócios PF
+  let sociosSCRSection = "";
+  if (params.data.scrSocios && params.data.scrSocios.length > 0) {
+    const blocks = params.data.scrSocios.map(ss => {
+      const sa = ss.periodoAtual;
+      const sp = ss.periodoAnterior;
+      const vVenc = scrVar(sa.vencidos, sp?.vencidos, true);
+      const vTotal2 = scrVar(sa.totalDividasAtivas, sp?.totalDividasAtivas, true);
+      return `<div style="margin-bottom:14px;padding:14px;background:var(--x0);border-radius:8px;border:1px solid var(--x2)">
+        <div style="font-size:12px;font-weight:700;color:var(--n9);margin-bottom:10px">${esc(ss.nomeSocio)} <span style="font-size:10px;color:var(--x5);font-family:'JetBrains Mono',monospace">${fmtCpf(ss.cpfSocio)}</span></div>
+        <div class="istrip c4">
+          <div class="icell"><div class="l">Total Dívidas</div><div class="v sm mono">${fmtMoneyAbr(sa.totalDividasAtivas)}</div>${sp ? `<div class="sub var-cell ${vTotal2.cls}" style="font-size:9px">${esc(vTotal2.val)}</div>` : ""}</div>
+          <div class="icell ${numVal(sa.vencidos) > 0 ? "danger" : ""}"><div class="l">Vencidos</div><div class="v sm mono ${numVal(sa.vencidos) > 0 ? "red" : "green"}">${fmtMoneyAbr(sa.vencidos)}</div>${sp ? `<div class="sub var-cell ${vVenc.cls}" style="font-size:9px">${esc(vVenc.val)}</div>` : ""}</div>
+          <div class="icell"><div class="l">A Vencer</div><div class="v sm mono">${fmtMoneyAbr(sa.carteiraAVencer)}</div></div>
+          <div class="icell"><div class="l">IFs</div><div class="v">${fmt(sa.qtdeInstituicoes)}</div></div>
+        </div>
+        <div class="inf" style="margin-top:6px;margin-bottom:0">Período: <b>${esc(sa.periodoReferencia ?? "—")}</b>${sp ? ` · Anterior: <b>${esc(sp.periodoReferencia ?? "—")}</b>` : ""}</div>
+      </div>`;
+    }).join("");
+    sociosSCRSection = `${stitle("18 · SCR dos Sócios (PF)")}${blocks}`;
   }
 
   // DRE table
@@ -994,7 +1101,9 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
     <table class="tbl">
       <thead><tr><th>Métrica</th><th>Categoria</th><th class="r">${esc(scrPeriodoAnt)}</th><th class="r">${esc(scrPeriodoAtual)}</th><th class="r">Var.</th></tr></thead>
       <tbody>${scrRows}</tbody>
-    </table>`;
+    </table>
+    ${modalSection}
+    ${sociosSCRSection}`;
   }
 
   let dreSection = "";
