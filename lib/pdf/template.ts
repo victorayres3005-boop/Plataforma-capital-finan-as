@@ -1454,6 +1454,78 @@ function pageIRVisita(params: PDFReportParams, date: string): string {
   return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de IR/Visita não disponíveis</div>`, 10, date);
 }
 
+// ─── Page 11: Checklist de Documentos ─────────────────────────────────────────
+function pageChecklist(params: PDFReportParams, date: string): string {
+  const cob = params.aiAnalysis?.coberturaAnalise;
+  const docs = cob?.documentos ?? [];
+
+  // Fallback: deduzir cobertura pelos campos presentes em ExtractedData
+  const fallback = [
+    { tipo:"cnpj",          label:"Cartão CNPJ",             presente: !!params.data.cnpj?.razaoSocial,        obrigatorio:true  },
+    { tipo:"qsa",           label:"Quadro Societário",        presente: !!(params.data.qsa?.quadroSocietario?.length), obrigatorio:true  },
+    { tipo:"contrato",      label:"Contrato Social",          presente: !!params.data.contrato?.objetoSocial,  obrigatorio:false },
+    { tipo:"faturamento",   label:"Extrato de Faturamento",   presente: !!(params.data.faturamento?.meses?.length), obrigatorio:true  },
+    { tipo:"scr",           label:"SCR (Banco Central)",      presente: !!params.data.scr?.totalDividasAtivas,  obrigatorio:true  },
+    { tipo:"scrAnterior",   label:"SCR Período Anterior",     presente: !!params.data.scrAnterior,              obrigatorio:false },
+    { tipo:"scrSocios",     label:"SCR dos Sócios (PF)",      presente: !!(params.data.scrSocios?.length),      obrigatorio:false },
+    { tipo:"protestos",     label:"Certidão de Protestos",    presente: !!params.data.protestos?.vigentesQtd,   obrigatorio:true  },
+    { tipo:"processos",     label:"Processos Judiciais",      presente: !!params.data.processos?.passivosTotal, obrigatorio:true  },
+    { tipo:"dre",           label:"DRE",                      presente: !!(params.data.dre?.anos?.length),       obrigatorio:false },
+    { tipo:"balanco",       label:"Balanço Patrimonial",      presente: !!(params.data.balanco?.anos?.length),   obrigatorio:false },
+    { tipo:"curvaABC",      label:"Curva ABC / Clientes",     presente: !!(params.data.curvaABC?.clientes?.length), obrigatorio:false },
+    { tipo:"irSocios",      label:"IR dos Sócios",            presente: !!(params.data.irSocios?.length),        obrigatorio:false },
+    { tipo:"relatorioVisita",label:"Relatório de Visita",     presente: !!params.data.relatorioVisita,           obrigatorio:false },
+    { tipo:"ccf",           label:"CCF (Cheques Sem Fundo)",  presente: params.data.ccf != null,                obrigatorio:true  },
+    { tipo:"grupoEconomico",label:"Grupo Econômico",          presente: !!(params.data.grupoEconomico?.empresas?.length), obrigatorio:false },
+  ];
+
+  const lista = docs.length > 0 ? docs : fallback;
+  const presentes = lista.filter(d => d.presente).length;
+  const obrigTotal = lista.filter(d => d.obrigatorio).length;
+  const obrigPres = lista.filter(d => d.obrigatorio && d.presente).length;
+  const nivel = presentes >= lista.length * 0.8 ? "completa" : presentes >= lista.length * 0.5 ? "parcial" : "minima";
+  const nivelCls = nivel === "completa" ? "ok" : nivel === "parcial" ? "mod" : "alta";
+  const nivelLabel = nivel === "completa" ? "Cobertura completa" : nivel === "parcial" ? "Cobertura parcial" : "Cobertura mínima";
+
+  const docRows = lista.map(d => {
+    const iconCls = d.presente ? "pass" : "fail";
+    const iconChar = d.presente ? "✓" : "—";
+    const obadge = d.obrigatorio
+      ? `<span style="font-size:7px;font-weight:700;padding:2px 5px;border-radius:3px;background:var(--n1);color:var(--n7);margin-left:6px">OBR</span>`
+      : `<span style="font-size:7px;font-weight:700;padding:2px 5px;border-radius:3px;background:var(--x1);color:var(--x5);margin-left:6px">OPC</span>`;
+    return `<div class="pf-row">
+      <div class="pf-icon ${iconCls}">${iconChar}</div>
+      <div class="pf-name">${esc(d.label)}${obadge}</div>
+      <div class="pf-val"><div class="v ${d.presente ? "pass" : "fail"}">${d.presente ? "Entregue" : "Ausente"}</div></div>
+    </div>`;
+  }).join("");
+
+  const pctPres = lista.length > 0 ? Math.round((presentes / lista.length) * 100) : 0;
+
+  const content = `
+    ${stitle("01 · Checklist de documentos analisados")}
+    <div class="istrip c4" style="margin-bottom:16px">
+      <div class="icell navy"><div class="l">Documentos entregues</div><div class="v">${presentes} / ${lista.length}</div></div>
+      <div class="icell ${obrigPres < obrigTotal ? "danger" : "success"}"><div class="l">Obrigatórios</div><div class="v ${obrigPres < obrigTotal ? "red" : "green"}">${obrigPres} / ${obrigTotal}</div></div>
+      <div class="icell"><div class="l">Cobertura</div><div class="v">${pctPres}%</div></div>
+      <div class="icell"><div class="l">Nível</div><div class="v sm">${esc(nivelLabel)}</div></div>
+    </div>
+    <div class="alert ${nivelCls}" style="margin-bottom:14px"><span class="atag">${nivelCls.toUpperCase()}</span> ${presentes} de ${lista.length} documentos disponíveis — cobertura de ${pctPres}%</div>
+    ${docRows}
+    ${params.data.bureausConsultados?.length ? `${stitle("Bureaus consultados")}
+    <div class="istrip c4">
+      ${params.data.bureausConsultados.map(b => `<div class="icell success"><div class="l">Bureau</div><div class="v sm green">${esc(b)}</div></div>`).join("")}
+    </div>` : ""}
+    ${params.data.score?.serasa ? `${stitle("Bureau Score")}
+    <div class="istrip c4">
+      <div class="icell"><div class="l">Serasa Score</div><div class="v">${params.data.score.serasa.score}</div><div class="sub">${esc(params.data.score.serasa.faixa)}</div></div>
+      <div class="icell ${params.data.score.serasa.inadimplente ? "danger" : "success"}"><div class="l">Inadimplente</div><div class="v ${params.data.score.serasa.inadimplente ? "red" : "green"}">${params.data.score.serasa.inadimplente ? "Sim" : "Não"}</div></div>
+    </div>` : ""}
+  `;
+
+  return page(content, 11, date);
+}
+
 // ─── Main export ──────────────────────────────────────────────────────────────
 export function gerarHtmlRelatorio(params: PDFReportParams): { html: string; headerTemplate: string; footerTemplate: string } {
   const now = new Date();
@@ -1470,6 +1542,7 @@ export function gerarHtmlRelatorio(params: PDFReportParams): { html: string; hea
     pageSCRDRE(params, date),
     pageBalancoABC(params, date),
     pageIRVisita(params, date),
+    pageChecklist(params, date),
   ].join("\n");
 
   const html = `<!DOCTYPE html>
