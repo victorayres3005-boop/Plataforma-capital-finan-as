@@ -997,19 +997,20 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   // Helper: campos desnormalizados para a tabela
   // IMPORTANTE: só inclui rating/decisao quando aiAnalysis está disponível,
   // para não sobrescrever valores existentes no banco durante o auto-save inicial.
+  // BUG FIX CRITICO: getCollectionMeta nao deve mais retornar rating/decisao.
+  // A ownership dos campos rating e decisao fica com:
+  //   - saveAnalysisCache (rating inicial da IA, apenas se analista ainda nao setou)
+  //   - parecer/page.tsx doSave (override manual do analista, prioridade total)
+  //   - parecer/page.tsx handleFinish (decisao final ao finalizar coleta)
+  // Antes, handleSave rodando em auto-save reescrevia rating com aiAnalysis.rating
+  // (valor em memoria, frequentemente stale) e sobrescrevia o rating do analista.
   const getCollectionMeta = () => {
     const mediaStr = data.faturamento.mediaAno || "0";
     const fmm = parseFloat(mediaStr.replace(/\./g, "").replace(",", ".")) || null;
-    const base = {
+    return {
       company_name: data.cnpj.razaoSocial || null,
       cnpj: data.cnpj.cnpj || null,
       fmm_12m: fmm,
-    };
-    if (!aiAnalysis) return base;
-    return {
-      ...base,
-      rating: aiAnalysis.rating ?? null,
-      decisao: (aiAnalysis.decisao as DocumentCollection["decisao"]) ?? null,
     };
   };
 
