@@ -1362,6 +1362,39 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     } catch { /* silently fail */ } finally { setSavingNotes(false); }
   };
 
+  // Busca o rating/decisao MAIS RECENTES direto do Supabase antes de gerar
+  // relatorios. Isso elimina race conditions onde aiAnalysis em memoria esta
+  // stale (usuario editou no parecer em outra aba, autosave ainda nao propagou,
+  // ou o mount do GenerateStep ainda nao completou loadCachedAnalysis).
+  const getFreshFinalRating = async (): Promise<{ rating: number; decisao: string }> => {
+    const localFallback = { rating: finalRating, decisao: decision };
+    if (!collectionId) return localFallback;
+    try {
+      const supabase = createClient();
+      const { data: row } = await supabase
+        .from("document_collections")
+        .select("ai_analysis, rating, decisao")
+        .eq("id", collectionId)
+        .maybeSingle();
+      if (!row) return localFallback;
+      const aiA = row.ai_analysis as Record<string, unknown> | null;
+      const pa = aiA?.parecerAnalista as { ratingAnalista?: number | string | null; decisaoComite?: string | null } | undefined;
+      // Prioridade: override analista > coluna rating > ai_analysis.rating > local
+      const analistaRaw = pa?.ratingAnalista;
+      const analistaNum = analistaRaw != null && analistaRaw !== "" ? Number(analistaRaw) : null;
+      let freshRating = finalRating;
+      if (analistaNum != null && !isNaN(analistaNum)) freshRating = analistaNum;
+      else if (row.rating != null) freshRating = Number(row.rating);
+      else if (aiA && typeof aiA.rating === "number") freshRating = aiA.rating;
+      const freshDecisao = pa?.decisaoComite
+        ? String(pa.decisaoComite).toUpperCase()
+        : (row.decisao ? String(row.decisao).toUpperCase() : decision);
+      return { rating: freshRating, decisao: freshDecisao };
+    } catch {
+      return localFallback;
+    }
+  };
+
   const generatePDF = async () => {
     setGeneratingFormat("pdf");
     try {
@@ -1411,9 +1444,11 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         } catch { /* histórico indisponível — segue sem */ }
       }
 
+      // Busca rating/decisao frescos do Supabase para evitar estado stale
+      const fresh = await getFreshFinalRating();
       // ── Geração via Puppeteer (servidor) ──────────────────────────────────
       const payload = {
-        data, aiAnalysis, decision, finalRating, alerts, alertsHigh,
+        data, aiAnalysis, decision: fresh.decisao, finalRating: fresh.rating, alerts, alertsHigh,
         pontosFortes, pontosFracos, perguntasVisita, resumoExecutivo,
         companyAge, protestosVigentes, vencidosSCR, vencidas, prejuizosVal,
         dividaAtiva, atraso, riskScore: riskScore as "alto" | "medio" | "baixo", decisionColor, decisionBg, decisionBorder,
@@ -1467,10 +1502,11 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       setGeneratedFormats(p => new Set(p).add("pdf"));
     } catch (err) {
       console.error("PDF generation error:", err);
-      // Fallback final: jsPDF
+      // Fallback final: jsPDF (tambem com fresh rating)
       try {
+        const fresh2 = await getFreshFinalRating();
         const blob = await buildPDFReport({
-          data, aiAnalysis, decision, finalRating, alerts, alertsHigh,
+          data, aiAnalysis, decision: fresh2.decisao, finalRating: fresh2.rating, alerts, alertsHigh,
           pontosFortes, pontosFracos, perguntasVisita, resumoExecutivo,
           companyAge, protestosVigentes, vencidosSCR, vencidas, prejuizosVal,
           dividaAtiva, atraso, riskScore, decisionColor, decisionBg, decisionBorder,
@@ -1518,8 +1554,9 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     setGeneratingFormat("html");
     try {
       const maps = await fetchGoogleMapsImages();
+      const fresh = await getFreshFinalRating();
       const payload = {
-        data, aiAnalysis, decision, finalRating, alerts, alertsHigh,
+        data, aiAnalysis, decision: fresh.decisao, finalRating: fresh.rating, alerts, alertsHigh,
         pontosFortes, pontosFracos, perguntasVisita, resumoExecutivo,
         companyAge, protestosVigentes, vencidosSCR, vencidas, prejuizosVal,
         dividaAtiva, atraso, riskScore: riskScore as "alto" | "medio" | "baixo", decisionColor, decisionBg, decisionBorder,
@@ -1550,8 +1587,9 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   const generateDOCX = async () => {
     setGeneratingFormat("docx");
     try {
+      const fresh = await getFreshFinalRating();
       const blob = await buildDOCXReport({
-        data, aiAnalysis, decision, finalRating, alerts,
+        data, aiAnalysis, decision: fresh.decisao, finalRating: fresh.rating, alerts,
         pontosFortes, pontosFracos, perguntasVisita, resumoExecutivo,
         companyAge, protestosVigentes,
         fundValidation,
@@ -1572,8 +1610,9 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   const generateExcel = async () => {
     setGeneratingFormat("xlsx");
     try {
+      const fresh = await getFreshFinalRating();
       const blob = await buildExcelReport({
-        data, aiAnalysis, decision, finalRating, alerts,
+        data, aiAnalysis, decision: fresh.decisao, finalRating: fresh.rating, alerts,
         pontosFortes, pontosFracos, companyAge, protestosVigentes,
         fundValidation,
         creditLimit,
@@ -1590,11 +1629,12 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   // ═══════════════════════════════════════════════════
   // HTML Generation (extracted to lib/generators/html.ts)
   // ═══════════════════════════════════════════════════
-  const generateHTML = () => {
+  const generateHTML = async () => {
     setGeneratingFormat("html");
     try {
+      const fresh = await getFreshFinalRating();
       const htmlContent = buildHTMLReport({
-        data, aiAnalysis, decision, finalRating, alerts, alertsHigh,
+        data, aiAnalysis, decision: fresh.decisao, finalRating: fresh.rating, alerts, alertsHigh,
         pontosFortes, pontosFracos, perguntasVisita, resumoExecutivo,
         companyAge, vencidosSCR, vencidas, prejuizosVal, protestosVigentes,
       });
