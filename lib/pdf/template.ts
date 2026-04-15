@@ -1764,7 +1764,7 @@ function pageIRVisita(params: PDFReportParams, date: string): string {
       <div style="background:var(--n9);padding:6px 12px;font-size:11px;font-weight:700;color:#fff">
         ${rv.referenciasFornecedores.split(/[;,]/).map(r => r.trim()).filter(Boolean).length} referência(s) informada(s)
       </div>
-      ${rv.referenciasFornecedores.split(/[;,]/).map((r, i) => r.trim()).filter(Boolean).map((r, i) =>
+      ${rv.referenciasFornecedores.split(/[;,]/).map(r => r.trim()).filter(Boolean).map((r, i) =>
         `<div style="padding:5px 12px;font-size:11px;color:var(--x7);${i % 2 !== 0 ? "background:var(--x0)" : ""}">• ${esc(r)}</div>`
       ).join("")}
     </div>` : ""}`;
