@@ -971,6 +971,22 @@ function pageParametros(params: PDFReportParams, date: string): string {
       <div class="icell"><div class="l">Cobrança TAC</div><div class="v ${rv?.cobrancaTAC ? "" : "muted"}">${rv?.cobrancaTAC ? esc(rv.cobrancaTAC) : "—"}</div></div>
       <div class="icell"><div class="l">Tranche</div><div class="v ${rv?.tranche ? "" : "muted"}">${rv?.tranche ? fmtMoneyAbr(rv.tranche) : "—"}</div></div>
     </div>
+    ${params.creditLimit ? `${stitle("Limite de Crédito Calculado")}
+    <div class="istrip c4" style="margin-bottom:8px">
+      <div class="icell ${params.creditLimit.classificacao === "APROVADO" ? "success" : params.creditLimit.classificacao === "CONDICIONAL" ? "warn" : "danger"}">
+        <div class="l">Limite Aprovado</div>
+        <div class="v ${params.creditLimit.classificacao === "APROVADO" ? "green" : params.creditLimit.classificacao === "CONDICIONAL" ? "" : "red"}">${params.creditLimit.limiteAjustado ? "R$\u00a0" + params.creditLimit.limiteAjustado.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}) : "—"}</div>
+        <div class="sub">${esc(params.creditLimit.classificacao)}</div>
+      </div>
+      <div class="icell"><div class="l">Limite Base</div><div class="v sm mono">${params.creditLimit.limiteBase ? "R$\u00a0" + params.creditLimit.limiteBase.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}) : "—"}</div></div>
+      <div class="icell"><div class="l">Prazo</div><div class="v">${params.creditLimit.prazo ? params.creditLimit.prazo + " dias" : "—"}</div></div>
+      <div class="icell"><div class="l">Revisão em</div><div class="v sm">${params.creditLimit.revisaoDias ? params.creditLimit.revisaoDias + " dias" : "—"}</div>${params.creditLimit.dataRevisao ? `<div class="sub">${fmtDate(params.creditLimit.dataRevisao)}</div>` : ""}</div>
+    </div>
+    <div class="istrip c3" style="margin-bottom:8px">
+      <div class="icell"><div class="l">FMM Base</div><div class="v sm mono">${params.creditLimit.fmmBase ? "R$\u00a0" + params.creditLimit.fmmBase.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}) : "—"}</div></div>
+      <div class="icell"><div class="l">Fator de Redução</div><div class="v sm">${params.creditLimit.fatorReducao ? (params.creditLimit.fatorReducao * 100).toFixed(0) + "%" : "—"}</div></div>
+      <div class="icell"><div class="l">Conc. máx. sacado</div><div class="v sm">${params.creditLimit.concentracaoMaxPct ? params.creditLimit.concentracaoMaxPct.toFixed(0) + "%" : "—"}</div></div>
+    </div>` : ""}
     ${stitle("05 · Conformidade com políticas do fundo")}
     ${criteriaRows || '<div style="color:var(--x4);font-size:12px;padding:12px 0">Validação de fundo não disponível</div>'}
     ${fv ? `<div class="verdict ${verdictCls}">
