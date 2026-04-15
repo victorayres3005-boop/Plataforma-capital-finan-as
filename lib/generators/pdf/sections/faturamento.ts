@@ -55,7 +55,7 @@ const mo = (v: string | number | null | undefined): string => {
 };
 
 export function renderFaturamento(ctx: PdfCtx): void {
-  const { doc, pos, params, data, margin: ML, contentW: CW } = ctx;
+  const { doc, pos, data, margin: ML, contentW: CW } = ctx;
   const GAP = 3.5;
 
   const stitle = (label: string) => {

@@ -80,7 +80,7 @@ export function renderConformidade(ctx: PdfCtx): void {
     }
   };
 
-  const alert = (
+  const drawAlert = (
     y: number, sev: "alta" | "mod" | "info" | "ok",
     msg: string,
   ): number => {
@@ -211,7 +211,7 @@ export function renderConformidade(ctx: PdfCtx): void {
       doc.setFont("helvetica", pass ? "normal" : "bold");
       doc.setFontSize(7.5);
       doc.setTextColor(...P.x9);
-      let labelText = c.label;
+      const labelText = c.label;
       const lw = doc.getTextWidth(labelText);
       doc.text(labelText, ML + 13, y0 + ROW_H / 2 + 1.5);
 
@@ -290,4 +290,6 @@ export function renderConformidade(ctx: PdfCtx): void {
     doc.text("Validação de política do fundo não disponível.", ML, pos.y + 5);
     pos.y += 12;
   }
+
+  void drawAlert;
 }
