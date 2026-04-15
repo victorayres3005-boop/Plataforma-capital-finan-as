@@ -71,9 +71,9 @@ function fmtDate(v: string | null | undefined): string {
 function fmtDecision(d: string | null | undefined): string {
   if (!d) return "Pendente";
   const u = d.toUpperCase().replace(/_/g, " ");
-  if (u.includes("APROVAD") && !u.includes("COND")) return "Tend. de Aprovação";
+  if (u.includes("APROVAD") && !u.includes("COND")) return "Tend. Aprovação";
   if (u.includes("COND")) return "Tend. Condicional";
-  if (u.includes("REPROVAD")) return "Tend. de Reprovação";
+  if (u.includes("REPROVAD")) return "Tend. Reprovação";
   return esc(d);
 }
 
@@ -175,7 +175,7 @@ body{font-family:'DM Sans',sans-serif;background:#f0f2f7;color:var(--x9);-webkit
 .rat-n{font-size:26px;font-weight:700;line-height:1}
 .rat-d{font-size:10px;color:var(--x4)}
 .rat-l{font-size:10px;font-weight:700}
-.dec{display:inline-block;padding:4px 14px;border-radius:4px;font-size:10px;font-weight:700;text-transform:uppercase;background:var(--r6);color:#fff;margin-top:4px}
+.dec{display:inline-block;padding:4px 14px;border-radius:4px;font-size:10px;font-weight:700;background:var(--r6);color:#fff;margin-top:4px;white-space:nowrap}
 .istrip{display:grid;gap:8px;margin-bottom:18px}
 .istrip.c2{grid-template-columns:1fr 1fr}
 .istrip.c3{grid-template-columns:1fr 1fr 1fr}
@@ -451,7 +451,7 @@ function pageCapa(params: PDFReportParams, date: string): string {
         <div style="font-size:10px;color:rgba(255,255,255,0.35)">/10</div>
       </div>
       <div style="font-size:12px;font-weight:700;color:${sc}">${esc(ratingLabel)}</div>
-      <div style="padding:6px 22px;border-radius:5px;font-size:12px;font-weight:700;background:${decBg};color:#fff;letter-spacing:0.03em">${fmtDecision(params.decision)}</div>
+      <div style="padding:6px 22px;border-radius:5px;font-size:12px;font-weight:700;background:${decBg};color:#fff;letter-spacing:0.03em;white-space:nowrap">${fmtDecision(params.decision)}</div>
     </div>
 
     <!-- Comitê -->
@@ -636,7 +636,9 @@ function pageSintese(params: PDFReportParams, date: string): string {
   // Analise
   const fortes = params.pontosFortes ?? [];
   const fracos = params.pontosFracos ?? [];
-  const alertsArr = (params.alerts ?? []).filter(a => a.severity === "CRÍTICO" || a.severity === "RESTRITIVO").slice(0, 5).map(a => a.message);
+  const alertsArr = (params.alerts ?? [])
+    .filter(a => (a.severity === "CRÍTICO" || a.severity === "RESTRITIVO") && a.message?.trim() && a.message.trim() !== "—")
+    .slice(0, 5).map(a => a.message);
   const analiseHtml = `${stitle("Análise")}
   <div class="ana-grid">
     <div class="ana-col f"><div class="ana-h">Pontos Fortes</div>${fortes.map(f=>`<div class="ana-item">${esc(f)}</div>`).join("") || '<div class="ana-item" style="color:var(--x4)">—</div>'}</div>
@@ -1755,7 +1757,17 @@ function pageIRVisita(params: PDFReportParams, date: string): string {
       <div class="icell"><div class="l">Prazo Entrega</div><div class="v sm">${fmt(rv.prazoMedioEntrega)}</div></div>
       <div class="icell"><div class="l">Endiv. Banco</div><div class="v ${rv.endividamentoBanco ? "" : "muted"}">${fmtMoneyAbr(rv.endividamentoBanco)}</div></div>
       <div class="icell"><div class="l">Endiv. FIDC</div><div class="v ${rv.endividamentoFactoring ? "" : "muted"}">${fmtMoneyAbr(rv.endividamentoFactoring)}</div></div>
-    </div>`;
+    </div>
+    ${rv.referenciasFornecedores?.trim() ? `
+    ${stitle("Referências Comerciais / Fornecedores")}
+    <div style="background:var(--wh);border:1px solid var(--x2);border-radius:8px;overflow:hidden;margin-bottom:14px">
+      <div style="background:var(--n9);padding:6px 12px;font-size:11px;font-weight:700;color:#fff">
+        ${rv.referenciasFornecedores.split(/[;,]/).map(r => r.trim()).filter(Boolean).length} referência(s) informada(s)
+      </div>
+      ${rv.referenciasFornecedores.split(/[;,]/).map((r, i) => r.trim()).filter(Boolean).map((r, i) =>
+        `<div style="padding:5px 12px;font-size:11px;color:var(--x7);${i % 2 !== 0 ? "background:var(--x0)" : ""}">• ${esc(r)}</div>`
+      ).join("")}
+    </div>` : ""}`;
   }
 
   // Histórico de Consultas

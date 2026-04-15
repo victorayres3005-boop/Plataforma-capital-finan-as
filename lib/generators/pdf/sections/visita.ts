@@ -207,4 +207,47 @@ export function renderVisita(ctx: PdfCtx): void {
     icell(ML+(cw+GAP)*3,   y0, cw, CH, "Prazo Entrega",    rv.prazoMedioEntrega ? rv.prazoMedioEntrega+" dias" : "—");
     pos.y = y0 + CH + 5;
   }
+
+  // Referências Comerciais / Fornecedores
+  if (rv.referenciasFornecedores && rv.referenciasFornecedores.trim()) {
+    const refs = rv.referenciasFornecedores
+      .split(/[;,]/)
+      .map(r => r.trim())
+      .filter(Boolean)
+      .slice(0, 10);
+
+    checkPageBreak(ctx, 14);
+    stitle("Referências Comerciais / Fornecedores");
+
+    const RH = 6.5;
+    const HH = 9;
+    const blockH = HH + refs.length * RH + 4;
+    checkPageBreak(ctx, blockH + 4);
+    const y0 = pos.y;
+
+    doc.setFillColor(...P.wh);
+    doc.setDrawColor(...P.x2);
+    doc.setLineWidth(0.25);
+    doc.roundedRect(ML, y0, CW, blockH, 2, 2, "FD");
+
+    // Header strip navy
+    doc.setFillColor(...P.n9);
+    doc.roundedRect(ML, y0, CW, HH, 2, 2, "F");
+    doc.rect(ML, y0 + 3, CW, HH - 3, "F");
+    doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(...P.wh);
+    doc.text(`${refs.length} referência(s) informada(s)`, ML + 4, y0 + 6.5);
+
+    refs.forEach((ref, i) => {
+      const ry = y0 + HH + i * RH;
+      if (i % 2 !== 0) { doc.setFillColor(...P.x0); doc.rect(ML, ry, CW, RH, "F"); }
+      doc.setFont("helvetica","normal"); doc.setFontSize(6.5); doc.setTextColor(...P.n7);
+      doc.text("•", ML + 4, ry + 4.8);
+      doc.setTextColor(...P.x7);
+      doc.text(tr(ref, 70), ML + 9, ry + 4.8);
+      doc.setDrawColor(...P.x1); doc.setLineWidth(0.15);
+      doc.line(ML + 2, ry + RH, ML + CW - 2, ry + RH);
+    });
+
+    pos.y = y0 + blockH + 5;
+  }
 }
