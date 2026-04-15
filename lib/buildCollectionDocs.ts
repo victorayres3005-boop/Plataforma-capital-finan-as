@@ -62,10 +62,13 @@ export function buildCollectionDocs(data: ExtractedData): CollectionDocument[] {
       }
     });
   }
-  if (data.protestos && (parseInt(data.protestos.vigentesQtd) > 0 || parseInt(data.protestos.regularizadosQtd) > 0 || data.protestos.detalhes.length > 0)) {
+  // Salva protestos se o documento foi extraído — mesmo com zero protestos (vigentesQtd="0")
+  // A string vazia "" indica estado padrão nunca preenchido; "0" indica extração confirmando ausência
+  if (data.protestos && (data.protestos.vigentesQtd !== "" || data.protestos.regularizadosQtd !== "" || data.protestos.detalhes.length > 0)) {
     docs.push({ type: "protestos", filename: "protestos.pdf", extracted_data: asRec(data.protestos), uploaded_at: ts() });
   }
-  if (data.processos && (data.processos.passivosTotal || data.processos.ativosTotal || data.processos.distribuicao.length > 0)) {
+  // Mesma lógica para processos: passivosTotal="0" indica extração confirmando ausência
+  if (data.processos && (data.processos.passivosTotal !== "" || data.processos.ativosTotal !== "" || data.processos.valorTotalEstimado !== "" || data.processos.distribuicao.length > 0 || data.processos.temRJ)) {
     docs.push({ type: "processos", filename: "processos.pdf", extracted_data: asRec(data.processos), uploaded_at: ts() });
   }
   if (data.grupoEconomico && data.grupoEconomico.empresas.length > 0) {
