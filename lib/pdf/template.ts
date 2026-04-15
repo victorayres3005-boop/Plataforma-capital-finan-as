@@ -1157,15 +1157,17 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
     </tr>`;
   }).join("");
 
-  // Distribuição temporal de protestos
-  const distTempProt = (prot?.distribuicaoTemporal ?? []);
-  const distTempProtRows = distTempProt.map(d =>
+  // Distribuição temporal de protestos (campo extra não obrigatório no tipo)
+  type DistTempItem = {periodo:string;qtd:string;valor:string};
+  type DistFaixaItem = {faixa:string;qtd:string;valor:string;pct:string};
+  const distTempProt = ((prot as unknown as {distribuicaoTemporal?:DistTempItem[]})?.distribuicaoTemporal ?? []);
+  const distTempProtRows = distTempProt.map((d: DistTempItem) =>
     `<tr><td class="b">${esc(d.periodo)}</td><td class="r">${esc(d.qtd)}</td><td class="r red">${fmtMoney(d.valor)}</td></tr>`
   ).join("");
 
   // Distribuição por faixa de protestos
-  const distFaixaProt = (prot?.distribuicaoPorFaixa ?? []);
-  const distFaixaProtRows = distFaixaProt.map(d => {
+  const distFaixaProt = ((prot as unknown as {distribuicaoPorFaixa?:DistFaixaItem[]})?.distribuicaoPorFaixa ?? []);
+  const distFaixaProtRows = distFaixaProt.map((d: DistFaixaItem) => {
     const pct = parseFloat(String(d.pct)) || 0;
     return `<tr>
       <td class="b">${esc(d.faixa)}</td>
@@ -1415,8 +1417,30 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
   let dreSection = "";
   if (dre && dre.anos.length > 0) {
     const [tableBody, ...alertParts] = dreRows.split("__ALERTS__");
+    const lastDre = dre.anos[dre.anos.length - 1];
+    const ml2 = numVal(lastDre?.margemLiquida ?? "0");
+    const mb2 = numVal(lastDre?.margemBruta ?? "0");
+    const me2 = numVal(lastDre?.margemEbitda ?? "0");
     dreSection = `
     ${stitle("19 · Demonstração de Resultado (DRE)")}
+    <div class="kpi-snap c4" style="margin-bottom:14px">
+      <div class="icell navy">
+        <div class="l">Receita Bruta (${esc(lastDre?.ano ?? "—")})</div>
+        <div class="v sm mono">${fmtMoneyAbr(lastDre?.receitaBruta)}</div>
+      </div>
+      <div class="icell ${mb2 < 0 ? "danger" : mb2 < 15 ? "warn" : "success"}">
+        <div class="l">Margem Bruta</div>
+        <div class="v ${mb2 < 0 ? "red" : mb2 < 15 ? "" : "green"}">${fmtPct(lastDre?.margemBruta)}</div>
+      </div>
+      <div class="icell ${me2 < 0 ? "danger" : me2 < 10 ? "warn" : "success"}">
+        <div class="l">Margem EBITDA</div>
+        <div class="v ${me2 < 0 ? "red" : me2 < 10 ? "" : "green"}">${fmtPct(lastDre?.margemEbitda)}</div>
+      </div>
+      <div class="icell ${ml2 < 0 ? "danger" : ml2 < 5 ? "warn" : "success"}">
+        <div class="l">Margem Líquida</div>
+        <div class="v ${ml2 < 0 ? "red" : ml2 < 5 ? "" : "green"}">${fmtPct(lastDre?.margemLiquida)}</div>
+      </div>
+    </div>
     <table class="tbl">${tableBody}</table>
     ${alertParts[0] ?? ""}`;
   }
@@ -1664,9 +1688,9 @@ function pageChecklist(params: PDFReportParams, date: string): string {
       ? `<span style="font-size:7px;font-weight:700;padding:2px 5px;border-radius:3px;background:var(--n1);color:var(--n7);margin-left:6px">OBR</span>`
       : `<span style="font-size:7px;font-weight:700;padding:2px 5px;border-radius:3px;background:var(--x1);color:var(--x5);margin-left:6px">OPC</span>`;
     return `<div class="pf-row">
-      <div class="pf-icon ${iconCls}">${iconChar}</div>
+      <div class="pf-icon ${iconCls}" style="width:20px;height:20px;font-size:11px">${iconChar}</div>
       <div class="pf-name">${esc(d.label)}${obadge}</div>
-      <div class="pf-val"><div class="v ${d.presente ? "pass" : "fail"}">${d.presente ? "Entregue" : "Ausente"}</div></div>
+      <div class="pf-val"><div class="v ${d.presente ? "pass" : "fail"}" style="font-size:10px">${d.presente ? "Entregue" : "Ausente"}</div></div>
     </div>`;
   }).join("");
 
@@ -1674,14 +1698,16 @@ function pageChecklist(params: PDFReportParams, date: string): string {
 
   const content = `
     ${stitle("01 · Checklist de documentos analisados")}
-    <div class="istrip c4" style="margin-bottom:16px">
-      <div class="icell navy"><div class="l">Documentos entregues</div><div class="v">${presentes} / ${lista.length}</div></div>
+    <div class="istrip c4" style="margin-bottom:8px">
+      <div class="icell navy"><div class="l">Total entregues</div><div class="v">${presentes} / ${lista.length}</div></div>
       <div class="icell ${obrigPres < obrigTotal ? "danger" : "success"}"><div class="l">Obrigatórios</div><div class="v ${obrigPres < obrigTotal ? "red" : "green"}">${obrigPres} / ${obrigTotal}</div></div>
       <div class="icell"><div class="l">Cobertura</div><div class="v">${pctPres}%</div></div>
-      <div class="icell"><div class="l">Nível</div><div class="v sm">${esc(nivelLabel)}</div></div>
+      <div class="icell ${nivelCls === "ok" ? "success" : nivelCls === "mod" ? "warn" : "danger"}"><div class="l">Nível</div><div class="v sm ${nivelCls === "ok" ? "green" : nivelCls === "mod" ? "" : "red"}">${esc(nivelLabel)}</div></div>
     </div>
-    <div class="alert ${nivelCls}" style="margin-bottom:14px"><span class="atag">${nivelCls.toUpperCase()}</span> ${presentes} de ${lista.length} documentos disponíveis — cobertura de ${pctPres}%</div>
-    ${docRows}
+    <div class="prog-outer"><div class="prog-inner" style="width:${pctPres}%"></div></div>
+    <div class="doc-grid" style="margin-bottom:14px">
+      ${docRows}
+    </div>
     ${params.data.bureausConsultados?.length ? `${stitle("Bureaus consultados")}
     <div class="istrip c4">
       ${params.data.bureausConsultados.map(b => `<div class="icell success"><div class="l">Bureau</div><div class="v sm green">${esc(b)}</div></div>`).join("")}
