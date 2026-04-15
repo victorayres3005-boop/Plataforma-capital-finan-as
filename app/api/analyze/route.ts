@@ -355,7 +355,6 @@ Retorne APENAS um JSON válido com esta estrutura exata:
 === SISTEMA DE ALERTAS ===
 
 Use OBRIGATORIAMENTE os códigos abaixo. Inclua todos os alertas que se aplicam aos dados fornecidos.
-NÃO gere alertas sobre concentração de clientes/sacados (Curva ABC) — esses alertas são gerados automaticamente pelo sistema com formato próprio.
 
 REGRA DE OURO DOS ALERTAS: cada alerta DEVE conter o valor exato e, quando possível, o percentual em relação ao FMM ou faturamento.
 Exemplo BOM: "SCR com R$ 162.834 em operações vencidas — representa 4,6% do FMM mensal de R$ 3.506.158"
@@ -372,6 +371,9 @@ Critérios para [ALTA] — severidade "ALTA":
 — PROC_RJ: Recuperação Judicial ativa
 — FAT_ZERADO: faturamento zerado em algum mês do período analisado
 — SCR_PREJUIZO_DUPLO: prejuízo SCR presente em dois períodos consecutivos
+— SCR_SOCIO_VENCIDO: sócio(s) com vencidos ou prejuízos no SCR pessoal — indica que o problema de inadimplência é de pessoa, não só de conjuntura empresarial; compromete a eficácia do aval como garantia
+— SACADO_CONCENTRACAO_CRITICA: maior sacado representa > 50% do faturamento — risco sistêmico para o portfólio do fundo; inadimplência de um único cliente pode comprometer toda a carteira cedida
+— SACADO_BASE_CRITICA: menos de 3 sacados identificados na Curva ABC — portfólio excessivamente concentrado, inadequado para operação de FIDC
 
 Critérios para [MODERADA] — severidade "MODERADA":
 — MOD_SOCIETARIA_RECENTE: alteração societária nos últimos 12 meses
@@ -385,6 +387,10 @@ Critérios para [MODERADA] — severidade "MODERADA":
 — PROC_TRABALHISTA: processos trabalhistas identificados
 — PROC_BANCO: processos bancários identificados
 — PROC_FISCAL: processos fiscais identificados
+— SACADO_CONCENTRACAO_ALTA: maior sacado entre 30–50% do faturamento — exige limite de concentração por sacado mais restritivo (máx 20%)
+— SACADO_BASE_REDUZIDA: menos de 5 sacados na base — diversificação insuficiente para carteira robusta; exige acompanhamento mensal
+— SACADO_SETOR_CONCENTRADO: carteira de sacados fortemente concentrada em um único setor — risco sistêmico setorial; avaliar correlação com ciclo econômico do setor
+— SCR_ANTECIPACAO_ALTA: modalidades SCR mostram uso intenso de desconto de duplicatas / antecipação de recebíveis / FIDC existente com volume > 30% do FMM — capacidade disponível para nova operação é menor do que o limite bruto sugere; ajuste o limiteAproximado para baixo
 
 Critérios para [INFO] — severidade "INFO":
 — SCR_REDUCAO_DIVIDA: redução expressiva de dívida (pode indicar renegociação)
@@ -392,37 +398,46 @@ Critérios para [INFO] — severidade "INFO":
 — GRUPO_GAP_SOCIETARIO: grupo econômico identificado mas sem dados completos
 — SOCIO_IR_AUSENTE: IR dos sócios não enviado
 — DADOS_PARCIAIS: dados parcialmente disponíveis — revisar documento fonte
+— SACADO_ABC_AUSENTE: Curva ABC não enviada — análise de concentração de sacados não realizada; solicitar para análise completa
+— RECEBIVEL_TIPO_SERVICO: cedente com faturamento predominante em serviços — recebíveis têm maior risco de contestação/diluição vs. duplicatas mercantis; exige análise de histórico de devoluções
+— REGIME_TETO_SIMPLES: cedente no Simples Nacional com FMM próximo ao teto (~R$ 400k/mês) — risco de exclusão do regime e aumento abrupto de carga tributária (10–15%); pode impactar margens e fluxo de caixa
+— VISITA_NAO_RECOMENDADA: relatório de visita com recomendação negativa do visitante — dado de campo contradiz análise documental; pendente de esclarecimento obrigatório antes de qualquer aprovação
 
 === CÁLCULO DO SCORE (0–10) ===
 
 Calcule o score por componentes ponderados:
 
-1. SCR (peso 25%):
-   — Sem vencidos e sem prejuízo: 10,0
-   — Sem vencidos, com prejuízo leve: 6,0
+1. SCR (peso 22%):
+   Este componente avalia TANTO o SCR da empresa QUANTO o SCR dos sócios (se disponível).
+   — Sem vencidos, sem prejuízo, alavancagem <= 2x: 10,0
+   — Sem vencidos, sem prejuízo, alavancagem 2–3,5x: 8,0
+   — Sem vencidos, sem prejuízo, alavancagem 3,5–5x: 6,0
+   — Sem vencidos, com prejuízo leve (< 2% da carteira): 5,0
    — Com vencidos: 2,0
    — Com RJ: 0,0
+   Penalidade SCR dos sócios: se algum sócio tem vencidos > 0 ou prejuízos > 0, aplique -1,5 pts neste componente adicionalmente (sócio inadimplente = risco de gestão).
+   Penalidade de antecipação excessiva: se nas modalidades SCR aparecerem "desconto de duplicatas", "antecipação de recebíveis", "FIDC" ou similares com volume > 30% do FMM, aplique -0,5 pts (capacidade já comprometida com outros instrumentos).
 
-2. Faturamento (peso 20%):
-   — FMM acima do mínimo, consistente, sem zeros: 10,0
-   — FMM acima do mínimo com irregularidades: 7,0
+2. Faturamento (peso 18%):
+   — FMM acima do mínimo, consistente, sem zeros, tendência estável ou crescente: 10,0
+   — FMM acima do mínimo com irregularidades ou tendência de queda: 7,0
    — FMM abaixo do mínimo: 2,0
    — Faturamento não informado: 3,0
 
 3. CCF — Cheques Sem Fundo (peso 15%):
-   ATENÇÃO: CCF (Cheque Sem Fundo) é o indicador mais decisivo de disciplina de pagamento no sistema bancário. Um único registro indica que o sacador emitiu cheque sem cobertura, o que compromete gravemente a credibilidade financeira da empresa.
+   ATENÇÃO: CCF é o indicador mais decisivo de disciplina de pagamento no sistema bancário. Para um FIDC, um cedente que não honrou cheques provavelmente também não honrará coobrigações. Trate com rigidez máxima.
    — Sem nenhum registro de CCF: 10,0
    — 1–3 registros em banco único, sem reincidência: 3,0
    — 4+ registros OU múltiplos bancos OU reincidência: 0,0
    — CCF não consultado: 7,0 (neutro — benefício da dúvida moderado)
 
-4. Protestos (peso 15%):
+4. Protestos (peso 13%):
    — Sem protestos vigentes: 10,0
    — 1–2 protestos de valor baixo (< 5% FMM): 6,0
    — Protestos de valor significativo (> 5% FMM): 2,0
    — Não consultado: 5,0
 
-5. Processos (peso 10%):
+5. Processos (peso 9%):
    — Sem processos: 10,0
    — Processos de baixo valor / trabalhista isolado: 7,0
    — Múltiplos processos ou valores altos: 4,0
@@ -437,13 +452,35 @@ Calcule o score por componentes ponderados:
    — Não informado: 5,0
 
 7. Sócios/Governança (peso 5%):
-   — IR atualizado, sem restrições, múltiplos sócios: 10,0
+   — IR atualizado, sem restrições, múltiplos sócios com participação equilibrada: 10,0
    — IR com ressalvas ou desatualizado: 6,0
    — Débitos em aberto / restrições: 2,0
    — IR não informado: 4,0
 
-Score final = média ponderada dos componentes (SCR 25% + Fat 20% + CCF 15% + Protestos 15% + Processos 10% + Balanço 10% + Sócios 5% = 100%)
+8. Curva ABC / Qualidade da Carteira de Sacados (peso 8%):
+   CONTEXTO FIDC: O risco numa operação de FIDC não está só no cedente — está nos sacados que vão pagar as duplicatas. Um cedente excelente com clientes ruins tem portfólio ruim. Avalie este componente com critério de gestor de fundo.
+   — Boa diversificação: maior sacado < 20% do faturamento, top 5 < 50%, base > 10 clientes: 10,0
+   — Concentração moderada: maior sacado 20–30% OU top 5 entre 50–70%: 7,0
+   — Concentração alta: maior sacado 30–50% OU top 5 > 70%: 4,0
+   — Concentração crítica: maior sacado > 50% — risco sistêmico: 1,0
+   — Curva ABC não informada: 5,0 (neutro — gere alerta SACADO_ABC_AUSENTE)
+
+Score final = média ponderada (SCR 22% + Fat 18% + CCF 15% + Protestos 13% + Processos 9% + Balanço 10% + Sócios 5% + Sacados 8% = 100%)
 Penalidades adicionais: -1,5 por cada alerta CCF [ALTA]; -1,0 por cada outro alerta [ALTA]; -0,3 por cada alerta [MODERADA] (mínimo 0)
+
+=== ANÁLISE COMPLEMENTAR FIDC ===
+
+Além do score, avalie e inclua no textoCompleto (P3 ou P4):
+
+DILUIÇÃO DO PORTFÓLIO: Se a Curva ABC ou o setor do cedente sugerem risco de contestação de recebíveis (ex: prestação de serviços, comércio com alta taxa de devolução, setor de construção civil), sinalize a taxa estimada de diluição. Diluição > 5% do faturamento exige overcollateral — mencione isso nos parâmetros operacionais.
+
+TIPO DE RECEBÍVEL: Com base no CNAE e objeto social, identifique o tipo predominante de recebível:
+  — Duplicata mercantil (comércio/indústria): menor risco jurídico, título executivo extrajudicial
+  — Nota de serviço/prestação (serviços): maior risco de contestação, não é título executivo
+  — CCB / contrato (financeiro): requer análise jurídica específica
+  Mencione o tipo no parecer e seu impacto no risco operacional do fundo.
+
+PRAZO MÉDIO DOS RECEBÍVEIS: Se o cedente opera em setor de prazo curto (varejo, distribuição: 30–45 dias) vs. longo (construção, agro, governo: 90–180 dias), ajuste o prazoMaximo nos parâmetros operacionais de acordo.
 
 Faixas de decisão por score:
 — score >= 7,5: APROVADO
@@ -455,8 +492,9 @@ Faixas de decisão por score:
 
 A decisão TAMBÉM deve obedecer regras absolutas independentes do score:
 — REPROVADO obrigatório se: CCF com qualquer registro (qtdRegistros > 0) OU SCR vencido > 0 OU prejuízo SCR > 0 OU RJ ativo OU alavancagem > ALAV_MAXIMA
-— PENDENTE obrigatório se: 2+ alertas [ALTA] sem mitigação clara OU dados críticos ausentes
+— PENDENTE obrigatório se: 2+ alertas [ALTA] sem mitigação clara OU dados críticos ausentes OU SCR_SOCIO_VENCIDO presente (sócio inadimplente invalida o aval como garantia — exige esclarecimento antes de prosseguir) OU relatório de visita com recomendação negativa (dado de campo prevalece sobre score documental)
 — ATENÇÃO ESPECIAL CCF: se houver qualquer registro de CCF, o parecer deve destacar isso como fator determinante para reprovação, explicando que cheques sem fundo indicam incapacidade ou recusa de honrar compromissos bancários, o que inviabiliza a confiança necessária para uma operação de FIDC
+— ATENÇÃO ESPECIAL REGIME TRIBUTÁRIO: se o cedente está no Simples Nacional, calcule o FMM anualizado (FMM × 12) e compare com o teto do Simples (R$ 4,8M/ano para Simples, R$ 78M para Lucro Presumido). Se o faturamento estiver acima de 80% do teto do regime atual, gere alerta REGIME_TETO_SIMPLES e mencione no textoCompleto o risco de migração de regime. Se já estiver no Lucro Real, sem preocupação.
 — Use o score como guia, mas respeite os critérios absolutos acima
 
 === FORMATAÇÃO DOS VALORES ===
@@ -485,45 +523,52 @@ parecer.perguntasVisita (3–6 objetos { pergunta, contexto }):
 Foque nos alertas [ALTA] e [MODERADA] identificados. Tom direto de analista experiente.
 Contexto entre parênteses explica por que a pergunta importa para a operação.
 
-parecer.textoCompleto (5–6 parágrafos corridos, SEM markdown, SEM bullets, SEM listas — apenas texto corrido):
-P1 — Perfil e contexto: quem é a empresa, setor, tempo de operação, porte, FMM. Contextualize para o comitê entender o negócio.
-P2 — Capacidade financeira: SCR detalhado (cite valores exatos), alavancagem (X,Xx), composição CP/LP, tendência entre períodos. Compare com FMM.
+parecer.textoCompleto (6–7 parágrafos corridos, SEM markdown, SEM bullets, SEM listas — apenas texto corrido):
+P1 — Perfil e contexto: quem é a empresa, setor (CNAE), tempo de operação, porte, FMM, regime tributário. Identifique o tipo de recebível predominante (duplicata mercantil, nota de serviço, CCB) com base no CNAE/objeto social. Se Simples Nacional, avalie se o faturamento anualizado está próximo do teto (R$ 4,8M/ano) — risco de migração de regime com impacto direto em margens. Se já no Lucro Presumido/Real, mencione como indicador de porte relevante. Contextualize para o comitê entender o negócio.
+P2 — Capacidade financeira: SCR detalhado (cite valores exatos), alavancagem (X,Xx), composição CP/LP, tendência entre períodos. Compare com FMM. Analise as modalidades do SCR — se houver desconto de duplicatas, antecipação de recebíveis ou operações FIDC existentes, cite o volume e explique que comprime a capacidade disponível para esta operação. Se o SCR dos sócios estiver disponível, mencione se há ou não inadimplência pessoal e sua implicação para a eficácia do aval.
 P3 — Disciplina de pagamento: protestos (cite quantidade, valor total e % do FMM), processos judiciais (cite tipos e quantidades), CCF se houver. Seja específico com números.
-P4 — Estrutura societária e governança: sócios (cite nomes), participações, IR dos sócios (cite restrições), grupo econômico se houver. Identifique riscos de concentração de gestão.
-P5 — Balanço e DRE: patrimônio líquido, liquidez corrente, endividamento, margens. Compare anos se disponível. Identifique tendências.
-P6 — Conclusão e recomendação: decisão fundamentada com condições específicas. O que precisa ser esclarecido antes de aprovar. Prazo de revisão sugerido.
+P4 — Qualidade da carteira de sacados: se Curva ABC disponível, cite o maior sacado (nome e % do faturamento), concentração top 3 e top 5, total de clientes na base. Avalie se a diversificação é adequada para um portfólio de FIDC. Se não disponível, sinalize a limitação e o impacto no rating de confiança. Se o setor sugere risco de diluição (serviços, construção), estime o impacto no overcollateral necessário.
+P5 — Estrutura societária e governança: sócios (cite nomes), participações, IR dos sócios (cite restrições), grupo econômico se houver. Identifique riscos de concentração de gestão.
+P6 — Balanço e DRE: patrimônio líquido, liquidez corrente, endividamento, margens. Compare anos se disponível. Identifique tendências.
+P7 — Conclusão e recomendação: decisão fundamentada com condições específicas. O que precisa ser esclarecido antes de aprovar. Prazo de revisão sugerido. Mencione explicitamente se a operação é adequada para FIDC com ou sem coobrigação do cedente. Se houver relatório de visita com recomendação negativa, dedique ao menos 2 frases explicando o conflito entre o dado de campo e o score documental, e por que o comitê deve tratar como PENDENTE até esclarecimento.
 IMPORTANTE: Cada parágrafo deve ter 3-5 frases com dados concretos. NÃO seja genérico. Cite valores em R$, percentuais e quantidades sempre que disponíveis.
 
 === PARÂMETROS OPERACIONAIS ===
 
-limiteAproximado: calcule como FMM × fator baseado no score e alertas.
+limiteAproximado: calcule como FMM × fator baseado no score e alertas. Reduza o fator se houver alerta SACADO_CONCENTRACAO_CRITICA ou SACADO_CONCENTRACAO_ALTA (portfólio concentrado exige limite menor para conter exposição).
   — score >= 8,0 e sem [ALTA]: FMM × 0,8
   — score 6,0–7,9 ou 1 alerta [ALTA]: FMM × 0,5
   — score < 6,0 ou 2+ alertas [ALTA]: FMM × 0,3
+  — Redutor adicional se SACADO_CONCENTRACAO_CRITICA: multiplique o fator por 0,7
   — Apresente: "~R$ [valor] (aproximadamente [X]x FMM — [raciocínio])"
 
-prazoMaximo:
-  — score >= 8,0: "90 dias"
+prazoMaximo: ajuste conforme setor do cedente além do score
+  — score >= 8,0 e setor de ciclo curto (varejo/distribuição): "90 dias"
+  — score >= 8,0 e setor de ciclo longo (construção/agro/governo): "120 dias"
   — score 6,0–7,9: "60–75 dias"
   — score 4,0–5,9: "30–45 dias"
   — score < 4,0: "Não recomendado"
 
-concentracaoSacado:
-  — Risco baixo (score >= 7,5): "até 25% por sacado"
-  — Risco moderado (score 5,0–7,4): "até 15% por sacado"
-  — Risco alto (score < 5,0): "até 10% por sacado"
+concentracaoSacado: use o menor limite entre o score e a situação da Curva ABC
+  — Score alto + Curva ABC diversificada (maior < 20%): "até 25% por sacado"
+  — Score moderado OU maior sacado 20–30%: "até 15% por sacado"
+  — Score baixo OU maior sacado > 30%: "até 10% por sacado"
+  — SACADO_CONCENTRACAO_CRITICA presente: "até 8% por sacado (carteira concentrada)"
 
-garantias: baseado nos alertas de sócios e estrutura
-  — Sem alertas críticos: "Aval dos sócios"
-  — Com alertas moderados: "Aval dos sócios + cessão fiduciária de recebíveis"
-  — Com alertas altos: "Aval dos sócios + garantia real + duplicatas em garantia"
+garantias: defina conforme score, alertas E estrutura societária — seja específico
+  — Score >= 8,0 sem alertas críticos, múltiplos sócios, IR em dia: "Aval dos sócios solidários"
+  — Score 6,0–7,9 ou alertas moderados: "Aval dos sócios solidários + cessão fiduciária de recebíveis (índice de cobertura mínimo 1,2x)"
+  — Score < 6,0 ou alertas [ALTA] de sócio/balanço: "Aval dos sócios solidários + garantia real (imóvel ou equipamento) + fundo de reserva de 5% do limite"
+  — CCF ou SCR vencido presentes (mas operação aprovada condicionalmente): "Garantia real obrigatória + aval + duplicatas cauccionadas em garantia — sem aprovação sem colateral tangível"
+  NOTA: Para cedentes sem coobrigação (FIDC sem coobrigação), explicite que o risco recai integralmente sobre a qualidade dos sacados e exija Curva ABC atualizada mensalmente.
 
 revisao:
-  — 0–1 alertas: "180 dias"
-  — 2–3 alertas: "90 dias"
-  — 4+ alertas: "30–60 dias"
+  — 0–1 alertas, score >= 7,5: "180 dias"
+  — 2–3 alertas OU score 6,0–7,4: "90 dias"
+  — 4+ alertas OU score < 6,0: "30–60 dias"
+  — SACADO_CONCENTRACAO_CRITICA ou SACADO_BASE_CRITICA: máximo 60 dias independente do score
 
-baseCalculo: descreva resumidamente o raciocínio do limite (ex: "FMM de R$ X × 0,6 pelo score de Y/10 com Z alertas [ALTA]")
+baseCalculo: descreva o raciocínio completo do limite, incluindo o componente de sacados (ex: "FMM de R$ X × 0,5 pelo score de Y/10, com redutor de 30% pela concentração de sacados (maior cliente = Z% do faturamento)")
 
 NÃO recalcule os indicadores já fornecidos no início do prompt. Use os valores pré-calculados.
 NÃO invente dados. Se ausente: "—" e alerta DADOS_PARCIAIS quando relevante.
@@ -562,7 +607,7 @@ COMPENSAÇÕES quando docs financeiros estão ausentes:
 - Sem DRE → use FMM 12M como proxy de receita; alavancagem SCR como proxy de endividamento
 - Sem Balanço → use histórico SCR (vencidos, prejuízos) como proxy de liquidez
 - Sem IR dos Sócios → use score bureau dos sócios (se disponível) como proxy patrimonial
-- Sem Curva ABC → use concentração SCR como proxy de diversificação
+- Sem Curva ABC → aplique score neutro (5,0) no componente de sacados e gere alerta SACADO_ABC_AUSENTE; reduza ratingConfianca em 8 pontos; o fundo NÃO deve aprovar operação sem Curva ABC acima de R$ 500k — condicione aprovação ao envio
 
 Adicione ao JSON de resposta:
 "ratingConfianca": número inteiro 0-100 (confiança do rating dado a documentação disponível),
@@ -577,11 +622,11 @@ const DOC_WEIGHTS: Record<string, number> = {
   cnpj:             15,  // obrigatório
   scr:              25,  // essencial
   faturamento:      20,  // essencial
-  dre:              15,  // complementar
-  balanco:          10,  // complementar
-  irSocios:          8,  // complementar
-  curvaABC:          4,  // diferencial
-  relatorio_visita:  3,  // diferencial
+  dre:              12,  // complementar
+  balanco:           8,  // complementar
+  irSocios:          6,  // complementar
+  curvaABC:         10,  // essencial FIDC — qualidade da carteira de sacados
+  relatorio_visita:  4,  // diferencial
 };
 
 // Pesos dos sinais CreditHub (bônus de cobertura — máx 18pts)

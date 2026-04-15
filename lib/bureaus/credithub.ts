@@ -881,17 +881,53 @@ export async function consultarCreditHub(cnpj: string, rawDataFromClient?: unkno
       return { success: false, mock: true, error: "Credit Hub não configurado" };
     }
     const url = `${CREDITHUB_API_URL}/simples/${CREDITHUB_API_KEY}/${cnpjNum}`;
-    try {
-      const res = await fetch(url, { headers: { "Content-Type": "application/json" }, next: { revalidate: 0 } });
-      if (!res.ok) {
-        const errText = (await res.text()).substring(0, 200);
-        return { success: false, mock: false, error: `Credit Hub ${res.status}: ${errText}` };
+    // A API CreditHub é assíncrona: pode retornar 500 + XML push="true" enquanto processa.
+    // Fazemos retry até 12 vezes com 3s de intervalo (36s total).
+    const MAX_SERVER_ATTEMPTS = 12;
+    const DELAY_MS = 3000;
+    let lastError = "";
+    for (let attempt = 1; attempt <= MAX_SERVER_ATTEMPTS; attempt++) {
+      try {
+        const res = await fetch(url, { headers: { "Content-Type": "application/json" }, cache: "no-store" });
+        const text = await res.text();
+        // API retorna 500 + XML com push="true" enquanto processa — aguarda e tenta novamente
+        if (text.includes(`push="true"`) || text.includes("push='true'")) {
+          if (attempt < MAX_SERVER_ATTEMPTS) {
+            console.log(`[credithub] server tentativa ${attempt}/${MAX_SERVER_ATTEMPTS}: push=true, aguardando ${DELAY_MS}ms...`);
+            await new Promise(r => setTimeout(r, DELAY_MS));
+            continue;
+          }
+          return { success: false, mock: false, error: `Credit Hub: timeout após ${MAX_SERVER_ATTEMPTS} tentativas (push=true)` };
+        }
+        if (!res.ok) {
+          lastError = `Credit Hub ${res.status}: ${text.substring(0, 200)}`;
+          console.warn(`[credithub] server tentativa ${attempt}: status ${res.status}`);
+          if (attempt < MAX_SERVER_ATTEMPTS) {
+            await new Promise(r => setTimeout(r, DELAY_MS));
+            continue;
+          }
+          return { success: false, mock: false, error: lastError };
+        }
+        try {
+          const raw = JSON.parse(text);
+          d = raw?.data ?? raw;
+          console.log(`[credithub] server tentativa ${attempt}: JSON recebido`);
+          break;
+        } catch {
+          lastError = "Credit Hub: resposta não é JSON válido";
+          if (attempt < MAX_SERVER_ATTEMPTS) {
+            await new Promise(r => setTimeout(r, DELAY_MS));
+            continue;
+          }
+          return { success: false, mock: false, error: lastError };
+        }
+      } catch (err: any) {
+        lastError = String(err?.message ?? err);
+        console.warn(`[credithub] server tentativa ${attempt} exception:`, lastError);
+        if (attempt < MAX_SERVER_ATTEMPTS) await new Promise(r => setTimeout(r, DELAY_MS));
       }
-      const raw = await res.json();
-      d = raw?.data ?? raw;
-    } catch (err: any) {
-      return { success: false, mock: false, error: String(err?.message ?? err) };
     }
+    if (!d) return { success: false, mock: false, error: lastError || "Credit Hub: sem dados após retries" };
   }
 
   // Logging (works both for client-side and server-side data)

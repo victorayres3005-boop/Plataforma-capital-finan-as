@@ -122,6 +122,10 @@ function buildBars(meses: {mes:string;valor:string}[]): string {
 
 // ─── Stitle ───────────────────────────────────────────────────────────────────
 function stitle(label: string): string {
+  const m = label.match(/^(\d{2})\s*[·•]\s*(.+)$/);
+  if (m) {
+    return `<div class="stitle"><span style="display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:16px;border-radius:3px;background:var(--n9);color:#fff;font-size:8px;font-weight:700;padding:0 5px;margin-right:6px">${esc(m[1])}</span>${esc(m[2])} <div class="line"></div></div>`;
+  }
   return `<div class="stitle">${esc(label)} <div class="line"></div></div>`;
 }
 
@@ -137,10 +141,10 @@ const CSS = `
 }
 :root{--n9:#0c1b3a;--n8:#132952;--n7:#1a3a6b;--n1:#dce6f5;--n0:#eef3fb;--a5:#d4940a;--a1:#fdf3d7;--a0:#fef9ec;--r6:#c53030;--r1:#fee2e2;--r0:#fef2f2;--g6:#16653a;--g1:#d1fae5;--g0:#ecfdf5;--x9:#111827;--x7:#374151;--x5:#6b7280;--x4:#9ca3af;--x3:#d1d5db;--x2:#e5e7eb;--x1:#f3f4f6;--x0:#f9fafb;--gl:#73b815}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'DM Sans',sans-serif;background:#edf0f4;color:var(--x9);-webkit-font-smoothing:antialiased}
+body{font-family:'DM Sans',sans-serif;background:#f0f2f7;color:var(--x9);-webkit-font-smoothing:antialiased}
 .mono{font-family:'JetBrains Mono',monospace}
 .page{max-width:860px;margin:20px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 4px 24px rgba(12,27,58,0.07)}
-.hdr{background:var(--n8);padding:14px 32px;display:flex;justify-content:space-between;align-items:center}
+.hdr{background:var(--n9);padding:14px 32px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid var(--gl)}
 .hdr .logo{font-size:15px;font-weight:700;color:#fff}
 .hdr .logo span{color:var(--gl)}
 .hdr .meta{font-size:10px;color:rgba(255,255,255,0.5)}
@@ -169,10 +173,10 @@ body{font-family:'DM Sans',sans-serif;background:#edf0f4;color:var(--x9);-webkit
 .istrip.c5{grid-template-columns:1fr 1fr 1fr 1fr 1fr}
 .istrip.c6{grid-template-columns:repeat(6,1fr)}
 .icell{padding:10px 12px;background:var(--x0);border-radius:6px;border:1px solid var(--x1)}
-.icell.danger{background:var(--r0);border-color:var(--r1)}
-.icell.success{background:var(--g0);border-color:var(--g1)}
-.icell.warn{background:var(--a0);border-color:var(--a1)}
-.icell.navy{background:var(--n0);border-color:var(--n1)}
+.icell.danger{background:#fff;border-color:var(--r1);border-left:3px solid var(--r6)}
+.icell.success{background:#fff;border-color:var(--g1);border-left:3px solid var(--g6)}
+.icell.warn{background:#fff;border-color:var(--a1);border-left:3px solid var(--a5)}
+.icell.navy{background:#fff;border-color:var(--n1);border-left:3px solid var(--n8)}
 .icell .l{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--x4);margin-bottom:4px}
 .icell .v{font-size:14px;font-weight:700;color:var(--n9)}
 .icell .v.sm{font-size:11px}
@@ -351,7 +355,16 @@ body{font-family:'DM Sans',sans-serif;background:#edf0f4;color:var(--x9);-webkit
 .badge.green{background:var(--g6);color:#fff}
 .badge.amber{background:var(--a5);color:#fff}
 .pb{border-top:2px dashed var(--x3);margin:28px 0;position:relative}
-.pb::after{content:attr(data-label);position:absolute;top:-9px;left:50%;transform:translateX(-50%);background:#edf0f4;padding:0 12px;font-size:9px;color:var(--x4)}
+.pb::after{content:attr(data-label);position:absolute;top:-9px;left:50%;transform:translateX(-50%);background:#f0f2f7;padding:0 12px;font-size:9px;color:var(--x4)}
+.prog-outer{height:8px;border-radius:4px;background:var(--x2);margin:8px 0 16px;overflow:hidden}
+.prog-inner{height:100%;border-radius:4px;background:var(--gl)}
+.doc-grid{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--x2);border-radius:8px;overflow:hidden}
+.doc-grid .pf-row{padding:9px 14px;border-bottom:1px solid var(--x1);margin:0;border-radius:0}
+.doc-grid .pf-row:nth-child(odd){border-right:1px solid var(--x1)}
+.dist-bar{height:5px;border-radius:3px;background:var(--n8);display:inline-block;vertical-align:middle}
+.dist-bar.red{background:var(--r6)}
+.kpi-snap{display:grid;gap:8px;margin-bottom:14px}
+.kpi-snap.c4{grid-template-columns:repeat(4,1fr)}
 </style>`;
 
 // ─── Page 1: Capa ─────────────────────────────────────────────────────────────
@@ -1035,10 +1048,20 @@ function pageFaturamento(params: PDFReportParams, date: string): string {
       ${fmmAnual.slice(-4).map(([ano, v]) => `<div class="icell"><div class="l">${esc(ano)}</div><div class="v sm mono">${fmtMoneyAbr(v)}</div></div>`).join("")}
     </div>` : "";
 
-  // Monthly table (last 12)
-  const fatTableRows = meses.slice(-12).map(m =>
-    `<tr><td>${esc(m.mes)}</td><td class="r mono">${fmtMoney(m.valor)}</td></tr>`
-  ).join("");
+  // Monthly table — 2 columns (last 12)
+  const meses12 = meses.slice(-12);
+  const half = Math.ceil(meses12.length / 2);
+  const col1 = meses12.slice(0, half);
+  const col2 = meses12.slice(half);
+  const maxFat = Math.max(...meses12.map(m => numVal(m.valor)), 1);
+  const fmtRow = (m: {mes:string;valor:string}) => {
+    const v = numVal(m.valor);
+    const barW = Math.round((v/maxFat)*60);
+    const isZero = v === 0;
+    return `<tr ${isZero ? 'style="opacity:0.5"' : ""}><td><span style="display:inline-block;width:${barW}px;height:4px;border-radius:2px;background:var(--n8);vertical-align:middle;margin-right:6px"></span>${esc(m.mes)}</td><td class="r mono" style="color:${isZero ? "var(--x4)" : "var(--n9)"}">${fmtMoney(m.valor)}</td></tr>`;
+  };
+  const col1Rows = col1.map(fmtRow).join("");
+  const col2Rows = col2.map(fmtRow).join("");
 
   const content = `
     ${stitle("06 · Faturamento")}
@@ -1055,12 +1078,18 @@ function pageFaturamento(params: PDFReportParams, date: string): string {
     </div>
     ${zeradosNote}
     ${fmmAnualHtml}
-    ${fatTableRows ? `${stitle("Detalhe mensal")}
-    <div class="fin-row">
-      <div class="fin-box" style="overflow:auto">
-        <table class="tbl" style="border:none;margin:0">
+    ${col1Rows ? `${stitle("Detalhe mensal")}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+      <div>
+        <table class="tbl" style="margin:0">
           <thead><tr><th>Mês</th><th class="r">Faturamento</th></tr></thead>
-          <tbody>${fatTableRows}</tbody>
+          <tbody>${col1Rows}</tbody>
+        </table>
+      </div>
+      <div>
+        <table class="tbl" style="margin:0">
+          <thead><tr><th>Mês</th><th class="r">Faturamento</th></tr></thead>
+          <tbody>${col2Rows}</tbody>
         </table>
       </div>
     </div>` : ""}
@@ -1128,20 +1157,57 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
     </tr>`;
   }).join("");
 
+  // Distribuição temporal de protestos
+  const distTempProt = (prot?.distribuicaoTemporal ?? []);
+  const distTempProtRows = distTempProt.map(d =>
+    `<tr><td class="b">${esc(d.periodo)}</td><td class="r">${esc(d.qtd)}</td><td class="r red">${fmtMoney(d.valor)}</td></tr>`
+  ).join("");
+
+  // Distribuição por faixa de protestos
+  const distFaixaProt = (prot?.distribuicaoPorFaixa ?? []);
+  const distFaixaProtRows = distFaixaProt.map(d => {
+    const pct = parseFloat(String(d.pct)) || 0;
+    return `<tr>
+      <td class="b">${esc(d.faixa)}</td>
+      <td class="r">${esc(d.qtd)}</td>
+      <td class="r red">${fmtMoney(d.valor)}</td>
+      <td><span class="dist-bar" style="width:${Math.min(pct,100)}px"></span> ${esc(d.pct)}</td>
+    </tr>`;
+  }).join("");
+
+  // Top 10 mais recentes protestos
+  const top10ProtRecentes = [...(prot?.detalhes ?? [])].filter(p => !p.regularizado).sort((a,b) => b.data.localeCompare(a.data)).slice(0,10);
+  const top10ProtRecentesRows = top10ProtRecentes.map(p =>
+    `<tr><td>${fmtDate(p.data)}</td><td class="b">${esc(p.credor)}</td><td class="r red">${fmtMoney(p.valor)}</td><td>${p.regularizado ? '<span style="color:var(--g6)">Reg.</span>' : '<span style="color:var(--r6)">Vigente</span>'}</td></tr>`
+  ).join("");
+
   const content = `
     ${stitle("07 · Protestos")}
     <div class="istrip c4" style="margin-bottom:14px">
-      <div class="icell ${vigQtd > 0 ? "danger" : ""}"><div class="l">Vigentes</div><div class="v ${vigQtd > 0 ? "red" : "green"}">${vigQtd}</div></div>
-      <div class="icell ${vigQtd > 0 ? "danger" : ""}"><div class="l">Vigentes R$</div><div class="v ${vigQtd > 0 ? "red" : "muted"} sm mono">${fmtMoney(vigVal)}</div></div>
-      <div class="icell ${regQtd > 0 ? "success" : ""}"><div class="l">Regularizados</div><div class="v ${regQtd > 0 ? "green" : "muted"}">${regQtd}</div></div>
-      <div class="icell"><div class="l">Regularizados R$</div><div class="v muted">${fmtMoney(regVal)}</div></div>
+      <div class="icell ${vigQtd > 0 ? "danger" : "success"}"><div class="l">Vigentes (Qtd)</div><div class="v ${vigQtd > 0 ? "red" : "green"}">${vigQtd}</div></div>
+      <div class="icell ${vigQtd > 0 ? "danger" : ""}"><div class="l">Vigentes (R$)</div><div class="v ${vigQtd > 0 ? "red" : "muted"} sm mono">${fmtMoney(vigVal)}</div></div>
+      <div class="icell ${regQtd > 0 ? "success" : ""}"><div class="l">Regularizados (Qtd)</div><div class="v ${regQtd > 0 ? "green" : "muted"}">${regQtd}</div></div>
+      <div class="icell"><div class="l">Regularizados (R$)</div><div class="v muted sm mono">${fmtMoney(regVal)}</div></div>
     </div>
-    ${credorRows ? `${stitle("Agrupamento por credor")}
-    <table class="tbl">
+    ${distTempProtRows ? `${stitle("Distribuição temporal")}
+    <table class="tbl" style="margin-bottom:12px">
+      <thead><tr><th>Período</th><th class="r">Qtd</th><th class="r">Valor</th></tr></thead>
+      <tbody>${distTempProtRows}</tbody>
+    </table>` : ""}
+    ${distFaixaProtRows ? `${stitle("Distribuição por faixa de valor")}
+    <table class="tbl" style="margin-bottom:12px">
+      <thead><tr><th>Faixa</th><th class="r">Qtd</th><th class="r">Valor</th><th>Proporção</th></tr></thead>
+      <tbody>${distFaixaProtRows}</tbody>
+    </table>` : credorRows ? `${stitle("Agrupamento por credor")}
+    <table class="tbl" style="margin-bottom:12px">
       <thead><tr><th>Credor</th><th class="r">Qtd</th><th class="r">Valor Total</th><th class="r">Último</th></tr></thead>
       <tbody>${credorRows}</tbody>
     </table>` : ""}
-    ${top5ProtRows ? `${stitle("Top 5 por valor")}
+    ${top10ProtRecentesRows ? `${stitle("Top 10 mais recentes")}
+    <table class="tbl" style="margin-bottom:12px">
+      <thead><tr><th>Data</th><th>Credor</th><th class="r">Valor</th><th>Status</th></tr></thead>
+      <tbody>${top10ProtRecentesRows}</tbody>
+    </table>` : top5ProtRows ? `${stitle("Top 5 por valor")}
     <table class="tbl">
       <thead><tr><th>Data</th><th>Credor</th><th class="r">Valor</th><th>Status</th></tr></thead>
       <tbody>${top5ProtRows}</tbody>
@@ -1150,11 +1216,12 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
 
     ${stitle("08 · Processos judiciais")}
     <div class="istrip c4" style="margin-bottom:14px">
-      <div class="icell ${totalProc > 5 ? "danger" : ""}"><div class="l">Total</div><div class="v ${totalProc > 5 ? "red" : ""}">${totalProc}</div></div>
+      <div class="icell ${totalProc > 5 ? "danger" : totalProc > 0 ? "warn" : "success"}"><div class="l">Total Passivo</div><div class="v ${totalProc > 5 ? "red" : totalProc > 0 ? "" : "green"}">${totalProc}</div></div>
       <div class="icell ${numVal(passivo) > 5 ? "danger" : ""}"><div class="l">Polo Passivo</div><div class="v ${numVal(passivo) > 5 ? "red" : ""}">${fmt(passivo)}</div></div>
       <div class="icell"><div class="l">Polo Ativo</div><div class="v">${fmt(ativo)}</div></div>
       <div class="icell ${temRJ ? "danger" : "success"}"><div class="l">Falência / RJ</div><div class="v ${temRJ ? "red" : "green"}">${temRJ ? "Sim" : "Não"}</div></div>
     </div>
+    ${proc?.valorTotalEstimado ? `<div class="icell navy" style="margin-bottom:14px;display:inline-block;min-width:200px"><div class="l">Valor Total Estimado</div><div class="v sm mono">${fmtMoney(proc.valorTotalEstimado)}</div></div>` : ""}
     ${distRows ? `${stitle("Distribuição por tipo")}<div style="margin-bottom:14px">${distRows}</div>` : ""}
     ${top10ValorRows ? `${stitle("Top 10 por valor")}
     <table class="tbl">
@@ -1165,7 +1232,7 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
       <thead><tr><th>Tipo</th><th>Data</th><th>Assunto</th><th>Fase</th></tr></thead>
       <tbody>${top5ProcRows}</tbody>
     </table>` : ""}
-    ${totalProc > 5 ? `<div class="alert alta"><span class="atag">ALTA</span> ${totalProc} processos — verificar detalhes</div>` : ""}
+    ${totalProc > 5 ? `<div class="alert alta"><span class="atag">ALTA</span> ${totalProc} processos em polo passivo — verificar detalhes</div>` : ""}
     ${temRJ ? `<div class="alert alta"><span class="atag">ALTA</span> Pedido de falência ou recuperação judicial identificado</div>` : ""}
   `;
 
@@ -1307,8 +1374,35 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
 
   let scrSection = "";
   if (scr) {
+    const vencNum2 = numVal(scr.vencidos ?? "0");
+    const totalNum2 = numVal(scr.totalDividasAtivas ?? "0");
+    const pctVenc2 = totalNum2 > 0 ? ((vencNum2/totalNum2)*100).toFixed(1)+"%" : "0,0%";
+    const vKPIVenc = scrVar(scr.vencidos, scrAnt?.vencidos, true);
+    const vKPITotal = scrVar(scr.totalDividasAtivas, scrAnt?.totalDividasAtivas, true);
     scrSection = `
     ${stitle("16 · Comparativo SCR — Empresa (PJ)")}
+    <div class="kpi-snap c4" style="margin-bottom:14px">
+      <div class="icell ${totalNum2 > 0 ? "navy" : ""}">
+        <div class="l">Total Dívidas Ativas</div>
+        <div class="v sm mono">${fmtMoneyAbr(scr.totalDividasAtivas)}</div>
+        ${vKPITotal.val !== "—" ? `<div class="sub var-cell ${vKPITotal.cls}">${esc(vKPITotal.val)} vs anterior</div>` : ""}
+      </div>
+      <div class="icell ${vencNum2 > 0 ? "danger" : "success"}">
+        <div class="l">Vencidos</div>
+        <div class="v sm mono ${vencNum2 > 0 ? "red" : "green"}">${fmtMoneyAbr(scr.vencidos)}</div>
+        ${vKPIVenc.val !== "—" ? `<div class="sub var-cell ${vKPIVenc.cls}">${esc(vKPIVenc.val)} vs anterior</div>` : ""}
+      </div>
+      <div class="icell">
+        <div class="l">% Vencido / Total</div>
+        <div class="v ${vencNum2 > 0 ? "red" : "green"}">${pctVenc2}</div>
+        <div class="sub">inadimplência</div>
+      </div>
+      <div class="icell navy">
+        <div class="l">Limite de Crédito</div>
+        <div class="v sm mono">${fmtMoneyAbr(scr.limiteCredito)}</div>
+        <div class="sub">${fmt(scr.qtdeInstituicoes)} IFs · ${fmt(scr.qtdeOperacoes)} ops</div>
+      </div>
+    </div>
     <div class="inf">Período anterior: <b>${esc(scrPeriodoAnt)}</b> · Período atual: <b>${esc(scrPeriodoAtual)}</b></div>
     <table class="tbl">
       <thead><tr><th>Métrica</th><th>Categoria</th><th class="r">${esc(scrPeriodoAnt)}</th><th class="r">${esc(scrPeriodoAtual)}</th><th class="r">Var.</th></tr></thead>
@@ -1435,17 +1529,40 @@ function pageIRVisita(params: PDFReportParams, date: string): string {
     const irBlocks = irSocios.map(ir => {
       const initials = ir.nomeSocio.split(" ").slice(0,2).map(w => w[0]).join("").toUpperCase();
       const pl = numVal(ir.patrimonioLiquido ?? "0");
-      return `<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--x2)">
-        <div class="avatar">${esc(initials)}</div>
-        <div><div style="font-size:14px;font-weight:600">${esc(ir.nomeSocio)}</div><div style="font-size:10px;color:var(--x5);font-family:'JetBrains Mono',monospace">CPF: ${fmtCpf(ir.cpf)} · Ano-base: ${fmt(ir.anoBase)}</div></div>
-      </div>
-      <div class="istrip c4">
-        <div class="icell"><div class="l">Renda Total</div><div class="v sm mono">${fmtMoneyAbr(ir.rendimentoTotal)}</div></div>
-        <div class="icell"><div class="l">Rend. Tributáveis</div><div class="v sm mono">${fmtMoneyAbr(ir.rendimentosTributaveis)}</div></div>
-        <div class="icell"><div class="l">Bens e Direitos</div><div class="v sm mono">${fmtMoneyAbr(ir.totalBensDireitos)}</div></div>
-        <div class="icell ${pl > 0 ? "success" : "danger"}"><div class="l">Patrimônio Líq.</div><div class="v ${pl > 0 ? "green" : "red"} sm mono">${fmtMoneyAbr(ir.patrimonioLiquido)}</div></div>
-      </div>
-      ${!ir.debitosEmAberto ? `<div class="alert ok"><span class="atag">OK</span> Sem débitos com a Receita Federal</div>` : `<div class="alert alta"><span class="atag">ALTA</span> Débitos em aberto: ${esc(ir.descricaoDebitos ?? "")}</div>`}`;
+      const plBorder = pl > 500000 ? "var(--g6)" : pl > 0 ? "var(--a5)" : "var(--r6)";
+      const impostoPago = ir.impostoPago ?? "0";
+      const impostoRestituir = ir.impostoRestituir ?? "0";
+      const dividasOnus = ir.dividasOnus ?? "0";
+      const bensImoveis = ir.bensImoveis ?? "0";
+      const bensVeiculos = ir.bensVeiculos ?? "0";
+      return `<div style="margin-bottom:20px;padding:16px;background:var(--x0);border-radius:10px;border:1px solid var(--x2)">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--x2)">
+          <div style="width:44px;height:44px;border-radius:50%;background:var(--n0);border:2px solid ${plBorder};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;color:var(--n8);flex-shrink:0">${esc(initials)}</div>
+          <div>
+            <div style="font-size:15px;font-weight:700;color:var(--n9)">${esc(ir.nomeSocio)}</div>
+            <div style="font-size:10px;color:var(--x5);font-family:'JetBrains Mono',monospace;margin-top:2px">CPF: ${fmtCpf(ir.cpf)} · Ano-base: ${fmt(ir.anoBase)}</div>
+          </div>
+        </div>
+        <div class="istrip c4" style="margin-bottom:8px">
+          <div class="icell"><div class="l">Renda Total</div><div class="v sm mono">${fmtMoneyAbr(ir.rendimentoTotal)}</div></div>
+          <div class="icell"><div class="l">Rend. Tributáveis</div><div class="v sm mono">${fmtMoneyAbr(ir.rendimentosTributaveis)}</div></div>
+          <div class="icell"><div class="l">Rend. Isentos</div><div class="v sm mono">${fmtMoneyAbr(ir.rendimentosIsentos)}</div></div>
+          <div class="icell ${pl > 0 ? "success" : "danger"}"><div class="l">Patrimônio Líq.</div><div class="v ${pl > 0 ? "green" : "red"} sm mono">${fmtMoneyAbr(ir.patrimonioLiquido)}</div></div>
+        </div>
+        <div class="istrip c4" style="margin-bottom:8px">
+          <div class="icell"><div class="l">Bens e Direitos</div><div class="v sm mono">${fmtMoneyAbr(ir.totalBensDireitos)}</div></div>
+          <div class="icell"><div class="l">Imóveis</div><div class="v sm mono">${fmtMoneyAbr(bensImoveis)}</div></div>
+          <div class="icell"><div class="l">Veículos</div><div class="v sm mono">${fmtMoneyAbr(bensVeiculos)}</div></div>
+          <div class="icell ${numVal(dividasOnus) > 0 ? "warn" : ""}"><div class="l">Dívidas / Ônus</div><div class="v sm mono ${numVal(dividasOnus) > 0 ? "" : "muted"}">${fmtMoneyAbr(dividasOnus)}</div></div>
+        </div>
+        <div class="istrip c4" style="margin-bottom:8px">
+          <div class="icell"><div class="l">Imposto Pago</div><div class="v sm mono">${fmtMoneyAbr(impostoPago)}</div></div>
+          <div class="icell"><div class="l">A Restituir</div><div class="v sm mono ${numVal(impostoRestituir) > 0 ? "green" : "muted"}">${fmtMoneyAbr(impostoRestituir)}</div></div>
+          <div class="icell"><div class="l">Apl. Financeiras</div><div class="v sm mono">${fmtMoneyAbr(ir.aplicacoesFinanceiras)}</div></div>
+          <div class="icell ${ir.coerenciaComEmpresa ? "success" : "warn"}"><div class="l">Coerência c/ empresa</div><div class="v ${ir.coerenciaComEmpresa ? "green" : ""} sm">${ir.coerenciaComEmpresa ? "Sim" : "Verificar"}</div></div>
+        </div>
+        ${!ir.debitosEmAberto ? `<div class="alert ok" style="margin:0"><span class="atag">OK</span> Sem débitos com a Receita Federal</div>` : `<div class="alert alta" style="margin:0"><span class="atag">ALTA</span> Débitos em aberto: ${esc(ir.descricaoDebitos ?? "")}</div>`}
+      </div>`;
     }).join("");
     irSection = `${stitle("22 · IR dos sócios")}${irBlocks}`;
   }
