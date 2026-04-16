@@ -111,8 +111,8 @@ export function hydrateFromCollection(docs: { type: string; extracted_data: Reco
 
     const field = typeMap[doc.type];
     if (!field || !doc.extracted_data) continue;
-    const { _editedManually, ...data } = doc.extracted_data;
-    void _editedManually;
+    const { _editedManually, _warnings, ...data } = doc.extracted_data;
+    void _editedManually; void _warnings;
     if (field === "irSocios") {
       const arr = ((result as unknown as Record<string, unknown>)[field] as unknown[]) || [];
       (result as unknown as Record<string, unknown>)[field] = [...arr, data];
@@ -134,8 +134,8 @@ export function hydrateFromCollection(docs: { type: string; extracted_data: Reco
   );
 
   if (scrEmpresa.length === 1) {
-    const { _editedManually: _em1, ...data1 } = scrEmpresa[0].extracted_data!;
-    void _em1;
+    const { _editedManually: _em1, _warnings: _w1, ...data1 } = scrEmpresa[0].extracted_data!;
+    void _em1; void _w1;
     result.scr = { ...result.scr, ...data1 } as ExtractedData["scr"];
   } else if (scrEmpresa.length >= 2) {
     const sorted = sortSCRDocsDesc(scrEmpresa);
@@ -145,10 +145,10 @@ export function hydrateFromCollection(docs: { type: string; extracted_data: Reco
     if (kAtual === 0 || kAnt === 0) {
       console.warn(`[hydrate] SCR empresa com periodoReferencia invalido — ordem atual/anterior pode estar incorreta`);
     }
-    const { _editedManually: _em1, ...data1 } = sorted[0].extracted_data!;
-    void _em1;
-    const { _editedManually: _em2, ...data2 } = sorted[1].extracted_data!;
-    void _em2;
+    const { _editedManually: _em1, _warnings: _w1, ...data1 } = sorted[0].extracted_data!;
+    void _em1; void _w1;
+    const { _editedManually: _em2, _warnings: _w2, ...data2 } = sorted[1].extracted_data!;
+    void _em2; void _w2;
     result.scr = { ...result.scr, ...data1 } as ExtractedData["scr"];
     result.scrAnterior = { ...result.scrAnterior, ...data2 } as ExtractedData["scr"];
   }
@@ -156,7 +156,10 @@ export function hydrateFromCollection(docs: { type: string; extracted_data: Reco
   if (scrSociosDocs.length > 0) {
     const porCpf: Record<string, typeof scrSociosDocs> = {};
     for (const doc of scrSociosDocs) {
-      const cpf = String(doc.extracted_data?.cnpjSCR || doc.extracted_data?.cpfSCR || "desconhecido");
+      // PF = CPF primeiro; cnpjSCR só como fallback se Gemini errou no campo.
+      // Normaliza pra só dígitos pra matching robusto entre atual/anterior.
+      const cpfRaw = String(doc.extracted_data?.cpfSCR || doc.extracted_data?.cnpjSCR || "desconhecido");
+      const cpf = cpfRaw.replace(/\D/g, "") || cpfRaw;
       if (!porCpf[cpf]) porCpf[cpf] = [];
       porCpf[cpf].push(doc);
     }
@@ -177,6 +180,99 @@ export function hydrateFromCollection(docs: { type: string; extracted_data: Reco
         periodoAtual: atual,
         periodoAnterior: anterior,
       };
+    });
+  }
+
+  // ─── Pós-hidratação: dedupe do QSA ───
+  // O cartão CNPJ (via ReceitaWS) e o contrato social podem trazer o mesmo sócio
+  // em duas entradas diferentes: uma com CPF preenchido + qualificação por extenso,
+  // outra sem CPF + qualificação com código ("49-Sócio-Administrador"). Mergia por
+  // nome normalizado e escolhe a entrada com mais dados.
+  if (result.qsa?.quadroSocietario && result.qsa.quadroSocietario.length > 1) {
+    const normName = (s: string) => String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
+    const normCpf  = (s: string) => String(s || "").replace(/\D/g, "");
+    const stripQualCode = (q: string) => String(q || "").replace(/^\d+\s*-\s*/, "").trim();
+    // Score: quanto mais campos preenchidos, melhor. CPF vale mais que qualificação.
+    const score = (s: { nome: string; cpfCnpj: string; qualificacao: string; participacao: string }) => {
+      let pts = 0;
+      if (normCpf(s.cpfCnpj).length >= 11) pts += 10;
+      if (s.participacao && s.participacao !== "—" && s.participacao.trim()) pts += 3;
+      if (s.qualificacao && s.qualificacao.trim()) pts += 1;
+      // Prefere qualificação por extenso (sem código "49-")
+      if (s.qualificacao && !/^\d+\s*-/.test(s.qualificacao)) pts += 1;
+      return pts;
+    };
+    const byName = new Map<string, typeof result.qsa.quadroSocietario[number]>();
+    for (const s of result.qsa.quadroSocietario) {
+      const key = normName(s.nome);
+      if (!key) continue;
+      const existing = byName.get(key);
+      if (!existing) {
+        byName.set(key, s);
+        continue;
+      }
+      // Merge: mantém o score maior mas preenche campos vazios do outro
+      const winner = score(s) >= score(existing) ? s : existing;
+      const loser  = winner === s ? existing : s;
+      const merged = {
+        nome: winner.nome,
+        cpfCnpj: normCpf(winner.cpfCnpj).length >= 11 ? winner.cpfCnpj : (normCpf(loser.cpfCnpj).length >= 11 ? loser.cpfCnpj : winner.cpfCnpj),
+        qualificacao: stripQualCode(winner.qualificacao) || stripQualCode(loser.qualificacao),
+        participacao: (winner.participacao && winner.participacao !== "—") ? winner.participacao : (loser.participacao || ""),
+        dataEntrada: winner.dataEntrada || loser.dataEntrada,
+        dataSaida:   winner.dataSaida   || loser.dataSaida,
+      };
+      byName.set(key, merged);
+    }
+    const before = result.qsa.quadroSocietario.length;
+    result.qsa.quadroSocietario = Array.from(byName.values());
+    const after = result.qsa.quadroSocietario.length;
+    if (after < before) {
+      console.log(`[hydrate] QSA dedupe: ${before} → ${after} sócios (removidas ${before - after} duplicatas)`);
+    }
+  }
+
+  // ─── Pós-hidratação: dedupe do IR dos sócios ───
+  // Sócios podem aparecer duplicados quando múltiplos ano-base foram processados
+  // do mesmo CPF. Dedupe por CPF + ano-base, mantendo o registro com mais dados.
+  if (Array.isArray(result.irSocios) && result.irSocios.length > 1) {
+    const normCpf = (s: string) => String(s || "").replace(/\D/g, "");
+    const numVal = (s: string | undefined) => {
+      if (!s) return 0;
+      const n = parseFloat(String(s).replace(/\./g, "").replace(",", "."));
+      return isNaN(n) ? 0 : n;
+    };
+    const irScore = (ir: { rendimentoTotal?: string; patrimonioLiquido?: string; bensImoveis?: string; impostoPago?: string }) => {
+      return numVal(ir.rendimentoTotal) + numVal(ir.patrimonioLiquido) + numVal(ir.bensImoveis) + numVal(ir.impostoPago);
+    };
+    const byKey = new Map<string, typeof result.irSocios[number]>();
+    for (const ir of result.irSocios) {
+      const cpf = normCpf(ir.cpf);
+      const ano = String(ir.anoBase || "").trim();
+      const key = `${cpf}::${ano}`;
+      if (!key || key === "::") continue;
+      const existing = byKey.get(key);
+      if (!existing || irScore(ir) > irScore(existing)) {
+        byKey.set(key, ir);
+      }
+    }
+    const beforeIr = result.irSocios.length;
+    result.irSocios = Array.from(byKey.values());
+    const afterIr = result.irSocios.length;
+    if (afterIr < beforeIr) {
+      console.log(`[hydrate] IR dedupe: ${beforeIr} → ${afterIr} registros (removidas ${beforeIr - afterIr} duplicatas)`);
+    }
+  }
+
+  // ─── Pós-hidratação: coerenciaComEmpresa (determinística) ───
+  // Regra: IR do sócio é "coerente" quando uma das sociedades declaradas
+  // tem CNPJ igual ao da empresa sendo analisada (ignora formatação).
+  const empresaCnpj = String(result.cnpj?.cnpj || "").replace(/\D/g, "");
+  if (empresaCnpj && Array.isArray(result.irSocios) && result.irSocios.length > 0) {
+    result.irSocios = result.irSocios.map(ir => {
+      const socs = Array.isArray(ir.sociedades) ? ir.sociedades : [];
+      const match = socs.some(s => String(s?.cnpj || "").replace(/\D/g, "") === empresaCnpj);
+      return { ...ir, coerenciaComEmpresa: match };
     });
   }
 

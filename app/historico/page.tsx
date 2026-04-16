@@ -187,6 +187,64 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate }
   const [editValues, setEditValues] = useState<Record<string, unknown>>({});
   const [savingDoc, setSavingDoc] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [inspectingIdx, setInspectingIdx] = useState<number | null>(null);
+  const [inspectDraft, setInspectDraft] = useState<string>("");
+  const [inspectError, setInspectError] = useState<string | null>(null);
+  const [inspectSaving, setInspectSaving] = useState(false);
+  const [inspectDirty, setInspectDirty] = useState(false);
+
+  // Reset inspector state quando trocar o documento inspecionado
+  useEffect(() => {
+    if (inspectingIdx === null) return;
+    const rec = (docs[inspectingIdx]?.extracted_data || {}) as Record<string, unknown>;
+    const clean: Record<string, unknown> = {};
+    Object.entries(rec).forEach(([k, v]) => { if (!k.startsWith("_")) clean[k] = v; });
+    setInspectDraft(JSON.stringify(clean, null, 2));
+    setInspectError(null);
+    setInspectDirty(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inspectingIdx]);
+
+  const handleSaveInspectDoc = async () => {
+    if (inspectingIdx === null) return;
+    setInspectSaving(true);
+    setInspectError(null);
+    try {
+      let parsed: Record<string, unknown>;
+      try { parsed = JSON.parse(inspectDraft); }
+      catch { throw new Error("JSON inválido. Verifique a sintaxe antes de salvar."); }
+      if (typeof parsed !== "object" || Array.isArray(parsed) || parsed === null) {
+        throw new Error("O JSON raiz precisa ser um objeto { ... }");
+      }
+      const supabase = createClient();
+      const updatedDocs = docs.map((d, i) => {
+        if (i !== inspectingIdx) return d;
+        // Preserva meta-fields com underscore (_warnings, _editedManually)
+        const preserved: Record<string, unknown> = {};
+        Object.entries(d.extracted_data || {}).forEach(([k, v]) => {
+          if (k.startsWith("_")) preserved[k] = v;
+        });
+        return {
+          ...d,
+          extracted_data: { ...parsed, ...preserved, _editedManually: true },
+        };
+      });
+      const { error } = await supabase
+        .from("document_collections")
+        .update({ documents: updatedDocs })
+        .eq("id", col.id)
+        .eq("user_id", userId);
+      if (error) throw error;
+      onUpdate(col.id, updatedDocs);
+      toast.success("Dados atualizados");
+      setInspectDirty(false);
+      setInspectingIdx(null);
+    } catch (e) {
+      setInspectError(e instanceof Error ? e.message : "Erro ao salvar");
+    } finally {
+      setInspectSaving(false);
+    }
+  };
 
   const docs = (col.documents || []) as CollectionDocument[];
   const cnpjDoc = docs.find(d => d.type === "cnpj");
@@ -568,7 +626,19 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate }
                 const fields = DOC_FIELDS[doc.type];
                 // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 const data = isEditing ? editValues : (doc.extracted_data || {});
-                const wasEdited = !!(doc.extracted_data as Record<string, unknown>)?._editedManually;
+                const rec = (doc.extracted_data || {}) as Record<string, unknown>;
+                const wasEdited = !!rec._editedManually;
+                const warnings = (rec._warnings as Array<{ field?: string; message?: string; path?: string[] }> | undefined) || [];
+                const wCount = warnings.length;
+                // Conta quantos campos do top-level estão vazios ("" / null / undefined / [] / {})
+                const filledCount = Object.entries(rec).filter(([k, v]) => {
+                  if (k.startsWith("_")) return false;
+                  if (v == null || v === "") return false;
+                  if (Array.isArray(v)) return v.length > 0;
+                  if (typeof v === "object") return Object.keys(v as object).length > 0;
+                  return true;
+                }).length;
+                const totalFields = Object.keys(rec).filter(k => !k.startsWith("_")).length;
                 return (
                   <div key={i} className="bg-white rounded-lg border border-[#E5E7EB] overflow-hidden">
                     <div className="flex items-center gap-2.5 px-3 py-2.5">
@@ -581,16 +651,39 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate }
                         );
                       })()}
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-[#374151]">{doc.type} {wasEdited && <span className="text-[9px] bg-cf-navy/10 text-cf-navy px-1 py-0.5 rounded ml-1">Editado</span>}</p>
+                        <p className="text-xs font-semibold text-[#374151] flex items-center gap-1.5">
+                          {doc.type}
+                          {wasEdited && <span className="text-[9px] bg-cf-navy/10 text-cf-navy px-1 py-0.5 rounded">Editado</span>}
+                          {wCount > 0 && (
+                            <span className="text-[9px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-200" title={warnings.map(w => `${w.field ?? w.path?.join(".") ?? ""} — ${w.message ?? ""}`).join("\n")}>
+                              ⚠ {wCount} validação{wCount > 1 ? "ões" : ""}
+                            </span>
+                          )}
+                        </p>
                         <p className="text-[10px] text-[#9CA3AF] truncate">{doc.filename}</p>
                       </div>
-                      <span className="text-[10px] text-[#9CA3AF] font-mono">{Object.keys(doc.extracted_data || {}).length} campos</span>
+                      <span className="text-[10px] text-[#9CA3AF] font-mono">{filledCount}/{totalFields} campos</span>
+                      <button onClick={() => setInspectingIdx(i)} className="text-[11px] font-semibold text-[#9CA3AF] hover:text-cf-navy transition-colors flex items-center gap-1" title="Ver dados brutos extraídos">
+                        <Search size={10} /> Dados
+                      </button>
                       {!isEditing && (
                         <button onClick={() => { setEditingDoc(doc.type); setEditValues({ ...(doc.extracted_data || {}) }); setSaveError(null); }} className="text-[11px] font-semibold text-[#9CA3AF] hover:text-cf-navy transition-colors flex items-center gap-1">
                           <Pencil size={10} /> Editar
                         </button>
                       )}
                     </div>
+                    {wCount > 0 && !isEditing && (
+                      <div className="px-3 pb-2 pt-0 space-y-1">
+                        {warnings.slice(0, 3).map((w, j) => (
+                          <div key={j} className="text-[10px] text-amber-800 bg-amber-50/60 border border-amber-100 rounded px-2 py-1">
+                            <span className="font-mono text-amber-900">{w.field ?? w.path?.join(".") ?? "?"}</span>
+                            <span className="mx-1 text-amber-500">·</span>
+                            {w.message ?? "—"}
+                          </div>
+                        ))}
+                        {wCount > 3 && <div className="text-[10px] text-amber-600">+{wCount - 3} mais…</div>}
+                      </div>
+                    )}
                     {isEditing && (
                       <div className="px-3 pb-3 pt-2 space-y-2 border-t border-[#F1F5F9] animate-fade-in">
                         {fields ? (
@@ -630,6 +723,108 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate }
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Inspector modal: raw extracted_data JSON ── */}
+      {inspectingIdx !== null && docs[inspectingIdx] && (
+        <div
+          className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-fade-in"
+          onClick={() => setInspectingIdx(null)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-3 border-b border-[#E5E7EB] bg-[#F8FAFC]">
+              <div>
+                <div className="text-sm font-semibold text-cf-navy">
+                  Dados extraídos · {docs[inspectingIdx].type}
+                </div>
+                <div className="text-[11px] text-[#6B7280] truncate">
+                  {docs[inspectingIdx].filename}
+                </div>
+              </div>
+              <button
+                onClick={() => setInspectingIdx(null)}
+                className="text-[#9CA3AF] hover:text-[#374151] transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            {(() => {
+              const rec = (docs[inspectingIdx].extracted_data || {}) as Record<string, unknown>;
+              const warnings = (rec._warnings as Array<{ field?: string; message?: string; path?: string[] }> | undefined) || [];
+              return (
+                <>
+                  {warnings.length > 0 && (
+                    <div className="px-5 py-3 bg-amber-50 border-b border-amber-200">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-800 mb-1.5">
+                        ⚠ {warnings.length} validação{warnings.length > 1 ? "ões" : ""} pendente{warnings.length > 1 ? "s" : ""}
+                      </div>
+                      <div className="space-y-1">
+                        {warnings.map((w, j) => (
+                          <div key={j} className="text-[11px] text-amber-900">
+                            <span className="font-mono font-semibold">{w.field ?? w.path?.join(".") ?? "?"}</span>
+                            <span className="mx-1.5 text-amber-500">·</span>
+                            {w.message ?? "—"}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex-1 overflow-auto p-5">
+                    <textarea
+                      value={inspectDraft}
+                      onChange={(e) => {
+                        setInspectDraft(e.target.value);
+                        setInspectDirty(true);
+                        // Live-validate mas não bloqueia digitação
+                        try { JSON.parse(e.target.value); setInspectError(null); }
+                        catch { setInspectError("JSON inválido — revise antes de salvar"); }
+                      }}
+                      spellCheck={false}
+                      className={`w-full h-full min-h-[300px] text-[11px] font-mono text-[#1F2937] p-3 border rounded-lg resize-none focus:outline-none focus:ring-2 ${inspectError ? "border-red-300 focus:ring-red-400 bg-red-50/30" : "border-[#E5E7EB] focus:ring-cf-navy/40 bg-white"}`}
+                    />
+                  </div>
+                  <div className="px-5 py-3 border-t border-[#E5E7EB] bg-[#F8FAFC] flex items-center justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      {inspectError ? (
+                        <span className="text-[11px] text-red-600 font-semibold">{inspectError}</span>
+                      ) : (
+                        <span className="text-[11px] text-[#6B7280]">
+                          {inspectDirty ? "Alterações não salvas" : "JSON editável — salva direto no banco"}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(inspectDraft);
+                        toast.success("JSON copiado");
+                      }}
+                      className="text-[12px] font-semibold text-[#9CA3AF] hover:text-cf-navy transition-colors"
+                    >
+                      Copiar
+                    </button>
+                    <button
+                      onClick={() => setInspectingIdx(null)}
+                      className="text-[12px] font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg px-3 py-1.5 hover:bg-gray-100 transition-colors"
+                    >
+                      Fechar
+                    </button>
+                    <button
+                      onClick={handleSaveInspectDoc}
+                      disabled={inspectSaving || !inspectDirty || !!inspectError}
+                      className="text-[12px] font-semibold text-white bg-cf-green rounded-lg px-3 py-1.5 hover:bg-green-600 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-1"
+                    >
+                      {inspectSaving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                      Salvar
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
         </div>
       )}
     </div>

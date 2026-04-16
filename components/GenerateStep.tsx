@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { ArrowLeft, Loader2, CheckCircle2, AlertTriangle, Pencil, RotateCcw, ArrowRight } from "lucide-react";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import Image from "next/image";
@@ -12,6 +13,7 @@ import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { uploadFile } from "@/lib/storage";
 import { buildCollectionDocs } from "@/lib/buildCollectionDocs";
+import { validateReport, type ReportValidation } from "@/lib/validateReport";
 import GoalfyButton from "@/components/GoalfyButton";
 import AlertList from "@/components/AlertList";
 import NotasSection from "@/components/generate/NotasSection";
@@ -55,7 +57,7 @@ function triggerDownload(blob: Blob, fileName: string) {
 }
 
 // ── Alert & Analysis types ──
-type AlertSeverity = "ALTA" | "MODERADA" | "INFO";
+type AlertSeverity = "CRÍTICO" | "RESTRITIVO" | "OBSERVAÇÃO";
 interface Alert {
   message: string;
   severity: AlertSeverity;
@@ -744,7 +746,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       const supabase = createClient();
       const { data: row, error } = await supabase
         .from("document_collections")
-        .select("ai_analysis")
+        .select("ai_analysis, rating, decisao")
         .eq("id", colId)
         .single();
       if (error || !row?.ai_analysis) return false;
@@ -755,6 +757,13 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       // Agora qualquer cache minimamente utilizavel e aceito; campos ausentes recebem
       // defaults ou ficam undefined para o render decidir.
       if (cached.rating == null && !cached.decisao) return false;
+      // IMPORTANTE: NÃO auto-copiamos mais `row.rating` → `parecerAnalista.ratingAnalista`.
+      // O /parecer agora escreve os dois simultaneamente, então a coluna e o parecerAnalista
+      // ficam sincronizados naturalmente. A auto-cópia antiga causava bug: a coluna era
+      // atualizada automaticamente pela IA (e pelo trigger), e isso vazava para o
+      // parecerAnalista.ratingAnalista como se fosse override manual do comitê,
+      // "travando" o display no valor antigo quando a IA re-rodava com rating diferente.
+      // Se parecerAnalista.ratingAnalista está vazio, a UI cai no aiAnalysis.rating — correto.
       const parecerNorm = normalizeParecer(cached.parecer);
       applyAnalysis({ ...cached, parecer: parecerNorm } as unknown as AIAnalysis);
       setAnalysisFromCache(true);
@@ -770,7 +779,8 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       const analysisData = analysis as unknown as Record<string, unknown>;
 
       // Busca o estado atual para decidir se preserva rating/decisao do analista.
-      // Se o analista ja definiu um rating manual em parecer/page, NUNCA sobrescreve.
+      // Se o analista ja definiu um rating manual em parecer/page, preserva SÓ quando
+      // é um override REAL (diferente da ai_analysis.rating anterior).
       const { data: existing } = await supabase
         .from("document_collections")
         .select("ai_analysis, rating, decisao, status")
@@ -778,15 +788,39 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         .maybeSingle();
       const existingAi = (existing?.ai_analysis as Record<string, unknown>) || {};
       const parecerAnalista = existingAi.parecerAnalista as { ratingAnalista?: number | null; decisaoComite?: string | null } | undefined;
-      const analistaRating = parecerAnalista?.ratingAnalista;
+      const rawAnalistaRating = parecerAnalista?.ratingAnalista;
       const analistaDecisao = parecerAnalista?.decisaoComite;
       const finished = existing?.status === "finished";
 
-      // Merge do ai_analysis preservando parecerAnalista
-      const mergedAi: Record<string, unknown> = { ...existingAi, ...analysisData };
-      if (parecerAnalista) mergedAi.parecerAnalista = parecerAnalista;
+      // Detecta se o ratingAnalista é um override REAL do comitê ou só um resíduo
+      // de auto-cópia antiga (bug anterior): se ele bate exatamente com o
+      // ai_analysis.rating anterior, provavelmente foi auto-copiado — ignorar.
+      const prevAiRating = existingAi.rating != null ? Number(existingAi.rating) : null;
+      const analistaRatingNum = rawAnalistaRating != null && String(rawAnalistaRating) !== "" ? Number(rawAnalistaRating) : null;
+      const isLegitimateOverride =
+        analistaRatingNum != null &&
+        !isNaN(analistaRatingNum) &&
+        (prevAiRating == null || Math.abs(analistaRatingNum - prevAiRating) > 0.01);
+      const analistaRating = isLegitimateOverride ? analistaRatingNum : null;
 
-      // rating da coluna: se analista ja setou, mantem; senao usa o da IA
+      // Merge do ai_analysis: preserva parecerAnalista SÓ se for override legítimo.
+      // Caso contrário, remove o parecerAnalista.ratingAnalista para evitar
+      // que o display pegue um valor fantasma.
+      const mergedAi: Record<string, unknown> = { ...existingAi, ...analysisData };
+      if (parecerAnalista) {
+        if (isLegitimateOverride) {
+          mergedAi.parecerAnalista = parecerAnalista;
+        } else {
+          // Remove o ratingAnalista fantasma mas preserva outros campos do parecerAnalista
+          const cleanParecer = { ...parecerAnalista, ratingAnalista: null };
+          mergedAi.parecerAnalista = cleanParecer;
+          if (rawAnalistaRating != null) {
+            console.log(`[saveAnalysisCache] ratingAnalista fantasma removido: ${rawAnalistaRating} (coincidia com ai_analysis.rating anterior)`);
+          }
+        }
+      }
+
+      // rating da coluna: se analista tem override legítimo, mantem; senão usa IA
       const ratingParaGravar = analistaRating != null ? analistaRating : (analysis.rating ?? null);
       // decisao: se analista setou decisaoComite, mantem a decisao atual (que ja reflete ele)
       const decisaoParaGravar = analistaDecisao
@@ -1233,18 +1267,18 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       }));
     }
     const a: Alert[] = [];
-    if (vencidosSCR > 0 || vencidas > 0) a.push({ message: "SCR com operações vencidas", severity: "ALTA" });
-    if (prejuizosVal > 0) a.push({ message: "SCR com prejuízos registrados", severity: "ALTA" });
-    if (calcFaturamentoZerado(data.faturamento)) a.push({ message: "Faturamento zerado no período", severity: "ALTA" });
-    if (data.faturamento.meses.length > 0 && !data.faturamento.dadosAtualizados) a.push({ message: "Faturamento desatualizado", severity: "MODERADA" });
+    if (vencidosSCR > 0 || vencidas > 0) a.push({ message: "SCR com operações vencidas", severity: "CRÍTICO" });
+    if (prejuizosVal > 0) a.push({ message: "SCR com prejuízos registrados", severity: "CRÍTICO" });
+    if (calcFaturamentoZerado(data.faturamento)) a.push({ message: "Faturamento zerado no período", severity: "CRÍTICO" });
+    if (data.faturamento.meses.length > 0 && !data.faturamento.dadosAtualizados) a.push({ message: "Faturamento desatualizado", severity: "RESTRITIVO" });
     const rl = data.scr.classificacaoRisco?.toUpperCase();
-    if (rl && ["D", "E", "F", "G", "H"].includes(rl)) a.push({ message: `Classificação de risco ${rl}`, severity: "MODERADA" });
-    if (atraso > 0) a.push({ message: "Operações em atraso no SCR", severity: "MODERADA" });
+    if (rl && ["D", "E", "F", "G", "H"].includes(rl)) a.push({ message: `Classificação de risco ${rl}`, severity: "RESTRITIVO" });
+    if (atraso > 0) a.push({ message: "Operações em atraso no SCR", severity: "RESTRITIVO" });
     return a;
   })();
 
-  const alertsHigh = alerts.filter(a => a.severity === "ALTA");
-  const alertsMod = alerts.filter(a => a.severity === "MODERADA" || a.severity === "INFO");
+  const alertsHigh = alerts.filter(a => a.severity === "CRÍTICO");
+  const alertsMod = alerts.filter(a => a.severity === "RESTRITIVO" || a.severity === "OBSERVAÇÃO");
 
   // ── Pontos fortes/fracos e parecer da IA ──
   // parecer é string | objeto — narrowar antes de acessar propriedades
@@ -1340,15 +1374,15 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   // ═══════════════════════════════════════════════════
   // PDF Generation
   // ═══════════════════════════════════════════════════
-  // Carrega notas salvas no Supabase quando collectionId fica disponível
+  // Carrega notas salvas no Supabase quando collectionId muda.
+  // IMPORTANTE: sempre reseta primeiro para evitar contaminação entre cedentes.
   useEffect(() => {
     if (!collectionId) return;
+    setAnalystNotes("");
     const supabase = createClient();
     supabase.from("document_collections").select("observacoes").eq("id", collectionId).single()
       .then(({ data: row }) => {
-        if (row?.observacoes && !analystNotes.trim()) {
-          setAnalystNotes(row.observacoes);
-        }
+        setAnalystNotes(row?.observacoes ?? "");
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collectionId]);
@@ -1396,33 +1430,56 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   };
 
   const generatePDF = async () => {
+    console.log("[generatePDF] ▶ iniciando");
+    toast.info("Gerando PDF…");
     setGeneratingFormat("pdf");
     try {
-      // Tenta buscar foto do estabelecimento (Street View) e mapa aéreo (Maps Static) em paralelo
+      // Busca 4 vistas do Street View (0°/90°/180°/270°) + mapa aéreo em paralelo
+      // com TIMEOUT INDIVIDUAL — se uma falhar, não trava o restante.
       let streetViewBase64: string | undefined;
+      let streetView90Base64: string | undefined;
+      let streetView180Base64: string | undefined;
+      let streetView270Base64: string | undefined;
       let mapStaticBase64: string | undefined;
+      let streetViewInteractiveUrl: string | undefined;
       const endereco = data.cnpj?.endereco;
-      const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-      if (endereco && apiKey) {
-        const fetchAsBase64 = async (url: string): Promise<string | undefined> => {
+      if (endereco) {
+        console.log("[generatePDF] buscando imagens do Street View…");
+        const fetchMapProxy = async (type: "streetview" | "map", heading?: number): Promise<string | undefined> => {
           try {
-            const res = await fetch(url);
+            const qs = new URLSearchParams({ address: endereco, type });
+            if (heading != null) qs.set("heading", String(heading));
+            const ctrl = new AbortController();
+            const timeoutId = setTimeout(() => ctrl.abort(), 8000); // 8s timeout
+            const res = await fetch(`/api/map-image?${qs.toString()}`, { signal: ctrl.signal });
+            clearTimeout(timeoutId);
             if (!res.ok) return undefined;
-            const blob = await res.blob();
-            return new Promise<string>(resolve => {
-              const reader = new FileReader();
-              reader.onloadend = () => resolve((reader.result as string).split(",")[1]);
-              reader.readAsDataURL(blob);
-            });
-          } catch { return undefined; }
+            const json = await res.json();
+            if (json.error || !json.base64) return undefined;
+            return `data:image/${json.mime ?? "jpeg"};base64,${json.base64}`;
+          } catch (e) {
+            console.warn(`[generatePDF] fetchMapProxy ${type}/${heading} falhou:`, e instanceof Error ? e.message : e);
+            return undefined;
+          }
         };
-        const loc = encodeURIComponent(endereco);
-        const [sv, mp] = await Promise.all([
-          fetchAsBase64(`https://maps.googleapis.com/maps/api/streetview?size=600x300&location=${loc}&key=${apiKey}`),
-          fetchAsBase64(`https://maps.googleapis.com/maps/api/staticmap?center=${loc}&zoom=16&size=600x300&maptype=hybrid&markers=color:red|${loc}&key=${apiKey}`),
-        ]);
-        streetViewBase64 = sv;
-        mapStaticBase64 = mp;
+        try {
+          const [sv0, sv90, sv180, sv270, mp] = await Promise.all([
+            fetchMapProxy("streetview", 0),
+            fetchMapProxy("streetview", 90),
+            fetchMapProxy("streetview", 180),
+            fetchMapProxy("streetview", 270),
+            fetchMapProxy("map"),
+          ]);
+          streetViewBase64 = sv0;
+          streetView90Base64 = sv90;
+          streetView180Base64 = sv180;
+          streetView270Base64 = sv270;
+          mapStaticBase64 = mp;
+          console.log(`[generatePDF] imagens: sv0=${!!sv0} sv90=${!!sv90} sv180=${!!sv180} sv270=${!!sv270} mp=${!!mp}`);
+        } catch (e) {
+          console.warn("[generatePDF] fetch de mapas falhou — seguindo sem imagens:", e);
+        }
+        streetViewInteractiveUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(endereco)}`;
       }
 
       // ── Busca histórico de operações do cedente ────────────────────────────
@@ -1454,6 +1511,10 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         dividaAtiva, atraso, riskScore: riskScore as "alto" | "medio" | "baixo", decisionColor, decisionBg, decisionBorder,
         observacoes: analystNotes.trim() || undefined,
         streetViewBase64,
+        streetView90Base64,
+        streetView180Base64,
+        streetView270Base64,
+        streetViewInteractiveUrl,
         mapStaticBase64,
         fundValidation,
         creditLimit,
@@ -1461,16 +1522,28 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         committeMembers: committeMembers.trim() || undefined,
       };
 
+      // Adiciona mapEmbedUrl para preview interativo (usado no HTML, ignorado no PDF)
+      const mapsEmbedKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+      const mapEmbedUrl = endereco && mapsEmbedKey
+        ? `https://www.google.com/maps/embed/v1/place?key=${mapsEmbedKey}&q=${encodeURIComponent(endereco)}`
+        : undefined;
+      Object.assign(payload, { mapEmbedUrl });
+
+      console.log("[generatePDF] payload montado, chamando /api/generate-pdf");
+
       // Tenta nova API Puppeteer (funciona local + prod)
       let usedApi = false;
       try {
         const blob = await generatePDFViaAPI(payload);
+        console.log(`[generatePDF] /api/generate-pdf OK — blob size=${blob.size}`);
         triggerDownload(blob, `capital-financas-${safeName}-${dateStr}.pdf`);
         usedApi = true;
       } catch (apiErr) {
-        console.warn("API /api/generate-pdf falhou, tentando /api/exportar-pdf:", apiErr);
+        const apiErrMsg = apiErr instanceof Error ? apiErr.message : String(apiErr);
+        console.warn("[generatePDF] /api/generate-pdf falhou:", apiErrMsg);
         // Fallback para rota legada (Vercel com CHROMIUM_URL)
         try {
+          console.log("[generatePDF] tentando /api/exportar-pdf");
           const res = await fetch("/api/exportar-pdf", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1478,30 +1551,37 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           });
           if (res.ok) {
             const blob = await res.blob();
+            console.log(`[generatePDF] /api/exportar-pdf OK — blob size=${blob.size}`);
             triggerDownload(blob, `capital-financas-${safeName}-${dateStr}.pdf`);
             usedApi = true;
+          } else {
+            console.warn(`[generatePDF] /api/exportar-pdf HTTP ${res.status}`);
           }
-        } catch { /* API legada indisponível */ }
+        } catch (legacyErr) {
+          console.warn("[generatePDF] /api/exportar-pdf falhou:", legacyErr instanceof Error ? legacyErr.message : legacyErr);
+        }
       }
 
-      // Fallback: abre HTML template numa nova janela para salvar como PDF
+      // Fallback: jsPDF local (último recurso, sempre funciona)
       if (!usedApi) {
-        console.warn("APIs Puppeteer indisponíveis, abrindo HTML para salvar como PDF");
-        const html = await generateHTMLPreview(payload);
-        const w = window.open("", "_blank");
-        if (w) {
-          w.document.write(html);
-          w.document.close();
-        } else {
-          // Se popup bloqueado, usa jsPDF como último recurso
+        console.warn("[generatePDF] APIs Puppeteer indisponíveis, usando jsPDF local");
+        try {
           const blob = await buildPDFReport(payload);
+          console.log(`[generatePDF] jsPDF OK — blob size=${blob.size}`);
           triggerDownload(blob, `capital-financas-${safeName}-${dateStr}.pdf`);
+          usedApi = true;
+        } catch (jspdfErr) {
+          console.error("[generatePDF] jsPDF falhou também:", jspdfErr);
+          throw new Error(`Todas as rotas de geração falharam: ${jspdfErr instanceof Error ? jspdfErr.message : "erro desconhecido"}`);
         }
       }
 
       setGeneratedFormats(p => new Set(p).add("pdf"));
+      toast.success("PDF gerado com sucesso");
+      console.log("[generatePDF] ✔ concluído");
     } catch (err) {
       console.error("PDF generation error:", err);
+      toast.error(`Erro ao gerar PDF: ${err instanceof Error ? err.message : "tente novamente"}`);
       // Fallback final: jsPDF (tambem com fresh rating)
       try {
         const fresh2 = await getFreshFinalRating();
@@ -1516,45 +1596,83 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         });
         triggerDownload(blob, `capital-financas-${safeName}-${dateStr}.pdf`);
         setGeneratedFormats(p => new Set(p).add("pdf"));
-      } catch { /* silencia */ }
+        toast.success("PDF gerado via fallback (qualidade reduzida)");
+      } catch (fallbackErr) {
+        console.error("Fallback jsPDF também falhou:", fallbackErr);
+      }
     } finally {
       setGeneratingFormat(null);
     }
   };
 
-  // Helper: busca Street View + Static Map do Google Maps
-  const fetchGoogleMapsImages = async (): Promise<{ streetViewBase64?: string; mapStaticBase64?: string }> => {
+  // Helper: busca 4 vistas do Street View (0°/90°/180°/270°) + Static Map via proxy
+  // com timeout individual de 8s — se falhar, segue sem as imagens.
+  const fetchGoogleMapsImages = async (): Promise<{
+    streetViewBase64?: string;
+    streetView90Base64?: string;
+    streetView180Base64?: string;
+    streetView270Base64?: string;
+    mapStaticBase64?: string;
+    streetViewInteractiveUrl?: string;
+  }> => {
     const endereco = data.cnpj?.endereco;
-    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-    if (!endereco || !apiKey) return {};
-    const fetchAsBase64 = async (url: string): Promise<string | undefined> => {
+    if (!endereco) return {};
+    const fetchMapProxy = async (type: "streetview" | "map", heading?: number): Promise<string | undefined> => {
       try {
-        const res = await fetch(url);
+        const qs = new URLSearchParams({ address: endereco, type });
+        if (heading != null) qs.set("heading", String(heading));
+        const ctrl = new AbortController();
+        const timeoutId = setTimeout(() => ctrl.abort(), 8000);
+        const res = await fetch(`/api/map-image?${qs.toString()}`, { signal: ctrl.signal });
+        clearTimeout(timeoutId);
         if (!res.ok) return undefined;
-        const blob = await res.blob();
-        return new Promise<string>(resolve => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve((reader.result as string).split(",")[1]);
-          reader.readAsDataURL(blob);
-        });
-      } catch { return undefined; }
+        const json = await res.json();
+        if (json.error || !json.base64) return undefined;
+        return `data:image/${json.mime ?? "jpeg"};base64,${json.base64}`;
+      } catch (e) {
+        console.warn(`[fetchGoogleMapsImages] ${type}/${heading} falhou:`, e instanceof Error ? e.message : e);
+        return undefined;
+      }
     };
-    const loc = encodeURIComponent(endereco);
-    const [sv, mp] = await Promise.all([
-      fetchAsBase64(`https://maps.googleapis.com/maps/api/streetview?size=600x300&location=${loc}&key=${apiKey}`),
-      fetchAsBase64(`https://maps.googleapis.com/maps/api/staticmap?center=${loc}&zoom=16&size=600x300&maptype=hybrid&markers=color:red|${loc}&key=${apiKey}`),
-    ]);
-    return { streetViewBase64: sv, mapStaticBase64: mp };
+    try {
+      const [sv0, sv90, sv180, sv270, mp] = await Promise.all([
+        fetchMapProxy("streetview", 0),
+        fetchMapProxy("streetview", 90),
+        fetchMapProxy("streetview", 180),
+        fetchMapProxy("streetview", 270),
+        fetchMapProxy("map"),
+      ]);
+      return {
+        streetViewBase64: sv0,
+        streetView90Base64: sv90,
+        streetView180Base64: sv180,
+        streetView270Base64: sv270,
+        mapStaticBase64: mp,
+        streetViewInteractiveUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(endereco)}`,
+      };
+    } catch (e) {
+      console.warn("[fetchGoogleMapsImages] Promise.all falhou:", e);
+      return {
+        streetViewInteractiveUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(endereco)}`,
+      };
+    }
   };
 
   // ═══════════════════════════════════════════════════
   // HTML View (abre relatório visual em nova aba)
   // ═══════════════════════════════════════════════════
   const generateHTMLView = async () => {
+    console.log("[generateHTMLView] ▶ iniciando");
+    toast.info("Gerando preview HTML…");
     setGeneratingFormat("html");
     try {
+      console.log("[generateHTMLView] buscando mapas…");
       const maps = await fetchGoogleMapsImages();
+      console.log("[generateHTMLView] mapas OK, buscando rating fresco…");
       const fresh = await getFreshFinalRating();
+      console.log("[generateHTMLView] construindo payload…");
+      const htmlEndereco = data.cnpj?.endereco;
+      const htmlApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
       const payload = {
         data, aiAnalysis, decision: fresh.decisao, finalRating: fresh.rating, alerts, alertsHigh,
         pontosFortes, pontosFracos, perguntasVisita, resumoExecutivo,
@@ -1562,20 +1680,47 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         dividaAtiva, atraso, riskScore: riskScore as "alto" | "medio" | "baixo", decisionColor, decisionBg, decisionBorder,
         observacoes: analystNotes.trim() || undefined,
         streetViewBase64: maps.streetViewBase64,
+        streetView90Base64: maps.streetView90Base64,
+        streetView180Base64: maps.streetView180Base64,
+        streetView270Base64: maps.streetView270Base64,
+        streetViewInteractiveUrl: maps.streetViewInteractiveUrl,
         mapStaticBase64: maps.mapStaticBase64,
+        mapEmbedUrl: htmlEndereco && htmlApiKey
+          ? `https://www.google.com/maps/embed/v1/place?key=${htmlApiKey}&q=${encodeURIComponent(htmlEndereco)}`
+          : undefined,
         fundValidation,
         creditLimit,
         committeMembers: committeMembers.trim() || undefined,
       };
       const html = await generateHTMLPreview(payload);
+
+      // 1) Tenta abrir em nova aba. Se popup bloqueado → fallback pra blob URL.
       const w = window.open("", "_blank");
       if (w) {
+        w.document.open();
         w.document.write(html);
         w.document.close();
+      } else {
+        // Fallback: cria blob e abre via link — funciona mesmo com popup blocker
+        const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const opened = window.open(url, "_blank");
+        if (!opened) {
+          toast.error("Popup bloqueado pelo navegador. Desative o bloqueador ou permita popups desta página.");
+          URL.revokeObjectURL(url);
+          throw new Error("popup_blocked");
+        }
+        // Limpa a URL depois que a aba carrega (não bloqueia a render)
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
       }
       setGeneratedFormats(p => new Set(p).add("html"));
+      toast.success("Preview HTML aberto em nova aba");
     } catch (err) {
+      const msg = err instanceof Error ? err.message : "Falha ao gerar preview HTML";
       console.error("HTML view error:", err);
+      if (msg !== "popup_blocked") {
+        toast.error(`Erro ao gerar preview: ${msg}`);
+      }
     } finally {
       setGeneratingFormat(null);
     }
@@ -1649,7 +1794,51 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   };
 
   /* old generateHTML body removed — see lib/generators/html.ts */
-  
+
+  // ═══════════════════════════════════════════════════
+  // Validação pré-geração (Fase 3.2)
+  // ═══════════════════════════════════════════════════
+  const [pendingGenerator, setPendingGenerator] = useState<{ fn: () => Promise<void>; label: string } | null>(null);
+  const [gateValidation, setGateValidation] = useState<ReportValidation | null>(null);
+
+  // Guarda: antes de chamar qualquer gerador, valida gaps.
+  // - Se tem crítico → bloqueia e força confirmação explícita
+  // - Se tem só warning → ainda mostra modal mas permite "Gerar mesmo assim"
+  // - Se está tudo OK → dispara direto (com error handling)
+  const confirmAndGenerate = useCallback((fn: () => Promise<void>, label: string) => {
+    let v: ReportValidation;
+    try {
+      v = validateReport(data);
+    } catch (err) {
+      // Se a validação em si quebrar, não bloqueia a geração — apenas dispara direto
+      console.warn(`[confirmAndGenerate] validateReport falhou, disparando ${label} direto:`, err);
+      v = { gaps: [], criticalCount: 0, warningCount: 0, canGenerate: true };
+    }
+    if (v.gaps.length === 0) {
+      console.log(`[confirmAndGenerate] ${label} — sem gaps, gerando direto`);
+      // CRÍTICO: envolver em try/catch pra erros não serem engolidos silenciosamente
+      (async () => {
+        try {
+          await fn();
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "erro desconhecido";
+          console.error(`[generate-${label}] falha:`, err);
+          toast.error(`Falha ao gerar ${label}: ${msg}`);
+        }
+      })();
+      return;
+    }
+    console.log(`[confirmAndGenerate] ${label} — ${v.gaps.length} gap(s), abrindo modal`);
+    setGateValidation(v);
+    setPendingGenerator({ fn, label });
+  }, [data]);
+
+  const wrappedGeneratePDF      = useCallback(() => confirmAndGenerate(generatePDF,      "PDF"),      [confirmAndGenerate]);
+  const wrappedGenerateDOCX     = useCallback(() => confirmAndGenerate(generateDOCX,     "DOCX"),     [confirmAndGenerate]);
+  const wrappedGenerateExcel    = useCallback(() => confirmAndGenerate(generateExcel,    "Excel"),    [confirmAndGenerate]);
+  const wrappedGenerateHTML     = useCallback(() => confirmAndGenerate(generateHTML,     "HTML"),     [confirmAndGenerate]);
+  const wrappedGenerateHTMLView = useCallback(() => confirmAndGenerate(generateHTMLView, "Preview"),  [confirmAndGenerate]);
+
   // ═══════════════════════════════════════════════════
   // UI Render
   // ═══════════════════════════════════════════════════
@@ -2395,11 +2584,11 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         <ExportSection
           generatedFormats={generatedFormats}
           generatingFormat={generatingFormat}
-          generatePDF={generatePDF}
-          generateDOCX={generateDOCX}
-          generateExcel={generateExcel}
-          generateHTML={generateHTML}
-          generateHTMLView={generateHTMLView}
+          generatePDF={wrappedGeneratePDF}
+          generateDOCX={wrappedGenerateDOCX}
+          generateExcel={wrappedGenerateExcel}
+          generateHTML={wrappedGenerateHTML}
+          generateHTMLView={wrappedGenerateHTMLView}
         />
 
         {/* ── Sticky bottom action bar ── */}
@@ -2447,6 +2636,88 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         </div>
 
       </div>
+
+      {/* ── Validation gate modal (Fase 3.2) ── */}
+      {/* Portal porque o wrapper pai tem animate-slide-up (transform) que cria
+          um stacking context novo, fazendo position:fixed ficar confinado.
+          Renderizar direto no document.body resolve. */}
+      {pendingGenerator && gateValidation && typeof document !== "undefined" && createPortal(
+        <div
+          className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 animate-fade-in"
+          onClick={() => setPendingGenerator(null)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl w-full max-w-xl max-h-[85vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className={`px-6 py-4 border-b flex items-center gap-3 ${gateValidation.criticalCount > 0 ? "bg-red-50 border-red-200" : "bg-amber-50 border-amber-200"}`}>
+              <AlertTriangle size={22} className={gateValidation.criticalCount > 0 ? "text-red-600" : "text-amber-600"} />
+              <div className="flex-1">
+                <div className={`text-sm font-bold ${gateValidation.criticalCount > 0 ? "text-red-900" : "text-amber-900"}`}>
+                  {gateValidation.criticalCount > 0
+                    ? `${gateValidation.criticalCount} problema${gateValidation.criticalCount > 1 ? "s" : ""} crítico${gateValidation.criticalCount > 1 ? "s" : ""} impede${gateValidation.criticalCount > 1 ? "m" : ""} a geração`
+                    : `${gateValidation.warningCount} alerta${gateValidation.warningCount > 1 ? "s" : ""} — revisar antes de gerar?`}
+                </div>
+                <div className={`text-[11px] mt-0.5 ${gateValidation.criticalCount > 0 ? "text-red-700" : "text-amber-700"}`}>
+                  {gateValidation.criticalCount > 0
+                    ? "Corrija os pontos abaixo ou escolha gerar mesmo assim."
+                    : `O relatório ${pendingGenerator.label} será gerado com os campos disponíveis.`}
+                </div>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto px-6 py-4 space-y-3">
+              {gateValidation.gaps.map((gap, i) => (
+                <div
+                  key={i}
+                  className={`rounded-lg border p-3 ${gap.severity === "critical" ? "bg-red-50/50 border-red-200" : "bg-amber-50/40 border-amber-200"}`}
+                >
+                  <div className={`text-[12px] font-bold uppercase tracking-wide mb-1.5 flex items-center gap-1.5 ${gap.severity === "critical" ? "text-red-800" : "text-amber-800"}`}>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded font-mono" style={{
+                      background: gap.severity === "critical" ? "#dc2626" : "#d97706",
+                      color: "#fff",
+                    }}>{gap.severity === "critical" ? "CRÍTICO" : "ALERTA"}</span>
+                    {gap.label}
+                  </div>
+                  <ul className="text-[11px] text-[#374151] space-y-0.5 pl-1">
+                    {gap.fields.map((f, j) => (
+                      <li key={j} className="flex items-start gap-1.5">
+                        <span className={gap.severity === "critical" ? "text-red-500" : "text-amber-500"}>•</span>
+                        <span>{f}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+            <div className="px-6 py-3 border-t border-gray-200 bg-gray-50 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setPendingGenerator(null)}
+                className="text-[13px] font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg px-4 py-2 hover:bg-gray-100 transition-colors"
+              >
+                Voltar e revisar
+              </button>
+              <button
+                onClick={async () => {
+                  const fn = pendingGenerator.fn;
+                  const label = pendingGenerator.label;
+                  setPendingGenerator(null);
+                  try {
+                    await fn();
+                  } catch (err) {
+                    const msg = err instanceof Error ? err.message : "Erro desconhecido";
+                    console.error(`[generate-${label}] falha:`, err);
+                    toast.error(`Falha ao gerar ${label}: ${msg}`);
+                  }
+                }}
+                className={`text-[13px] font-semibold text-white rounded-lg px-4 py-2 transition-colors ${gateValidation.criticalCount > 0 ? "bg-red-600 hover:bg-red-700" : "bg-amber-600 hover:bg-amber-700"}`}
+              >
+                {gateValidation.criticalCount > 0 ? "Gerar assim mesmo" : "Gerar " + pendingGenerator.label}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

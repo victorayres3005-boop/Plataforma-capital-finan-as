@@ -1,8 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import type { ProcessoItem } from "@/types";
+import type { ProcessoItem, EmpresaGrupo } from "@/types";
 
 const DATAJUD_BASE = process.env.DATAJUD_BASE_URL || "https://api-publica.datajud.cnj.jus.br";
-const DATAJUD_KEY  = process.env.DATAJUD_API_KEY || "";
+// Chave pública padrão do DataJud CNJ (gratuita, sem cadastro)
+const DATAJUD_KEY  = process.env.DATAJUD_API_KEY || "cDZHYzlZa0JadVREZDJCendFbXNBN3NTRnRCa1Yhbzc=";
 
 // ─── Mapeamento tribunal → índice DataJud ───────────────────────────────────
 const TRIBUNAL_INDEX: Record<string, string> = {
@@ -203,4 +204,120 @@ export async function enrichProcessosWithDataJud(
   }
 
   return enriched;
+}
+
+// ─── Busca de Grupo Econômico via CPF dos sócios ─────────────────────────────
+// Consulta processos de cada sócio no DataJud e extrai empresas co-partes.
+// Gratuito, sem dependência de plano CreditHub.
+
+// Tribunais mais relevantes para relações empresariais (alto volume)
+const TOP_TRIBUNAIS_GRUPO = [
+  "api_publica_tjsp",
+  "api_publica_tjrj",
+  "api_publica_tjmg",
+  "api_publica_tjrs",
+  "api_publica_tjpr",
+  "api_publica_trf3",
+  "api_publica_trt2",
+];
+
+const COMPANY_RE_DJ = /\b(LTDA\.?|S\.A\.?|S\/A|EIRELI|S\.?S\.?|EPP|M\.?E\.?|HOLDINGS?|PARTICIPA|INDUSTRI[AÀ]|COMERC[IÍ]|SERVI[CÇ]|CONSTRU[TÇ]|DISTRIBUI|FINANC|INVEST|EMPREEND|STUDIO|ESTUDIO|BELEZA)\b/i;
+const BANK_SKIP_RE = /\b(BANCO DO BRASIL|CAIXA ECONOM|BRADESCO|ITAU|SANTANDER|SICREDI|SICOOB|NUBANK|INTER|BB S\.?A|PREFEITURA|MUNICIPIO|ESTADO DE|FAZENDA|SPPREV|INSS|RECEITA FEDERAL|MINISTERIO|UNIAO FEDERAL)\b/i;
+
+async function searchByPartyDoc(index: string, cpf: string): Promise<any[]> {
+  try {
+    const res = await fetch(`${DATAJUD_BASE}/${index}/_search`, {
+      method: "POST",
+      headers: {
+        "Authorization": `APIKey ${DATAJUD_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        query: {
+          nested: {
+            path: "partes",
+            query: { term: { "partes.documento": cpf } },
+          },
+        },
+        size: 30,
+        _source: ["partes", "classe", "dataAjuizamento"],
+        sort: [{ dataAjuizamento: { order: "desc" } }],
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.hits?.hits ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Para cada CPF de sócio, consulta DataJud nos principais tribunais e retorna
+ * as empresas que aparecem como co-partes nos processos — formando o grupo econômico indireto.
+ */
+export async function buscarEmpresasDataJud(
+  socios: { cpf: string; nome: string }[],
+  cnpjEmpresaPrincipal?: string,
+): Promise<EmpresaGrupo[]> {
+  if (!socios.length) return [];
+
+  const cnpjPrincipalNorm = (cnpjEmpresaPrincipal ?? "").replace(/\D/g, "");
+  const chaveVista = new Set<string>();
+  const empresas: EmpresaGrupo[] = [];
+
+  await Promise.allSettled(
+    socios.map(async ({ cpf, nome: nomeSocio }) => {
+      const cpfNum = cpf.replace(/\D/g, "");
+      if (cpfNum.length !== 11) return;
+
+      // Consulta todos os tribunais do conjunto em paralelo
+      const hits = (
+        await Promise.all(TOP_TRIBUNAIS_GRUPO.map(idx => searchByPartyDoc(idx, cpfNum)))
+      ).flat();
+
+      for (const hit of hits) {
+        const partes: any[] = hit._source?.partes ?? [];
+        for (const parte of partes) {
+          const nomeRaw = String(parte.nome ?? "").trim();
+          const docRaw  = String(parte.documento ?? "").replace(/\D/g, "");
+
+          // Pula o próprio sócio e a empresa analisada
+          if (docRaw === cpfNum) continue;
+          if (cnpjPrincipalNorm && docRaw === cnpjPrincipalNorm) continue;
+
+          // Precisa parecer empresa: tem CNPJ (14 dígitos) ou nome com sufixo empresarial
+          const temCNPJ = docRaw.length === 14;
+          if (!temCNPJ && !COMPANY_RE_DJ.test(nomeRaw)) continue;
+
+          // Filtra bancos e órgãos públicos
+          if (BANK_SKIP_RE.test(nomeRaw)) continue;
+
+          // Nome muito curto = ruído
+          if (nomeRaw.length < 5) continue;
+
+          // Deduplica por CNPJ ou por nome normalizado
+          const chave = temCNPJ ? docRaw : nomeRaw.toLowerCase().replace(/\s+/g, " ");
+          if (chaveVista.has(chave)) continue;
+          chaveVista.add(chave);
+
+          empresas.push({
+            razaoSocial: nomeRaw,
+            cnpj: temCNPJ ? docRaw : "",
+            relacao: "via Sócio (DataJud)",
+            scrTotal: "—",
+            protestos: "—",
+            processos: "—",
+            socioOrigem: nomeSocio,
+            cpfSocio: cpfNum,
+            situacao: "VERIFICAR",
+          });
+        }
+      }
+    }),
+  );
+
+  console.log(`[datajud] grupo econômico: ${empresas.length} empresa(s) encontrada(s) via partes de processo`);
+  return empresas;
 }

@@ -206,6 +206,12 @@ export default function HomePage() {
   const dirtyData = useRef<ExtractedData | null>(null);
   const autoSaveRunning = useRef(false);
 
+  // Mínimo de documentos (tipos distintos) para criar uma coleta no banco.
+  // Evita poluir o histórico com coletas abandonadas de 1-2 docs (testes,
+  // cliques acidentais, uploads incompletos). Updates em coletas que JÁ
+  // existem continuam normalmente — a regra é só pra INSERT.
+  const MIN_DOCS_TO_SAVE = 3;
+
   const performSave = useCallback(async () => {
     if (autoSaveRunning.current) return;
     autoSaveRunning.current = true;
@@ -232,6 +238,13 @@ export default function HomePage() {
             // Supabase virou fonte de verdade — apaga o draft local
             try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
           } else if (!insertInFlight.current) {
+            // ── Gate: só cria coleta no banco quando houver ao menos MIN_DOCS_TO_SAVE
+            // tipos de documento extraídos. Antes disso, o draft fica só em
+            // localStorage (DRAFT_KEY) e não polui o histórico.
+            if (documents.length < MIN_DOCS_TO_SAVE) {
+              console.log(`[autoSave] aguardando: ${documents.length}/${MIN_DOCS_TO_SAVE} documentos (draft salvo em localStorage)`);
+              continue;
+            }
             insertInFlight.current = true;
             try {
               const { data: row, error } = await supabase.from("document_collections").insert({

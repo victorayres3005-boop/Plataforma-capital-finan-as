@@ -250,7 +250,7 @@ export function renderSintese(ctx: PdfCtx): void {
   const pleitoVal = rvP?.limiteTotal ? parseMoneyToNumber(rvP.limiteTotal) : 0;
   const abcList   = (data.curvaABC?.clientes || []).slice(0,5);
 
-  const balAno    = data.balanco?.anos?.[0];
+  const balAno    = data.balanco?.anos?.at(-1);
   const plVal     = parseMoneyToNumber(balAno?.patrimonioLiquido || "0");
   const lcVal     = parseFloat(balAno?.liquidezCorrente || "0") || 0;
   const endivPct  = parseFloat(balAno?.endividamentoTotal || "0") || 0;
@@ -751,9 +751,6 @@ export function renderSintese(ctx: PdfCtx): void {
   // B7 — SCR Expandido
   // ════════════════════════════════════════════════════════════════════════════
   {
-    checkPageBreak(ctx, 52);
-    stitle("SCR — Sistema de Crédito");
-    const y0   = pos.y;
     const RH   = 7; const HH = 8;
     const NOTE = scrInstit > 0 || scrOps ? 7 : 0;
     type SR = {label:string;cur:number;ant:number|null;bold?:boolean};
@@ -766,6 +763,9 @@ export function renderSintese(ctx: PdfCtx): void {
       {label:"Total Dívidas",     cur:scrTotal, ant:scrAntTotal, bold:true},
     ];
     const TH = HH + rows.length*RH + NOTE + 4;
+    checkPageBreak(ctx, 7 + TH + 5); // 7=stitle, +5 buffer
+    stitle("SCR — Sistema de Crédito");
+    const y0   = pos.y;
     card(ML, y0, CW, TH);
 
     // Header
@@ -815,11 +815,11 @@ export function renderSintese(ctx: PdfCtx): void {
   // B8 — Curva ABC
   // ════════════════════════════════════════════════════════════════════════════
   if (abcList.length > 0) {
-    checkPageBreak(ctx, 45);
-    stitle("Concentração de Clientes — Curva ABC");
-    const y0  = pos.y;
     const RH3 = 10; const HH3 = 8; const SH = 7;
     const TH  = HH3 + abcList.length*RH3 + SH + 2;
+    checkPageBreak(ctx, 7 + TH + 5); // 7=stitle, +5 buffer
+    stitle("Concentração de Clientes — Curva ABC");
+    const y0  = pos.y;
     card(ML, y0, CW, TH);
 
     doc.setFillColor(...P.n9);

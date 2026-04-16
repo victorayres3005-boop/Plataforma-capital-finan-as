@@ -727,6 +727,14 @@ Derivados:
 - carteiraCurtoPrazo = soma das faixas até 360d (ate30d + d31_60 + d61_90 + d91_180 + d181_360)
 - carteiraLongoPrazo = acima360d
 
+FALLBACK OBRIGATÓRIO — se a seção "Discriminação A Vencer por Faixa de Prazo" NÃO existir no documento:
+- NUNCA retorne carteiraCurtoPrazo = "0,00" quando carteiraAVencer > 0
+- Regra: se não há faixas mas há valor a vencer, assuma que TODO o carteiraAVencer é curto prazo
+  → carteiraCurtoPrazo = carteiraAVencer
+  → carteiraLongoPrazo = "0,00"
+- Se o documento mostrar "Limite acima de 360 dias" ou "Longo prazo" separadamente em outra seção, use esse valor para carteiraLongoPrazo e subtraia de carteiraCurtoPrazo.
+- Só retorne ambos como "0,00" quando carteiraAVencer também for "0,00".
+
 ═══ FAIXAS VENCIDOS ═══
 Seção: "Discriminação Vencido por Faixa de Prazo" ou "Discriminação dos Vencidos".
 Preenche APENAS faixasVencidos — NÃO reutilize valores de faixasAVencer.
@@ -1255,10 +1263,10 @@ Sociedades:
 - observacoes: informações relevantes não capturadas acima
 - NÃO invente dados`;
 
-const PROMPT_RELATORIO_VISITA = `Você receberá um Relatório de Visita (texto livre, formulário estruturado, template, ata ou PDF de inspeção presencial). Extraia os dados e retorne APENAS JSON válido, sem markdown, sem texto adicional.
+const PROMPT_RELATORIO_VISITA = `Você receberá um Relatório de Visita OU uma Ficha de Referência Comercial (texto livre, formulário estruturado, template, ata ou PDF). Extraia os dados e retorne APENAS JSON válido, sem markdown, sem texto adicional.
 
 Schema:
-{"dataVisita":"","responsavelVisita":"","localVisita":"","duracaoVisita":"","estruturaFisicaConfirmada":true,"funcionariosObservados":0,"estoqueVisivel":false,"estimativaEstoque":"","operacaoCompativelFaturamento":true,"maquinasEquipamentos":false,"descricaoEstrutura":"","pontosPositivos":[],"pontosAtencao":[],"recomendacaoVisitante":"aprovado","nivelConfiancaVisita":"alto","presencaSocios":false,"sociosPresentes":[],"documentosVerificados":[],"observacoesLivres":"","pleito":"","modalidade":"","taxaConvencional":"","taxaComissaria":"","limiteTotal":"","limiteConvencional":"","limiteComissaria":"","limitePorSacado":"","ticketMedio":"","valorCobrancaBoleto":"","prazoRecompraCedente":"","prazoEnvioCartorio":"","prazoMaximoOp":"","cobrancaTAC":"","tranche":"","prazoTranche":"","folhaPagamento":"","endividamentoBanco":"","endividamentoFactoring":"","vendasCheque":"","vendasDuplicata":"","vendasOutras":"","prazoMedioFaturamento":"","prazoMedioEntrega":"","referenciasFornecedores":""}
+{"dataVisita":"","responsavelVisita":"","localVisita":"","duracaoVisita":"","estruturaFisicaConfirmada":true,"funcionariosObservados":0,"estoqueVisivel":false,"estimativaEstoque":"","operacaoCompativelFaturamento":true,"maquinasEquipamentos":false,"descricaoEstrutura":"","pontosPositivos":[],"pontosAtencao":[],"recomendacaoVisitante":"aprovado","nivelConfiancaVisita":"alto","presencaSocios":false,"sociosPresentes":[],"documentosVerificados":[],"observacoesLivres":"","pleito":"","modalidade":"","taxaConvencional":"","taxaComissaria":"","limiteTotal":"","limiteConvencional":"","limiteComissaria":"","limitePorSacado":"","limitePrincipaisSacados":"","ticketMedio":"","valorCobrancaBoleto":"","prazoRecompraCedente":"","prazoEnvioCartorio":"","prazoMaximoOp":"","cobrancaTAC":"","tranche":"","trancheChecagem":"","prazoTranche":"","folhaPagamento":"","endividamentoBanco":"","endividamentoFactoring":"","vendasCheque":"","vendasDuplicata":"","vendasOutras":"","prazoMedioFaturamento":"","prazoMedioEntrega":"","referenciasFornecedores":"","referenciasComerciais":[]}
 
 ATENÇÃO: o campo de referências comerciais DEVE ser chamado "referenciasFornecedores" (NÃO "referenciaComercial" ou "referencias"). Use exatamente esse nome.
 
@@ -1320,14 +1328,16 @@ Parâmetros operacionais (buscar em tabelas, campos rotulados ou seção de "par
 - taxaComissaria: taxa % para modalidade comissária (ex: "1,8%")
 - limiteTotal: limite total aprovado em R$ (ex: "500000,00")
 - limiteConvencional / limiteComissaria: limites por modalidade
-- limitePorSacado: limite máximo por sacado em R$
+- limitePorSacado: limite máximo por sacado em R$ (geralmente 20 a 30% do limite total — "Limite por Sacado", "Limite Máximo por Sacado")
+- limitePrincipaisSacados: limite concentrado para principais sacados em R$ (geralmente 30 a 40% — "Limite Principais Sacados", "Concentração Top Sacados")
 - ticketMedio: valor médio por duplicata/título em R$
 - valorCobrancaBoleto: valor cobrado por emissão/cobrança de boleto
 - prazoRecompraCedente: prazo em dias para recompra pelo cedente
 - prazoEnvioCartorio: dias até envio para cartório
 - prazoMaximoOp: prazo máximo da operação em dias
 - cobrancaTAC: valor ou "Sim"/"Não" para cobrança de TAC
-- tranche: valor da tranche em R$
+- tranche: valor da tranche principal em R$ (operação principal)
+- trancheChecagem: valor da tranche de checagem em R$ ("Tranche Checagem", "Checagem Lastro", "Tranche de Verificação") — é DIFERENTE da tranche principal
 - prazoTranche: prazo da tranche em dias
 
 Dados da empresa (coletados na visita):
@@ -1337,7 +1347,10 @@ Dados da empresa (coletados na visita):
 - vendasCheque / vendasDuplicata / vendasOutras: % de vendas por forma de recebimento
 - prazoMedioFaturamento: prazo médio em dias
 - prazoMedioEntrega: prazo médio de entrega em dias
-- referenciasFornecedores: lista de referências comerciais/fornecedores informadas na visita, separadas por vírgula ou ";" (ex: "Banco do Brasil, Fornecedor X, Cliente Y")`;
+- referenciasFornecedores: lista resumida de referências (texto livre, separadas por vírgula — legado)
+- referenciasComerciais: array de objetos com as referências comerciais estruturadas. Para cada referência extraia:
+  { "empresa": "Nome da empresa", "cnpj": "XX.XXX.XXX/XXXX-XX", "contato": "Nome/Telefone/Email", "tipoRelacionamento": "Fornecedor|Cliente|Banco|Parceiro", "tempoRelacionamento": "X anos/meses", "avaliacaoPagamento": "boa|regular|ruim", "limiteConcelidado": "R$ XXX", "observacoes": "texto livre" }
+  Se o documento FOR uma Ficha de Referência Comercial, extraia todas as empresas listadas como referência. Campos ausentes deixe "" ou omita.`;
 
 // ─────────────────────────────────────────
 // PROVEDOR 1: Gemini (primário — melhor qualidade)
@@ -1709,6 +1722,30 @@ function fillSCRDefaults(data: Partial<SCRData>): SCRData {
     total: fv?.total || "",
   };
 
+  // ─── FALLBACK: curto/longo prazo quando faixas não foram extraídas ───
+  // Se o prompt não encontrou a seção "Discriminação A Vencer por Faixa de
+  // Prazo", carteiraCurtoPrazo fica vazia mas carteiraAVencer pode ter valor.
+  // Deriva: curto = aVencer - acima360d (fallback mínimo: tudo é curto prazo).
+  const parseMoney = (s: unknown): number => {
+    if (s == null || s === "") return 0;
+    const str = String(s).trim().replace(/^R\$\s*/i, "").replace(/\./g, "").replace(",", ".");
+    const n = parseFloat(str);
+    return isNaN(n) ? 0 : n;
+  };
+  let carteiraCurtoPrazo = data.carteiraCurtoPrazo || "";
+  let carteiraLongoPrazo = data.carteiraLongoPrazo || "";
+  const aVencerNum = parseMoney(data.carteiraAVencer);
+  const curtoNum   = parseMoney(carteiraCurtoPrazo);
+  const longoNum   = parseMoney(carteiraLongoPrazo);
+  if (curtoNum === 0 && longoNum === 0 && aVencerNum > 0) {
+    // Nenhum dado de faixa — assume 100% curto prazo (cenário conservador)
+    const acima360 = parseMoney(faixasAVencer.acima360d);
+    const curtoDerivado = Math.max(0, aVencerNum - acima360);
+    carteiraCurtoPrazo = curtoDerivado.toFixed(2).replace(".", ",");
+    carteiraLongoPrazo = acima360.toFixed(2).replace(".", ",");
+    console.log(`[scr-fallback] curto/longo derivados de carteiraAVencer=${aVencerNum} (curto=${curtoDerivado}, longo=${acima360})`);
+  }
+
   return {
     // Identificação — preservar para roteamento PJ vs PF
     tipoPessoa: data.tipoPessoa || undefined,
@@ -1722,7 +1759,7 @@ function fillSCRDefaults(data: Partial<SCRData>): SCRData {
     operacoesEmAtraso: data.operacoesEmAtraso || "", operacoesVencidas: data.operacoesVencidas || "",
     tempoAtraso: data.tempoAtraso || "", coobrigacoes: data.coobrigacoes || "",
     classificacaoRisco: data.classificacaoRisco || "",
-    carteiraCurtoPrazo: data.carteiraCurtoPrazo || "", carteiraLongoPrazo: data.carteiraLongoPrazo || "",
+    carteiraCurtoPrazo, carteiraLongoPrazo,
     modalidades: Array.isArray(data.modalidades) ? data.modalidades : [],
     instituicoes: Array.isArray(data.instituicoes) ? data.instituicoes : [],
     valoresMoedaEstrangeira: data.valoresMoedaEstrangeira || "",
@@ -1871,6 +1908,7 @@ function fillRelatorioVisitaDefaults(data: Partial<RelatorioVisitaData>): Relato
     limiteConvencional: data.limiteConvencional || "",
     limiteComissaria: data.limiteComissaria || "",
     limitePorSacado: data.limitePorSacado || "",
+    limitePrincipaisSacados: data.limitePrincipaisSacados || "",
     ticketMedio: data.ticketMedio || "",
     valorCobrancaBoleto: data.valorCobrancaBoleto || "",
     prazoRecompraCedente: data.prazoRecompraCedente || "",
@@ -1878,6 +1916,7 @@ function fillRelatorioVisitaDefaults(data: Partial<RelatorioVisitaData>): Relato
     prazoMaximoOp: data.prazoMaximoOp || "",
     cobrancaTAC: data.cobrancaTAC || "",
     tranche: data.tranche || "",
+    trancheChecagem: data.trancheChecagem || "",
     prazoTranche: data.prazoTranche || "",
     folhaPagamento: data.folhaPagamento || "",
     endividamentoBanco: data.endividamentoBanco || "",
@@ -1888,6 +1927,7 @@ function fillRelatorioVisitaDefaults(data: Partial<RelatorioVisitaData>): Relato
     prazoMedioFaturamento: data.prazoMedioFaturamento || "",
     prazoMedioEntrega: data.prazoMedioEntrega || "",
     referenciasFornecedores: data.referenciasFornecedores || (data as Record<string, unknown>).referenciaComercial as string || "",
+    referenciasComerciais: Array.isArray(data.referenciasComerciais) ? data.referenciasComerciais : [],
   };
 }
 
@@ -2298,11 +2338,18 @@ export async function POST(request: NextRequest) {
             delete (data as CNPJData & { _qsaDetectado?: QSAData })._qsaDetectado;
           }
 
+          // Injeta warnings de validação dentro do próprio data com prefixo
+          // "_warnings" (meta-field, strippado na hidratação). Permite que o
+          // histórico/UI exibam badges por documento sem mexer no fluxo de estado.
+          const dataWithMeta = zodWarnings.length > 0
+            ? { ...(data as unknown as Record<string, unknown>), _warnings: zodWarnings }
+            : data;
+
           _send(controller, "result", {
-            success: true, data,
+            success: true, data: dataWithMeta,
             ...(scrAnteriorExtra ? { scrAnterior: scrAnteriorExtra, variacoes: variacoesExtra } : {}),
             ...(qsaDetectadoExtra ? { qsaDetectado: qsaDetectadoExtra } : {}),
-            meta: { rawTextLength: _textContent.length, filledFields: filled, isScanned: _isImage, aiPowered: true },
+            meta: { rawTextLength: _textContent.length, filledFields: filled, isScanned: _isImage, aiPowered: true, warningsCount: zodWarnings.length },
           });
 
           // Grava no cache de extracao — fire-and-forget, nunca bloqueia a resposta.

@@ -1,6 +1,6 @@
 import type { ExtractedData, AIAnalysis, FundValidationResult, CreditLimitResult } from "@/types";
 
-type AlertSeverity = "ALTA" | "MODERADA" | "INFO";
+type AlertSeverity = "CRÍTICO" | "RESTRITIVO" | "OBSERVAÇÃO";
 interface Alert { message: string; severity: AlertSeverity; impacto?: string; }
 
 export interface DOCXReportParams {
@@ -90,9 +90,9 @@ export async function buildDOCXReport(p: DOCXReportParams): Promise<Blob> {
       };
 
       const alertParagraph = (text: string, sev: AlertSeverity) => new Paragraph({
-        shading: { type: "clear" as const, fill: sev === "ALTA" ? "FEF2F2" : "FEF3C7" },
+        shading: { type: "clear" as const, fill: sev === "CRÍTICO" ? "FEF2F2" : "FEF3C7" },
         spacing: { before: 60, after: 60 },
-        children: [new TextRun({ text: `  [${sev}] ${text}`, bold: true, color: sev === "ALTA" ? danger : warning, size: 18, font: "Arial" })],
+        children: [new TextRun({ text: `  [${sev}] ${text}`, bold: true, color: sev === "CRÍTICO" ? danger : warning, size: 18, font: "Arial" })],
       });
 
       // QSA table
@@ -434,8 +434,8 @@ export async function buildDOCXReport(p: DOCXReportParams): Promise<Blob> {
               spacer(300),
               sectionTitle("04", "FATURAMENTO", green),
               spacer(100),
-              ...(data.faturamento.faturamentoZerado ? [alertParagraph("Faturamento zerado no periodo", "ALTA")] : []),
-              ...(!data.faturamento.dadosAtualizados ? [alertParagraph(`Dados desatualizados — ultimo mes: ${data.faturamento.ultimoMesComDados || "N/A"}`, "MODERADA")] : []),
+              ...(data.faturamento.faturamentoZerado ? [alertParagraph("Faturamento zerado no periodo", "CRÍTICO")] : []),
+              ...(!data.faturamento.dadosAtualizados ? [alertParagraph(`Dados desatualizados — ultimo mes: ${data.faturamento.ultimoMesComDados || "N/A"}`, "RESTRITIVO")] : []),
               fieldTable([
                 ["Somatoria Anual (R$)", data.faturamento.somatoriaAno],
                 ["Media Mensal (R$)", data.faturamento.mediaAno],
@@ -494,7 +494,7 @@ export async function buildDOCXReport(p: DOCXReportParams): Promise<Blob> {
                 ["Regularizados (Qtd)", data.protestos?.regularizadosQtd || "0"],
                 ["Regularizados (R$)", data.protestos?.regularizadosValor || "0,00"],
               ]),
-              ...(protestosVigentes > 0 ? [alertParagraph(`${protestosVigentes} protesto(s) vigente(s)`, "ALTA")] : []),
+              ...(protestosVigentes > 0 ? [alertParagraph(`${protestosVigentes} protesto(s) vigente(s)`, "CRÍTICO")] : []),
               ...(protestosTable ? [
                 spacer(100),
                 new Paragraph({ spacing: { after: 100 }, children: [new TextRun({ text: "DETALHES DOS PROTESTOS", size: 15, bold: true, color: muted, font: "Arial" })] }),
@@ -510,7 +510,7 @@ export async function buildDOCXReport(p: DOCXReportParams): Promise<Blob> {
                 ["Ativos (Total)", data.processos?.ativosTotal || "0"],
                 ["Valor Estimado (R$)", data.processos?.valorTotalEstimado || "0,00"],
               ]),
-              ...(data.processos?.temRJ ? [alertParagraph("RECUPERACAO JUDICIAL identificada", "ALTA")] : []),
+              ...(data.processos?.temRJ ? [alertParagraph("RECUPERACAO JUDICIAL identificada", "CRÍTICO")] : []),
               ...(distTable ? [
                 spacer(100),
                 new Paragraph({ spacing: { after: 100 }, children: [new TextRun({ text: "DISTRIBUICAO POR TIPO", size: 15, bold: true, color: muted, font: "Arial" })] }),

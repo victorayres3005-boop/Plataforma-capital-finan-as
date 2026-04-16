@@ -3,7 +3,7 @@ import { calcularCobertura } from "@/lib/generators/helpers";
 
 interface Alert {
   message: string;
-  severity: "ALTA" | "MODERADA" | "INFO";
+  severity: "ALTA" | "MODERADA" | "INFO" | "CRÍTICO" | "RESTRITIVO" | "OBSERVAÇÃO";
   impacto?: string;
 }
 

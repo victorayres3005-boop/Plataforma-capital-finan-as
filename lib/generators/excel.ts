@@ -1,7 +1,7 @@
 // Excel report generator
 import type { ExtractedData, AIAnalysis, FundValidationResult, CreditLimitResult } from "@/types";
 
-type AlertSeverity = "ALTA" | "MODERADA" | "INFO";
+type AlertSeverity = "CRÍTICO" | "RESTRITIVO" | "OBSERVAÇÃO";
 interface Alert { message: string; severity: AlertSeverity; impacto?: string; }
 
 export interface ExcelReportParams {

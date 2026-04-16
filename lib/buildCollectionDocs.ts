@@ -23,7 +23,7 @@ export function buildCollectionDocs(data: ExtractedData): CollectionDocument[] {
   if (contratoTemDados) {
     docs.push({ type: "contrato_social", filename: "contrato-social.pdf", extracted_data: asRec(data.contrato), uploaded_at: ts() });
   }
-  if (data.faturamento.meses.length > 0 || data.faturamento.somatoriaAno) {
+  if (data.faturamento.meses.length > 0 || (data.faturamento.somatoriaAno && data.faturamento.somatoriaAno !== "0,00")) {
     docs.push({ type: "faturamento", filename: "faturamento.pdf", extracted_data: asRec(data.faturamento), uploaded_at: ts() });
   }
   if (data.scr.totalDividasAtivas || data.scr.operacoesEmAtraso) {

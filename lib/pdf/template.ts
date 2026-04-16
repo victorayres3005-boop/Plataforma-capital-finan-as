@@ -1146,7 +1146,8 @@ function pageFaturamento(params: PDFReportParams, date: string): string {
   const meses = sortMesCrono(Array.from(new Map((fat?.meses ?? []).map((m: any) => [m.mes as string, m])).values())).slice(-12);
   const fmm = fat?.fmm12m ?? fat?.mediaAno ?? "—";
   const total12 = fat?.somatoriaAno ?? "—";
-  const nMeses = meses.length;
+  const fmmMedio = fat?.fmmMedio ?? "";
+  const ultimoMesComDados = fat?.ultimoMesComDados ?? "";
   const tendencia = fat?.tendencia ?? "indefinido";
   const tendLabel = tendencia === "crescimento" ? "↑ crescimento" : tendencia === "queda" ? "↓ queda" : "→ estável";
   const tendColor2 = tendencia === "crescimento" ? "var(--g6)" : tendencia === "queda" ? "var(--r6)" : "var(--x5)";
@@ -1171,10 +1172,10 @@ function pageFaturamento(params: PDFReportParams, date: string): string {
   const content = `
     ${stitle("02 · Faturamento")}
     <div class="istrip c4" style="margin-bottom:16px">
-      <div class="icell navy"><div class="l">FMM 12M</div><div class="v">${fmtMoneyAbr(fmm)}</div><div class="sub">média mensal</div></div>
+      <div class="icell navy"><div class="l">FMM 12M</div><div class="v">${fmtMoneyAbr(fmm)}</div><div class="sub">média últimos 12m</div></div>
       <div class="icell navy"><div class="l">Total 12M</div><div class="v">${fmtMoneyAbr(total12)}</div><div class="sub">soma 12 meses</div></div>
-      <div class="icell"><div class="l">Meses</div><div class="v">${nMeses}</div><div class="sub">dados disponíveis</div></div>
-      <div class="icell ${tendCell}"><div class="l">Tendência</div><div class="v" style="color:${tendColor2}">${esc(tendLabel)}</div><div class="sub">últ. 3 vs anteriores</div></div>
+      <div class="icell"><div class="l">FMM Médio</div><div class="v">${fmmMedio ? fmtMoneyAbr(fmmMedio) : esc(String(meses.length))}</div><div class="sub">${fmmMedio ? "média anos completos" : "meses disponíveis"}</div></div>
+      <div class="icell ${tendCell}"><div class="l">Tendência</div><div class="v" style="color:${tendColor2}">${esc(tendLabel)}</div><div class="sub">${ultimoMesComDados ? `até ${esc(ultimoMesComDados)}` : "ano a ano"}</div></div>
     </div>
     <div class="chart-box">
       <div class="chart-title">Faturamento mensal — últimos 12 meses</div>

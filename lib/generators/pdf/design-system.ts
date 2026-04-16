@@ -179,3 +179,44 @@ export const DS = {
   pageW:  210,
   pageH:  297,
 } as const;
+
+/**
+ * FONTS — presets tipográficos padronizados
+ * Regra: labels/títulos → helvetica | valores numéricos/monetários → courier
+ * Uso: setF(doc, FONTS.metricLg) para aplicar font+size+style de uma vez
+ */
+export type FontPreset = { font: string; size: number; style: string };
+export const FONTS = {
+  // ── Labels e títulos ──────────────────────────────────────────────────────
+  sectionNumber: { font: "courier",   size: 8,    style: "bold"   },
+  sectionTitle:  { font: "helvetica", size: 11,   style: "bold"   },
+  label:         { font: "helvetica", size: 6.5,  style: "normal" },
+  labelCaps:     { font: "helvetica", size: 6,    style: "bold"   },
+  body:          { font: "helvetica", size: 8.5,  style: "normal" },
+  bodyBold:      { font: "helvetica", size: 8.5,  style: "bold"   },
+  bodyItalic:    { font: "helvetica", size: 8,    style: "italic" },
+
+  // ── Valores numéricos ──────────────────────────────────────────────────────
+  metricLg:      { font: "courier",   size: 16,   style: "bold"   },
+  metricMd:      { font: "courier",   size: 12,   style: "bold"   },
+  metricSm:      { font: "courier",   size: 9,    style: "bold"   },
+  tableValue:    { font: "courier",   size: 8,    style: "normal" },
+  tableValueBold:{ font: "courier",   size: 8,    style: "bold"   },
+
+  // ── Tabela ─────────────────────────────────────────────────────────────────
+  tableHeader:   { font: "helvetica", size: 7,    style: "bold"   },
+  tableCell:     { font: "helvetica", size: 8,    style: "normal" },
+  tableCellBold: { font: "helvetica", size: 8,    style: "bold"   },
+
+  // ── Miscelânea ─────────────────────────────────────────────────────────────
+  badge:         { font: "helvetica", size: 7,    style: "bold"   },
+  alert:         { font: "helvetica", size: 8,    style: "normal" },
+  footer:        { font: "helvetica", size: 6,    style: "normal" },
+  pageNum:       { font: "courier",   size: 8,    style: "bold"   },
+} as const;
+
+/** Aplica um FontPreset ao doc jsPDF */
+export function setF(doc: { setFont(f: string, s: string): void; setFontSize(n: number): void }, preset: FontPreset): void {
+  doc.setFont(preset.font, preset.style);
+  doc.setFontSize(preset.size);
+}

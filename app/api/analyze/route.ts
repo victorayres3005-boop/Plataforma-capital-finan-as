@@ -407,7 +407,7 @@ Critérios para [INFO] — severidade "INFO":
 
 Calcule o score por componentes ponderados:
 
-1. SCR (peso 22%):
+1. SCR (peso 18%):
    Este componente avalia TANTO o SCR da empresa QUANTO o SCR dos sócios (se disponível).
    — Sem vencidos, sem prejuízo, alavancagem <= 2x: 10,0
    — Sem vencidos, sem prejuízo, alavancagem 2–3,5x: 8,0
@@ -418,11 +418,12 @@ Calcule o score por componentes ponderados:
    Penalidade SCR dos sócios: se algum sócio tem vencidos > 0 ou prejuízos > 0, aplique -1,5 pts neste componente adicionalmente (sócio inadimplente = risco de gestão).
    Penalidade de antecipação excessiva: se nas modalidades SCR aparecerem "desconto de duplicatas", "antecipação de recebíveis", "FIDC" ou similares com volume > 30% do FMM, aplique -0,5 pts (capacidade já comprometida com outros instrumentos).
 
-2. Faturamento (peso 18%):
+2. Faturamento (peso 17%):
    — FMM acima do mínimo, consistente, sem zeros, tendência estável ou crescente: 10,0
    — FMM acima do mínimo com irregularidades ou tendência de queda: 7,0
    — FMM abaixo do mínimo: 2,0
    — Faturamento não informado: 3,0
+   SAZONALIDADE: se o alerta FAT_SAZONALIDADE_CRITICA estiver presente, reduza a nota deste componente em -1,5 pts (FMM médio superestima capacidade).
 
 3. CCF — Cheques Sem Fundo (peso 15%):
    ATENÇÃO: CCF é o indicador mais decisivo de disciplina de pagamento no sistema bancário. Para um FIDC, um cedente que não honrou cheques provavelmente também não honrará coobrigações. Trate com rigidez máxima.
@@ -444,29 +445,36 @@ Calcule o score por componentes ponderados:
    — RJ ativo: 0,0
    — Não consultado: 5,0
 
-6. Balanço/DRE (peso 10%):
+6. Balanço/DRE (peso 9%):
    — PL positivo, liquidez > 1,0, margem positiva: 10,0
    — PL positivo, liquidez 0,5–1,0: 7,0
    — PL positivo, liquidez < 0,5: 4,0
    — PL negativo: 1,0
    — Não informado: 5,0
 
-7. Sócios/Governança (peso 5%):
+7. Sócios/Governança (peso 4%):
    — IR atualizado, sem restrições, múltiplos sócios com participação equilibrada: 10,0
    — IR com ressalvas ou desatualizado: 6,0
    — Débitos em aberto / restrições: 2,0
    — IR não informado: 4,0
+   MATURIDADE: considere a idade da empresa no ajuste final deste componente:
+     — empresa com 3–5 anos: -1,0 pt (baixa maturidade operacional)
+     — empresa com 5–10 anos: nota neutra
+     — empresa com > 10 anos: +0,5 pt (maturidade consolidada)
+   Alertas INCOERENCIA_DRE_FAT ou ALAVANCAGEM_DIVERGENTE presentes: -1,0 pt neste componente (governança financeira inconsistente).
 
-8. Curva ABC / Qualidade da Carteira de Sacados (peso 8%):
-   CONTEXTO FIDC: O risco numa operação de FIDC não está só no cedente — está nos sacados que vão pagar as duplicatas. Um cedente excelente com clientes ruins tem portfólio ruim. Avalie este componente com critério de gestor de fundo.
+8. Curva ABC / Qualidade da Carteira de Sacados (peso 15%):
+   CONTEXTO FIDC: O risco numa operação de FIDC NÃO está só no cedente — está principalmente nos sacados que vão pagar as duplicatas. Num FIDC sem coobrigação forte, a qualidade do portfólio de sacados é O fator mais importante. Por isso este componente ganhou peso.
    — Boa diversificação: maior sacado < 20% do faturamento, top 5 < 50%, base > 10 clientes: 10,0
    — Concentração moderada: maior sacado 20–30% OU top 5 entre 50–70%: 7,0
    — Concentração alta: maior sacado 30–50% OU top 5 > 70%: 4,0
    — Concentração crítica: maior sacado > 50% — risco sistêmico: 1,0
    — Curva ABC não informada: 5,0 (neutro — gere alerta SACADO_ABC_AUSENTE)
+   DILUIÇÃO SETORIAL: se o cedente for de prestação de serviços (CNAE 60-99 majoritário), reduza em -1,0 pt (maior risco de contestação).
 
-Score final = média ponderada (SCR 22% + Fat 18% + CCF 15% + Protestos 13% + Processos 9% + Balanço 10% + Sócios 5% + Sacados 8% = 100%)
-Penalidades adicionais: -1,5 por cada alerta CCF [ALTA]; -1,0 por cada outro alerta [ALTA]; -0,3 por cada alerta [MODERADA] (mínimo 0)
+Score final = média ponderada (SCR 18% + Fat 17% + CCF 15% + Protestos 13% + Processos 9% + Balanço 9% + Sócios 4% + Sacados 15% = 100%)
+Penalidades adicionais: -1,0 por cada alerta [ALTA]; -0,3 por cada alerta [MODERADA] (mínimo 0)
+IMPORTANTE: CCF com qtdRegistros > 0 já força REPROVADO via regra absoluta — NÃO aplique penalidade dupla de -1,5 sobre o score. A regra absoluta é suficiente.
 
 === ANÁLISE COMPLEMENTAR FIDC ===
 
@@ -1406,6 +1414,22 @@ export async function POST(request: NextRequest) {
         impacto: "Dados deste documento podem estar incompletos ou ausentes",
         mitigacao: `Verificar o arquivo original de ${label} e reprocessar se necessário`,
       });
+    }
+
+    // ──── Cross-validation determinística (Fase C) ────
+    // Gera alertas quando documentos divergentes sugerem erro ou inconsistência.
+    // Entra no contexto do prompt pra IA ponderar no rating final.
+    try {
+      const { crossValidate } = await import("@/lib/crossValidate");
+      const crossAlerts = crossValidate(body.data);
+      for (const a of crossAlerts) {
+        alertasDeterministicos.push(a);
+      }
+      if (crossAlerts.length > 0) {
+        console.log(`[analyze] cross-validate: ${crossAlerts.length} alerta(s) determinístico(s) adicionados`);
+      }
+    } catch (err) {
+      console.warn("[analyze] crossValidate falhou:", err instanceof Error ? err.message : err);
     }
 
     // ──── Cache validation ────

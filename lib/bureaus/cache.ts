@@ -143,6 +143,36 @@ export async function ccfLoad(cnpj: string): Promise<CCFData | null> {
   }
 }
 
+// ─── Processos persistentes (sem expiração) ─────────────────────────────────
+import type { ProcessosData } from "@/types";
+
+export async function processosSave(cnpj: string, processos: ProcessosData): Promise<void> {
+  const db = getClient();
+  if (!db) return;
+  try {
+    await db.from("processos_cache").upsert({ cnpj, processos, updated_at: new Date().toISOString() });
+  } catch {
+    // Silencioso
+  }
+}
+
+export async function processosLoad(cnpj: string): Promise<ProcessosData | null> {
+  const db = getClient();
+  if (!db) return null;
+  try {
+    const { data, error } = await db
+      .from("processos_cache")
+      .select("processos, updated_at")
+      .eq("cnpj", cnpj)
+      .single();
+    if (error || !data) return null;
+    console.log(`[processos-cache] HIT CNPJ=${cnpj} updated_at=${data.updated_at}`);
+    return data.processos as ProcessosData;
+  } catch {
+    return null;
+  }
+}
+
 export async function cacheSize(): Promise<number> {
   const db = getClient();
   if (!db) return 0;

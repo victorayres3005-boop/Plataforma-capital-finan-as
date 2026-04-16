@@ -5,7 +5,8 @@ import type {
   CCFData, HistoricoConsultaItem, QSAData,
   GrupoEconomicoData, ParentescoDetectado,
 } from "@/types";
-import { protestosSave, protestosLoad, ccfSave, ccfLoad } from "@/lib/bureaus/cache";
+import { protestosSave, protestosLoad, processosSave, processosLoad, ccfSave, ccfLoad } from "@/lib/bureaus/cache";
+import { buscarEmpresasDataJud } from "@/lib/bureaus/datajud";
 
 const CREDITHUB_API_URL = process.env.CREDITHUB_API_URL || "";
 const CREDITHUB_API_KEY = process.env.CREDITHUB_API_KEY || "";
@@ -1039,6 +1040,27 @@ export async function consultarGrupoEconomicoSocios(
     });
   });
 
+  // ── Enriquecimento via DataJud (gratuito) ──────────────────────────────────
+  // Busca empresas co-partes nos processos dos sócios em todos os principais tribunais.
+  // Complementa os dados do CreditHub sem custo adicional.
+  const djEmpresas = await buscarEmpresasDataJud(
+    sociosPF.map(s => ({ cpf: s.cpfCnpj, nome: s.nome })),
+    cnpjEmpresaPrincipal,
+  );
+
+  // Funde: só adiciona empresas do DataJud que ainda não estão na lista
+  for (const emp of djEmpresas) {
+    const chave = emp.cnpj ? emp.cnpj : emp.razaoSocial.toLowerCase().trim();
+    if (!chaveVista.has(chave)) {
+      // Aplica os mesmos filtros da lista CreditHub
+      const nome = emp.razaoSocial.trim();
+      if (nome.length < 6) continue;
+      if (/\b(BANCO DO BRASIL|CAIXA ECONOM|BRADESCO|ITAU|SANTANDER|SICRED|SICOOB|BB S\/A|PREFEITURA|MUNICIPIO|ESTADO DE|FAZENDA DO ESTADO|SPPREV|INSS)\b/i.test(nome)) continue;
+      chaveVista.add(chave);
+      empresas.push(emp);
+    }
+  }
+
   return { empresas, alertaParentesco, parentescosDetectados };
 }
 
@@ -1163,11 +1185,35 @@ export async function consultarCreditHub(cnpj: string, rawDataFromClient?: unkno
   }
   const ccfFinal = ccfTemDados ? ccfParsed : (await ccfLoad(cnpjNum)) ?? ccfParsed;
 
+  // Processos: usa API; salva no Supabase quando tem dados; fallback do Supabase quando API não retornou
+  let processos: ProcessosData | undefined;
+  const parsedProcessos = parseProcessos(d);
+  const temProcessosAPI = Number(parsedProcessos.passivosTotal ?? 0) > 0 ||
+    (parsedProcessos.top10Valor?.length ?? 0) > 0 ||
+    (parsedProcessos.top10Recentes?.length ?? 0) > 0;
+  if (temProcessosAPI) {
+    processos = parsedProcessos;
+    processosSave(cnpjNum, processos).catch(() => {});
+    console.log(`[credithub] processos salvos no Supabase CNPJ=${cnpjNum}`);
+  } else if (parsedProcessos.passivosTotal !== "") {
+    // API retornou "0" explicitamente → consultado, sem processos
+    processos = parsedProcessos;
+  } else {
+    // API não retornou processos → tenta Supabase
+    const cachedProc = await processosLoad(cnpjNum);
+    if (cachedProc) {
+      processos = cachedProc;
+      console.log(`[credithub] processos recuperados do Supabase CNPJ=${cnpjNum}`);
+    } else {
+      processos = parsedProcessos; // zero explícito (campo chegou vazio)
+    }
+  }
+
   return {
     success: true,
     mock: false,
     protestos,
-    processos: parseProcessos(d),
+    processos,
     ccf: ccfFinal,
     historicoConsultas: parseHistoricoConsultas(d),
     cnpjEnrichment: parseCNPJEnrichment(d),

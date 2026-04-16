@@ -134,8 +134,12 @@ export function renderFaturamento(ctx: PdfCtx): void {
     ? parseMoneyToNumber(data.faturamento.fmm12m)
     : last12.length > 0 ? last12.reduce((s,m) => s + parseMoneyToNumber(m.valor), 0) / last12.length : 0;
   const fatTotal12 = last12.reduce((s,m) => s + parseMoneyToNumber(m.valor), 0);
+  const fmmMedio   = data.faturamento?.fmmMedio ? parseMoneyToNumber(data.faturamento.fmmMedio) : 0;
+  const ultimoMes  = data.faturamento?.ultimoMesComDados ?? "";
 
-  // Trend: compare avg of last 3 vs prev 3
+  // Trend: usa valor calculado pelo backend (ano a ano) como primário;
+  // fallback para comparação dos últimos 3M vs 3M anteriores (local)
+  const backendTend = data.faturamento?.tendencia ?? "indefinido";
   const trendPct = (() => {
     if (last12.length < 6) return null;
     const vals = last12.map(m => parseMoneyToNumber(m.valor));
@@ -144,26 +148,34 @@ export function renderFaturamento(ctx: PdfCtx): void {
     if (prior === 0) return null;
     return (recent - prior) / prior * 100;
   })();
+  // Direção unificada: backend prevalece sobre cálculo local
+  const tendDir = backendTend !== "indefinido" ? backendTend
+    : trendPct === null ? "indefinido"
+    : trendPct >= 0 ? "crescimento" : "queda";
+
+  const mesesZerados = (data.faturamento?.mesesZerados ?? []) as Array<{mes:string;motivo?:string}>;
+  const fmmAnual = data.faturamento?.fmmAnual as Record<string,string> | undefined;
 
   // ════════════════════════════════════════════════════════════════════════════
   newPage(ctx);
   drawHeader(ctx);
   stitle("06 · Faturamento");
 
-  // KPI cards
+  // KPI cards — linha 1: FMM 12M · Total 12M · FMM Médio · Tendência
   checkPageBreak(ctx, 22);
   {
     const CH = 18; const cw = (CW - GAP * 3) / 4;
     const y0 = pos.y;
-    icell(ML,              y0, cw, CH, "FMM 12M", mo(fmm12m), P.n0, P.n1, P.n9, "média mensal");
+    icell(ML,              y0, cw, CH, "FMM 12M",   mo(fmm12m),   P.n0, P.n1, P.n9, "média últimos 12m");
     icell(ML+cw+GAP,       y0, cw, CH, "Total 12M", mo(fatTotal12), P.n0, P.n1, P.n9, "soma 12 meses");
-    icell(ML+(cw+GAP)*2,   y0, cw, CH, "Meses", String(last12.length), P.x0, P.x1, P.n9, "dados disponíveis");
+    icell(ML+(cw+GAP)*2,   y0, cw, CH, "FMM Médio", fmmMedio > 0 ? mo(fmmMedio) : `${last12.length}m`, P.x0, P.x1, P.n9, fmmMedio > 0 ? "média anos completos" : "meses disponíveis");
 
-    const tendBg: [number,number,number] = trendPct === null ? P.x0 : trendPct >= 0 ? P.g0 : P.r0;
-    const tendBd: [number,number,number] = trendPct === null ? P.x1 : trendPct >= 0 ? P.g1 : P.r1;
-    const tendFg: [number,number,number] = trendPct === null ? P.x4 : trendPct >= 0 ? P.g6 : P.r6;
-    const tendVal = trendPct !== null ? `${trendPct >= 0 ? "↑" : "↓"} ${fmtBR(Math.abs(trendPct),0)}%` : "—";
-    icell(ML+(cw+GAP)*3,   y0, cw, CH, "Tendência", tendVal, tendBg, tendBd, tendFg, "últ. 3 vs anteriores");
+    const tendBg: [number,number,number] = tendDir === "indefinido" ? P.x0 : tendDir === "crescimento" ? P.g0 : P.r0;
+    const tendBd: [number,number,number] = tendDir === "indefinido" ? P.x1 : tendDir === "crescimento" ? P.g1 : P.r1;
+    const tendFg: [number,number,number] = tendDir === "indefinido" ? P.x4 : tendDir === "crescimento" ? P.g6 : P.r6;
+    const tendIcon = tendDir === "crescimento" ? "↑" : tendDir === "queda" ? "↓" : "→";
+    const tendPctStr = trendPct !== null ? ` ${fmtBR(Math.abs(trendPct),0)}%` : "";
+    icell(ML+(cw+GAP)*3,   y0, cw, CH, "Tendência", `${tendIcon}${tendPctStr}`, tendBg, tendBd, tendFg, ultimoMes ? `até ${ultimoMes}` : "ano a ano");
     pos.y = y0 + CH + 5;
   }
 
@@ -206,8 +218,12 @@ export function renderFaturamento(ctx: PdfCtx): void {
         doc.setFillColor(...bc);
         doc.roundedRect(bx + bw * 0.1, by, bw * 0.8, bh, 0.8, 0.8, "F");
         if (v > 0) {
-          doc.setFont("helvetica","bold"); doc.setFontSize(3.8); doc.setTextColor(...P.x5);
-          doc.text(mo(v).replace("R$ ",""), bx + bw/2, by - 1, { align: "center" });
+          // Se a barra for muito alta, coloca o label dentro (texto branco); senão, acima
+          const insideBar = by - 1 < chartY + 4;
+          const labelY: number = insideBar ? by + 4.5 : by - 1;
+          doc.setFont("helvetica","bold"); doc.setFontSize(3.8);
+          doc.setTextColor(...(insideBar ? P.wh : P.x5));
+          doc.text(mo(v).replace("R$ ",""), bx + bw/2, labelY, { align: "center" });
         }
         doc.setFont("helvetica","normal"); doc.setFontSize(4.5); doc.setTextColor(...P.x4);
         const lbl = (m.mes || "").split("/")[0].slice(0,3).toLowerCase();
@@ -219,10 +235,15 @@ export function renderFaturamento(ctx: PdfCtx): void {
       doc.setDrawColor(...P.x1); doc.setLineWidth(0.2);
       doc.line(ML + 4, ky - 2, ML + CW - 4, ky - 2);
 
+      const tendLabelKpi = tendDir === "crescimento"
+        ? `Tendência: ↑${trendPct !== null ? " +" + fmtBR(Math.abs(trendPct),0)+"%" : ""}`
+        : tendDir === "queda"
+        ? `Tendência: ↓${trendPct !== null ? " -" + fmtBR(Math.abs(trendPct),0)+"%" : ""}`
+        : "Tendência: —";
       const kpis = [
         { l: "FMM", v: mo(fmm12m) },
         { l: "Total 12M", v: mo(fatTotal12) },
-        { l: trendPct !== null ? `Tendência: ${trendPct >= 0 ? "↑ +" : "↓ "}${fmtBR(Math.abs(trendPct),0)}%` : "Tendência: —", v: "" },
+        { l: tendLabelKpi, v: "" },
       ];
       kpis.forEach((k, i) => {
         const kx = ML + 6 + i * (CW - 8) / 3;
@@ -232,7 +253,7 @@ export function renderFaturamento(ctx: PdfCtx): void {
           doc.setFont("helvetica","bold"); doc.setFontSize(7.5); doc.setTextColor(...P.n9);
           doc.text(k.v, kx + doc.getTextWidth(k.l+": ") + 1, ky + 4);
         } else {
-          const tc: [number,number,number] = trendPct === null ? P.x5 : trendPct >= 0 ? P.g6 : P.r6;
+          const tc: [number,number,number] = tendDir === "indefinido" ? P.x5 : tendDir === "crescimento" ? P.g6 : P.r6;
           doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(...tc);
           doc.text(k.l, kx, ky + 4);
         }
@@ -240,6 +261,27 @@ export function renderFaturamento(ctx: PdfCtx): void {
     }
 
     pos.y = y0 + CARDH + 5;
+  }
+
+  // Meses zerados alert
+  if (mesesZerados.length > 0) {
+    checkPageBreak(ctx, 12);
+    const labels = mesesZerados.map(m => m.mes).join(", ");
+    alertRow("mod", `${mesesZerados.length} mês(es) sem faturamento informado: ${labels}`);
+  }
+
+  // FMM Anual grid
+  if (fmmAnual && Object.keys(fmmAnual).length > 0) {
+    checkPageBreak(ctx, 30);
+    stitle("FMM por Ano");
+    const entries = Object.entries(fmmAnual).sort(([a], [b]) => Number(a) - Number(b));
+    const cw = (CW - GAP * (entries.length - 1)) / entries.length;
+    const CH = 18;
+    const y0 = pos.y;
+    entries.forEach(([ano, val], i) => {
+      icell(ML + i * (cw + GAP), y0, cw, CH, `FMM ${ano}`, mo(val), P.n0, P.n1, P.n9, "média mensal do ano");
+    });
+    pos.y = y0 + CH + 5;
   }
 
   // ════════════════════════════════════════════════════════════════════════════

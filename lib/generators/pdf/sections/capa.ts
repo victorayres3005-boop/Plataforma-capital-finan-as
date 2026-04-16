@@ -25,9 +25,10 @@ export function renderCapa(ctx: PdfCtx): void {
     scoreNum >= 5   ? [217, 119, 6]   :
                       [220, 38,  38];
 
-  const decText = (decision || "PENDENTE").replace(/_/g, " ").toUpperCase();
-  const decAprov  = /APROV/i.test(decText) && !/CONDIC/i.test(decText);
-  const decReprov = /REPROV/i.test(decText);
+  const decRaw    = (decision || "PENDENTE").replace(/_/g, " ").toUpperCase();
+  const decAprov  = /APROV/i.test(decRaw) && !/CONDIC/i.test(decRaw);
+  const decReprov = /REPROV/i.test(decRaw);
+  const decText   = decAprov ? "Tend. de Aprovação" : decReprov ? "Tend. de Reprovação" : /CONDIC/i.test(decRaw) ? "Tend. Condicional" : "Pendente";
   const decColor: [number,number,number] = decAprov ? [22,163,74] : decReprov ? [220,38,38] : [217,119,6];
   const decBg:    [number,number,number] = decAprov ? [34,197,94]  : decReprov ? [239,68,68]  : [245,158,11];
 
@@ -145,15 +146,15 @@ export function renderCapa(ctx: PdfCtx): void {
   doc.text("Rating Capital", circCx, circY + 25, { align: "center" });
 
   // ── Badge decisão ─────────────────────────────────────────────────────
-  const badgeW = 60;
   const badgeH = 10;
-  const badgeX = W / 2 - badgeW / 2;
   const badgeY = circY + 30;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8.5);
+  const badgeW = Math.max(70, doc.getTextWidth(decText) + 18);
+  const badgeX = W / 2 - badgeW / 2;
 
   doc.setFillColor(...decBg);
   doc.roundedRect(badgeX, badgeY, badgeW, badgeH, 2.5, 2.5, "F");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8.5);
   doc.setTextColor(...decColor);
   doc.text(decText, W / 2, badgeY + 7, { align: "center" });
 

@@ -265,6 +265,18 @@ export interface ProcessosData {
   top10Recentes?: ProcessoItem[];
 }
 
+// ─── Referência Comercial ───
+export interface ReferenciaComercial {
+  empresa: string;           // razão social ou nome
+  cnpj?: string;             // CNPJ (opcional)
+  contato?: string;          // nome / telefone / email do contato
+  tipoRelacionamento?: string; // "Fornecedor" | "Cliente" | "Banco" | "Parceiro" | etc.
+  tempoRelacionamento?: string; // "2 anos", "6 meses", etc.
+  avaliacaoPagamento?: "boa" | "regular" | "ruim"; // comportamento de pagamento
+  limiteConcelidado?: string;  // limite de crédito concedido (R$)
+  observacoes?: string;       // observações livres
+}
+
 // ─── Relatório de Visita ───
 export interface RelatorioVisitaData {
   dataVisita: string;
@@ -295,14 +307,16 @@ export interface RelatorioVisitaData {
   limiteTotal?: string;              // limite total (R$)
   limiteConvencional?: string;       // limite convencional (R$)
   limiteComissaria?: string;         // limite comissária (R$)
-  limitePorSacado?: string;          // limite por sacado (R$)
+  limitePorSacado?: string;          // limite por sacado — 20 a 30% (R$)
+  limitePrincipaisSacados?: string;  // limite principais sacados — 30 a 40% (R$)
   ticketMedio?: string;              // ticket médio por duplicata (R$)
   valorCobrancaBoleto?: string;      // valor cobrado por cobrança de boleto (R$)
   prazoRecompraCedente?: string;     // condição: prazo de recompra pelo cedente (dias)
   prazoEnvioCartorio?: string;       // condição: envio para cartório em X dias
   prazoMaximoOp?: string;            // prazo máximo da operação (dias)
   cobrancaTAC?: string;              // cobrança de TAC (valor ou "Sim"/"Não")
-  tranche?: string;                  // valor da tranche (R$)
+  tranche?: string;                  // valor da tranche principal (R$)
+  trancheChecagem?: string;          // valor da tranche de checagem (R$) — separado
   prazoTranche?: string;             // prazo da tranche (dias)
 
   // ─── Dados da Empresa (coletados na visita) ───
@@ -314,7 +328,8 @@ export interface RelatorioVisitaData {
   vendasOutras?: string;             // % outras formas de venda
   prazoMedioFaturamento?: string;    // prazo médio de faturamento (dias)
   prazoMedioEntrega?: string;        // prazo médio de entrega das mercadorias (dias)
-  referenciasFornecedores?: string;  // referências comerciais / fornecedores (texto livre)
+  referenciasFornecedores?: string;      // referências comerciais / fornecedores (texto livre — legado)
+  referenciasComerciais?: ReferenciaComercial[]; // referências estruturadas (novo)
 }
 
 // ─── IR dos Sócios ───

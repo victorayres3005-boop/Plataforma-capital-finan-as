@@ -107,7 +107,14 @@ export function renderParecerSection(ctx: PdfCtx): void {
     pos.y += BH + 6;
   }
 
-  if (!aiAnalysis && !resumoExecutivo) {
+  // Verifica se há conteúdo real para exibir
+  const texto = (resumoExecutivo || "").trim();
+  const pfList = pontosFortes.slice(0, 6);
+  const pwList = pontosFracos.slice(0, 6);
+  const pergList = params.perguntasVisita || [];
+  const hasContent = !!(texto || pfList.length > 0 || pwList.length > 0 || pergList.length > 0);
+
+  if (!hasContent) {
     // Pending card
     checkPageBreak(ctx, 30);
     doc.setFillColor(...P.x0);
@@ -121,9 +128,6 @@ export function renderParecerSection(ctx: PdfCtx): void {
     pos.y += 33;
     return;
   }
-
-  // Resumo executivo — estilo citação editorial
-  const texto = (resumoExecutivo || "").trim();
   if (texto) {
     checkPageBreak(ctx, 30);
     const lines = doc.splitTextToSize(texto, CW - 20) as string[];

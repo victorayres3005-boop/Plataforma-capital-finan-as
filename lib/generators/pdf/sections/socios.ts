@@ -144,8 +144,9 @@ export function renderSocios(ctx: PdfCtx): void {
 
     doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.setTextColor(...P.x9);
     doc.text(ir.nomeSocio || "Sócio", ML + avR*2 + 4, pos.y + 8);
+    const cpfClean = (ir.cpf || "—").replace(/^\s*cpf\s*:\s*/i, "").trim();
     doc.setFont("courier","normal"); doc.setFontSize(7.5); doc.setTextColor(...P.x5);
-    doc.text(`CPF: ${ir.cpf || "—"} · Ano-base: ${ir.anoBase || "—"}`, ML + avR*2 + 4, pos.y + 14);
+    doc.text(`CPF: ${cpfClean} · Ano-base: ${ir.anoBase || "—"}`, ML + avR*2 + 4, pos.y + 14);
 
     pos.y += avR * 2 + 8;
 

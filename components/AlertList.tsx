@@ -1,6 +1,6 @@
 import React from "react";
 
-export type AlertSeverity = "ALTA" | "MODERADA" | "INFO";
+export type AlertSeverity = "CRÍTICO" | "RESTRITIVO" | "OBSERVAÇÃO";
 
 export interface Alert {
   message: string;
@@ -16,11 +16,11 @@ const config: Record<AlertSeverity, {
   border: string;
   icon: React.ReactNode;
 }> = {
-  ALTA: {
+  CRÍTICO: {
     iconBg: "#FEF0F0",
     badgeBg: "#FEE2E2",
     badgeText: "#A32D2D",
-    badgeLabel: "ALTA",
+    badgeLabel: "CRÍTICO",
     border: "#FECACA",
     icon: (
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -30,11 +30,11 @@ const config: Record<AlertSeverity, {
       </svg>
     ),
   },
-  MODERADA: {
+  RESTRITIVO: {
     iconBg: "#FFFBEB",
     badgeBg: "#FEF3C7",
     badgeText: "#854F0B",
-    badgeLabel: "MODERADO",
+    badgeLabel: "RESTRITIVO",
     border: "#FDE68A",
     icon: (
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -44,11 +44,11 @@ const config: Record<AlertSeverity, {
       </svg>
     ),
   },
-  INFO: {
+  OBSERVAÇÃO: {
     iconBg: "#EFF6FF",
     badgeBg: "#DBEAFE",
     badgeText: "#185FA5",
-    badgeLabel: "INFO",
+    badgeLabel: "OBSERVAÇÃO",
     border: "#BFDBFE",
     icon: (
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -71,7 +71,7 @@ export default function AlertList({ alerts, className = "" }: AlertListProps) {
   return (
     <div className={`flex flex-col gap-2 ${className}`}>
       {alerts.map((alert, i) => {
-        const c = config[alert.severity] ?? config.INFO;
+        const c = config[alert.severity] ?? config.OBSERVAÇÃO;
         return (
           <div
             key={i}
