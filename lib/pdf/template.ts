@@ -169,6 +169,20 @@ const CSS = `
   body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
   .page{page-break-after:always}
   .avoid-break{page-break-inside:avoid}
+  /* ── Permit tall containers to flow across page boundaries (removes clip) ── */
+  .tbl,.ge-block,.ge-tbl,.soc-tbl,.risk-section,.risk-cols,.risk-block,.perc,.ana-grid,
+  .prop-row,.scr-tbl,.mod-tbl,.abc-tbl,.bal-tbl,.dre-tbl{overflow:visible!important}
+  /* ── Keep short atomic blocks on a single page ── */
+  .istrip,.kpi-snap,.scr-strip,.fin-row,.fin-box,.icell,.crit-box,.doc-grid,.emp,.seg,.rat,
+  .kpi-row,.bar-chart,.scr-card,.fmm-anual,.perc-rec{break-inside:avoid;page-break-inside:avoid}
+  /* ── Keep section titles glued to their content ── */
+  .stitle{break-after:avoid;page-break-after:avoid}
+  /* ── Keep alert boxes intact ── */
+  .alert{break-inside:avoid;page-break-inside:avoid}
+  /* ── Repeat table header on every page ── */
+  thead{display:table-header-group;break-after:avoid;page-break-after:avoid}
+  /* ── Keep table rows from being split ── */
+  tbody tr{break-inside:avoid;page-break-inside:avoid}
 }
 /* ══════════════════════════════════════════════════════
    ESCALA TIPOGRÁFICA — alterar aqui propaga para todo o relatório
@@ -1040,6 +1054,9 @@ function pageSintese(params: PDFReportParams, date: string): string {
       <div style="margin-top:10px">${alertsHtml}</div>
     </div>
 
+    <!-- page break: keep Faturamento on its own physical sub-page -->
+    <div style="break-before:page;page-break-before:always"></div>
+
     <!-- 7. Faturamento + SCR -->
     ${stitle("Faturamento & SCR")}
     <div class="fin-row">
@@ -1063,6 +1080,9 @@ function pageSintese(params: PDFReportParams, date: string): string {
 
     <!-- 9. Pleito -->
     ${pleitoHtml}
+
+    <!-- page break: keep Análise + Percepção on their own physical sub-page -->
+    <div style="break-before:page;page-break-before:always"></div>
 
     <!-- 10. Análise -->
     ${analiseHtml}
@@ -1375,6 +1395,7 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
         </tr>`
       ).join("");
       return `
+        <div style="break-before:page;page-break-before:always"></div>
         ${stitle("05 · CCF — Cheques Sem Fundo")}
         <div class="istrip c3" style="margin-bottom:10px">
           <div class="icell ${ccfQtd > 0 ? "danger" : "success"}"><div class="l">Registros CCF</div><div class="v ${ccfQtd > 0 ? "red" : "green"}">${ccfQtd > 0 ? `<b>${ccfQtd}</b>` : "0 — limpo"}</div></div>
@@ -1574,6 +1595,7 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
     const mb2 = numVal(lastDre?.margemBruta ?? "0");
     const me2 = numVal(lastDre?.margemEbitda ?? "0");
     dreSection = `
+    <div style="break-before:page;page-break-before:always"></div>
     ${stitle("09 · Demonstração de Resultado (DRE)")}
     <div class="kpi-snap c4" style="margin-bottom:14px">
       <div class="icell navy">
@@ -1675,6 +1697,7 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
     }).join("");
 
     abcSection = `
+    <div style="break-before:page;page-break-before:always"></div>
     ${stitle("11 · Curva ABC — Concentração de sacados")}
     <div class="istrip c3" style="margin-bottom:10px">
       <div class="icell warn"><div class="l">Top 3 Clientes</div><div class="v" style="color:var(--a5)">${fmt(top3Pct)}</div></div>
