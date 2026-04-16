@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
       let raw: unknown;
       try { raw = JSON.parse(text); } catch { return NextResponse.json({ error: "não é JSON", raw: text.slice(0, 500) }); }
 
-      const d = (raw as any)?.data ?? raw;
+      const d = (raw as Record<string, unknown>)?.data ?? raw;
       const topKeys     = Object.keys(d ?? {});
       const arrayFields = topKeys.filter(k => Array.isArray((d as Record<string,unknown>)[k]));
       const preview: Record<string, unknown> = {};
@@ -59,9 +59,9 @@ export async function GET(req: NextRequest) {
         arrayPreviews: preview,
         rawData: d,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (i < MAX) { await new Promise(r => setTimeout(r, DELAY)); continue; }
-      return NextResponse.json({ error: String(err?.message ?? err) }, { status: 500 });
+      return NextResponse.json({ error: String(err instanceof Error ? err.message : err) }, { status: 500 });
     }
   }
 
