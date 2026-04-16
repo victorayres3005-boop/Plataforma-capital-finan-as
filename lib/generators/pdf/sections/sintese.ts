@@ -689,10 +689,10 @@ export function renderSintese(ctx: PdfCtx): void {
   // B6 — Faturamento (gráfico barras 12 meses)
   // ════════════════════════════════════════════════════════════════════════════
   {
-    checkPageBreak(ctx, 56);
+    checkPageBreak(ctx, 68); // stitle(7)+card(56)+gap(5)
     stitle("Faturamento — Últimos 12 Meses");
     const y0    = pos.y;
-    const CARDH = 50;
+    const CARDH = 56; // was 50 — KPI row (ky+9.5=y0+51.5) needs CARDH>52
     const CHARTH = 28;
     const chartY = y0 + 4;
 

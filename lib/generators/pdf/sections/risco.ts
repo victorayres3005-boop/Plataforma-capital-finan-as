@@ -167,17 +167,16 @@ export function renderRisco(ctx: PdfCtx): void {
       .slice(0, 8);
 
     if (credList.length > 0) {
-      checkPageBreak(ctx, 14);
-      stitle("Agrupamento por credor");
       const RH = 9; const HH = 9;
+      const TH = HH + credList.length * RH + 2;
+      checkPageBreak(ctx, 7 + TH + 4);
+      stitle("Agrupamento por credor");
       const cols = [
         { label: "Credor",       x: 4,         align: "left" as const },
         { label: "Qtd",          x: CW*0.67,   align: "right" as const },
         { label: "Valor Total",  x: CW*0.83,   align: "right" as const },
         { label: "Último",       x: CW - 2,    align: "right" as const },
       ];
-      const TH = HH + credList.length * RH + 2;
-      checkPageBreak(ctx, TH + 4);
       const y0 = pos.y;
 
       doc.setFillColor(...P.wh);
@@ -208,17 +207,16 @@ export function renderRisco(ctx: PdfCtx): void {
     // Top 5 by value
     const sorted = [...protestos.detalhes].filter(p => !p.regularizado).sort((a, b) => parseMoneyToNumber(b.valor||"0") - parseMoneyToNumber(a.valor||"0")).slice(0, 5);
     if (sorted.length > 0) {
-      checkPageBreak(ctx, 14);
-      stitle("Top 5 por valor");
       const RH = 9; const HH = 9;
+      const TH = HH + sorted.length * RH + 2;
+      checkPageBreak(ctx, 7 + TH + 4);
+      stitle("Top 5 por valor");
       const cols = [
         { label: "Data",    x: 4,         align: "left" as const },
         { label: "Credor",  x: CW*0.18,   align: "left" as const },
         { label: "Valor",   x: CW*0.78,   align: "right" as const },
         { label: "Status",  x: CW - 2,    align: "right" as const },
       ];
-      const TH = HH + sorted.length * RH + 2;
-      checkPageBreak(ctx, TH + 4);
       const y0 = pos.y;
 
       doc.setFillColor(...P.wh);
@@ -285,7 +283,7 @@ export function renderRisco(ctx: PdfCtx): void {
   // Distribution by type (prop bars)
   const dist = processos?.distribuicao || [];
   if (dist.length > 0) {
-    checkPageBreak(ctx, 14);
+    checkPageBreak(ctx, 18); // stitle(7)+primeira linha(9)+buffer(2)
     stitle("Distribuição por tipo");
     const maxDist = Math.max(...dist.map(d => parseInt(d.qtd || "0") || 0), 1);
     dist.forEach(d => {
@@ -309,18 +307,17 @@ export function renderRisco(ctx: PdfCtx): void {
   // Top 10 recentes
   const top10 = processos?.top10Recentes || [];
   if (top10.length > 0) {
-    checkPageBreak(ctx, 14);
-    stitle("Top 5 mais recentes");
     const shown = top10.slice(0, 5);
     const RH = 9; const HH = 9;
+    const TH = HH + shown.length * RH + 2;
+    checkPageBreak(ctx, 7 + TH + 4);
+    stitle("Top 5 mais recentes");
     const cols = [
       { label: "Tipo",     x: 4,         align: "left" as const },
       { label: "Data",     x: CW*0.42,   align: "left" as const },
       { label: "Assunto",  x: CW*0.59,   align: "left" as const },
       { label: "Fase",     x: CW - 2,    align: "right" as const },
     ];
-    const TH = HH + shown.length * RH + 2;
-    checkPageBreak(ctx, TH + 4);
     const y0 = pos.y;
 
     doc.setFillColor(...P.wh);
@@ -353,10 +350,11 @@ export function renderRisco(ctx: PdfCtx): void {
   if (top10Valor.length > 0) {
     const hasNonZero = top10Valor.some(p => parseMoneyToNumber(p.valor || "0") > 0);
     if (hasNonZero) {
-      checkPageBreak(ctx, 14);
-      stitle("Top 10 por valor");
       const shown = top10Valor.slice(0, 10);
       const RH = 9; const HH = 9;
+      const TH = HH + shown.length * RH + 2;
+      checkPageBreak(ctx, 7 + TH + 4);
+      stitle("Top 10 por valor");
       const cols = [
         { label: "Tipo",        x: 4,         align: "left" as const },
         { label: "Contraparte", x: CW * 0.34, align: "left" as const },
@@ -364,8 +362,6 @@ export function renderRisco(ctx: PdfCtx): void {
         { label: "Valor",       x: CW * 0.82, align: "right" as const },
         { label: "Fase",        x: CW - 2,    align: "right" as const },
       ];
-      const TH = HH + shown.length * RH + 2;
-      checkPageBreak(ctx, TH + 4);
       const y0 = pos.y;
       doc.setFillColor(...P.wh);
       doc.setDrawColor(...P.x2);
@@ -395,16 +391,15 @@ export function renderRisco(ctx: PdfCtx): void {
   // Distribuição temporal
   const distTemporal = processos?.distribuicaoTemporal || [];
   if (distTemporal.length > 0) {
-    checkPageBreak(ctx, 14);
-    stitle("Distribuição temporal");
     const RH = 8; const HH = 9;
+    const TH = HH + distTemporal.length * RH + 2;
+    checkPageBreak(ctx, 7 + TH + 4);
+    stitle("Distribuição temporal");
     const cols = [
       { label: "Período",    x: 4,         align: "left" as const },
       { label: "Qtd",        x: CW * 0.60, align: "right" as const },
       { label: "Valor Est.", x: CW - 2,    align: "right" as const },
     ];
-    const TH = HH + distTemporal.length * RH + 2;
-    checkPageBreak(ctx, TH + 4);
     const y0 = pos.y;
     doc.setFillColor(...P.wh);
     doc.setDrawColor(...P.x2);
@@ -429,7 +424,7 @@ export function renderRisco(ctx: PdfCtx): void {
   // Distribuição por faixa de valor
   const distFaixa = processos?.distribuicaoPorFaixa || [];
   if (distFaixa.length > 0) {
-    checkPageBreak(ctx, 14);
+    checkPageBreak(ctx, 18); // stitle(7)+primeira linha(9)+buffer(2)
     stitle("Distribuição por faixa de valor");
     const maxPct = Math.max(...distFaixa.map(d => parseFloat(d.pct || "0") || 0), 1);
     distFaixa.forEach(d => {
@@ -491,9 +486,10 @@ export function renderRisco(ctx: PdfCtx): void {
     // Tabela de bancos
     const bancos = ccf.bancos || [];
     if (bancos.length > 0) {
-      checkPageBreak(ctx, 14);
-      stitle("Registros por banco");
       const RH = 9; const HH = 9;
+      const TH = HH + bancos.length * RH + 2;
+      checkPageBreak(ctx, 7 + TH + 4);
+      stitle("Registros por banco");
       const cols = [
         { label: "Banco",    x: 4,         align: "left" as const },
         { label: "Agência",  x: CW * 0.44, align: "left" as const },
@@ -501,8 +497,6 @@ export function renderRisco(ctx: PdfCtx): void {
         { label: "Último",   x: CW * 0.78, align: "right" as const },
         { label: "Motivo",   x: CW - 2,    align: "right" as const },
       ];
-      const TH = HH + bancos.length * RH + 2;
-      checkPageBreak(ctx, TH + 4);
       const y0 = pos.y;
       doc.setFillColor(...P.wh);
       doc.setDrawColor(...P.x2);
@@ -558,9 +552,10 @@ export function renderRisco(ctx: PdfCtx): void {
     }
 
     // Tabela de empresas
-    checkPageBreak(ctx, 14);
-    stitle("Empresas do grupo");
     const RH = 9; const HH = 9;
+    const TH = HH + grupoEmpresas.length * RH + 2;
+    checkPageBreak(ctx, 7 + TH + 4);
+    stitle("Empresas do grupo");
     const grCols = [
       { label: "Razão Social",  x: 4,         align: "left" as const },
       { label: "Relação",       x: CW * 0.35, align: "left" as const },
@@ -569,8 +564,6 @@ export function renderRisco(ctx: PdfCtx): void {
       { label: "Prot.",         x: CW * 0.79, align: "right" as const },
       { label: "Proc.",         x: CW - 2,    align: "right" as const },
     ];
-    const TH = HH + grupoEmpresas.length * RH + 2;
-    checkPageBreak(ctx, TH + 4);
     const y0 = pos.y;
     doc.setFillColor(...P.wh);
     doc.setDrawColor(...P.x2);

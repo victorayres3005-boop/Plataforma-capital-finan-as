@@ -180,9 +180,9 @@ export function renderFaturamento(ctx: PdfCtx): void {
   }
 
   // Bar chart
-  checkPageBreak(ctx, 55);
+  checkPageBreak(ctx, 68); // CARDH(62)+gap(5)+title inside card = 68
   {
-    const CARDH = 50;
+    const CARDH = 62; // was 50 — KPI row at y0+56 needs CARDH>56
     const CHARTH = 34;
     const y0 = pos.y;
 
@@ -289,7 +289,8 @@ export function renderFaturamento(ctx: PdfCtx): void {
   // ════════════════════════════════════════════════════════════════════════════
   const dre = data.dre;
   if (dre && dre.anos && dre.anos.length > 0) {
-    checkPageBreak(ctx, 14);
+    // 8 linhas fixas: TH = 9 + 8×8 + 2 = 75. Total: spacing(4)+stitle(7)+TH(75)+buffer(5) = 91
+    checkPageBreak(ctx, 91);
     pos.y += 4;
     stitle("19 · Demonstração de Resultado (DRE)");
 
@@ -309,7 +310,6 @@ export function renderFaturamento(ctx: PdfCtx): void {
     ];
 
     const TH = HH + rows.length * RH + 2;
-    checkPageBreak(ctx, TH + 8);
     const y0 = pos.y;
 
     doc.setFillColor(...P.wh);
@@ -371,7 +371,8 @@ export function renderFaturamento(ctx: PdfCtx): void {
   // ════════════════════════════════════════════════════════════════════════════
   const balanco = data.balanco;
   if (balanco && balanco.anos && balanco.anos.length > 0) {
-    checkPageBreak(ctx, 14);
+    // 6 linhas fixas: TH = 9 + 6×8 + 2 = 59. Total: spacing(4)+stitle(7)+TH(59)+buffer(5) = 75
+    checkPageBreak(ctx, 75);
     pos.y += 4;
     stitle("20 · Balanço Patrimonial");
 
@@ -389,7 +390,6 @@ export function renderFaturamento(ctx: PdfCtx): void {
     ];
 
     const TH = HH + rows.length * RH + 2;
-    checkPageBreak(ctx, TH + 8);
     const y0 = pos.y;
 
     doc.setFillColor(...P.wh);
@@ -440,8 +440,8 @@ export function renderFaturamento(ctx: PdfCtx): void {
 
     pos.y = y0 + TH + 5;
 
-    // Indicadores strip
-    checkPageBreak(ctx, 28);
+    // Indicadores strip: stitle(7)+icells(18)+gap(5)+alerts~16 = 46
+    checkPageBreak(ctx, 46);
     stitle("Indicadores");
     {
       const CH = 18; const cw = (CW - GAP * 3) / 4;
