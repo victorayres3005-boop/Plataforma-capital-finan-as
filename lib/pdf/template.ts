@@ -247,8 +247,28 @@ body{font-family:'DM Sans',sans-serif;font-size:var(--fs-body);background:#f0f2f
 .soc-tbl thead th{background:var(--n9);color:rgba(255,255,255,0.85);font-size:var(--fs-label);font-weight:600;letter-spacing:0.06em;text-transform:uppercase;padding:10px 14px;text-align:left}
 .soc-tbl tbody td{padding:10px 14px;border-bottom:1px solid var(--x1);color:var(--x7)}
 .soc-tbl tbody tr:last-child td{border-bottom:none}
-.soc-extra{font-size:var(--fs-body);color:var(--x5);margin-bottom:18px}
+.soc-extra{font-size:var(--fs-body);color:var(--x5);margin-bottom:10px}
 .soc-extra b{color:var(--x9)}
+/* ── Grupo econômico ── */
+.ge-block{background:var(--x0);border:1px solid var(--x2);border-radius:8px;overflow:hidden;margin-bottom:18px}
+.ge-header{background:var(--n9);padding:8px 14px;display:flex;justify-content:space-between;align-items:center}
+.ge-header .title{font-size:var(--fs-h3);font-weight:700;color:#fff}
+.ge-header .count{font-size:var(--fs-label);color:rgba(255,255,255,0.7);font-weight:500}
+.ge-socio-hdr{padding:7px 14px;background:var(--n0);border-bottom:1px solid var(--n1);font-size:var(--fs-label);font-weight:700;color:var(--n7);text-transform:uppercase;letter-spacing:0.06em;display:flex;align-items:center;gap:6px}
+.ge-tbl{width:100%;border-collapse:collapse;font-size:var(--fs-body)}
+.ge-tbl th{padding:6px 12px;font-size:var(--fs-tag);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--x4);border-bottom:1px solid var(--x1);text-align:left}
+.ge-tbl td{padding:7px 12px;border-bottom:1px solid var(--x1);color:var(--x7);vertical-align:middle}
+.ge-tbl tr:last-child td{border-bottom:none}
+.ge-tbl .mono{font-family:'JetBrains Mono',monospace;font-size:var(--fs-tag)}
+.ge-badge{display:inline-block;font-size:var(--fs-tag);font-weight:700;text-transform:uppercase;padding:2px 7px;border-radius:3px;white-space:nowrap}
+.ge-badge.ativa{background:var(--g1);color:var(--g6)}
+.ge-badge.baixada{background:var(--r1);color:var(--r6)}
+.ge-badge.suspensa{background:var(--a1);color:var(--a5)}
+.ge-badge.inapta{background:var(--r1);color:var(--r6)}
+.ge-badge.outro{background:var(--x1);color:var(--x5)}
+.ge-rel{display:inline-block;font-size:var(--fs-tag);font-weight:600;padding:2px 7px;border-radius:3px;background:var(--n0);color:var(--n7);white-space:nowrap}
+.ge-parentesco{display:flex;align-items:center;gap:8px;padding:9px 14px;background:var(--a0);border-top:1px solid var(--a1);font-size:var(--fs-body);color:var(--a5)}
+.ge-parentesco .atag{background:var(--a1)}
 /* ── Risk blocks ── */
 .risk-section{background:var(--x0);border-radius:10px;border:1px solid var(--x2);padding:20px;margin-bottom:18px}
 .risk-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
@@ -859,7 +879,73 @@ function pageSintese(params: PDFReportParams, date: string): string {
       <thead><tr><th>Sócio</th><th>CPF/CNPJ</th><th>Qualificação</th><th>Part.</th><th>Patrim. (IR)</th></tr></thead>
       <tbody>${socRows || `<tr><td colspan="5" style="color:var(--x4);text-align:center">—</td></tr>`}</tbody>
     </table>
-    <div class="soc-extra">Capital Social: <b>${fmtMoney(capitalSocial)}</b> · Grupo Econômico: <b>${d.grupoEconomico?.empresas?.length > 0 ? d.grupoEconomico.empresas.length + " empresa(s)" : "Não identificado"}</b></div>
+    <div class="soc-extra">Capital Social: <b>${fmtMoney(capitalSocial)}</b></div>
+
+    <!-- 5b. Grupo Econômico dos Sócios -->
+    ${(() => {
+      const ge = d.grupoEconomico;
+      if (!ge?.empresas?.length) return "";
+
+      // Agrupa por sócio de origem
+      const porSocio: Record<string, typeof ge.empresas> = {};
+      ge.empresas.forEach((e: typeof ge.empresas[0]) => {
+        const key = e.socioOrigem || "Sem identificação";
+        if (!porSocio[key]) porSocio[key] = [];
+        porSocio[key].push(e);
+      });
+
+      const sitClass = (sit: string) => {
+        const u = (sit ?? "").toUpperCase();
+        if (u.includes("ATIVA")) return "ativa";
+        if (u.includes("BAIXA")) return "baixada";
+        if (u.includes("SUSP")) return "suspensa";
+        if (u.includes("INAPT")) return "inapta";
+        return "outro";
+      };
+
+      const socioBlocks = Object.entries(porSocio).map(([socio, emps]) => {
+        const rows = emps.map(e => {
+          const cnpjFmt = e.cnpj ? e.cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5") : "—";
+          const sitCls = sitClass(e.situacao ?? "");
+          const hasSCR = e.scrTotal && e.scrTotal !== "—";
+          const hasProt = e.protestos && e.protestos !== "—";
+          const hasProc = e.processos && e.processos !== "—";
+          return `<tr>
+            <td><b>${esc(e.razaoSocial)}</b>${e.participacao ? `<span style="color:var(--x4);font-size:var(--fs-tag);margin-left:6px">${esc(e.participacao)}</span>` : ""}</td>
+            <td class="mono">${cnpjFmt}</td>
+            <td><span class="ge-rel">${esc(e.relacao)}</span></td>
+            <td><span class="ge-badge ${sitCls}">${esc(e.situacao ?? "—")}</span></td>
+            <td class="mono" style="color:${hasSCR ? "var(--n9)" : "var(--x4)"}">${hasSCR ? fmtMoneyAbr(e.scrTotal) : "—"}</td>
+            <td style="text-align:center;color:${hasProt && e.protestos !== "0" ? "var(--r6)" : "var(--g6)"};font-weight:600">${hasProt ? e.protestos : "—"}</td>
+            <td style="text-align:center;color:${hasProc && e.processos !== "0" ? "var(--r6)" : "var(--g6)"};font-weight:600">${hasProc ? e.processos : "—"}</td>
+          </tr>`;
+        }).join("");
+
+        return `<div class="ge-socio-hdr">
+          <span style="font-size:14px">👤</span> Via sócio: ${esc(socio)}
+          <span style="font-weight:500;color:var(--n8);margin-left:auto">${emps.length} empresa${emps.length > 1 ? "s" : ""}</span>
+        </div>
+        <table class="ge-tbl">
+          <thead><tr><th>Razão Social</th><th>CNPJ</th><th>Relação</th><th>Situação</th><th>SCR</th><th style="text-align:center">Prot.</th><th style="text-align:center">Proc.</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+      }).join("");
+
+      const alertaParentesco = ge.alertaParentesco && (ge.parentescosDetectados ?? []).length > 0
+        ? `<div class="ge-parentesco"><span class="atag alert mod" style="padding:2px 8px;border-radius:3px;font-size:var(--fs-tag);font-weight:700">ATENÇÃO</span>
+           Possível parentesco entre sócios: ${ge.parentescosDetectados!.map((p: {socio1:string;socio2:string;sobrenomeComum:string}) => `<b>${esc(p.socio1)}</b> e <b>${esc(p.socio2)}</b> (sobrenome <i>${esc(p.sobrenomeComum)}</i>)`).join("; ")}</div>`
+        : "";
+
+      return `${stitle("Grupo econômico dos sócios")}
+      <div class="ge-block">
+        <div class="ge-header">
+          <span class="title">Empresas vinculadas via sócios</span>
+          <span class="count">${ge.empresas.length} empresa${ge.empresas.length > 1 ? "s" : ""} identificada${ge.empresas.length > 1 ? "s" : ""}</span>
+        </div>
+        ${socioBlocks}
+        ${alertaParentesco}
+      </div>`;
+    })()}
 
     <!-- 6. Risco Consolidado -->
     ${stitle("Risco consolidado")}

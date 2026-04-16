@@ -769,27 +769,41 @@ export function detectarParentesco(
 }
 
 function parseEmpresasVinculadas(d: any, cpfSocio: string, nomeSocio: string): GrupoEconomicoData["empresas"] {
-  // A API CreditHub pode retornar participações em diferentes campos
+  // A API CreditHub pode retornar participações em diferentes campos — cobrimos todos os conhecidos
   const participacoes: any[] = [
-    ...(d?.participacoes ?? []),
-    ...(d?.empresasVinculadas ?? []),
-    ...(d?.empresas ?? []),
-    ...(d?.socios ?? []),       // algumas APIs retornam no campo socios
+    ...(d?.participacoes          ?? []),
+    ...(d?.empresasVinculadas     ?? []),
+    ...(d?.empresas               ?? []),
+    ...(d?.socios                 ?? []),
+    ...(d?.participacoesSocietarias ?? []),
+    ...(d?.vinculos               ?? []),
+    ...(d?.quadroSocietario       ?? []),
+    ...(d?.empresasParticipadas   ?? []),
+    ...(d?.societario             ?? []),
   ];
 
+  // Log para identificar campos reais retornados pela API (útil durante debug)
+  if (participacoes.length === 0 && d && typeof d === "object") {
+    const keys = Object.keys(d);
+    const arrayKeys = keys.filter(k => Array.isArray((d as Record<string,unknown>)[k]));
+    if (arrayKeys.length > 0) {
+      console.warn(`[credithub][grupo-economico] CPF ${cpfSocio.slice(0,3)}*** sem empresas nos campos mapeados. Arrays disponíveis: ${arrayKeys.join(", ")}`);
+    }
+  }
+
   return participacoes
-    .filter((p: any) => p?.cnpj || p?.documento)
+    .filter((p: any) => p?.cnpj || p?.documento || p?.cnpjEmpresa)
     .map((p: any) => ({
-      razaoSocial: p.razaoSocial ?? p.nome ?? p.nomeEmpresa ?? "—",
-      cnpj: (p.cnpj ?? p.documento ?? "").replace(/\D/g, ""),
-      relacao: p.qualificacao ?? p.relacao ?? p.tipo ?? "via Sócio",
+      razaoSocial: p.razaoSocial ?? p.nome ?? p.nomeEmpresa ?? p.empresa ?? "—",
+      cnpj: ((p.cnpj ?? p.documento ?? p.cnpjEmpresa ?? "")).replace(/\D/g, ""),
+      relacao: p.qualificacao ?? p.relacao ?? p.tipo ?? p.tipoVinculo ?? "via Sócio",
       scrTotal: "—",
       protestos: "—",
       processos: "—",
       socioOrigem: nomeSocio,
       cpfSocio,
-      participacao: p.participacao ?? p.percentual ?? "",
-      situacao: (p.situacaoCadastral ?? p.situacao ?? "ATIVA").toUpperCase(),
+      participacao: p.participacao ?? p.percentual ?? p.percentualParticipacao ?? "",
+      situacao: (p.situacaoCadastral ?? p.situacao ?? p.situacaoEmpresa ?? "ATIVA").toUpperCase(),
     }));
 }
 

@@ -405,6 +405,138 @@ export function renderSintese(ctx: PdfCtx): void {
   }
 
   // ════════════════════════════════════════════════════════════════════════════
+  // B2b — Grupo Econômico dos Sócios
+  // ════════════════════════════════════════════════════════════════════════════
+  {
+    const ge = data.grupoEconomico;
+    const empresas = ge?.empresas ?? [];
+    if (empresas.length > 0) {
+      // Agrupa por socioOrigem
+      const porSocio = new Map<string, typeof empresas>();
+      empresas.forEach(e => {
+        const k = e.socioOrigem || "Sem identificação";
+        if (!porSocio.has(k)) porSocio.set(k, []);
+        porSocio.get(k)!.push(e);
+      });
+
+      const rowH   = 6;
+      const hdrH   = 7;
+      const titleH = 7;
+      const tblHeaderH = 5;
+      const totalRows  = empresas.length;
+      const groupCount = porSocio.size;
+      const estimated  = titleH + (groupCount * hdrH) + tblHeaderH + (totalRows * rowH) + 8;
+      checkPageBreak(ctx, Math.min(estimated, 60));
+      stitle("Grupo Econômico dos Sócios");
+
+      const normCnpj = (v: string) => (v ?? "").replace(/\D/g, "").replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
+
+      porSocio.forEach((emps, socio) => {
+        // Sub-header do sócio
+        checkPageBreak(ctx, hdrH + tblHeaderH + rowH * emps.length + 4);
+        doc.setFillColor(...P.n0);
+        doc.setDrawColor(...P.n1);
+        doc.setLineWidth(0.2);
+        doc.roundedRect(ML, pos.y, CW, hdrH, 2, 2, "FD");
+        doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(...P.n7);
+        doc.text(`Via sócio: ${socio}`, ML + 4, pos.y + hdrH/2 + 1);
+        doc.setFont("helvetica","normal"); doc.setFontSize(6); doc.setTextColor(...P.n8);
+        doc.text(`${emps.length} empresa${emps.length > 1 ? "s" : ""}`, ML + CW - 4, pos.y + hdrH/2 + 1, { align: "right" });
+        pos.y += hdrH + 1;
+
+        // Cabeçalho da tabela
+        const colW = [CW * 0.32, CW * 0.22, CW * 0.16, CW * 0.14, CW * 0.08, CW * 0.08];
+        const colX = [ML, ML + colW[0], ML + colW[0]+colW[1], ML + colW[0]+colW[1]+colW[2],
+                      ML + colW[0]+colW[1]+colW[2]+colW[3], ML + colW[0]+colW[1]+colW[2]+colW[3]+colW[4]];
+        const cols = ["Razão Social","CNPJ","Relação","Situação","Prot.","Proc."];
+        doc.setFont("helvetica","bold"); doc.setFontSize(5); doc.setTextColor(...P.x4);
+        cols.forEach((c, i) => doc.text(c.toUpperCase(), colX[i] + 2, pos.y + 3.5));
+        doc.setDrawColor(...P.x1); doc.setLineWidth(0.15);
+        doc.line(ML, pos.y + tblHeaderH, ML + CW, pos.y + tblHeaderH);
+        pos.y += tblHeaderH + 1;
+
+        // Linhas
+        emps.forEach((e, ri) => {
+          checkPageBreak(ctx, rowH + 2);
+          if (ri % 2 === 0) {
+            doc.setFillColor(...P.x0);
+            doc.rect(ML, pos.y, CW, rowH, "F");
+          }
+
+          // Razão Social
+          const rsStr = (e.razaoSocial ?? "—").length > 28
+            ? (e.razaoSocial ?? "—").slice(0, 27) + "…"
+            : (e.razaoSocial ?? "—");
+          doc.setFont("helvetica","bold"); doc.setFontSize(6); doc.setTextColor(...P.x9);
+          doc.text(rsStr, colX[0] + 2, pos.y + rowH/2 + 1);
+
+          // CNPJ
+          doc.setFont("courier","normal"); doc.setFontSize(5.5); doc.setTextColor(...P.x5);
+          doc.text(normCnpj(e.cnpj ?? ""), colX[1] + 2, pos.y + rowH/2 + 1);
+
+          // Relação (badge)
+          const rel = (e.relacao ?? "via Sócio").slice(0, 14);
+          doc.setFont("helvetica","bold"); doc.setFontSize(5); doc.setTextColor(...P.n7);
+          const relW = doc.getTextWidth(rel);
+          doc.setFillColor(...P.n0);
+          doc.roundedRect(colX[2] + 2, pos.y + 1, relW + 4, 4, 1, 1, "F");
+          doc.text(rel, colX[2] + 4, pos.y + rowH/2 + 1);
+
+          // Situação (badge)
+          const sit = (e.situacao ?? "ATIVA").slice(0, 10);
+          const sitIsAtiva = sit.includes("ATIVA");
+          const sitBg: [number,number,number] = sitIsAtiva ? P.g1 : P.r1;
+          const sitFg: [number,number,number] = sitIsAtiva ? P.g6 : P.r6;
+          const sitW = doc.getTextWidth(sit);
+          doc.setFillColor(...sitBg);
+          doc.roundedRect(colX[3] + 2, pos.y + 1, sitW + 4, 4, 1, 1, "F");
+          doc.setFont("helvetica","bold"); doc.setFontSize(5); doc.setTextColor(...sitFg);
+          doc.text(sit, colX[3] + 4, pos.y + rowH/2 + 1);
+
+          // Protestos
+          const protStr = (e.protestos && e.protestos !== "—") ? e.protestos : "—";
+          const protColor: [number,number,number] = protStr !== "—" && protStr !== "0" ? P.r6 : P.g6;
+          doc.setFont("helvetica","bold"); doc.setFontSize(6); doc.setTextColor(...protColor);
+          doc.text(protStr, colX[4] + colW[4]/2, pos.y + rowH/2 + 1, { align: "center" });
+
+          // Processos
+          const procStr = (e.processos && e.processos !== "—") ? e.processos : "—";
+          const procColor: [number,number,number] = procStr !== "—" && procStr !== "0" ? P.r6 : P.g6;
+          doc.setFont("helvetica","bold"); doc.setFontSize(6); doc.setTextColor(...procColor);
+          doc.text(procStr, colX[5] + colW[5]/2, pos.y + rowH/2 + 1, { align: "center" });
+
+          doc.setDrawColor(...P.x1); doc.setLineWidth(0.1);
+          doc.line(ML, pos.y + rowH, ML + CW, pos.y + rowH);
+          pos.y += rowH;
+        });
+
+        pos.y += 4;
+      });
+
+      // Alerta de parentesco
+      if (ge?.alertaParentesco && (ge.parentescosDetectados ?? []).length > 0) {
+        checkPageBreak(ctx, 10);
+        const msg = "Possível parentesco: " + ge.parentescosDetectados!
+          .map(p => `${p.socio1} e ${p.socio2} (${p.sobrenomeComum})`).join("; ");
+        const lines = doc.splitTextToSize(msg, CW - 24) as string[];
+        const aH = Math.max(8, lines.length * 4 + 5);
+        doc.setFillColor(...P.a0); doc.setDrawColor(...P.a1); doc.setLineWidth(0.25);
+        doc.roundedRect(ML, pos.y, CW, aH, 2, 2, "FD");
+        const tw = doc.getTextWidth("ATENÇÃO");
+        doc.setFillColor(...P.a1);
+        doc.roundedRect(ML + 3, pos.y + (aH-4.5)/2, tw+4, 4.5, 1, 1, "F");
+        doc.setFont("helvetica","bold"); doc.setFontSize(6); doc.setTextColor(...P.a5);
+        doc.text("ATENÇÃO", ML + 5, pos.y + aH/2 + 1);
+        doc.setFont("helvetica","normal"); doc.setFontSize(6.5); doc.setTextColor(...P.a5);
+        doc.text(lines, ML + tw + 10, pos.y + aH/2 - (lines.length-1)*2 + 1);
+        pos.y += aH + 4;
+      } else {
+        pos.y += 2;
+      }
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
   // B3 — Indicadores de Risco (PL · Liquidez · Endividamento)
   // ════════════════════════════════════════════════════════════════════════════
   {
