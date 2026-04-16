@@ -1125,35 +1125,11 @@ function pageParecer(params: PDFReportParams, date: string): string {
     `;
   }
 
-  const totalPages = 12;
+  const totalPages = 11;
   return page(`${stitle("Parecer Preliminar")}${content}`, totalPages, date);
 }
 
-// ─── Page 4: Parâmetros (Limite de Crédito) ──────────────────────────────────
-function pageParametros(params: PDFReportParams, date: string): string {
-  const content = `
-    ${params.creditLimit ? `${stitle("Limite de Crédito Calculado")}
-    <div class="istrip c4" style="margin-bottom:8px">
-      <div class="icell ${params.creditLimit.classificacao === "APROVADO" ? "success" : params.creditLimit.classificacao === "CONDICIONAL" ? "warn" : "danger"}">
-        <div class="l">Limite Aprovado</div>
-        <div class="v ${params.creditLimit.classificacao === "APROVADO" ? "green" : params.creditLimit.classificacao === "CONDICIONAL" ? "" : "red"}">${params.creditLimit.limiteAjustado ? "R$\u00a0" + params.creditLimit.limiteAjustado.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}) : "—"}</div>
-        <div class="sub">${esc(params.creditLimit.classificacao)}</div>
-      </div>
-      <div class="icell"><div class="l">Limite Base</div><div class="v sm mono">${params.creditLimit.limiteBase ? "R$\u00a0" + params.creditLimit.limiteBase.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}) : "—"}</div></div>
-      <div class="icell"><div class="l">Prazo</div><div class="v">${params.creditLimit.prazo ? params.creditLimit.prazo + " dias" : "—"}</div></div>
-      <div class="icell"><div class="l">Revisão em</div><div class="v sm">${params.creditLimit.revisaoDias ? params.creditLimit.revisaoDias + " dias" : "—"}</div>${params.creditLimit.dataRevisao ? `<div class="sub">${fmtDate(params.creditLimit.dataRevisao)}</div>` : ""}</div>
-    </div>
-    <div class="istrip c3" style="margin-bottom:8px">
-      <div class="icell"><div class="l">FMM Base</div><div class="v sm mono">${params.creditLimit.fmmBase ? "R$\u00a0" + params.creditLimit.fmmBase.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}) : "—"}</div></div>
-      <div class="icell"><div class="l">Fator de Redução</div><div class="v sm">${params.creditLimit.fatorReducao ? (params.creditLimit.fatorReducao * 100).toFixed(0) + "%" : "—"}</div></div>
-      <div class="icell"><div class="l">Conc. máx. sacado</div><div class="v sm">${params.creditLimit.concentracaoMaxPct ? params.creditLimit.concentracaoMaxPct.toFixed(0) + "%" : "—"}</div></div>
-    </div>` : '<div style="color:var(--x4);font-size:12px;padding:20px;text-align:center">Limite de crédito não calculado</div>'}
-  `;
-
-  return page(content, 6, date);
-}
-
-// ─── Page 6: Faturamento Detalhado ────────────────────────────────────────────
+// ─── Page 6: Limite de Crédito + Faturamento Detalhado ───────────────────────
 function pageFaturamento(params: PDFReportParams, date: string): string {
   const fat = params.data.faturamento;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1183,7 +1159,26 @@ function pageFaturamento(params: PDFReportParams, date: string): string {
     </div>` : "";
 
 
+  const creditLimitHtml = params.creditLimit ? `
+    ${stitle("Limite de Crédito Calculado")}
+    <div class="istrip c4" style="margin-bottom:8px">
+      <div class="icell ${params.creditLimit.classificacao === "APROVADO" ? "success" : params.creditLimit.classificacao === "CONDICIONAL" ? "warn" : "danger"}">
+        <div class="l">Limite Aprovado</div>
+        <div class="v ${params.creditLimit.classificacao === "APROVADO" ? "green" : params.creditLimit.classificacao === "CONDICIONAL" ? "" : "red"}">${params.creditLimit.limiteAjustado ? "R$\u00a0" + params.creditLimit.limiteAjustado.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}) : "—"}</div>
+        <div class="sub">${esc(params.creditLimit.classificacao)}</div>
+      </div>
+      <div class="icell"><div class="l">Limite Base</div><div class="v sm mono">${params.creditLimit.limiteBase ? "R$\u00a0" + params.creditLimit.limiteBase.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}) : "—"}</div></div>
+      <div class="icell"><div class="l">Prazo</div><div class="v">${params.creditLimit.prazo ? params.creditLimit.prazo + " dias" : "—"}</div></div>
+      <div class="icell"><div class="l">Revisão em</div><div class="v sm">${params.creditLimit.revisaoDias ? params.creditLimit.revisaoDias + " dias" : "—"}</div>${params.creditLimit.dataRevisao ? `<div class="sub">${fmtDate(params.creditLimit.dataRevisao)}</div>` : ""}</div>
+    </div>
+    <div class="istrip c3" style="margin-bottom:20px">
+      <div class="icell"><div class="l">FMM Base</div><div class="v sm mono">${params.creditLimit.fmmBase ? "R$\u00a0" + params.creditLimit.fmmBase.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}) : "—"}</div></div>
+      <div class="icell"><div class="l">Fator de Redução</div><div class="v sm">${params.creditLimit.fatorReducao ? (params.creditLimit.fatorReducao * 100).toFixed(0) + "%" : "—"}</div></div>
+      <div class="icell"><div class="l">Conc. máx. sacado</div><div class="v sm">${params.creditLimit.concentracaoMaxPct ? params.creditLimit.concentracaoMaxPct.toFixed(0) + "%" : "—"}</div></div>
+    </div>` : "";
+
   const content = `
+    ${creditLimitHtml}
     ${stitle("02 · Faturamento")}
     <div class="istrip c4" style="margin-bottom:16px">
       <div class="icell navy"><div class="l">FMM 12M</div><div class="v">${fmtMoneyAbr(fmm)}</div><div class="sub">média últimos 12m</div></div>
@@ -1200,10 +1195,10 @@ function pageFaturamento(params: PDFReportParams, date: string): string {
     ${fmmAnualHtml}
   `;
 
-  return page(content, 7, date);
+  return page(content, 6, date);
 }
 
-// ─── Page 8: Protestos + Processos ───────────────────────────────────────────
+// ─── Page 7: Protestos + Processos ───────────────────────────────────────────
 function pageProtestosProcessos(params: PDFReportParams, date: string): string {
   const prot = params.data.protestos;
   const proc = params.data.processos;
@@ -1404,7 +1399,7 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
     })()}
   `;
 
-  return page(content, 8, date);
+  return page(content, 7, date);
 }
 
 // ─── SCR variation helper ──────────────────────────────────────────────────────
@@ -1612,7 +1607,7 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
   }
 
   const content = `${scrSection}${dreSection}`;
-  return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de SCR/DRE não disponíveis</div>`, 9, date);
+  return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de SCR/DRE não disponíveis</div>`, 8, date);
 }
 
 // ─── Page 10: Balanço + ABC ───────────────────────────────────────────────────
@@ -1706,7 +1701,7 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
   }
 
   const content = `${balSection}${abcSection}`;
-  return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de balanço/ABC não disponíveis</div>`, 10, date);
+  return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de balanço/ABC não disponíveis</div>`, 9, date);
 }
 
 // ─── Page 11: IR Sócios + Visita ───────────────────────────────────────────────
@@ -1826,7 +1821,7 @@ function pageIRVisita(params: PDFReportParams, date: string): string {
   }
 
   const content = `${irSection}${historicoSection}${visitaSection}`;
-  return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de IR/Visita não disponíveis</div>`, 11, date);
+  return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de IR/Visita não disponíveis</div>`, 10, date);
 }
 
 // ─── Page 2: Checklist de Documentos ─────────────────────────────────────────
@@ -1947,7 +1942,6 @@ export function gerarHtmlRelatorio(params: PDFReportParams): { html: string; hea
     pageCapa(params, date),
     pageChecklist(params, date),
     pageSintese(params, date),
-    pageParametros(params, date),
     pageFaturamento(params, date),
     pageProtestosProcessos(params, date),
     pageSCRDRE(params, date),
