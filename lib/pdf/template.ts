@@ -173,8 +173,10 @@ const CSS = `
   .tbl,.ge-block,.ge-tbl,.soc-tbl,.risk-section,.risk-cols,.risk-block,.perc,.ana-grid,
   .prop-row,.scr-tbl,.mod-tbl,.abc-tbl,.bal-tbl,.dre-tbl{overflow:visible!important}
   /* ── Keep short atomic blocks on a single page ── */
-  .istrip,.kpi-snap,.scr-strip,.fin-row,.fin-box,.icell,.crit-box,.doc-grid,.emp,.seg,.rat,
+  .istrip,.kpi-snap,.scr-strip,.fin-row,.fin-box,.icell,.emp,.seg,.rat,
   .kpi-row,.bar-chart,.scr-card,.fmm-anual,.perc-rec{break-inside:avoid;page-break-inside:avoid}
+  /* ── Allow tall list containers to break across pages (no avoid-break) ── */
+  .doc-grid,.crit-box,.abc-wrap{overflow:visible!important}
   /* ── Keep section titles glued to their content ── */
   .stitle{break-after:avoid;page-break-after:avoid}
   /* ── Keep alert boxes intact ── */
@@ -1102,9 +1104,24 @@ function pageParecer(params: PDFReportParams, date: string): string {
   const sb = scoreBorder(score);
   const decBg2 = decisionBg(params.decision ?? "");
 
+  // Pleito info for the pending state
+  const cl = params.creditLimit;
+  const pleitoSummary = cl ? `
+    <div class="istrip c4" style="margin-top:20px">
+      <div class="icell ${cl.classificacao === "APROVADO" ? "success" : cl.classificacao === "CONDICIONAL" ? "warn" : "danger"}">
+        <div class="l">Decisão</div>
+        <div class="v sm ${cl.classificacao === "APROVADO" ? "green" : cl.classificacao === "CONDICIONAL" ? "" : "red"}">${esc(cl.classificacao ?? "—")}</div>
+      </div>
+      <div class="icell"><div class="l">Limite Aprovado</div><div class="v sm mono">${cl.limiteAjustado ? "R$\u00a0" + cl.limiteAjustado.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}) : "—"}</div></div>
+      <div class="icell"><div class="l">Prazo</div><div class="v">${cl.prazo ? cl.prazo + " dias" : "—"}</div></div>
+      <div class="icell"><div class="l">Score</div><div class="v" style="color:${sc}">${score > 0 ? score.toFixed(1) : "—"}</div></div>
+    </div>` : "";
+
   let content = "";
   if (!resumo && !ai) {
-    content = `<div style="text-align:center;padding:40px;color:var(--x4)">Parecer pendente — análise de IA não disponível</div>`;
+    content = `
+    <div style="text-align:center;padding:32px 0 16px;color:var(--x4);font-size:12px">Parecer pendente — análise de IA não disponível</div>
+    ${pleitoSummary}`;
   } else {
     content = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;gap:20px">
@@ -1418,11 +1435,10 @@ function scrVar(currV: string | undefined | null, prevV: string | undefined | nu
   return {cls: higherIsBad ? "down" : "up", val:`-${absDiff}%`};
 }
 
-// ─── Page 7: SCR + DRE ───────────────────────────────────────────────────────
+// ─── Page 9: SCR ─────────────────────────────────────────────────────────────
 function pageSCRDRE(params: PDFReportParams, date: string): string {
   const scr = params.data.scr;
   const scrAnt = params.data.scrAnterior;
-  const dre = params.data.dre;
 
   // SCR comparative table with real variation
   let scrRows = "";
@@ -1492,50 +1508,6 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
     sociosSCRSection = `${stitle("08 · SCR dos Sócios (PF)")}${blocks}`;
   }
 
-  // DRE table
-  let dreRows = "";
-  if (dre && dre.anos.length > 0) {
-    const anos = dre.anos.slice(-2);
-    const headers = anos.map(a => `<th class="r">${esc(a.ano)}</th>`).join("");
-    const PCT_FIELDS = new Set(["margemBruta","margemEbitda","margemLiquida"]);
-    const fields: Array<{label:string;key:keyof typeof anos[0]}> = [
-      {label:"Receita Bruta",key:"receitaBruta"},
-      {label:"Receita Líquida",key:"receitaLiquida"},
-      {label:"Lucro Bruto",key:"lucroBruto"},
-      {label:"Margem Bruta",key:"margemBruta"},
-      {label:"EBITDA",key:"ebitda"},
-      {label:"Margem EBITDA",key:"margemEbitda"},
-      {label:"Lucro Líquido",key:"lucroLiquido"},
-      {label:"Margem Líquida",key:"margemLiquida"},
-    ];
-    dreRows = fields.map(f => {
-      const isPct = PCT_FIELDS.has(f.key as string);
-      const cells = anos.map(a => {
-        const v = a[f.key];
-        if (v == null || v === "" || v === "—") return `<td class="r">—</td>`;
-        if (isPct) {
-          const formatted = fmtPct(v);
-          const isNeg = numVal(v) < 0;
-          return `<td class="r ${isNeg ? "red" : ""}">${formatted}</td>`;
-        }
-        const isNeg = numVal(v) < 0;
-        return `<td class="r ${isNeg ? "red" : ""}">${fmtMoney(v)}</td>`;
-      }).join("");
-      return `<tr><td class="b">${esc(f.label)}</td>${cells}</tr>`;
-    }).join("");
-
-    // DRE alerts
-    const lastAno = dre.anos[dre.anos.length - 1];
-    const ml = numVal(lastAno?.margemLiquida ?? "0");
-    const dreAlerts = [
-      ml < -30 ? `<div class="alert alta"><span class="atag">ALTA</span> Margem líquida ${fmtPct(lastAno?.margemLiquida)} — operação deficitária</div>` : "",
-      numVal(lastAno?.ebitda ?? "0") < 0 ? `<div class="alert alta"><span class="atag">ALTA</span> EBITDA negativo ${fmtMoneyAbr(lastAno?.ebitda)} — não gera caixa operacional</div>` : "",
-    ].filter(Boolean).join("");
-
-    dreRows = `<thead><tr><th>Métrica</th>${headers}</tr></thead><tbody>${dreRows}</tbody>`;
-    dreRows += dreAlerts ? `__ALERTS__${dreAlerts}` : "";
-  }
-
   const scrPeriodoAtual = scr?.periodoReferencia ?? "—";
   const scrPeriodoAnt = scrAnt?.periodoReferencia ?? "—";
 
@@ -1579,9 +1551,57 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
     ${sociosSCRSection}`;
   }
 
+  const content = `${scrSection}`;
+  return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de SCR não disponíveis</div>`, 9, date);
+}
+
+// ─── Page 10: DRE + Balanço + ABC ────────────────────────────────────────────
+function pageBalancoABC(params: PDFReportParams, date: string): string {
+  const dre = params.data.dre;
+  const bal = params.data.balanco;
+  const abc = params.data.curvaABC;
+
+  // ── DRE ──────────────────────────────────────────────────────────────────────
   let dreSection = "";
   if (dre && dre.anos.length > 0) {
-    const [tableBody, ...alertParts] = dreRows.split("__ALERTS__");
+    const anos = dre.anos.slice(-2);
+    const headers = anos.map(a => `<th class="r">${esc(a.ano)}</th>`).join("");
+    const PCT_FIELDS = new Set(["margemBruta","margemEbitda","margemLiquida"]);
+    const fields: Array<{label:string;key:keyof typeof anos[0]}> = [
+      {label:"Receita Bruta",key:"receitaBruta"},
+      {label:"Receita Líquida",key:"receitaLiquida"},
+      {label:"Lucro Bruto",key:"lucroBruto"},
+      {label:"Margem Bruta",key:"margemBruta"},
+      {label:"EBITDA",key:"ebitda"},
+      {label:"Margem EBITDA",key:"margemEbitda"},
+      {label:"Lucro Líquido",key:"lucroLiquido"},
+      {label:"Margem Líquida",key:"margemLiquida"},
+    ];
+    let dreRows = fields.map(f => {
+      const isPct = PCT_FIELDS.has(f.key as string);
+      const cells = anos.map(a => {
+        const v = a[f.key];
+        if (v == null || v === "" || v === "—") return `<td class="r">—</td>`;
+        if (isPct) {
+          const formatted = fmtPct(v);
+          const isNeg = numVal(v) < 0;
+          return `<td class="r ${isNeg ? "red" : ""}">${formatted}</td>`;
+        }
+        const isNeg = numVal(v) < 0;
+        return `<td class="r ${isNeg ? "red" : ""}">${fmtMoney(v)}</td>`;
+      }).join("");
+      return `<tr><td class="b">${esc(f.label)}</td>${cells}</tr>`;
+    }).join("");
+
+    const lastAno = dre.anos[dre.anos.length - 1];
+    const ml = numVal(lastAno?.margemLiquida ?? "0");
+    const dreAlerts = [
+      ml < -30 ? `<div class="alert alta"><span class="atag">ALTA</span> Margem líquida ${fmtPct(lastAno?.margemLiquida)} — operação deficitária</div>` : "",
+      numVal(lastAno?.ebitda ?? "0") < 0 ? `<div class="alert alta"><span class="atag">ALTA</span> EBITDA negativo ${fmtMoneyAbr(lastAno?.ebitda)} — não gera caixa operacional</div>` : "",
+    ].filter(Boolean).join("");
+
+    const tableBody = `<thead><tr><th>Métrica</th>${headers}</tr></thead><tbody>${dreRows}</tbody>`;
+
     const lastDre = dre.anos[dre.anos.length - 1];
     const ml2 = numVal(lastDre?.margemLiquida ?? "0");
     const mb2 = numVal(lastDre?.margemBruta ?? "0");
@@ -1607,17 +1627,8 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
       </div>
     </div>
     <table class="tbl">${tableBody}</table>
-    ${alertParts[0] ?? ""}`;
+    ${dreAlerts}`;
   }
-
-  const content = `${scrSection}${dreSection}`;
-  return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de SCR/DRE não disponíveis</div>`, 9, date);
-}
-
-// ─── Page 10: Balanço + ABC ───────────────────────────────────────────────────
-function pageBalancoABC(params: PDFReportParams, date: string): string {
-  const bal = params.data.balanco;
-  const abc = params.data.curvaABC;
 
   let balSection = "";
   if (bal && bal.anos.length > 0) {
@@ -1704,8 +1715,8 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
     ${abc.alertaConcentracao && abc.clientes[0] ? `<div class="alert alta" style="margin-top:8px"><span class="atag">ALTA</span> ${esc(abc.clientes[0].nome)} concentra ${fmtPct(abc.clientes[0].percentualReceita)} da receita — acima do limite recomendado</div>` : ""}`;
   }
 
-  const content = `${balSection}${abcSection}`;
-  return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de balanço/ABC não disponíveis</div>`, 10, date);
+  const content = `${dreSection}${balSection}${abcSection}`;
+  return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de DRE/balanço/ABC não disponíveis</div>`, 10, date);
 }
 
 // ─── Page 11: IR Sócios + Visita ───────────────────────────────────────────────
