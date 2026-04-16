@@ -868,18 +868,15 @@ async function consultarCreditHubPorCPF(cpf: string, nomeSocio: string): Promise
       // Fonte 3 (Opção B): empresa própria do sócio via rfb.cnpj → publica.cnpj.ws
       const empresaRFB = await buscarEmpresaPropriaRFB(d, cpfNum, nomeSocio);
 
-      // Fonte 4 (Opção E): empresa derivada de domínio de email profissional
-      const empresasEmail = extrairEmpresasDeEmails(d, cpfNum, nomeSocio);
-
-      // Combina e deduplica (prioridade: diretas > rfb > processos > email)
+      // Combina e deduplica (prioridade: diretas > rfb > processos)
       const vistos = new Set<string>();
       const todas: GrupoEconomicoData["empresas"] = [];
-      for (const emp of [...empresasDirectas, ...empresaRFB, ...empresasProcessos, ...empresasEmail]) {
+      for (const emp of [...empresasDirectas, ...empresaRFB, ...empresasProcessos]) {
         const key = emp.cnpj || emp.razaoSocial.toLowerCase().trim();
         if (!vistos.has(key)) { vistos.add(key); todas.push(emp); }
       }
 
-      console.log(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** total empresas: diretas=${empresasDirectas.length} rfb=${empresaRFB.length} processos=${empresasProcessos.length} email=${empresasEmail.length}`);
+      console.log(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** total empresas: diretas=${empresasDirectas.length} rfb=${empresaRFB.length} processos=${empresasProcessos.length}`);
       return todas;
 
     } catch (err: unknown) {
@@ -940,60 +937,6 @@ function extrairEmpresasDeProcessos(
   }
 
   console.log(`[credithub][cpf] CPF=${cpfSocio.slice(0,3)}*** empresas de processos: ${resultado.length}`);
-  return resultado;
-}
-
-// ── Opção E: extrai empresa a partir de domínio de email profissional ─────────
-// Ex: lauro@gruposemil.com.br → "GRUPOSEMIL"
-const EMAIL_GENERIC_DOMAINS = new Set([
-  "gmail.com","googlemail.com","hotmail.com","hotmail.com.br","outlook.com","outlook.com.br",
-  "live.com","live.com.br","msn.com","yahoo.com","yahoo.com.br","icloud.com","me.com",
-  "mac.com","uol.com.br","bol.com.br","terra.com.br","ig.com.br","r7.com","globo.com",
-  "oi.com.br","vivo.com.br","claro.com.br","tim.com.br","protonmail.com","tutanota.com",
-  "aol.com","ymail.com","zipmail.com.br","superig.com.br","pop.com.br",
-]);
-
-function extrairEmpresasDeEmails(
-  d: Record<string, unknown>,
-  cpfSocio: string,
-  nomeSocio: string,
-): GrupoEconomicoData["empresas"] {
-  const emails = d?.emails as string[] ?? [];
-  const resultado: GrupoEconomicoData["empresas"] = [];
-  const vistos = new Set<string>();
-
-  for (const email of emails) {
-    const parts = String(email ?? "").toLowerCase().split("@");
-    if (parts.length !== 2) continue;
-    const domain = parts[1].trim();
-    if (!domain || EMAIL_GENERIC_DOMAINS.has(domain)) continue;
-
-    // Remove TLDs (.com.br, .com, .org.br, .net, etc.) para derivar nome da empresa
-    const nomeDerived = domain
-      .replace(/\.(com\.br|org\.br|net\.br|gov\.br|edu\.br|com|org|net|io|co)$/i, "")
-      .replace(/\./g, " ")
-      .toUpperCase()
-      .trim();
-
-    if (!nomeDerived || nomeDerived.length < 3) continue;
-    if (vistos.has(nomeDerived)) continue;
-    vistos.add(nomeDerived);
-
-    resultado.push({
-      razaoSocial: nomeDerived,
-      cnpj: "",
-      relacao: "Email Profissional",
-      scrTotal: "—",
-      protestos: "—",
-      processos: "—",
-      socioOrigem: nomeSocio,
-      cpfSocio,
-      participacao: "",
-      situacao: "VERIFICAR",
-    });
-  }
-
-  console.log(`[credithub][cpf] CPF=${cpfSocio.slice(0,3)}*** empresas de emails: ${resultado.length}`);
   return resultado;
 }
 
