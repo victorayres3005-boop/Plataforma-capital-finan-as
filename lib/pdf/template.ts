@@ -879,7 +879,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
       <thead><tr><th>Sócio</th><th>CPF/CNPJ</th><th>Qualificação</th><th>Part.</th><th>Patrim. (IR)</th></tr></thead>
       <tbody>${socRows || `<tr><td colspan="5" style="color:var(--x4);text-align:center">—</td></tr>`}</tbody>
     </table>
-    <div class="soc-extra">Capital Social: <b>${fmtMoney(capitalSocial)}</b></div>
+    <div class="soc-extra">Capital Social: <b>${fmtMoney(capitalSocial)}</b> · Grupo Econômico: <b>${d.grupoEconomico?.empresas?.length > 0 ? d.grupoEconomico.empresas.length + " empresa(s) identificada(s)" : "Não identificado"}</b></div>
 
     <!-- 5b. Grupo Econômico dos Sócios -->
     ${(() => {

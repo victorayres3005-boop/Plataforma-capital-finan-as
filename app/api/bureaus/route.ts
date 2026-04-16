@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
       consultarSerasa(cnpj),
       consultarSPC(cnpj),
       consultarQuod(cnpj),
-      consultarGrupoEconomicoSocios(sociosParaGrupo),
+      consultarGrupoEconomicoSocios(sociosParaGrupo, cnpj),
     ]);
 
     const grupoEconomicoResult = grupoEconomico.status === "fulfilled" ? grupoEconomico.value : undefined;

@@ -976,7 +976,8 @@ async function buscarEmpresaPropriaRFB(
 
 // Função pública: consulta grupo econômico de todos os sócios PF em paralelo + detecta parentesco
 export async function consultarGrupoEconomicoSocios(
-  socios: { nome: string; cpfCnpj: string }[]
+  socios: { nome: string; cpfCnpj: string }[],
+  cnpjEmpresaPrincipal?: string,   // CNPJ da empresa analisada — para excluir do grupo
 ): Promise<GrupoEconomicoData> {
   const sociosPF = socios.filter(s => s.cpfCnpj.replace(/\D/g, "").length === 11);
 
@@ -987,19 +988,45 @@ export async function consultarGrupoEconomicoSocios(
     return { empresas: [], alertaParentesco, parentescosDetectados };
   }
 
+  const cnpjPrincipalNorm = (cnpjEmpresaPrincipal ?? "").replace(/\D/g, "");
+
   // Consultas paralelas por CPF
   const resultados = await Promise.allSettled(
     sociosPF.map(s => consultarCreditHubPorCPF(s.cpfCnpj, s.nome))
   );
 
-  // Agrega e deduplica por CNPJ
-  const cnpjVisto = new Set<string>();
+  // Agrega e deduplica:
+  // — por CNPJ quando disponível (empresas da Option B)
+  // — por razão social normalizada quando CNPJ vazio (empresas de processos, Option D)
+  // Exclui a empresa principal e filtra apenas situação ATIVA ou sem situação confirmada (rfb)
+  const chaveVista = new Set<string>();
   const empresas: GrupoEconomicoData["empresas"] = [];
+
   resultados.forEach(r => {
     if (r.status !== "fulfilled") return;
     r.value.forEach(emp => {
-      if (!cnpjVisto.has(emp.cnpj)) {
-        cnpjVisto.add(emp.cnpj);
+      // Exclui a empresa analisada (aparece em processos como parte)
+      if (cnpjPrincipalNorm && emp.cnpj && emp.cnpj === cnpjPrincipalNorm) return;
+
+      // Só inclui empresas ATIVAS (rfb.cnpj) ou extraídas de processos com CNPJ válido
+      // Empresas sem CNPJ e status VERIFICAR precisam ter razao social útil
+      const sit = (emp.situacao ?? "").toUpperCase();
+      if (sit === "VERIFICAR") {
+        // Processo: só inclui se razão social parece legítima (>= 6 chars, não é banco federal)
+        const nome = emp.razaoSocial.trim();
+        if (nome.length < 6) return;
+        if (/\b(BANCO DO BRASIL|CAIXA ECONOM|BRADESCO|ITAU|SANTANDER|SICRED|SICOOB|BB S\/A|PREFEITURA|MUNICIPIO|ESTADO DE|FAZENDA DO ESTADO|SPPREV|INSS)\b/i.test(nome)) return;
+      } else if (!sit.includes("ATIVA")) {
+        // Empresas com situação confirmada mas não ATIVA: inclui com a situação real
+        // (para informar o analista que existe mas está inativa)
+      }
+
+      const chave = emp.cnpj
+        ? emp.cnpj
+        : emp.razaoSocial.toLowerCase().trim();
+
+      if (!chaveVista.has(chave)) {
+        chaveVista.add(chave);
         empresas.push(emp);
       }
     });
