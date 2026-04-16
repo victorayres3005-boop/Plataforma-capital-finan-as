@@ -347,14 +347,14 @@ body{font-family:'DM Sans',sans-serif;font-size:var(--fs-body);background:#f0f2f
 .fin-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px}
 .fin-box{background:var(--x0);border-radius:8px;border:1px solid var(--x1);padding:16px}
 .fin-title{font-size:var(--fs-label);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--x5);margin-bottom:12px}
-.chart{display:flex;align-items:flex-end;gap:3px;height:100px;margin-bottom:8px}
-.bars{display:flex;align-items:flex-end;gap:3px;height:120px;margin-bottom:8px}
-.bar-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end}
-.bar{width:100%;border-radius:3px 3px 0 0;min-height:2px;position:relative;flex-shrink:0}
+.chart{display:flex;align-items:flex-end;gap:3px;height:100px;margin-bottom:8px;overflow:visible}
+.bars{display:flex;align-items:flex-end;gap:4px;height:120px;margin-bottom:8px;overflow:visible}
+.bar-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;overflow:visible}
+.bar{width:100%;border-radius:3px 3px 0 0;min-height:2px;position:relative;flex-shrink:0;overflow:visible}
 .bar.navy,.bar.nv{background:var(--n8)}
 .bar.green,.bar.gn{background:var(--g6)}
 .bar.light,.bar.lt{background:var(--n3)}
-.bar-val,.bar-v{position:absolute;top:-14px;left:50%;transform:translateX(-50%);font-size:var(--fs-chart);color:var(--x5);white-space:nowrap;font-family:'JetBrains Mono',monospace}
+.bar-val,.bar-v{position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-size:var(--fs-chart);color:var(--x5);white-space:nowrap;font-family:'JetBrains Mono',monospace;pointer-events:none}
 .bar-lbl,.bar-l{font-size:var(--fs-tag);color:var(--x4);margin-top:4px;text-align:center;white-space:nowrap}
 .kpi-row{display:flex;gap:16px;font-size:var(--fs-body);color:var(--x5);padding-top:8px;border-top:1px solid var(--x1);margin-top:8px}
 .kpi-row b{color:var(--n9)}
@@ -704,7 +704,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
 
   // Faturamento chart
   const fatMeses = sortMesCrono(d.faturamento?.meses ?? []).slice(-12);
-  const fatBars = fatMeses.length > 0 ? buildBars(fatMeses, 60) : "";
+  const fatBars = fatMeses.length > 0 ? buildBars(fatMeses, 90) : "";
   const fmm = d.faturamento?.fmm12m ?? d.faturamento?.mediaAno ?? "—";
   const total12 = d.faturamento?.somatoriaAno ?? "—";
   const tendencia = d.faturamento?.tendencia ?? "indefinido";
@@ -1054,15 +1054,12 @@ function pageSintese(params: PDFReportParams, date: string): string {
       <div style="margin-top:10px">${alertsHtml}</div>
     </div>
 
-    <!-- page break: keep Faturamento on its own physical sub-page -->
-    <div style="break-before:page;page-break-before:always"></div>
-
     <!-- 7. Faturamento + SCR -->
     ${stitle("Faturamento & SCR")}
     <div class="fin-row">
       <div class="fin-box">
         <div class="fin-title">Faturamento mensal — últimos 12 meses</div>
-        <div class="chart">${fatBars}</div>
+        <div class="bars" style="padding-top:18px">${fatBars}</div>
         <div class="kpi-row">
           <span>FMM: <b>${fmtMoneyAbr(fmm)}</b></span>
           <span>Total 12M: <b>${fmtMoneyAbr(total12)}</b></span>
@@ -1080,9 +1077,6 @@ function pageSintese(params: PDFReportParams, date: string): string {
 
     <!-- 9. Pleito -->
     ${pleitoHtml}
-
-    <!-- page break: keep Análise + Percepção on their own physical sub-page -->
-    <div style="break-before:page;page-break-before:always"></div>
 
     <!-- 10. Análise -->
     ${analiseHtml}
@@ -1395,7 +1389,6 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
         </tr>`
       ).join("");
       return `
-        <div style="break-before:page;page-break-before:always"></div>
         ${stitle("05 · CCF — Cheques Sem Fundo")}
         <div class="istrip c3" style="margin-bottom:10px">
           <div class="icell ${ccfQtd > 0 ? "danger" : "success"}"><div class="l">Registros CCF</div><div class="v ${ccfQtd > 0 ? "red" : "green"}">${ccfQtd > 0 ? `<b>${ccfQtd}</b>` : "0 — limpo"}</div></div>
@@ -1595,7 +1588,6 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
     const mb2 = numVal(lastDre?.margemBruta ?? "0");
     const me2 = numVal(lastDre?.margemEbitda ?? "0");
     dreSection = `
-    <div style="break-before:page;page-break-before:always"></div>
     ${stitle("09 · Demonstração de Resultado (DRE)")}
     <div class="kpi-snap c4" style="margin-bottom:14px">
       <div class="icell navy">
@@ -1697,7 +1689,6 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
     }).join("");
 
     abcSection = `
-    <div style="break-before:page;page-break-before:always"></div>
     ${stitle("11 · Curva ABC — Concentração de sacados")}
     <div class="istrip c3" style="margin-bottom:10px">
       <div class="icell warn"><div class="l">Top 3 Clientes</div><div class="v" style="color:var(--a5)">${fmt(top3Pct)}</div></div>
