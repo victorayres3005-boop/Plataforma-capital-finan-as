@@ -37,7 +37,7 @@ const tr = (s: string, n: number) => {
 };
 
 export function renderParecerSection(ctx: PdfCtx): void {
-  const { doc, pos, params, aiAnalysis, margin: ML, contentW: CW } = ctx;
+  const { doc, pos, params, margin: ML, contentW: CW } = ctx;
   const { decision, finalRating, pontosFortes, pontosFracos, resumoExecutivo } = params;
   const GAP = 3.5;
 
