@@ -855,22 +855,123 @@ async function consultarCreditHubPorCPF(cpf: string, nomeSocio: string): Promise
       }
 
       const d = raw?.data ?? raw;
-      const topKeys = Object.keys(d ?? {}).join(", ");
       const arrKeys = Object.keys(d ?? {}).filter(k => Array.isArray((d as Record<string,unknown>)[k]));
-      console.log(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** OK — keys: ${topKeys}`);
+      console.log(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** OK — keys: ${Object.keys(d ?? {}).join(", ")}`);
       console.log(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** array keys: ${arrKeys.join(", ") || "(nenhum)"}`);
 
-      const empresas = parseEmpresasVinculadas(d, cpfNum, nomeSocio);
-      console.log(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** empresas extraídas: ${empresas.length}`);
-      return empresas;
+      // Fonte 1: campos diretos de participações (retorno original — geralmente vazio neste endpoint)
+      const empresasDirectas = parseEmpresasVinculadas(d, cpfNum, nomeSocio);
 
-    } catch (err: any) {
-      console.warn(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** tentativa ${attempt} exception:`, String(err?.message ?? err));
+      // Fonte 2 (Opção D): empresas extraídas dos processos judiciais do sócio
+      const empresasProcessos = extrairEmpresasDeProcessos(d, cpfNum, nomeSocio);
+
+      // Fonte 3 (Opção B): empresa própria do sócio via rfb.cnpj → publica.cnpj.ws
+      const empresaRFB = await buscarEmpresaPropriaRFB(d, cpfNum, nomeSocio);
+
+      // Combina e deduplica (prioridade: diretas > rfb > processos)
+      const vistos = new Set<string>();
+      const todas: GrupoEconomicoData["empresas"] = [];
+      for (const emp of [...empresasDirectas, ...empresaRFB, ...empresasProcessos]) {
+        const key = emp.cnpj || emp.razaoSocial.toLowerCase().trim();
+        if (!vistos.has(key)) { vistos.add(key); todas.push(emp); }
+      }
+
+      console.log(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** total empresas: diretas=${empresasDirectas.length} rfb=${empresaRFB.length} processos=${empresasProcessos.length}`);
+      return todas;
+
+    } catch (err: unknown) {
+      console.warn(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** tentativa ${attempt} exception:`, String(err instanceof Error ? err.message : err));
       if (attempt < MAX_ATTEMPTS) await new Promise(r => setTimeout(r, DELAY_MS));
     }
   }
 
   return [];
+}
+
+// ── Opção D: extrai empresas dos processos judiciais do sócio ────────────────
+// Identifica empresas que aparecem como parte em processos junto com o sócio.
+const COMPANY_RE = /\b(LTDA\.?|S\.A\.?|S\/A|EIRELI|S\.?S\.?|EPP|M\.?E\.?\b|HOLDINGS?|PARTICIPA[CÇ]|FOMENTO|SECURITIZADORA|INDUSTRI[AÀ]|COMERC[IÍ]|SERVI[CÇ]|CONSTRU[TÇ]|DISTRIBU[IÍ]|FINANC|INVEST|EMPREEND)/i;
+
+function extrairEmpresasDeProcessos(
+  d: Record<string, unknown>,
+  cpfSocio: string,
+  nomeSocio: string,
+): GrupoEconomicoData["empresas"] {
+  const processos = d?.processos as Array<Record<string, unknown>> ?? [];
+  const resultado: GrupoEconomicoData["empresas"] = [];
+  const vistos = new Set<string>();
+  const nomeSocioNorm = nomeSocio.toUpperCase().trim();
+
+  for (const proc of processos) {
+    const envolvidos = proc?.envolvidos_ultima_movimentacao as Array<Record<string, unknown>> ?? [];
+    for (const env of envolvidos) {
+      const nome = String(env?.nome ?? "").trim().toUpperCase();
+      if (!nome || nome === nomeSocioNorm) continue;
+      if (!COMPANY_RE.test(nome)) continue;
+      if (vistos.has(nome)) continue;
+      vistos.add(nome);
+
+      const tipo = String(env?.envolvido_tipo ?? "").toLowerCase();
+      const relacao = tipo === "ativo" ? "Autor (Processo)" : tipo === "passivo" ? "Réu (Processo)" : "Via Processo";
+
+      resultado.push({
+        razaoSocial: nome,
+        cnpj: "",
+        relacao,
+        scrTotal: "—",
+        protestos: "—",
+        processos: "—",
+        socioOrigem: nomeSocio,
+        cpfSocio,
+        participacao: "",
+        situacao: "VERIFICAR",
+      });
+    }
+  }
+
+  console.log(`[credithub][cpf] CPF=${cpfSocio.slice(0,3)}*** empresas de processos: ${resultado.length}`);
+  return resultado;
+}
+
+// ── Opção B: empresa própria do sócio via rfb.cnpj → publica.cnpj.ws ─────────
+async function buscarEmpresaPropriaRFB(
+  d: Record<string, unknown>,
+  cpfSocio: string,
+  nomeSocio: string,
+): Promise<GrupoEconomicoData["empresas"]> {
+  const rfb = d?.rfb as Record<string, unknown> ?? {};
+  const cnpjRaw = String(rfb?.cnpj ?? "").replace(/\D/g, "");
+  if (cnpjRaw.length !== 14) return [];
+
+  try {
+    const res = await fetch(`https://publica.cnpj.ws/cnpj/${cnpjRaw}`, {
+      headers: { "Accept": "application/json" },
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      console.warn(`[credithub][cpf][rfb] publica.cnpj.ws status ${res.status} para CNPJ ${cnpjRaw.slice(0,4)}***`);
+      return [];
+    }
+    const data = await res.json() as Record<string, unknown>;
+    const razao = String(data?.razao_social ?? data?.nome_fantasia ?? "—").toUpperCase();
+    const sit   = String(data?.descricao_situacao_cadastral ?? "ATIVA").toUpperCase();
+    console.log(`[credithub][cpf][rfb] CPF=${cpfSocio.slice(0,3)}*** empresa própria: ${razao} — ${sit}`);
+    return [{
+      razaoSocial: razao,
+      cnpj: cnpjRaw,
+      relacao: "Empresa Própria (RFB)",
+      scrTotal: "—",
+      protestos: "—",
+      processos: "—",
+      socioOrigem: nomeSocio,
+      cpfSocio,
+      participacao: "",
+      situacao: sit.includes("ATIVA") ? "ATIVA" : sit,
+    }];
+  } catch (err: unknown) {
+    console.warn(`[credithub][cpf][rfb] erro ao consultar publica.cnpj.ws:`, String(err instanceof Error ? err.message : err));
+    return [];
+  }
 }
 
 // Função pública: consulta grupo econômico de todos os sócios PF em paralelo + detecta parentesco
