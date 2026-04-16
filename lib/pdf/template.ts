@@ -1,6 +1,9 @@
 import type { PDFReportParams } from "@/lib/generators/pdf";
 import type { FundCriterion } from "@/types";
 
+// ─── Logo base64 ─────────────────────────────────────────────────────────────
+const LOGO_B64 = "iVBORw0KGgoAAAANSUhEUgAAAcMAAAA+CAYAAABX/XCtAAAKQ2lDQ1BJQ0MgcHJvZmlsZQAAeNqdU3dYk/cWPt/3ZQ9WQtjwsZdsgQAiI6wIyBBZohCSAGGEEBJAxYWIClYUFRGcSFXEgtUKSJ2I4qAouGdBiohai1VcOO4f3Ke1fXrv7e371/u855zn/M55zw+AERImkeaiagA5UoU8Otgfj09IxMm9gAIVSOAEIBDmy8JnBcUAAPADeXh+dLA//AGvbwACAHDVLiQSx+H/g7pQJlcAIJEA4CIS5wsBkFIAyC5UyBQAyBgAsFOzZAoAlAAAbHl8QiIAqg0A7PRJPgUA2KmT3BcA2KIcqQgAjQEAmShHJAJAuwBgVYFSLALAwgCgrEAiLgTArgGAWbYyRwKAvQUAdo5YkA9AYACAmUIszAAgOAIAQx4TzQMgTAOgMNK/4KlfcIW4SAEAwMuVzZdL0jMUuJXQGnfy8ODiIeLCbLFCYRcpEGYJ5CKcl5sjE0jnA0zODAAAGvnRwf44P5Dn5uTh5mbnbO/0xaL+a/BvIj4h8d/+vIwCBAAQTs/v2l/l5dYDcMcBsHW/a6lbANpWAGjf+V0z2wmgWgrQevmLeTj8QB6eoVDIPB0cCgsL7SViob0w44s+/zPhb+CLfvb8QB7+23rwAHGaQJmtwKOD/XFhbnauUo7nywRCMW735yP+x4V//Y4p0eI0sVwsFYrxWIm4UCJNx3m5UpFEIcmV4hLpfzLxH5b9CZN3DQCshk/ATrYHtctswH7uAQKLDljSdgBAfvMtjBoLkQAQZzQyefcAAJO/+Y9AKwEAzZek4wAAvOgYXKiUF0zGCAAARKCBKrBBBwzBFKzADpzBHbzAFwJhBkRADCTAPBBCBuSAHAqhGJZBGVTAOtgEtbADGqARmuEQtMExOA3n4BJcgetwFwZgGJ7CGLyGCQRByAgTYSE6iBFijtgizggXmY4EImFINJKApCDpiBRRIsXIcqQCqUJqkV1II/ItchQ5jVxA+pDbyCAyivyKvEcxlIGyUQPUAnVAuagfGorGoHPRdDQPXYCWomvRGrQePYC2oqfRS+h1dAB9io5jgNExDmaM2WFcjIdFYIlYGibHFmPlWDVWjzVjHVg3dhUbwJ5h7wgkAouAE+wIXoQQwmyCkJBHWExYQ6gl7CO0EroIVwmDhDHCJyKTqE+0JXoS+cR4YjqxkFhGrCbuIR4hniVeJw4TX5NIJA7JkuROCiElkDJJC0lrSNtILaRTpD7SEGmcTCbrkG3J3uQIsoCsIJeRt5APkE+S+8nD5LcUOsWI4kwJoiRSpJQSSjVlP+UEpZ8yQpmgqlHNqZ7UCKqIOp9aSW2gdlAvU4epEzR1miXNmxZDy6Qto9XQmmlnafdoL+l0ugndgx5Fl9CX0mvoB+nn6YP0dwwNhg2Dx0hiKBlrGXsZpxi3GS+ZTKYF05eZyFQw1zIbmWeYD5hvVVgq9ip8FZHKEpU6lVaVfpXnqlRVc1U/1XmqC1SrVQ+rXlZ9pkZVs1DjqQnUFqvVqR1Vu6k2rs5Sd1KPUI9RX6O+X/2C+mMNsoaFRqCGSKNUY7fGGY0hFsYyZfFYQtZyVgPrLGuYTWJbsvnsTHYF+xt2L3tMU0NzqmasZpFmneZxzQEOxrHg8DnZnErOIc4NznstAy0/LbHWaq1mrX6tN9p62r7aYu1y7Rbt69rvdXCdQJ0snfU6bTr3dQm6NrpRuoW663XP6j7TY+t56Qn1yvUO6d3RR/Vt9KP1F+rv1u/RHzcwNAg2kBlsMThj8MyQY+hrmGm40fCE4agRy2i6kcRoo9FJoye4Ju6HZ+M1eBc+ZqxvHGKsNN5l3Gs8YWJpMtukxKTF5L4pzZRrmma60bTTdMzMyCzcrNisyeyOOdWca55hvtm82/yNhaVFnMVKizaLx5balnzLBZZNlvesmFY+VnlW9VbXrEnWXOss223WV2xQG1ebDJs6m8u2qK2brcR2m23fFOIUjynSKfVTbtox7PzsCuya7AbtOfZh9iX2bfbPHcwcEh3WO3Q7fHJ0dcx2bHC864SRg2aqw2NeX9W+uXlO3t9O0rt6zON9gFwEgm7IEupuvA/RgJnfGq50rChnRmQG1ViXvwfr9huwvnwtl7GMG3U2bblfholT546xmCqeT1hG6oAFxPr1zDKUcLmxomvB91M8gS9kCfgjCha5pTrpndvXRlyd1+OyVVNMYDYB0Et4QunAbYB2r8sT7ir+xodc7sxoQg1I75/4AwU/VaC5ZhGiak8ZyLd8asueEaWGJAF7Zp24j23L/W09j9OPuB5SBVAPJbw4xFFlF2Zcf4AlpS94rEXZey/mObEjzw+1uW7RRz9hISvu2MR1uFyteIw04rGIRelq1mp96qfdMjFD4P9I78xOnNCVvDLIZmdqydLe4YZnYADRheyOanIIzwwdkodCZ4YOWwKSXzp+8ELWJP1e6JXiJ1ricNK7fVbd97M43j0L+cMK/Abm6n6MsKdjhA4ODg5GHEBbBtL/lBdGBQ8bPSv0wHf4PAPVJPS/M8gL36Y7kgghkhCdAwYKOCy1pkESvIUllpuYKeoA0bcH6SOIODg4ODh4uFb63Zc81SXUxV0KuWJswqxB/XkNS10jfd45kAlWhMfQ5g1S6OzvE3QmbRmyB/sdMEbJPHcMEQlOIrvQPtgrw+b4966POzg4OBiBvVLsb2M/DVbnmX7j2OND/GQYbk12kqEZD7J4XWbxLELmZFpTPcVMT2ZwMAp4SRLbq1syQjDmfR0jdHBwcLACjIZgjQmtXBMWOj7LuI/gKv8StINjhv6AWS+s6kaT2WAGK4+0OTLMwk0nX0ClOiLjt5+6E7508CO6iLIb0cTBwcGhqgJzJ9yQYCk9KeM6LDMHO2ZoB5irXsBSmc7fB2dFpZ2Wj7P4Jsye09aMutPdEWAZ1q0wj57i+rKDg4NDLExxkHRtX8cMgwGO2D3Iizz+qnQvU7qzPY9ve41kCEtRHB1USp5labnrvw4ODg6xAX5/mZq+gnSziOOcwmlMcHjEvmA/iaH9aPmd9N4fDHXgEP02i/ETyalDHRwcHMICNhgIxLFcwwNG0JZ2GvMKspJ8nO7DokYGA0MooKk+z8P5N9PXBS4X61wfzhnKyDndV2WUknO6L2TAtxDau1fIO/MRzA4xl2H/cQZVDN/Yk59zkmEM+E2SHBG37ijNs2iUS6VrjhE6ODg4xAPE14WhYh8mE8YUIiMEcnWa84lU8Zwx4Admkm+4/urg4OCQFfS0eAZuFzBQPLdQK6lajtKB0Qsc7mEI04O8IMZfsNTopEAHBweH7AEqcZyAg5CW6QD7EISw/QE/w1dYIvy6kCvp/wUYAHCXHIpLnc4SAAAAAElFTkSuQmCC";
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function esc(s: string | null | undefined): string {
@@ -100,15 +103,20 @@ function page(content: string, pageNum: number, date: string): string {
   return `
 <div class="page">
   <div class="hdr">
-    <div><div class="logo">capital<span>finanças</span></div><div class="meta">CONSOLIDADOR DE DOCUMENTOS</div></div>
+    <div><img src="data:image/png;base64,${LOGO_B64}" alt="Capital Finanças" style="height:28px;object-fit:contain;display:block;filter:brightness(0) invert(1)" /></div>
     <div style="display:flex;align-items:center"><div class="meta">Relatório de Due Diligence · ${date}</div><div class="pg">${pageNum}</div></div>
   </div>
   <div class="ct">${content}</div>
+  <div class="ftr">
+    <img src="data:image/png;base64,${LOGO_B64}" alt="Capital Finanças" style="height:20px;object-fit:contain;display:block;opacity:0.5" />
+    <span>Capital Finanças · Relatório de Due Diligence · Documento Confidencial</span>
+    <span>Pág. ${pageNum}</span>
+  </div>
 </div>`;
 }
 
 // ─── Bar chart ────────────────────────────────────────────────────────────────
-function buildBars(meses: {mes:string;valor:string}[]): string {
+function buildBars(meses: {mes:string;valor:string}[], maxBarPx = 80): string {
   const MONTHS = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
   function parseMesLabel(mes: string): string {
     // "01/2025" or "1/2025"
@@ -117,16 +125,16 @@ function buildBars(meses: {mes:string;valor:string}[]): string {
     // "2025-01"
     const mDash = mes.match(/^(\d{4})-(\d{2})/);
     if (mDash) { const idx = parseInt(mDash[2]) - 1; return MONTHS[idx] ?? mes; }
-    // Already short label or unknown — take first 3 chars as fallback
     return mes.slice(0, 3);
   }
   const vals = meses.map(m => numVal(m.valor));
   const max = Math.max(...vals, 1);
   return meses.map(m => {
     const v = numVal(m.valor);
-    const pct = Math.round((v/max)*100);
+    const barH = Math.max(Math.round((v / max) * maxBarPx), v > 0 ? 2 : 0);
     const lbl = fmtMoneyAbr(v).replace("R$\u00a0","");
-    return `<div class="bar-col"><div class="bar nv" style="height:${pct}%"><div class="bar-v">${lbl}</div></div><div class="bar-l">${esc(parseMesLabel(m.mes))}</div></div>`;
+    const cls = v === 0 ? "lt" : "nv";
+    return `<div class="bar-col"><div class="bar ${cls}" style="height:${barH}px"><div class="bar-v">${lbl}</div></div><div class="bar-l">${esc(parseMesLabel(m.mes))}</div></div>`;
   }).join("");
 }
 
@@ -149,33 +157,61 @@ const CSS = `
   .page{page-break-after:always}
   .avoid-break{page-break-inside:avoid}
 }
-:root{--n9:#0c1b3a;--n8:#132952;--n7:#1a3a6b;--n1:#dce6f5;--n0:#eef3fb;--a5:#d4940a;--a1:#fdf3d7;--a0:#fef9ec;--r6:#c53030;--r1:#fee2e2;--r0:#fef2f2;--g6:#16653a;--g1:#d1fae5;--g0:#ecfdf5;--x9:#111827;--x7:#374151;--x5:#6b7280;--x4:#9ca3af;--x3:#d1d5db;--x2:#e5e7eb;--x1:#f3f4f6;--x0:#f9fafb;--gl:#73b815}
+/* ══════════════════════════════════════════════════════
+   ESCALA TIPOGRÁFICA — alterar aqui propaga para todo o relatório
+   fs-kpi   → valores de KPI / métricas grandes
+   fs-h3    → texto de corpo principal, parágrafos, células de tabela
+   fs-body  → texto secundário, alertas, notas
+   fs-label → rótulos em maiúsculas (8×uppercase)
+   fs-tag   → badges, tags, micro-rótulos
+   fs-chart → valores nos gráficos de barra
+   ══════════════════════════════════════════════════════ */
+:root{
+  --n9:#163269;--n8:#1F478E;--n7:#2a5aad;--n3:#a8c3e8;--n1:#ccd9f0;--n0:#e8eef8;
+  --a5:#d4940a;--a1:#fdf3d7;--a0:#fef9ec;
+  --r6:#c53030;--r1:#fee2e2;--r0:#fef2f2;
+  --g6:#5a8a2a;--g1:#dff0c0;--g0:#f0f9e6;
+  --x9:#111827;--x7:#374151;--x5:#6b7280;--x4:#9ca3af;--x3:#d1d5db;--x2:#e5e7eb;--x1:#f3f4f6;--x0:#f9fafb;
+  --gl:#84BF41;
+  /* ── Escala tipográfica ── */
+  --fs-kpi:   14px;   /* valores numéricos / KPI */
+  --fs-h3:    12px;   /* texto primário / parágrafos / células principais */
+  --fs-body:  11px;   /* texto secundário / alertas / notas */
+  --fs-label:  9px;   /* rótulos uppercase */
+  --fs-tag:    8px;   /* badges / tags / micro */
+  --fs-chart:  7.5px; /* valores nos gráficos */
+}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'DM Sans',sans-serif;background:#f0f2f7;color:var(--x9);-webkit-font-smoothing:antialiased}
+body{font-family:'DM Sans',sans-serif;font-size:var(--fs-body);background:#f0f2f7;color:var(--x9);-webkit-font-smoothing:antialiased}
 .mono{font-family:'JetBrains Mono',monospace}
 .page{max-width:860px;margin:20px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 4px 24px rgba(12,27,58,0.07)}
+/* ── Header / Footer ── */
 .hdr{background:var(--n9);padding:14px 32px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid var(--gl)}
-.hdr .logo{font-size:15px;font-weight:700;color:#fff}
-.hdr .logo span{color:var(--gl)}
-.hdr .meta{font-size:10px;color:rgba(255,255,255,0.5)}
-.hdr .pg{background:var(--gl);color:#fff;font-size:11px;font-weight:700;padding:3px 11px;border-radius:10px;margin-left:12px}
-.ct{padding:28px 32px 40px}
-.stitle{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--x5);margin:24px 0 10px;display:flex;align-items:center;gap:8px}
+.hdr .meta{font-size:var(--fs-label);color:rgba(255,255,255,0.5)}
+.hdr .pg{background:var(--gl);color:#fff;font-size:var(--fs-body);font-weight:700;padding:3px 11px;border-radius:10px;margin-left:12px}
+.ct{padding:28px 32px 32px}
+.ftr{background:var(--x0);border-top:1px solid var(--x2);padding:10px 32px;display:flex;justify-content:space-between;align-items:center}
+.ftr span{font-size:var(--fs-label);color:var(--x4);letter-spacing:0.04em}
+/* ── Section title ── */
+.stitle{font-size:var(--fs-body);font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--x5);margin:24px 0 10px;display:flex;align-items:center;gap:8px}
 .stitle:first-child{margin-top:0}
 .stitle .line{flex:1;height:1px;background:var(--x2)}
+/* ── Empresa header ── */
 .emp{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:20px;border-bottom:1px solid var(--x2);margin-bottom:20px}
 .emp-name{font-size:18px;font-weight:700;color:var(--n9);margin-bottom:3px}
-.emp-fan{font-size:11px;color:var(--x5);margin-bottom:6px}
-.emp-cnpj{font-size:12px;color:var(--x5)}
+.emp-fan{font-size:var(--fs-body);color:var(--x5);margin-bottom:6px}
+.emp-cnpj{font-size:var(--fs-h3);color:var(--x5)}
 .emp-cnpj b{color:var(--x7);font-family:'JetBrains Mono',monospace}
-.sit{display:inline-block;padding:2px 10px;border-radius:4px;font-size:10px;font-weight:600;background:var(--g1);color:var(--g6);margin-left:8px}
+.sit{display:inline-block;padding:2px 10px;border-radius:4px;font-size:var(--fs-label);font-weight:600;background:var(--g1);color:var(--g6);margin-left:8px}
 .sit.inactive{background:var(--r1);color:var(--r6)}
+/* ── Rating circle ── */
 .rat{text-align:center;min-width:110px}
 .rat-c{width:72px;height:72px;border-radius:50%;border:3px solid var(--r6);display:flex;flex-direction:column;align-items:center;justify-content:center;margin:0 auto 6px}
 .rat-n{font-size:26px;font-weight:700;line-height:1}
-.rat-d{font-size:10px;color:var(--x4)}
-.rat-l{font-size:10px;font-weight:700}
-.dec{display:inline-block;padding:4px 14px;border-radius:4px;font-size:10px;font-weight:700;background:var(--r6);color:#fff;margin-top:4px;white-space:nowrap}
+.rat-d{font-size:var(--fs-label);color:var(--x4)}
+.rat-l{font-size:var(--fs-label);font-weight:700}
+.dec{display:inline-block;padding:4px 14px;border-radius:4px;font-size:var(--fs-label);font-weight:700;background:var(--r6);color:#fff;margin-top:4px;white-space:nowrap}
+/* ── Info strips (icell grid) ── */
 .istrip{display:grid;gap:8px;margin-bottom:18px}
 .istrip.c2{grid-template-columns:1fr 1fr}
 .istrip.c3{grid-template-columns:1fr 1fr 1fr}
@@ -187,220 +223,231 @@ body{font-family:'DM Sans',sans-serif;background:#f0f2f7;color:var(--x9);-webkit
 .icell.success{background:#fff;border-color:var(--g1);border-left:3px solid var(--g6)}
 .icell.warn{background:#fff;border-color:var(--a1);border-left:3px solid var(--a5)}
 .icell.navy{background:#fff;border-color:var(--n1);border-left:3px solid var(--n8)}
-.icell .l{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--x4);margin-bottom:4px}
-.icell .v{font-size:14px;font-weight:700;color:var(--n9)}
-.icell .v.sm{font-size:11px}
+.icell .l{font-size:var(--fs-tag);font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--x4);margin-bottom:4px}
+.icell .v{font-size:var(--fs-kpi);font-weight:700;color:var(--n9)}
+.icell .v.sm{font-size:var(--fs-h3)}
 .icell .v.red{color:var(--r6)}
 .icell .v.green{color:var(--g6)}
 .icell .v.muted{color:var(--x4)}
-.icell .sub{font-size:9px;color:var(--x5);margin-top:2px}
-.seg{padding:12px 16px;background:var(--n0);border-radius:6px;border:1px solid var(--n1);margin-bottom:18px;font-size:12px;color:var(--n7)}
+.icell .sub{font-size:var(--fs-label);color:var(--x5);margin-top:2px}
+/* ── Segmento / CNAE ── */
+.seg{padding:12px 16px;background:var(--n0);border-radius:6px;border:1px solid var(--n1);margin-bottom:18px;font-size:var(--fs-h3);color:var(--n7)}
 .seg b{color:var(--n9)}
-.seg .sec{font-size:10px;color:var(--x5);margin-top:4px}
+.seg .sec{font-size:var(--fs-body);color:var(--x5);margin-top:4px}
+/* ── Mapa ── */
 .map-row{display:grid;grid-template-columns:3fr 2fr;gap:14px;margin-bottom:18px}
 .map-frame{border-radius:8px;overflow:hidden;border:1px solid var(--x2);height:220px;position:relative;background:var(--x1)}
 .map-frame img{width:100%;height:100%;object-fit:cover}
 .addr-box{padding:16px;background:var(--x0);border-radius:8px;border:1px solid var(--x1);display:flex;flex-direction:column;justify-content:center}
-.addr-box .l{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--x4);margin-bottom:8px}
-.addr-box .a{font-size:13px;color:var(--x7);line-height:1.6}
-.addr-box .t{font-size:10px;color:var(--x5);margin-top:auto;padding-top:10px}
-.soc-tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12px;border:1px solid var(--x2);border-radius:8px;overflow:hidden;margin-bottom:6px}
-.soc-tbl thead th{background:var(--n9);color:rgba(255,255,255,0.85);font-size:9px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;padding:10px 14px;text-align:left}
+.addr-box .l{font-size:var(--fs-label);font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--x4);margin-bottom:8px}
+.addr-box .a{font-size:var(--fs-h3);color:var(--x7);line-height:1.6}
+.addr-box .t{font-size:var(--fs-body);color:var(--x5);margin-top:auto;padding-top:10px}
+/* ── Sócios table (legacy) ── */
+.soc-tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:var(--fs-h3);border:1px solid var(--x2);border-radius:8px;overflow:hidden;margin-bottom:6px}
+.soc-tbl thead th{background:var(--n9);color:rgba(255,255,255,0.85);font-size:var(--fs-label);font-weight:600;letter-spacing:0.06em;text-transform:uppercase;padding:10px 14px;text-align:left}
 .soc-tbl tbody td{padding:10px 14px;border-bottom:1px solid var(--x1);color:var(--x7)}
 .soc-tbl tbody tr:last-child td{border-bottom:none}
-.soc-extra{font-size:11px;color:var(--x5);margin-bottom:18px}
+.soc-extra{font-size:var(--fs-body);color:var(--x5);margin-bottom:18px}
 .soc-extra b{color:var(--x9)}
+/* ── Risk blocks ── */
 .risk-section{background:var(--x0);border-radius:10px;border:1px solid var(--x2);padding:20px;margin-bottom:18px}
 .risk-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
-.risk-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--x5)}
-.risk-score{font-size:10px;font-weight:600;padding:3px 10px;border-radius:4px;background:var(--r1);color:var(--r6)}
+.risk-title{font-size:var(--fs-body);font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--x5)}
+.risk-score{font-size:var(--fs-label);font-weight:600;padding:3px 10px;border-radius:4px;background:var(--r1);color:var(--r6)}
 .risk-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
 .risk-block{background:#fff;border-radius:8px;border:1px solid var(--x2);overflow:hidden}
 .risk-block-hdr{padding:10px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--x1)}
-.risk-block-hdr .title{font-size:12px;font-weight:700;color:var(--n9)}
+.risk-block-hdr .title{font-size:var(--fs-h3);font-weight:700;color:var(--n9)}
 .risk-block-hdr .big{font-size:22px;font-weight:700}
 .risk-block-hdr .big.red{color:var(--r6)}
 .risk-block-hdr .big.green{color:var(--g6)}
 .risk-block-body{padding:12px 14px}
-.risk-detail{font-size:11px;color:var(--x7);padding:4px 0;display:flex;justify-content:space-between}
+.risk-detail{font-size:var(--fs-body);color:var(--x7);padding:4px 0;display:flex;justify-content:space-between}
 .risk-detail .label{color:var(--x5)}
 .risk-detail .val{font-weight:600}
 .risk-detail .val.red{color:var(--r6)}
 .risk-sep{height:1px;background:var(--x1);margin:6px 0}
-.risk-tag{display:inline-block;font-size:8px;font-weight:700;text-transform:uppercase;padding:2px 6px;border-radius:3px;margin-right:4px}
+.risk-tag{display:inline-block;font-size:var(--fs-tag);font-weight:700;text-transform:uppercase;padding:2px 6px;border-radius:3px;margin-right:4px}
 .risk-tag.exec{background:#e8d5f5;color:#6b21a8}
 .risk-tag.sust{background:var(--a1);color:var(--a5)}
 .risk-tag.np{background:var(--n1);color:var(--n7)}
 .risk-tag.banco{background:#dbeafe;color:#1d4ed8}
 .risk-tag.fidc{background:var(--g1);color:var(--g6)}
-.risk-item{font-size:10px;color:var(--x7);padding:5px 0;border-bottom:1px solid var(--x1);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.risk-item{font-size:var(--fs-body);color:var(--x7);padding:5px 0;border-bottom:1px solid var(--x1);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .risk-item:last-child{border-bottom:none}
-.risk-item .date{color:var(--x4);font-size:9px;min-width:70px}
+.risk-item .date{color:var(--x4);font-size:var(--fs-label);min-width:70px}
 .risk-item .desc{flex:1}
-.risk-item .amt{font-family:'JetBrains Mono',monospace;font-weight:500;font-size:10px}
+.risk-item .amt{font-family:'JetBrains Mono',monospace;font-weight:500;font-size:var(--fs-body)}
 .risk-item .amt.red{color:var(--r6)}
+/* ── SCR strip ── */
 .scr-strip{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:10px}
 .scr-card{padding:8px 10px;background:#fff;border-radius:6px;border:1px solid var(--x2)}
-.scr-card .l{font-size:8px;font-weight:600;text-transform:uppercase;color:var(--x4);margin-bottom:3px}
-.scr-card .v{font-size:14px;font-weight:700;color:var(--n9)}
+.scr-card .l{font-size:var(--fs-tag);font-weight:600;text-transform:uppercase;color:var(--x4);margin-bottom:3px}
+.scr-card .v{font-size:var(--fs-kpi);font-weight:700;color:var(--n9)}
 .scr-card .v.green{color:var(--g6)}
-.alert{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:6px;font-size:11px;margin-bottom:6px}
+/* ── Alerts ── */
+.alert{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:6px;font-size:var(--fs-body);margin-bottom:6px}
 .alert.alta{background:var(--r0);border:1px solid var(--r1);color:var(--r6)}
 .alert.mod{background:var(--a0);border:1px solid var(--a1);color:var(--a5)}
 .alert.info{background:var(--n0);border:1px solid var(--n1);color:var(--n7)}
 .alert.ok{background:var(--g0);border:1px solid var(--g1);color:var(--g6)}
-.atag{font-size:8px;font-weight:700;text-transform:uppercase;padding:2px 6px;border-radius:3px;flex-shrink:0}
+.atag{font-size:var(--fs-tag);font-weight:700;text-transform:uppercase;padding:2px 6px;border-radius:3px;flex-shrink:0}
 .alert.alta .atag{background:var(--r1)}
 .alert.mod .atag{background:var(--a1)}
 .alert.info .atag{background:var(--n1)}
 .alert.ok .atag{background:var(--g1)}
+/* ── Chart / bars ── */
 .fin-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px}
 .fin-box{background:var(--x0);border-radius:8px;border:1px solid var(--x1);padding:16px}
-.fin-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--x5);margin-bottom:12px}
-.chart{display:flex;align-items:flex-end;gap:5px;height:100px;margin-bottom:8px}
-.bar-col{flex:1;display:flex;flex-direction:column;align-items:center}
-.bar{width:100%;border-radius:3px 3px 0 0;min-height:2px;position:relative}
+.fin-title{font-size:var(--fs-label);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--x5);margin-bottom:12px}
+.chart{display:flex;align-items:flex-end;gap:3px;height:100px;margin-bottom:8px}
+.bars{display:flex;align-items:flex-end;gap:3px;height:120px;margin-bottom:8px}
+.bar-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end}
+.bar{width:100%;border-radius:3px 3px 0 0;min-height:2px;position:relative;flex-shrink:0}
 .bar.navy,.bar.nv{background:var(--n8)}
-.bar.light,.bar.lt{background:var(--n1)}
-.bar-val,.bar-v{position:absolute;top:-14px;left:50%;transform:translateX(-50%);font-size:7px;color:var(--x5);white-space:nowrap;font-family:'JetBrains Mono',monospace}
-.bar-lbl,.bar-l{font-size:8px;color:var(--x4);margin-top:5px}
-.kpi-row{display:flex;gap:16px;font-size:11px;color:var(--x5);padding-top:8px;border-top:1px solid var(--x1);margin-top:8px}
+.bar.green,.bar.gn{background:var(--g6)}
+.bar.light,.bar.lt{background:var(--n3)}
+.bar-val,.bar-v{position:absolute;top:-14px;left:50%;transform:translateX(-50%);font-size:var(--fs-chart);color:var(--x5);white-space:nowrap;font-family:'JetBrains Mono',monospace}
+.bar-lbl,.bar-l{font-size:var(--fs-tag);color:var(--x4);margin-top:4px;text-align:center;white-space:nowrap}
+.kpi-row{display:flex;gap:16px;font-size:var(--fs-body);color:var(--x5);padding-top:8px;border-top:1px solid var(--x1);margin-top:8px}
 .kpi-row b{color:var(--n9)}
 .kpi-row .down{color:var(--r6);font-weight:600}
 .kpi-row .up{color:var(--g6);font-weight:600}
-.scr-tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:11px}
-.scr-tbl thead th{background:var(--n9);color:rgba(255,255,255,0.85);font-size:8px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;padding:8px 10px;text-align:left}
+/* ── SCR table ── */
+.scr-tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:var(--fs-body)}
+.scr-tbl thead th{background:var(--n9);color:rgba(255,255,255,0.85);font-size:var(--fs-tag);font-weight:600;letter-spacing:0.05em;text-transform:uppercase;padding:8px 10px;text-align:left}
 .scr-tbl thead th:not(:first-child){text-align:right}
 .scr-tbl tbody td{padding:7px 10px;border-bottom:1px solid var(--x1);color:var(--x7)}
-.scr-tbl tbody td:not(:first-child){text-align:right;font-family:'JetBrains Mono',monospace;font-size:10px}
+.scr-tbl tbody td:not(:first-child){text-align:right;font-family:'JetBrains Mono',monospace;font-size:var(--fs-body)}
 .scr-tbl tbody tr:last-child td{border-bottom:none}
 .scr-tbl .total td{font-weight:700;background:var(--x0);color:var(--n9)}
 .scr-tbl .var-cell.down{color:var(--g6);font-weight:600}
 .scr-tbl .var-cell.up{color:var(--r6);font-weight:600}
 .scr-tbl .var-cell.neutral{color:var(--x4)}
-.ifs-note{font-size:9px;color:var(--x4);margin-top:6px}
+.ifs-note{font-size:var(--fs-label);color:var(--x4);margin-top:6px}
+/* ── ABC table ── */
 .abc-wrap{background:var(--x0);border-radius:10px;border:1px solid var(--x2);padding:16px;margin-bottom:18px}
-.abc-tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:11px;margin-bottom:8px}
-.abc-tbl thead th{background:var(--n9);color:rgba(255,255,255,0.85);font-size:8px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;padding:9px 12px;text-align:left}
+.abc-tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:var(--fs-body);margin-bottom:8px}
+.abc-tbl thead th{background:var(--n9);color:rgba(255,255,255,0.85);font-size:var(--fs-tag);font-weight:600;letter-spacing:0.05em;text-transform:uppercase;padding:9px 12px;text-align:left}
 .abc-tbl thead th.r{text-align:right}
 .abc-tbl tbody td{padding:9px 12px;border-bottom:1px solid var(--x1)}
 .abc-tbl tbody td.r{text-align:right;font-family:'JetBrains Mono',monospace}
 .abc-tbl tbody td.bold{font-weight:600}
 .abc-tbl tbody tr:last-child td{border-bottom:none}
-.abc-rank{display:inline-flex;width:22px;height:22px;border-radius:50%;background:var(--n8);color:#fff;font-size:10px;font-weight:700;align-items:center;justify-content:center}
-.abc-cl{padding:2px 8px;border-radius:4px;font-size:9px;font-weight:700}
+.abc-rank{display:inline-flex;width:22px;height:22px;border-radius:50%;background:var(--n8);color:#fff;font-size:var(--fs-body);font-weight:700;align-items:center;justify-content:center}
+.abc-cl{padding:2px 8px;border-radius:4px;font-size:var(--fs-label);font-weight:700}
 .abc-cl.a{background:var(--r1);color:var(--r6)}
 .abc-cl.b{background:var(--a1);color:var(--a5)}
 .abc-cl.c{background:var(--x1);color:var(--x5)}
 .abc-bar{height:5px;border-radius:3px;background:var(--n8);display:block;margin-top:3px}
-.abc-summary{font-size:11px;color:var(--x5)}
+.abc-summary{font-size:var(--fs-body);color:var(--x5)}
 .abc-summary b{color:var(--x9)}
+/* ── Pleito (legacy cards — mantido p/ compatibilidade) ── */
 .pleito-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:18px}
 .pl-card{padding:12px 14px;background:var(--n0);border-radius:6px;border:1px solid var(--n1)}
-.pl-card .l{font-size:8px;font-weight:700;text-transform:uppercase;color:var(--x4);margin-bottom:4px}
-.pl-card .v{font-size:14px;font-weight:700;color:var(--n9)}
+.pl-card .l{font-size:var(--fs-tag);font-weight:700;text-transform:uppercase;color:var(--x4);margin-bottom:4px}
+.pl-card .v{font-size:var(--fs-kpi);font-weight:700;color:var(--n9)}
+/* ── Análise (pontos fortes/fracos) ── */
 .ana-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:18px}
 .ana-col{border-radius:8px;padding:14px 16px}
 .ana-col.f{background:var(--g0);border:1px solid var(--g1)}
 .ana-col.w{background:var(--r0);border:1px solid var(--r1)}
 .ana-col.a{background:var(--a0);border:1px solid var(--a1)}
 .ana-col.n{background:var(--x0);border:1px solid var(--x1)}
-.ana-h{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid rgba(0,0,0,0.06)}
+.ana-h{font-size:var(--fs-label);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid rgba(0,0,0,0.06)}
 .ana-col.f .ana-h{color:var(--g6)}
 .ana-col.w .ana-h{color:var(--r6)}
 .ana-col.a .ana-h{color:var(--a5)}
 .ana-col.n .ana-h{color:var(--x5)}
-.ana-item,.ana-i{font-size:11px;color:var(--x7);padding:3px 0;line-height:1.5}
+.ana-item,.ana-i{font-size:var(--fs-body);color:var(--x7);padding:3px 0;line-height:1.5}
 .ana-item::before{content:'•';margin-right:6px;font-weight:700}
 .ana-col.f .ana-item::before{color:var(--g6)}
 .ana-col.w .ana-item::before{color:var(--r6)}
 .ana-col.a .ana-item::before{color:var(--a5)}
+/* ── Percepção / Parecer ── */
 .perc{padding:16px 18px;background:var(--x0);border-radius:8px;border:1px solid var(--x2)}
-.perc p,.perc-text{font-size:12px;color:var(--x7);line-height:1.7}
-.perc-rec{display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid var(--x2);font-size:11px;color:var(--x5)}
-.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:11px;border:1px solid var(--x2);border-radius:8px;overflow:hidden;margin-bottom:10px}
-.tbl thead th{background:var(--n9);color:rgba(255,255,255,0.85);font-size:9px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;padding:10px 14px;text-align:left}
+.perc p,.perc-text{font-size:var(--fs-h3);color:var(--x7);line-height:1.7}
+.perc-rec{display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid var(--x2);font-size:var(--fs-body);color:var(--x5)}
+/* ── Generic table (.tbl) ── */
+.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:var(--fs-body);border:1px solid var(--x2);border-radius:8px;overflow:hidden;margin-bottom:10px}
+.tbl thead th{background:var(--n9);color:rgba(255,255,255,0.85);font-size:var(--fs-label);font-weight:600;letter-spacing:0.06em;text-transform:uppercase;padding:10px 14px;text-align:left}
 .tbl thead th.r{text-align:right}
-.tbl tbody td{padding:10px 14px;border-bottom:1px solid var(--x1);color:var(--x7)}
-.tbl tbody td.r{text-align:right;font-family:'JetBrains Mono',monospace;font-size:10px}
+.tbl tbody td{padding:9px 14px;border-bottom:1px solid var(--x1);color:var(--x7)}
+.tbl tbody td.r{text-align:right;font-family:'JetBrains Mono',monospace}
 .tbl tbody td.b{font-weight:600;color:var(--x9)}
 .tbl tbody td.red{color:var(--r6);font-weight:600}
 .tbl tbody td.green{color:var(--g6);font-weight:600}
 .tbl tbody tr:last-child td{border-bottom:none}
 .tbl tbody tr:nth-child(even){background:var(--x0)}
 .tbl .total td{font-weight:700;background:var(--n0);color:var(--n9)}
-/* ── Conformidade: linhas de critério ── */
+/* ── Conformidade ── */
 .pf-row{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--x1);border-radius:0;transition:background 0.1s}
 .pf-row:first-child{border-radius:8px 8px 0 0}
 .pf-row:last-child{border-bottom:none;border-radius:0 0 8px 8px}
 .pf-row.pass-row{border-left:3px solid var(--g6);background:#fff}
 .pf-row.fail-row{border-left:3px solid var(--r6);background:var(--r0)}
 .pf-row.warn-row{border-left:3px solid var(--a5);background:var(--a0)}
-.pf-icon{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0}
+.pf-icon{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:var(--fs-h3);font-weight:700;flex-shrink:0}
 .pf-icon.pass{background:var(--g1);color:var(--g6)}
 .pf-icon.fail{background:var(--r1);color:var(--r6)}
 .pf-icon.warn{background:var(--a1);color:var(--a5)}
-.pf-name{flex:1;font-size:12px;color:var(--x9);font-weight:500}
-.pf-tag{display:inline-block;font-size:7px;font-weight:700;text-transform:uppercase;padding:2px 6px;border-radius:3px;background:var(--r1);color:var(--r6);margin-left:6px;vertical-align:middle;letter-spacing:0.05em}
+.pf-name{flex:1;font-size:var(--fs-h3);color:var(--x9);font-weight:500}
+.pf-tag{display:inline-block;font-size:var(--fs-tag);font-weight:700;text-transform:uppercase;padding:2px 6px;border-radius:3px;background:var(--r1);color:var(--r6);margin-left:6px;vertical-align:middle;letter-spacing:0.05em}
 .pf-meta{display:flex;gap:14px;flex-shrink:0}
 .pf-lim,.pf-act{text-align:right;min-width:90px}
-.pf-lim .lbl,.pf-act .lbl{font-size:7px;font-weight:700;text-transform:uppercase;color:var(--x4);margin-bottom:2px;letter-spacing:0.06em}
-.pf-lim .val{font-size:11px;color:var(--x7);font-family:'JetBrains Mono',monospace}
-.pf-act .val{font-size:12px;font-weight:700}
+.pf-lim .lbl,.pf-act .lbl{font-size:var(--fs-tag);font-weight:700;text-transform:uppercase;color:var(--x4);margin-bottom:2px;letter-spacing:0.06em}
+.pf-lim .val{font-size:var(--fs-body);color:var(--x7);font-family:'JetBrains Mono',monospace}
+.pf-act .val{font-size:var(--fs-h3);font-weight:700}
 .pf-act .val.pass{color:var(--g6)}
 .pf-act .val.fail{color:var(--r6)}
 .pf-act .val.warn{color:var(--a5)}
-.pf-note{font-size:9px;color:var(--r6);margin-top:2px}
+.pf-note{font-size:var(--fs-label);color:var(--r6);margin-top:2px}
 .pf-val .v{font-weight:600}
 .pf-val .v.pass{color:var(--g6)}
 .pf-val .v.fail{color:var(--r6)}
-/* Conformidade: caixa de critérios */
 .crit-box{border:1px solid var(--x2);border-radius:10px;overflow:hidden;margin-bottom:14px}
-/* Verdict */
+/* ── Verdict ── */
 .verdict{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-radius:10px;margin-top:14px;gap:16px}
 .verdict.fail{background:var(--r0);border:2px solid var(--r1)}
 .verdict.pass{background:var(--g0);border:2px solid var(--g1)}
-.verdict .vt{font-size:14px;font-weight:700;color:var(--x9)}
-.verdict .vs{font-size:10px;color:var(--x5);margin-top:3px}
-.verdict .vb{padding:8px 20px;border-radius:6px;font-size:11px;font-weight:700;text-transform:uppercase;color:#fff;letter-spacing:0.04em;flex-shrink:0}
+.verdict .vt{font-size:var(--fs-kpi);font-weight:700;color:var(--x9)}
+.verdict .vs{font-size:var(--fs-label);color:var(--x5);margin-top:3px}
+.verdict .vb{padding:8px 20px;border-radius:6px;font-size:var(--fs-body);font-weight:700;text-transform:uppercase;color:#fff;letter-spacing:0.04em;flex-shrink:0}
 .verdict.fail .vb{background:var(--r6)}
 .verdict.pass .vb{background:var(--g6)}
-/* ── Checklist: grade visual ── */
-.doc-grid{display:flex;flex-direction:column;border:1px solid var(--x2);border-radius:10px;overflow:hidden;margin-bottom:14px}
-.doc-grid .pf-row{border-left:none;border-radius:0;padding:9px 16px;background:#fff}
-.doc-grid .pf-row:nth-child(even){background:var(--x0)}
+/* ── Checklist / doc-grid ── */
+.doc-grid{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--x2);border-radius:8px;overflow:hidden;margin-bottom:14px}
+.doc-grid .pf-row{padding:9px 14px;border-bottom:1px solid var(--x1);margin:0;border-radius:0}
+.doc-grid .pf-row:nth-child(odd){border-right:1px solid var(--x1)}
 .doc-grid .pf-row.present{border-left:3px solid var(--g6)}
 .doc-grid .pf-row.absent{border-left:3px solid var(--x3)}
 .doc-grid .pf-row.absent-obr{border-left:3px solid var(--r6);background:var(--r0)}
-.prog-outer{height:10px;border-radius:5px;background:var(--x2);margin:8px 0 18px;overflow:hidden;position:relative}
-.prog-inner{height:100%;border-radius:5px;background:linear-gradient(90deg,var(--n8),var(--gl))}
-/* ── Mapa interativo (só browser, oculto no PDF) ── */
+.prog-outer{height:8px;border-radius:4px;background:var(--x2);margin:8px 0 16px;overflow:hidden}
+.prog-inner{height:100%;border-radius:4px;background:var(--gl)}
+/* ── Mapa interativo ── */
 .map-interactive{margin-bottom:18px;border-radius:10px;overflow:hidden;border:1px solid var(--x2)}
 .map-interactive iframe{display:block;width:100%;height:300px;border:0}
 @media print{.map-interactive{display:none!important}}
 @media screen{.map-static-pdf{display:none!important}}
+/* ── Chart box ── */
 .chart-box{background:var(--x0);border-radius:8px;border:1px solid var(--x1);padding:18px;margin-bottom:14px}
-.chart-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--x5);margin-bottom:14px}
-.bars{display:flex;align-items:flex-end;gap:5px;height:120px;margin-bottom:6px}
+.chart-title{font-size:var(--fs-label);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--x5);margin-bottom:14px}
+/* ── Proportion bars ── */
 .prop-row{display:flex;align-items:center;gap:10px;padding:6px 0}
-.prop-label{font-size:11px;width:200px;color:var(--x7)}
+.prop-label{font-size:var(--fs-body);width:200px;color:var(--x7)}
 .prop-fill{height:6px;border-radius:3px;background:var(--n8)}
 .prop-fill.red{background:var(--r6)}
-.prop-pct{font-size:10px;font-weight:600;color:var(--x5);min-width:60px}
-.avatar{width:36px;height:36px;border-radius:50%;background:var(--n0);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:var(--n8);flex-shrink:0}
-.inf{font-size:11px;color:var(--x5);margin-bottom:12px}
+.prop-pct{font-size:var(--fs-body);font-weight:600;color:var(--x5);min-width:60px}
+/* ── Misc ── */
+.avatar{width:36px;height:36px;border-radius:50%;background:var(--n0);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:var(--fs-kpi);color:var(--n8);flex-shrink:0}
+.inf{font-size:var(--fs-body);color:var(--x5);margin-bottom:12px}
 .inf b{color:var(--x9)}
-.badge{display:inline-block;padding:3px 10px;border-radius:4px;font-size:10px;font-weight:700;text-transform:uppercase}
+.badge{display:inline-block;padding:3px 10px;border-radius:4px;font-size:var(--fs-label);font-weight:700;text-transform:uppercase}
 .badge.red{background:var(--r6);color:#fff}
 .badge.green{background:var(--g6);color:#fff}
 .badge.amber{background:var(--a5);color:#fff}
 .pb{border-top:2px dashed var(--x3);margin:28px 0;position:relative}
-.pb::after{content:attr(data-label);position:absolute;top:-9px;left:50%;transform:translateX(-50%);background:#f0f2f7;padding:0 12px;font-size:9px;color:var(--x4)}
-.prog-outer{height:8px;border-radius:4px;background:var(--x2);margin:8px 0 16px;overflow:hidden}
-.prog-inner{height:100%;border-radius:4px;background:var(--gl)}
-.doc-grid{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--x2);border-radius:8px;overflow:hidden}
-.doc-grid .pf-row{padding:9px 14px;border-bottom:1px solid var(--x1);margin:0;border-radius:0}
-.doc-grid .pf-row:nth-child(odd){border-right:1px solid var(--x1)}
+.pb::after{content:attr(data-label);position:absolute;top:-9px;left:50%;transform:translateX(-50%);background:#f0f2f7;padding:0 12px;font-size:var(--fs-label);color:var(--x4)}
 .dist-bar{height:5px;border-radius:3px;background:var(--n8);display:inline-block;vertical-align:middle}
 .dist-bar.red{background:var(--r6)}
 .kpi-snap{display:grid;gap:8px;margin-bottom:14px}
@@ -490,13 +537,19 @@ function pageSintese(params: PDFReportParams, date: string): string {
   const local = localMatch ? `${localMatch[1].trim()}/${localMatch[2]}` : endStr.split(",").pop()?.trim() ?? "";
   const capitalSocial = d.qsa?.capitalSocial || cnpj?.capitalSocialCNPJ || "—";
 
-  // Sócios
+  // Sócios — CPF normalizado (só dígitos) para evitar mismatch entre
+  // "123.456.789-10" (IR) e "12345678910" (QSA) ou variantes.
+  const normCpf = (v: string | undefined | null) => (v ?? "").replace(/\D/g, "");
   const socios = d.qsa?.quadroSocietario ?? [];
   const irMap: Record<string, string> = {};
-  (d.irSocios ?? []).forEach(ir => { irMap[ir.cpf] = ir.patrimonioLiquido; });
+  (d.irSocios ?? []).forEach(ir => {
+    const k = normCpf(ir.cpf);
+    if (k) irMap[k] = ir.patrimonioLiquido;
+  });
 
   const socRows = socios.map(s => {
-    const pl = irMap[s.cpfCnpj] ? fmtMoneyAbr(irMap[s.cpfCnpj]) : "—";
+    const k = normCpf(s.cpfCnpj);
+    const pl = irMap[k] ? fmtMoneyAbr(irMap[k]) : "—";
     return `<tr><td><b>${esc(s.nome)}</b></td><td style="font-family:'JetBrains Mono',monospace;font-size:11px">${fmtCpf(s.cpfCnpj)}</td><td>${esc(s.qualificacao)}</td><td style="color:var(--x4)">${fmt(s.participacao)}</td><td><b>${pl}</b></td></tr>`;
   }).join("");
 
@@ -534,13 +587,35 @@ function pageSintese(params: PDFReportParams, date: string): string {
     const tag2 = p.tipo.toLowerCase().includes("fiscal") ? "exec" :
                  p.tipo.toLowerCase().includes("banco") || p.tipo.toLowerCase().includes("fidc") ? "banco" :
                  p.tipo.toLowerCase().includes("trab") ? "np" : "sust";
-    return `<div class="risk-item"><span class="risk-tag ${tag2}">${esc(p.tipo)}</span><span class="desc">${esc(p.tipo)}</span><span class="amt red">${esc(p.qtd)} proc.</span></div>`;
+    const tagLabel2 = tag2 === "exec" ? "FISCAL" : tag2 === "banco" ? "BANCO" : tag2 === "np" ? "TRAB" : "CÍVEL";
+    return `<div class="risk-item"><span class="risk-tag ${tag2}">${tagLabel2}</span><span class="desc">${esc(p.tipo)}</span><span class="amt red">${esc(p.qtd)} proc.</span></div>`;
   }).join("");
   const lastProc = (proc?.top10Recentes ?? [])[0];
 
   // CCF
   const ccfQtd = d.ccf?.qtdRegistros ?? 0;
-  const ccfText = ccfQtd === 0 ? `<span style="color:var(--g6);font-size:13px">0 — limpo</span>` : `<span style="color:var(--r6);font-size:13px">${ccfQtd} registros</span>`;
+  const ccfBancos = d.ccf?.bancos ?? [];
+  let ccfBlock = "";
+  if (ccfQtd === 0) {
+    ccfBlock = `<div style="display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--g0);border:1px solid var(--g1);border-radius:6px;margin-top:6px">
+      <span style="font-size:16px">✓</span>
+      <span style="font-size:var(--fs-body);color:var(--g6);font-weight:600">Nenhum CCF vigente</span>
+    </div>`;
+  } else {
+    const ccfRows = ccfBancos.length > 0
+      ? ccfBancos.map(b => `<tr>
+          <td>${esc(b.banco)}</td>
+          <td>${esc(b.agencia ?? "—")}</td>
+          <td style="text-align:center;color:var(--r6);font-weight:700">${b.quantidade}</td>
+          <td>${b.dataUltimo ? fmtDate(b.dataUltimo) : "—"}</td>
+          <td style="font-size:var(--fs-tag);color:var(--x5)">${esc(b.motivo ?? "—")}</td>
+        </tr>`).join("")
+      : `<tr><td colspan="5" style="text-align:center;color:var(--x4)">${ccfQtd} registro(s) — detalhes não disponíveis</td></tr>`;
+    ccfBlock = `<table class="tbl" style="margin-top:6px">
+      <thead><tr><th>Banco</th><th>Agência</th><th style="text-align:center">Qtd.</th><th>Último</th><th>Motivo</th></tr></thead>
+      <tbody>${ccfRows}</tbody>
+    </table>`;
+  }
 
   // Alerts from params
   const alertsHtml = (params.alertsHigh ?? []).slice(0, 4).map(a => {
@@ -551,7 +626,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
 
   // Faturamento chart
   const fatMeses = (d.faturamento?.meses ?? []).slice(-12);
-  const fatBars = fatMeses.length > 0 ? buildBars(fatMeses) : "";
+  const fatBars = fatMeses.length > 0 ? buildBars(fatMeses, 60) : "";
   const fmm = d.faturamento?.fmm12m ?? d.faturamento?.mediaAno ?? "—";
   const total12 = d.faturamento?.somatoriaAno ?? "—";
   const tendencia = d.faturamento?.tendencia ?? "indefinido";
@@ -576,8 +651,12 @@ function pageSintese(params: PDFReportParams, date: string): string {
     ];
     const vTotal = scrVar(scr.totalDividasAtivas, scrAnt.totalDividasAtivas, true);
     const totalRows = `<tr class="total"><td>Total Dívidas</td><td>${fmtMoneyAbr(scr.totalDividasAtivas)}</td><td>${fmtMoneyAbr(scrAnt.totalDividasAtivas)}</td><td class="var-cell ${vTotal.cls}">${esc(vTotal.val)}</td></tr>`;
+    const periodoAtual = scr.periodoReferencia ?? "";
+    const periodoAnt   = scrAnt.periodoReferencia ?? "";
+    const hAtual   = periodoAtual ? `Atual (${esc(periodoAtual)})`   : "Atual";
+    const hAnterior = periodoAnt  ? `Anterior (${esc(periodoAnt)})`  : "Anterior";
     scrTable = `<table class="scr-tbl">
-      <thead><tr><th>Métrica</th><th>Atual</th><th>Anterior</th><th>Var.</th></tr></thead>
+      <thead><tr><th>Métrica</th><th>${hAtual}</th><th>${hAnterior}</th><th>Var.</th></tr></thead>
       <tbody>${rows.map(r=>`<tr><td>${esc(r.label)}</td><td>${r.curr}</td><td>${r.prev}</td><td class="var-cell ${r.varCls}">${r.varVal}</td></tr>`).join("")}${totalRows}</tbody>
     </table>
     <div class="ifs-note">Instituições financeiras: ${fmt(scr.qtdeInstituicoes)} · Operações: ${fmt(scr.qtdeOperacoes)}</div>`;
@@ -612,7 +691,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
         <td><span class="abc-cl ${clsCls}">${esc(c.classe)}</span></td>
       </tr>`;
     }).join("");
-    abcHtml = `${stitle("Concentração de clientes")}
+    abcHtml = `${stitle("Curva ABC (Top 5)")}
     <div class="abc-wrap">
       <table class="abc-tbl">
         <thead><tr><th style="width:40px">#</th><th>Cliente</th><th class="r">Faturamento</th><th class="r">% Rec.</th><th class="r">% Acum.</th><th style="width:50px">Cl.</th></tr></thead>
@@ -622,15 +701,42 @@ function pageSintese(params: PDFReportParams, date: string): string {
     </div>`;
   }
 
-  // Pleito (from relatorioVisita)
+  // Pleito (from relatorioVisita) — tabela completa de parâmetros
   const rv = d.relatorioVisita;
-  const modalidade = rv?.modalidade ? rv.modalidade.toUpperCase() : "—";
+  const v_ = (val: string | undefined | null) => val && val.trim() ? val.trim() : "—";
+  const vMoney = (val: string | undefined | null) => val && val.trim() ? fmtMoneyAbr(val) : "—";
+  const vDias  = (val: string | undefined | null) => val && val.trim() ? `${val.trim()} dias` : "—";
+  const pleitoRows: Array<[string, string]> = [
+    ["Limite Global",                    vMoney(rv?.limiteTotal)],
+    ["Tranche Limite Global",            vMoney(rv?.tranche)],
+    ["Limite Convencional",              vMoney(rv?.limiteConvencional)],
+    ["Limite Comissária",                vMoney(rv?.limiteComissaria)],
+    ["Limite por Sacado (20 a 30%)",     vMoney(rv?.limitePorSacado)],
+    ["Limite Principais Sacados (30 a 40%)", vMoney(rv?.limitePrincipaisSacados)],
+    ["Taxa Convencional",                v_(rv?.taxaConvencional)],
+    ["Taxa Comissária",                  v_(rv?.taxaComissaria)],
+    ["Boleto",                           vMoney(rv?.valorCobrancaBoleto)],
+    ["Prazo Máximo",                     vDias(rv?.prazoMaximoOp)],
+    ["TAC",                              v_(rv?.cobrancaTAC)],
+    ["Prazo de Recompra",                vDias(rv?.prazoRecompraCedente)],
+    ["Prazo de Cartório",                vDias(rv?.prazoEnvioCartorio)],
+    ["Tranche Checagem R$",              vMoney(rv?.trancheChecagem)],
+    ["Prazo Tranche",                    vDias(rv?.prazoTranche)],
+  ];
+  const half = Math.ceil(pleitoRows.length / 2);
+  const col1r = pleitoRows.slice(0, half);
+  const col2r = pleitoRows.slice(half);
+  const pleitoTableCol = (rows: Array<[string, string]>) => rows.map(([lbl, val]) => {
+    const isEmpty = val === "—";
+    return `<tr>
+      <td style="width:58%;color:var(--x5);font-size:var(--fs-body);padding:5px 8px">${esc(lbl)}</td>
+      <td style="text-align:right;font-family:'JetBrains Mono',monospace;font-size:var(--fs-body);padding:5px 8px;color:${isEmpty ? "var(--x3)" : "var(--n9)"};">${esc(val)}</td>
+    </tr>`;
+  }).join("");
   const pleitoHtml = `${stitle("Pleito")}
-  <div class="pleito-grid">
-    <div class="pl-card"><div class="l">Valor Pleiteado</div><div class="v" style="color:var(--x4)">${rv?.pleito ? fmtMoneyAbr(rv.pleito) : "—"}</div></div>
-    <div class="pl-card"><div class="l">Modalidade</div><div class="v">${fmt(modalidade)}</div></div>
-    <div class="pl-card"><div class="l">Prazo Máx.</div><div class="v" style="color:var(--x4)">${fmt(rv?.prazoMaximoOp)}</div></div>
-    <div class="pl-card"><div class="l">Taxa</div><div class="v" style="color:var(--x4)">${rv?.taxaConvencional ?? rv?.taxaComissaria ?? "—"}</div></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+    <table class="tbl" style="margin:0"><tbody>${pleitoTableCol(col1r)}</tbody></table>
+    <table class="tbl" style="margin:0"><tbody>${pleitoTableCol(col2r)}</tbody></table>
   </div>`;
 
   // Analise
@@ -650,30 +756,60 @@ function pageSintese(params: PDFReportParams, date: string): string {
   const resumo = params.resumoExecutivo || (typeof params.aiAnalysis?.parecer === "object" ? params.aiAnalysis.parecer.resumoExecutivo : "") || "";
   const percHtml = `${stitle("Percepção do analista")}
   <div class="perc">
-    <div class="perc-text">${esc(resumo) || "—"}</div>
+    <div class="perc-text" style="text-align:justify">${esc(resumo) || "—"}</div>
     <div class="perc-rec">Recomendação: <span class="dec" style="background:${decBg};font-size:10px">${fmtDecision(params.decision)}</span></div>
   </div>`;
 
-  // Map/address — mapa interativo (browser) e estático (PDF)
-  const interactiveMap = params.mapEmbedUrl
-    ? `<div class="map-interactive"><iframe src="${esc(params.mapEmbedUrl)}" allowfullscreen loading="lazy" title="Mapa do estabelecimento"></iframe></div>`
-    : "";
+  // Map/address — Street View 360° (4 ângulos) + mapa aéreo + link interativo
   let mapHtml = "";
-  if (params.streetViewBase64 || params.mapStaticBase64) {
-    const imgSrc = params.streetViewBase64 ?? params.mapStaticBase64 ?? "";
+  const sv0   = params.streetViewBase64;
+  const sv90  = params.streetView90Base64;
+  const sv180 = params.streetView180Base64;
+  const sv270 = params.streetView270Base64;
+  const mp    = params.mapStaticBase64;
+  const svUrl = params.streetViewInteractiveUrl;
+  const svList: Array<{ img: string; label: string }> = [];
+  if (sv0)   svList.push({ img: sv0,   label: "Frente (0°)" });
+  if (sv90)  svList.push({ img: sv90,  label: "Direita (90°)" });
+  if (sv180) svList.push({ img: sv180, label: "Atrás (180°)" });
+  if (sv270) svList.push({ img: sv270, label: "Esquerda (270°)" });
+
+  if (svList.length > 0 || mp) {
+    // Vista principal: a primeira Street View disponível (geralmente 0°) — grande
+    const primary = svList[0];
+    const thumbs  = svList.slice(1); // 90°, 180°, 270°
+
+    // Renderiza mini-strip com thumbnails dos outros ângulos + mapa aéreo
+    const thumbWidth = thumbs.length + (mp ? 1 : 0);
+    const thumbCols = thumbWidth > 0 ? `repeat(${thumbWidth},1fr)` : "1fr";
+    const thumbItems = [
+      ...thumbs.map(t => `
+        <div class="map-frame" style="height:95px;position:relative">
+          <img src="${esc(t.img)}" alt="${esc(t.label)}" style="width:100%;height:100%;object-fit:cover;border-radius:6px" />
+          <div style="position:absolute;bottom:4px;left:6px;font-size:9px;font-weight:700;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,0.7);letter-spacing:0.02em">${esc(t.label)}</div>
+        </div>`),
+      mp ? `
+        <div class="map-frame" style="height:95px;position:relative">
+          <img src="${esc(mp)}" alt="Mapa aéreo" style="width:100%;height:100%;object-fit:cover;border-radius:6px" />
+          <div style="position:absolute;bottom:4px;left:6px;font-size:9px;font-weight:700;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,0.7);letter-spacing:0.02em">Mapa aéreo</div>
+        </div>` : "",
+    ].filter(Boolean).join("");
+
     mapHtml = `
-    ${interactiveMap}
-    <div class="map-row map-static-pdf">
-      <div class="map-frame"><img src="${esc(imgSrc)}" alt="Localização — Street View" /></div>
-      <div class="addr-box">
-        <div class="l">Endereço</div>
-        <div class="a">${esc(cnpj?.endereco ?? "—")}</div>
-        <div class="t">Tipo: ${esc(cnpj?.tipoEmpresa ?? "Matriz")}</div>
-      </div>
+    ${primary ? `
+    <div class="map-frame" style="height:220px;margin-bottom:8px;position:relative">
+      <img src="${esc(primary.img)}" alt="${esc(primary.label)}" style="width:100%;height:100%;object-fit:cover;border-radius:8px" />
+      <div style="position:absolute;top:8px;left:10px;background:rgba(0,0,0,0.6);color:#fff;padding:3px 9px;border-radius:12px;font-size:10px;font-weight:700;letter-spacing:0.02em">${esc(primary.label)}</div>
+      ${svUrl ? `<a href="${esc(svUrl)}" target="_blank" rel="noopener" style="position:absolute;top:8px;right:10px;background:#84BF41;color:#fff;padding:5px 11px;border-radius:12px;font-size:10px;font-weight:700;text-decoration:none;letter-spacing:0.02em;box-shadow:0 2px 6px rgba(0,0,0,0.25)">Ver 360° no Google Maps ↗</a>` : ""}
+    </div>` : ""}
+    ${thumbItems ? `<div style="display:grid;grid-template-columns:${thumbCols};gap:8px;margin-bottom:14px">${thumbItems}</div>` : ""}
+    <div class="addr-box" style="margin-bottom:18px">
+      <div class="l">Endereço</div>
+      <div class="a">${esc(cnpj?.endereco ?? "—")}</div>
+      <div class="t">Tipo: ${esc(cnpj?.tipoEmpresa ?? "Matriz")}</div>
     </div>`;
   } else {
     mapHtml = `
-    ${interactiveMap}
     <div class="addr-box" style="margin-bottom:18px">
       <div class="l">Endereço</div>
       <div class="a">${esc(cnpj?.endereco ?? "—")}</div>
@@ -688,6 +824,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
         <div class="emp-name">${esc(cnpj?.razaoSocial ?? "—")}</div>
         ${cnpj?.nomeFantasia ? `<div class="emp-fan">${esc(cnpj.nomeFantasia)}</div>` : ""}
         <div class="emp-cnpj">CNPJ: <b>${fmtCnpj(cnpj?.cnpj)}</b> <span class="sit${isAtiva ? "" : " inactive"}">${esc(cnpj?.situacaoCadastral ?? "—")}</span></div>
+        ${rv?.responsavelVisita ? `<div style="font-size:11px;color:var(--x5);margin-top:4px">Gerente: <b style="color:var(--x7)">${esc(rv.responsavelVisita)}</b></div>` : ""}
       </div>
       <div class="rat">
         <div class="rat-c" style="border-color:${sb}">
@@ -699,21 +836,15 @@ function pageSintese(params: PDFReportParams, date: string): string {
       </div>
     </div>
 
-    <!-- 2. Info strip -->
-    <div class="istrip c6">
-      <div class="icell"><div class="l">Fundação</div><div class="v">${fmt(cnpj?.dataAbertura)}</div></div>
-      <div class="icell"><div class="l">Idade</div><div class="v">${fmt(params.companyAge)}</div></div>
-      <div class="icell"><div class="l">Porte</div><div class="v">${fmt(cnpj?.porte)}</div></div>
-      <div class="icell"><div class="l">Capital Social</div><div class="v mono">${fmtMoneyAbr(capitalSocial)}</div></div>
-      <div class="icell"><div class="l">Tipo</div><div class="v">${fmt(cnpj?.tipoEmpresa ?? "Matriz")}</div></div>
-      <div class="icell"><div class="l">Local</div><div class="v">${fmt(local)}</div></div>
+    <!-- 2. Info strip — todos em uma linha -->
+    <div class="istrip" style="grid-template-columns:repeat(6,1fr)">
+      <div class="icell"><div class="l">Tempo de Fundação</div><div class="v sm">${fmt(params.companyAge)}</div></div>
+      <div class="icell"><div class="l">Porte</div><div class="v sm">${fmt(cnpj?.porte)}</div></div>
+      <div class="icell"><div class="l">Capital Social</div><div class="v sm mono">${fmtMoneyAbr(capitalSocial)}</div></div>
+      <div class="icell"><div class="l">Tipo</div><div class="v sm">${fmt(cnpj?.tipoEmpresa ?? "Matriz")}</div></div>
+      <div class="icell"><div class="l">Local</div><div class="v sm">${fmt(local)}</div></div>
+      <div class="icell"><div class="l">Natureza Jurídica</div><div class="v sm">${cnpj?.naturezaJuridica ? esc(cnpj.naturezaJuridica) : "—"}</div></div>
     </div>
-    ${(cnpj?.telefone || cnpj?.email || cnpj?.naturezaJuridica || cnpj?.regimeTributario) ? `<div class="istrip c4">
-      ${cnpj?.naturezaJuridica ? `<div class="icell"><div class="l">Natureza Jurídica</div><div class="v sm">${esc(cnpj.naturezaJuridica)}</div></div>` : ""}
-      ${cnpj?.regimeTributario ? `<div class="icell"><div class="l">Regime Tributário</div><div class="v sm">${esc(cnpj.regimeTributario)}</div></div>` : ""}
-      ${cnpj?.telefone ? `<div class="icell"><div class="l">Telefone</div><div class="v sm mono">${esc(cnpj.telefone)}</div></div>` : ""}
-      ${cnpj?.email ? `<div class="icell"><div class="l">E-mail</div><div class="v sm">${esc(cnpj.email)}</div></div>` : ""}
-    </div>` : ""}
 
     <!-- 3. Segmento -->
     ${cnpj?.cnaePrincipal ? `<div class="seg"><b>${esc(cnpj.cnaePrincipal)}</b>${cnpj.cnaeSecundarios ? `<div class="sec">CNAEs sec.: ${esc(cnpj.cnaeSecundarios)}</div>` : ""}</div>` : ""}
@@ -770,7 +901,10 @@ function pageSintese(params: PDFReportParams, date: string): string {
           </div>
         </div>
       </div>
-      <div class="risk-detail" style="padding:6px 0"><span class="label" style="font-size:11px">CCF (Cheques sem Fundo)</span>${ccfText}</div>
+      <div style="margin-top:8px">
+        <div class="label" style="font-size:var(--fs-label);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--x4);margin-bottom:4px">CCF — Cheques Sem Fundo</div>
+        ${ccfBlock}
+      </div>
       <div style="margin-top:10px">${alertsHtml}</div>
     </div>
 
@@ -808,148 +942,14 @@ function pageSintese(params: PDFReportParams, date: string): string {
   return page(content, 3, date);
 }
 
-// ─── Page 3: Cartão CNPJ + Quadro Societário ─────────────────────────────────
-function pageCNPJQSA(params: PDFReportParams, date: string): string {
-  const cnpj = params.data.cnpj;
-  const qsa = params.data.qsa;
-  const contrato = params.data.contrato;
-  const grupo = params.data.grupoEconomico;
-  const isAtiva = (cnpj?.situacaoCadastral ?? "").toUpperCase().includes("ATIVA");
 
-  type IRSocio = NonNullable<typeof params.data.irSocios>[0];
-  const irMap: Record<string, IRSocio> = {};
-  (params.data.irSocios ?? []).forEach(ir => { irMap[ir.cpf] = ir; });
-
-  // Sócios com dados do IR
-  const socios = qsa?.quadroSocietario ?? [];
-  const socRows = socios.map(s => {
-    const ir = irMap[s.cpfCnpj];
-    const pl = ir?.patrimonioLiquido ? fmtMoneyAbr(ir.patrimonioLiquido) : "—";
-    const renda = ir?.rendimentoTotal ? fmtMoneyAbr(ir.rendimentoTotal) : "—";
-    return `<tr>
-      <td class="b">${esc(s.nome)}</td>
-      <td style="font-family:'JetBrains Mono',monospace;font-size:10px">${fmtCpf(s.cpfCnpj)}</td>
-      <td>${esc(s.qualificacao)}</td>
-      <td class="r">${fmt(s.participacao)}</td>
-      ${s.dataEntrada ? `<td class="r">${fmtDate(s.dataEntrada)}</td>` : `<td class="r" style="color:var(--x4)">—</td>`}
-      <td class="r">${renda}</td>
-      <td class="r">${pl}</td>
-    </tr>`;
-  }).join("");
-
-  // Endereços adicionais
-  const enderecos = cnpj?.enderecos ?? [];
-  const endAddHtml = enderecos.length > 1 ? `
-    ${stitle("Endereços cadastrados")}
-    <table class="tbl">
-      <thead><tr><th>#</th><th>Endereço</th></tr></thead>
-      <tbody>${enderecos.map((e, i) => `<tr><td class="r" style="width:32px">${i+1}</td><td>${esc(e)}</td></tr>`).join("")}</tbody>
-    </table>` : "";
-
-  // Grupo econômico
-  const grupoEmpresas = grupo?.empresas ?? [];
-  const totalProtGrupo = grupoEmpresas.reduce((s, e) => s + (parseInt(e.protestos || "0") || 0), 0);
-  const totalProcGrupo = grupoEmpresas.reduce((s, e) => s + (parseInt(e.processos || "0") || 0), 0);
-  const grupoHtml = grupoEmpresas.length > 0 ? `
-    ${stitle("Grupo econômico")}
-    <div class="istrip c3" style="margin-bottom:10px">
-      <div class="icell"><div class="l">Empresas vinculadas</div><div class="v">${grupoEmpresas.length}</div></div>
-      <div class="icell ${totalProtGrupo > 0 ? "danger" : ""}"><div class="l">Protestos no grupo</div><div class="v ${totalProtGrupo > 0 ? "red" : "muted"}">${totalProtGrupo}</div></div>
-      <div class="icell ${totalProcGrupo > 0 ? "warn" : ""}"><div class="l">Processos no grupo</div><div class="v ${totalProcGrupo > 0 ? "" : "muted"}">${totalProcGrupo}</div></div>
-    </div>
-    <table class="tbl" style="margin-bottom:10px">
-      <thead><tr><th>Razão Social</th><th>Relação</th><th>Situação</th><th class="r">SCR</th><th class="r">Prot.</th><th class="r">Proc.</th></tr></thead>
-      <tbody>${grupoEmpresas.map(e => {
-        const isAtiva = (e.situacao ?? "").toUpperCase() === "ATIVA";
-        const protN = parseInt(e.protestos || "0") || 0;
-        const procN = parseInt(e.processos || "0") || 0;
-        return `<tr>
-          <td class="b">${esc(e.razaoSocial)}</td>
-          <td style="color:var(--x5)">${esc(e.relacao ?? "—")}</td>
-          <td style="color:${isAtiva ? "var(--g6)" : "var(--a5)"}"><b>${esc(e.situacao ?? "—")}</b></td>
-          <td class="r" style="color:var(--x5)">${e.scrTotal && e.scrTotal !== "0" ? fmtMoneyAbr(e.scrTotal) : "—"}</td>
-          <td class="r ${protN > 0 ? "red" : ""}">${protN > 0 ? `<b>${protN}</b>` : "—"}</td>
-          <td class="r ${procN > 0 ? "" : ""}">${procN > 0 ? procN : "—"}</td>
-        </tr>`;
-      }).join("")}</tbody>
-    </table>
-    ${grupo?.alertaParentesco && (grupo.parentescosDetectados ?? []).length > 0 ? `
-    <div class="alert mod"><span class="atag">MOD</span> Vínculo familiar detectado entre sócios — ${(grupo.parentescosDetectados ?? []).map(p => `${esc(p.socio1)} / ${esc(p.socio2)} (${esc(p.sobrenomeComum)})`).join("; ")}</div>` : ""}
-    ${(totalProtGrupo > 0 || totalProcGrupo > 0) ? `
-    <div class="alert mod"><span class="atag">MOD</span> Grupo econômico consolidado: ${totalProtGrupo} protesto(s) e ${totalProcGrupo} processo(s) nas empresas vinculadas</div>` : ""}
-  ` : "";
-
-  const content = `
-    ${stitle("12 · Cartão CNPJ — dados cadastrais")}
-    <div class="istrip c4" style="margin-bottom:8px">
-      <div class="icell ${isAtiva ? "success" : "danger"}">
-        <div class="l">Situação Cadastral</div>
-        <div class="v ${isAtiva ? "green" : "red"} sm">${esc(cnpj?.situacaoCadastral ?? "—")}</div>
-        ${cnpj?.dataSituacaoCadastral ? `<div class="sub">desde ${fmtDate(cnpj.dataSituacaoCadastral)}</div>` : ""}
-      </div>
-      <div class="icell"><div class="l">CNPJ</div><div class="v sm mono">${fmtCnpj(cnpj?.cnpj)}</div></div>
-      <div class="icell"><div class="l">Fundação</div><div class="v">${fmt(cnpj?.dataAbertura)}</div></div>
-      <div class="icell"><div class="l">Porte</div><div class="v">${fmt(cnpj?.porte)}</div></div>
-    </div>
-    <div class="istrip c4" style="margin-bottom:8px">
-      <div class="icell"><div class="l">Natureza Jurídica</div><div class="v sm">${esc(cnpj?.naturezaJuridica ?? "—")}</div></div>
-      <div class="icell"><div class="l">Regime Tributário</div><div class="v sm">${esc(cnpj?.regimeTributario ?? "—")}</div></div>
-      <div class="icell"><div class="l">Capital Social</div><div class="v sm mono">${fmtMoney(cnpj?.capitalSocialCNPJ)}</div></div>
-      <div class="icell"><div class="l">Tipo</div><div class="v">${esc(cnpj?.tipoEmpresa ?? "Matriz")}</div></div>
-    </div>
-    <div class="istrip c4" style="margin-bottom:8px">
-      <div class="icell"><div class="l">Telefone</div><div class="v sm mono">${esc(cnpj?.telefone ?? "—")}</div></div>
-      <div class="icell"><div class="l">E-mail</div><div class="v sm">${esc(cnpj?.email ?? "—")}</div></div>
-      ${cnpj?.site ? `<div class="icell"><div class="l">Site</div><div class="v sm">${esc(cnpj.site)}</div></div>` : ""}
-      ${cnpj?.funcionarios ? `<div class="icell"><div class="l">Funcionários</div><div class="v">${esc(cnpj.funcionarios)}</div></div>` : ""}
-    </div>
-    <div class="seg" style="margin-bottom:8px"><b>${esc(cnpj?.cnaePrincipal ?? "—")}</b>${cnpj?.cnaeSecundarios ? `<div class="sec">CNAEs sec.: ${esc(cnpj.cnaeSecundarios)}</div>` : ""}</div>
-    ${cnpj?.motivoSituacao && !isAtiva ? `<div class="alert alta" style="margin-bottom:14px"><span class="atag">ALTA</span> Motivo: ${esc(cnpj.motivoSituacao)}</div>` : ""}
-    <div class="addr-box" style="margin-bottom:18px">
-      <div class="l">Endereço</div>
-      <div class="a">${esc(cnpj?.endereco ?? "—")}</div>
-    </div>
-    ${endAddHtml}
-
-    ${stitle("13 · Quadro societário")}
-    <table class="tbl">
-      <thead><tr><th>Sócio</th><th>CPF/CNPJ</th><th>Qualificação</th><th class="r">Part.</th><th class="r">Entrada</th><th class="r">Renda (IR)</th><th class="r">Patrim. (IR)</th></tr></thead>
-      <tbody>${socRows || `<tr><td colspan="7" style="color:var(--x4);text-align:center">—</td></tr>`}</tbody>
-    </table>
-    <div class="inf">Capital Social: <b>${fmtMoney(qsa?.capitalSocial || cnpj?.capitalSocialCNPJ)}</b></div>
-
-    ${contrato ? `${stitle("14 · Contrato Social")}
-    <div class="istrip c4" style="margin-bottom:8px">
-      <div class="icell"><div class="l">Constituição</div><div class="v">${fmt(contrato.dataConstituicao)}</div></div>
-      <div class="icell"><div class="l">Capital Social</div><div class="v sm mono">${fmtMoney(contrato.capitalSocial)}</div></div>
-      <div class="icell"><div class="l">Prazo de Duração</div><div class="v sm">${fmt(contrato.prazoDuracao) || "Indeterminado"}</div></div>
-      <div class="icell"><div class="l">Alterações</div><div class="v ${contrato.temAlteracoes ? "" : "green"}">${contrato.temAlteracoes ? "Sim" : "Não"}</div></div>
-    </div>
-    ${contrato.objetoSocial ? `<div class="perc" style="margin-bottom:8px"><div class="l" style="font-size:9px;font-weight:700;text-transform:uppercase;color:var(--x4);margin-bottom:6px">Objeto Social</div><div class="perc-text">${esc(contrato.objetoSocial)}</div></div>` : ""}
-    ${contrato.administracao ? `<div class="inf">Administração: <b>${esc(contrato.administracao)}</b>${contrato.foro ? ` · Foro: <b>${esc(contrato.foro)}</b>` : ""}</div>` : ""}` : ""}
-
-    ${grupoHtml}
-  `;
-
-  return page(content, 5, date);
-}
-
-// ─── Page 4: Parecer Preliminar ───────────────────────────────────────────────
+// ─── Parecer Preliminar (última página) ───────────────────────────────────────
 function pageParecer(params: PDFReportParams, date: string): string {
   const ai = params.aiAnalysis;
   const parecer = ai?.parecer;
   const resumo = params.resumoExecutivo ||
     (typeof parecer === "object" ? parecer?.resumoExecutivo : "") ||
     ai?.resumoExecutivo || "";
-  const fortes = params.pontosFortes?.length ? params.pontosFortes :
-    (typeof parecer === "object" ? parecer?.pontosFortes : []) ??
-    ai?.pontosFortes ?? [];
-  const fracos = params.pontosFracos?.length ? params.pontosFracos :
-    (typeof parecer === "object" ? parecer?.pontosNegativosOuFracos : []) ??
-    ai?.pontosFracos ?? [];
-  const perguntas = params.perguntasVisita?.length ? params.perguntasVisita :
-    (typeof parecer === "object" ? parecer?.perguntasVisita : []) ??
-    ai?.perguntasVisita ?? [];
 
   const score = params.finalRating ?? 0;
   const sc = scoreColor(score);
@@ -964,7 +964,7 @@ function pageParecer(params: PDFReportParams, date: string): string {
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;gap:20px">
       <div style="flex:1">
         <div style="font-size:13px;font-weight:700;color:var(--n9);margin-bottom:8px">Resumo Executivo</div>
-        <div style="font-size:12px;color:var(--x7);line-height:1.7">${esc(resumo) || "—"}</div>
+        <div style="font-size:12px;color:var(--x7);line-height:1.7;text-align:justify">${esc(resumo) || "—"}</div>
       </div>
       <div style="text-align:center;min-width:100px">
         <div style="width:72px;height:72px;border-radius:50%;border:3px solid ${sb};display:flex;flex-direction:column;align-items:center;justify-content:center;margin:0 auto 6px">
@@ -974,86 +974,18 @@ function pageParecer(params: PDFReportParams, date: string): string {
         <div style="display:inline-block;padding:4px 14px;border-radius:4px;font-size:10px;font-weight:700;background:${decBg2};color:#fff">${fmtDecision(params.decision)}</div>
       </div>
     </div>
-    ${stitle("Pontos Fortes & Fracos")}
-    <div class="ana-grid" style="grid-template-columns:1fr 1fr;margin-bottom:18px">
-      <div class="ana-col f">
-        <div class="ana-h">Pontos Fortes</div>
-        ${(fortes as string[]).map((f: string) => `<div class="ana-item">${esc(f)}</div>`).join("") || '<div class="ana-item" style="color:var(--x4)">—</div>'}
-      </div>
-      <div class="ana-col w">
-        <div class="ana-h">Pontos Fracos</div>
-        ${(fracos as string[]).map((f: string) => `<div class="ana-item">${esc(f)}</div>`).join("") || '<div class="ana-item" style="color:var(--x4)">—</div>'}
-      </div>
-    </div>
-    ${perguntas.length > 0 ? `
-    ${stitle("Perguntas para visita")}
-    <div class="perc" style="margin-bottom:0">
-      ${(perguntas as {pergunta:string;contexto:string}[]).map((p: {pergunta:string;contexto:string}) => `<div style="padding:8px 0;border-bottom:1px solid var(--x1)">
-        <div style="font-size:12px;font-weight:600;color:var(--x9)">${esc(p.pergunta)}</div>
-        ${p.contexto ? `<div style="font-size:11px;color:var(--x5);margin-top:3px">${esc(p.contexto)}</div>` : ""}
-      </div>`).join("")}
-    </div>` : ""}
     ${params.observacoes ? `${stitle("Observações")}
     <div class="perc"><div class="perc-text">${esc(params.observacoes)}</div></div>` : ""}
     `;
   }
 
-  return page(`${stitle("03 · Parecer Preliminar")}${content}`, 4, date);
+  const totalPages = 12;
+  return page(`${stitle("Parecer Preliminar")}${content}`, totalPages, date);
 }
 
-// ─── Page 4: Parâmetros + Conformidade ───────────────────────────────────────
+// ─── Page 4: Parâmetros (Limite de Crédito) ──────────────────────────────────
 function pageParametros(params: PDFReportParams, date: string): string {
-  const rv = params.data.relatorioVisita;
-  const fv = params.fundValidation;
-  const contrato = params.data.contrato;
-
-  const criteriaRows = (fv?.criteria ?? []).map((c: FundCriterion) => {
-    const isPass = c.status === "ok";
-    const isWarn = c.status === "warning";
-    const iconCls = isPass ? "pass" : isWarn ? "warn" : "fail";
-    const iconChar = isPass ? "✓" : isWarn ? "!" : "✗";
-    const rowCls = isPass ? "pass-row" : isWarn ? "warn-row" : "fail-row";
-    return `<div class="pf-row ${rowCls}">
-      <div class="pf-icon ${iconCls}">${iconChar}</div>
-      <div class="pf-name">${esc(c.label)}${c.eliminatoria ? `<span class="pf-tag">Eliminatório</span>` : ""}</div>
-      <div class="pf-meta">
-        <div class="pf-lim"><div class="lbl">Limite</div><div class="val">${esc(c.threshold)}</div></div>
-        <div class="pf-act"><div class="lbl">Apurado</div><div class="val ${iconCls}">${esc(c.actual)}</div>${c.detail ? `<div class="pf-note">${esc(c.detail)}</div>` : ""}</div>
-      </div>
-    </div>`;
-  }).join("");
-
-  const hasEliminatoria = fv?.hasEliminatoria ?? false;
-  const failCount = fv?.failCount ?? 0;
-  const passCount = fv?.passCount ?? 0;
-  const totalCount = fv?.criteria?.length ?? 0;
-  const verdictCls = failCount > 0 ? "fail" : "pass";
-  const verdictText = failCount > 0 ? (hasEliminatoria ? "Empresa não elegível — critério eliminatório" : "Empresa com restrições") : "Empresa elegível";
-  const verdictSub = `${passCount} de ${totalCount} critérios aprovados · ${failCount} reprovado(s)`;
-  const verdictBtn = failCount > 0 ? "Não elegível" : "Elegível";
-
   const content = `
-    ${stitle("04 · Parâmetros operacionais do cedente")}
-    <div class="stitle" style="margin-top:8px">Taxas e limites</div>
-    <div class="istrip c4">
-      <div class="icell navy"><div class="l">Taxa Convencional</div><div class="v ${rv?.taxaConvencional ? "" : "muted"}">${rv?.taxaConvencional ? esc(rv.taxaConvencional) + "%" : "—"}</div></div>
-      <div class="icell navy"><div class="l">Taxa Comissária</div><div class="v ${rv?.taxaComissaria ? "" : "muted"}">${rv?.taxaComissaria ? esc(rv.taxaComissaria) + "%" : "—"}</div></div>
-      <div class="icell navy"><div class="l">Limite Total</div><div class="v sm mono">${rv?.limiteTotal ? fmtMoneyAbr(rv.limiteTotal) : "—"}</div></div>
-      <div class="icell navy"><div class="l">Limite por Sacado</div><div class="v sm mono">${rv?.limitePorSacado ? fmtMoneyAbr(rv.limitePorSacado) : "—"}</div></div>
-    </div>
-    <div class="istrip c4">
-      <div class="icell navy"><div class="l">Ticket Médio</div><div class="v sm mono">${rv?.ticketMedio ? fmtMoneyAbr(rv.ticketMedio) : "—"}</div></div>
-      <div class="icell navy"><div class="l">Cobr. Boleto</div><div class="v ${rv?.valorCobrancaBoleto ? "" : "muted"}">${rv?.valorCobrancaBoleto ? fmtMoney(rv.valorCobrancaBoleto) : "—"}</div></div>
-      <div class="icell navy"><div class="l">Modalidade</div><div class="v sm">${rv?.modalidade ? esc(rv.modalidade.toUpperCase()) : "—"}</div></div>
-      <div class="icell navy"><div class="l">Prazo Máximo</div><div class="v ${rv?.prazoMaximoOp ? "" : "muted"}">${rv?.prazoMaximoOp ? esc(rv.prazoMaximoOp) + " dias" : "—"}</div></div>
-    </div>
-    <div class="stitle">Condições</div>
-    <div class="istrip c4">
-      <div class="icell"><div class="l">Prazo Recompra</div><div class="v ${rv?.prazoRecompraCedente ? "" : "muted"}">${rv?.prazoRecompraCedente ? esc(rv.prazoRecompraCedente) + " dias" : "—"}</div></div>
-      <div class="icell"><div class="l">Envio Cartório</div><div class="v ${rv?.prazoEnvioCartorio ? "" : "muted"}">${rv?.prazoEnvioCartorio ? esc(rv.prazoEnvioCartorio) + " dias" : "—"}</div></div>
-      <div class="icell"><div class="l">Cobrança TAC</div><div class="v ${rv?.cobrancaTAC ? "" : "muted"}">${rv?.cobrancaTAC ? esc(rv.cobrancaTAC) : "—"}</div></div>
-      <div class="icell"><div class="l">Tranche</div><div class="v ${rv?.tranche ? "" : "muted"}">${rv?.tranche ? fmtMoneyAbr(rv.tranche) : "—"}</div></div>
-    </div>
     ${params.creditLimit ? `${stitle("Limite de Crédito Calculado")}
     <div class="istrip c4" style="margin-bottom:8px">
       <div class="icell ${params.creditLimit.classificacao === "APROVADO" ? "success" : params.creditLimit.classificacao === "CONDICIONAL" ? "warn" : "danger"}">
@@ -1069,23 +1001,7 @@ function pageParametros(params: PDFReportParams, date: string): string {
       <div class="icell"><div class="l">FMM Base</div><div class="v sm mono">${params.creditLimit.fmmBase ? "R$\u00a0" + params.creditLimit.fmmBase.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}) : "—"}</div></div>
       <div class="icell"><div class="l">Fator de Redução</div><div class="v sm">${params.creditLimit.fatorReducao ? (params.creditLimit.fatorReducao * 100).toFixed(0) + "%" : "—"}</div></div>
       <div class="icell"><div class="l">Conc. máx. sacado</div><div class="v sm">${params.creditLimit.concentracaoMaxPct ? params.creditLimit.concentracaoMaxPct.toFixed(0) + "%" : "—"}</div></div>
-    </div>` : ""}
-    ${stitle("05 · Conformidade com políticas do fundo")}
-    <div class="crit-box">${criteriaRows || '<div style="color:var(--x4);font-size:12px;padding:12px 14px">Validação de fundo não disponível</div>'}</div>
-    ${fv ? `<div class="verdict ${verdictCls}">
-      <div><div class="vt">${verdictText}</div><div class="vs">${verdictSub}</div></div>
-      <div class="vb">${verdictBtn}</div>
-    </div>` : ""}
-
-    ${contrato ? `${stitle("Contrato Social")}
-    <div class="istrip c4" style="margin-bottom:10px">
-      <div class="icell"><div class="l">Constituição</div><div class="v">${fmt(contrato.dataConstituicao)}</div></div>
-      <div class="icell"><div class="l">Capital Social</div><div class="v sm mono">${fmtMoney(contrato.capitalSocial)}</div></div>
-      <div class="icell"><div class="l">Prazo de Duração</div><div class="v sm">${fmt(contrato.prazoDuracao) || "Indeterminado"}</div></div>
-      <div class="icell"><div class="l">Alterações</div><div class="v ${contrato.temAlteracoes ? "" : "green"}">${contrato.temAlteracoes ? "Sim" : "Não"}</div></div>
-    </div>
-    ${contrato.objetoSocial ? `<div class="perc" style="margin-bottom:10px"><div class="l" style="font-size:9px;font-weight:700;text-transform:uppercase;color:var(--x4);margin-bottom:6px">Objeto Social</div><div class="perc-text">${esc(contrato.objetoSocial)}</div></div>` : ""}
-    ${contrato.administracao ? `<div class="inf">Administração: <b>${esc(contrato.administracao)}</b>${contrato.foro ? ` · Foro: <b>${esc(contrato.foro)}</b>` : ""}</div>` : ""}` : ""}
+    </div>` : '<div style="color:var(--x4);font-size:12px;padding:20px;text-align:center">Limite de crédito não calculado</div>'}
   `;
 
   return page(content, 6, date);
@@ -1119,23 +1035,9 @@ function pageFaturamento(params: PDFReportParams, date: string): string {
       ${fmmAnual.slice(-4).map(([ano, v]) => `<div class="icell"><div class="l">${esc(ano)}</div><div class="v sm mono">${fmtMoneyAbr(v)}</div></div>`).join("")}
     </div>` : "";
 
-  // Monthly table — 2 columns (last 12)
-  const meses12 = meses.slice(-12);
-  const half = Math.ceil(meses12.length / 2);
-  const col1 = meses12.slice(0, half);
-  const col2 = meses12.slice(half);
-  const maxFat = Math.max(...meses12.map(m => numVal(m.valor)), 1);
-  const fmtRow = (m: {mes:string;valor:string}) => {
-    const v = numVal(m.valor);
-    const barW = Math.round((v/maxFat)*60);
-    const isZero = v === 0;
-    return `<tr ${isZero ? 'style="opacity:0.5"' : ""}><td><span style="display:inline-block;width:${barW}px;height:4px;border-radius:2px;background:var(--n8);vertical-align:middle;margin-right:6px"></span>${esc(m.mes)}</td><td class="r mono" style="color:${isZero ? "var(--x4)" : "var(--n9)"}">${fmtMoney(m.valor)}</td></tr>`;
-  };
-  const col1Rows = col1.map(fmtRow).join("");
-  const col2Rows = col2.map(fmtRow).join("");
 
   const content = `
-    ${stitle("06 · Faturamento")}
+    ${stitle("02 · Faturamento")}
     <div class="istrip c4" style="margin-bottom:16px">
       <div class="icell navy"><div class="l">FMM 12M</div><div class="v">${fmtMoneyAbr(fmm)}</div><div class="sub">média mensal</div></div>
       <div class="icell navy"><div class="l">Total 12M</div><div class="v">${fmtMoneyAbr(total12)}</div><div class="sub">soma 12 meses</div></div>
@@ -1149,21 +1051,6 @@ function pageFaturamento(params: PDFReportParams, date: string): string {
     </div>
     ${zeradosNote}
     ${fmmAnualHtml}
-    ${col1Rows ? `${stitle("Detalhe mensal")}
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
-      <div>
-        <table class="tbl" style="margin:0">
-          <thead><tr><th>Mês</th><th class="r">Faturamento</th></tr></thead>
-          <tbody>${col1Rows}</tbody>
-        </table>
-      </div>
-      <div>
-        <table class="tbl" style="margin:0">
-          <thead><tr><th>Mês</th><th class="r">Faturamento</th></tr></thead>
-          <tbody>${col2Rows}</tbody>
-        </table>
-      </div>
-    </div>` : ""}
   `;
 
   return page(content, 7, date);
@@ -1207,7 +1094,7 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
   const distRows = (proc?.distribuicao ?? []).map(d => {
     const pct = parseFloat(d.pct) || 0;
     const isFiscal = d.tipo.toLowerCase().includes("fiscal");
-    return `<div class="prop-row"><span class="prop-label">${esc(d.tipo)}</span><div class="prop-fill${isFiscal ? " red" : ""}" style="width:${Math.min(pct,100)}%"></div><span class="prop-pct">${d.qtd} (${d.pct})</span></div>`;
+    return `<div class="prop-row"><span class="prop-label">${esc(d.tipo)}</span><div class="prop-fill${isFiscal ? " red" : ""}" style="width:${Math.min(pct,100)}%"></div><span class="prop-pct">${d.qtd} proc. <span style="color:var(--x4);font-weight:400">${d.pct ? "· " + d.pct + "%" : ""}</span></span></div>`;
   }).join("");
 
   const top5Proc = (proc?.top10Recentes ?? []).slice(0,5);
@@ -1274,7 +1161,7 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
   ).join("");
 
   const content = `
-    ${stitle("07 · Protestos")}
+    ${stitle("03 · Protestos")}
     <div class="istrip c4" style="margin-bottom:14px">
       <div class="icell ${vigQtd > 0 ? "danger" : "success"}"><div class="l">Vigentes (Qtd)</div><div class="v ${vigQtd > 0 ? "red" : "green"}">${vigQtd}</div></div>
       <div class="icell ${vigQtd > 0 ? "danger" : ""}"><div class="l">Vigentes (R$)</div><div class="v ${vigQtd > 0 ? "red" : "muted"} sm mono">${fmtMoney(vigVal)}</div></div>
@@ -1306,7 +1193,7 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
     </table>` : ""}
     ${vigQtd > 2 ? `<div class="alert alta"><span class="atag">ALTA</span> ${vigQtd} protestos vigentes — ${fmtMoneyAbr(vigVal)}</div>` : ""}
 
-    ${stitle("08 · Processos judiciais")}
+    ${stitle("04 · Processos judiciais")}
     <div class="istrip c4" style="margin-bottom:14px">
       <div class="icell ${totalProc > 5 ? "danger" : totalProc > 0 ? "warn" : "success"}"><div class="l">Total Passivo</div><div class="v ${totalProc > 5 ? "red" : totalProc > 0 ? "" : "green"}">${totalProc}</div></div>
       <div class="icell ${numVal(passivo) > 5 ? "danger" : ""}"><div class="l">Polo Passivo</div><div class="v ${numVal(passivo) > 5 ? "red" : ""}">${fmt(passivo)}</div></div>
@@ -1355,7 +1242,7 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
         </tr>`
       ).join("");
       return `
-        ${stitle("09 · CCF — Cheques Sem Fundo")}
+        ${stitle("05 · CCF — Cheques Sem Fundo")}
         <div class="istrip c3" style="margin-bottom:10px">
           <div class="icell ${ccfQtd > 0 ? "danger" : "success"}"><div class="l">Registros CCF</div><div class="v ${ccfQtd > 0 ? "red" : "green"}">${ccfQtd > 0 ? `<b>${ccfQtd}</b>` : "0 — limpo"}</div></div>
           <div class="icell ${tendCls}"><div class="l">Tendência 6 meses</div><div class="v ${tendValCls} sm">${tendStr}</div></div>
@@ -1430,7 +1317,7 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
       <td class="r">${fmtPct(m.participacao)}</td>
     </tr>`).join("");
     modalSection = `
-    ${stitle("17 · Modalidades SCR")}
+    ${stitle("07 · Modalidades SCR")}
     <table class="tbl">
       <thead><tr><th>Modalidade</th><th class="r">Total</th><th class="r">A Vencer</th><th class="r">Vencido</th><th class="r">%</th></tr></thead>
       <tbody>${modRows}</tbody>
@@ -1456,7 +1343,7 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
         <div class="inf" style="margin-top:6px;margin-bottom:0">Período: <b>${esc(sa.periodoReferencia ?? "—")}</b>${sp ? ` · Anterior: <b>${esc(sp.periodoReferencia ?? "—")}</b>` : ""}</div>
       </div>`;
     }).join("");
-    sociosSCRSection = `${stitle("18 · SCR dos Sócios (PF)")}${blocks}`;
+    sociosSCRSection = `${stitle("08 · SCR dos Sócios (PF)")}${blocks}`;
   }
 
   // DRE table
@@ -1514,7 +1401,7 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
     const vKPIVenc = scrVar(scr.vencidos, scrAnt?.vencidos, true);
     const vKPITotal = scrVar(scr.totalDividasAtivas, scrAnt?.totalDividasAtivas, true);
     scrSection = `
-    ${stitle("16 · Comparativo SCR — Empresa (PJ)")}
+    ${stitle("06 · Comparativo SCR — Empresa (PJ)")}
     <div class="kpi-snap c4" style="margin-bottom:14px">
       <div class="icell ${totalNum2 > 0 ? "navy" : ""}">
         <div class="l">Total Dívidas Ativas</div>
@@ -1554,7 +1441,7 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
     const mb2 = numVal(lastDre?.margemBruta ?? "0");
     const me2 = numVal(lastDre?.margemEbitda ?? "0");
     dreSection = `
-    ${stitle("19 · Demonstração de Resultado (DRE)")}
+    ${stitle("09 · Demonstração de Resultado (DRE)")}
     <div class="kpi-snap c4" style="margin-bottom:14px">
       <div class="icell navy">
         <div class="l">Receita Bruta (${esc(lastDre?.ano ?? "—")})</div>
@@ -1619,7 +1506,7 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
     const pl = numVal(lastBal?.patrimonioLiquido ?? "0");
 
     balSection = `
-    ${stitle("20 · Balanço Patrimonial")}
+    ${stitle("10 · Balanço Patrimonial")}
     <table class="tbl">
       <thead><tr><th>Métrica</th>${headers}</tr></thead>
       <tbody>${balRows}</tbody>
@@ -1641,7 +1528,7 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
     const top5Pct = abc.concentracaoTop5 ?? "—";
     const totalCli = abc.totalClientesNaBase ?? 0;
     const maxVal2 = numVal(abc.clientes[0]?.valorFaturado ?? "0");
-    const abcRows = abc.clientes.slice(0, 7).map((c, i) => {
+    const abcRows = abc.clientes.slice(0, 10).map((c, i) => {
       const barW2 = maxVal2 > 0 ? Math.round((numVal(c.valorFaturado)/maxVal2)*100) : 0;
       const clsCls2 = (c.classe ?? "c").toLowerCase();
       return `<tr>
@@ -1655,7 +1542,7 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
     }).join("");
 
     abcSection = `
-    ${stitle("11 · Concentração de clientes (Curva ABC)")}
+    ${stitle("11 · Curva ABC — Concentração de sacados")}
     <div class="istrip c3" style="margin-bottom:10px">
       <div class="icell warn"><div class="l">Top 3 Clientes</div><div class="v" style="color:var(--a5)">${fmt(top3Pct)}</div></div>
       <div class="icell warn"><div class="l">Top 5 Clientes</div><div class="v" style="color:var(--a5)">${fmt(top5Pct)}</div></div>
@@ -1680,6 +1567,14 @@ function pageIRVisita(params: PDFReportParams, date: string): string {
   const irSocios = params.data.irSocios ?? [];
   const rv = params.data.relatorioVisita;
 
+  // Mapa CPF → participação societária (do QSA / contrato social)
+  const normCpfIR = (v: string | undefined | null) => (v ?? "").replace(/\D/g, "");
+  const qsaPartMap: Record<string, string> = {};
+  (params.data.qsa?.quadroSocietario ?? []).forEach(s => {
+    const k = normCpfIR(s.cpfCnpj);
+    if (k && s.participacao) qsaPartMap[k] = s.participacao;
+  });
+
   let irSection = "";
   if (irSocios.length > 0) {
     const irBlocks = irSocios.map(ir => {
@@ -1691,13 +1586,16 @@ function pageIRVisita(params: PDFReportParams, date: string): string {
       const dividasOnus = ir.dividasOnus ?? "0";
       const bensImoveis = ir.bensImoveis ?? "0";
       const bensVeiculos = ir.bensVeiculos ?? "0";
+      const partSocIR = qsaPartMap[normCpfIR(ir.cpf)] ?? null;
+      const partPct = partSocIR ? (partSocIR.replace("%","").trim() + "%") : null;
       return `<div style="margin-bottom:20px;padding:16px;background:var(--x0);border-radius:10px;border:1px solid var(--x2)">
         <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--x2)">
           <div style="width:44px;height:44px;border-radius:50%;background:var(--n0);border:2px solid ${plBorder};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;color:var(--n8);flex-shrink:0">${esc(initials)}</div>
-          <div>
+          <div style="flex:1">
             <div style="font-size:15px;font-weight:700;color:var(--n9)">${esc(ir.nomeSocio)}</div>
             <div style="font-size:10px;color:var(--x5);font-family:'JetBrains Mono',monospace;margin-top:2px">CPF: ${fmtCpf(ir.cpf)} · Ano-base: ${fmt(ir.anoBase)}</div>
           </div>
+          ${partPct ? `<div style="text-align:right;background:var(--n0);border:1px solid var(--n1);border-radius:8px;padding:6px 12px;min-width:80px"><div style="font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--x4)">Part. Societária</div><div style="font-size:16px;font-weight:700;color:var(--n7);margin-top:2px">${esc(partPct)}</div></div>` : ""}
         </div>
         <div class="istrip c4" style="margin-bottom:8px">
           <div class="icell"><div class="l">Renda Total</div><div class="v sm mono">${fmtMoneyAbr(ir.rendimentoTotal)}</div></div>
@@ -1720,7 +1618,7 @@ function pageIRVisita(params: PDFReportParams, date: string): string {
         ${!ir.debitosEmAberto ? `<div class="alert ok" style="margin:0"><span class="atag">OK</span> Sem débitos com a Receita Federal</div>` : `<div class="alert alta" style="margin:0"><span class="atag">ALTA</span> Débitos em aberto: ${esc(ir.descricaoDebitos ?? "")}</div>`}
       </div>`;
     }).join("");
-    irSection = `${stitle("22 · IR dos sócios")}${irBlocks}`;
+    irSection = `${stitle("12 · IR dos sócios")}${irBlocks}`;
   }
 
   let visitaSection = "";
@@ -1729,22 +1627,16 @@ function pageIRVisita(params: PDFReportParams, date: string): string {
     const recCls = recMap[rv.recomendacaoVisitante] ?? "";
     const recLabel = {aprovado:"Aprovado", condicional:"Condicional", reprovado:"Reprovado"}[rv.recomendacaoVisitante] ?? fmt(rv.recomendacaoVisitante);
 
-    const positRows = rv.pontosPositivos?.map(p => `<div class="ana-i">• ${esc(p)}</div>`).join("") || '<div class="ana-i" style="color:var(--x4)">—</div>';
-    const atencRows = rv.pontosAtencao?.map(p => `<div class="ana-i">• ${esc(p)}</div>`).join("") || '<div class="ana-i" style="color:var(--x4)">—</div>';
     const ctxText = rv.observacoesLivres || rv.descricaoEstrutura || "";
 
     visitaSection = `
-    ${stitle("23 · Relatório de visita")}
+    ${stitle("14 · Relatório de visita")}
     <div class="istrip c3" style="margin-bottom:14px">
       <div class="icell"><div class="l">Responsável</div><div class="v sm">${fmt(rv.responsavelVisita)}</div></div>
       <div class="icell"><div class="l">Local</div><div class="v sm">${fmt(rv.localVisita)}</div></div>
       <div class="icell ${recCls}"><div class="l">Recomendação</div><div class="v ${recCls === "green" ? "green" : recCls === "danger" ? "red" : ""} sm">${esc(recLabel)}</div></div>
     </div>
-    <div class="ana-grid">
-      <div class="ana-col f"><div class="ana-h">Pontos positivos</div>${positRows}</div>
-      <div class="ana-col a"><div class="ana-h">Pontos de atenção</div>${atencRows}</div>
-      <div class="ana-col n"><div class="ana-h">Contexto</div><div class="ana-i" style="line-height:1.6">${esc(ctxText) || "—"}</div></div>
-    </div>
+    ${ctxText ? `<div class="ana-grid"><div class="ana-col n" style="grid-column:1/-1"><div class="ana-h">Contexto</div><div class="ana-i" style="line-height:1.6">${esc(ctxText)}</div></div></div>` : ""}
     ${stitle("Dados da empresa")}
     <div class="istrip c4">
       <div class="icell"><div class="l">Funcionários</div><div class="v">${rv.funcionariosObservados ?? "—"}</div></div>
@@ -1778,7 +1670,7 @@ function pageIRVisita(params: PDFReportParams, date: string): string {
       `<tr><td>${esc(h.usuario)}</td><td class="r">${fmt(h.ultimaConsulta)}</td></tr>`
     ).join("");
     historicoSection = `
-    ${stitle("21 · Histórico de consultas ao CNPJ")}
+    ${stitle("13 · Histórico de consultas ao CNPJ")}
     <table class="tbl">
       <thead><tr><th>Instituição / Consulente</th><th class="r">Última Consulta</th></tr></thead>
       <tbody>${histRows}</tbody>
@@ -1862,6 +1754,38 @@ function pageChecklist(params: PDFReportParams, date: string): string {
       <div class="icell"><div class="l">Serasa Score</div><div class="v">${params.data.score.serasa.score}</div><div class="sub">${esc(params.data.score.serasa.faixa)}</div></div>
       <div class="icell ${params.data.score.serasa.inadimplente ? "danger" : "success"}"><div class="l">Inadimplente</div><div class="v ${params.data.score.serasa.inadimplente ? "red" : "green"}">${params.data.score.serasa.inadimplente ? "Sim" : "Não"}</div></div>
     </div>` : ""}
+    ${(() => {
+      const fv = params.fundValidation;
+      if (!fv?.criteria?.length) return "";
+      const criteriaRows = fv.criteria.map((c: FundCriterion) => {
+        const isPass = c.status === "ok";
+        const isWarn = c.status === "warning";
+        const iconCls = isPass ? "pass" : isWarn ? "warn" : "fail";
+        const iconChar = isPass ? "✓" : isWarn ? "!" : "✗";
+        const rowCls = isPass ? "pass-row" : isWarn ? "warn-row" : "fail-row";
+        return `<div class="pf-row ${rowCls}">
+          <div class="pf-icon ${iconCls}">${iconChar}</div>
+          <div class="pf-name">${esc(c.label)}${c.eliminatoria ? `<span class="pf-tag">Eliminatório</span>` : ""}</div>
+          <div class="pf-meta">
+            <div class="pf-lim"><div class="lbl">Limite</div><div class="val">${esc(c.threshold)}</div></div>
+            <div class="pf-act"><div class="lbl">Apurado</div><div class="val ${iconCls}">${esc(c.actual)}</div>${c.detail ? `<div class="pf-note">${esc(c.detail)}</div>` : ""}</div>
+          </div>
+        </div>`;
+      }).join("");
+      const failCount = fv.failCount ?? 0;
+      const passCount = fv.passCount ?? 0;
+      const totalCount = fv.criteria.length;
+      const verdictCls = failCount > 0 ? "fail" : "pass";
+      const verdictText = failCount > 0 ? (fv.hasEliminatoria ? "Empresa não elegível — critério eliminatório" : "Empresa com restrições") : "Empresa elegível";
+      const verdictSub = `${passCount} de ${totalCount} critérios aprovados · ${failCount} reprovado(s)`;
+      const verdictBtn = failCount > 0 ? "Não elegível" : "Elegível";
+      return `${stitle("Conformidade com políticas do fundo")}
+      <div class="crit-box">${criteriaRows}</div>
+      <div class="verdict ${verdictCls}">
+        <div><div class="vt">${verdictText}</div><div class="vs">${verdictSub}</div></div>
+        <div class="vb">${verdictBtn}</div>
+      </div>`;
+    })()}
   `;
 
   return page(content, 2, date);
@@ -1876,14 +1800,13 @@ export function gerarHtmlRelatorio(params: PDFReportParams): { html: string; hea
     pageCapa(params, date),
     pageChecklist(params, date),
     pageSintese(params, date),
-    pageParecer(params, date),
-    pageCNPJQSA(params, date),
     pageParametros(params, date),
     pageFaturamento(params, date),
     pageProtestosProcessos(params, date),
     pageSCRDRE(params, date),
     pageBalancoABC(params, date),
     pageIRVisita(params, date),
+    pageParecer(params, date),
   ].join("\n");
 
   const html = `<!DOCTYPE html>

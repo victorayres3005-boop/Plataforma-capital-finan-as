@@ -5,7 +5,7 @@
  *            Faturamento · SCR · ABC · Pleito · Fortes/Fracos · Percepção
  */
 import type { PdfCtx } from "../context";
-import { newPage, drawHeader, checkPageBreak, drawSpacer, fmtBR, parseMoneyToNumber } from "../helpers";
+import { newPage, drawHeader, checkPageBreak, drawSpacer, fmtBR, parseMoneyToNumber, drawJustifiedText } from "../helpers";
 
 // ── Utilitários ───────────────────────────────────────────────────────────────
 function sortMes(ms: Array<{ mes: string; valor: string }>) {
@@ -24,6 +24,7 @@ function tr(s: string, n: number) {
   const t = (s || "").trim();
   return t.length > n ? t.slice(0, n - 1).trimEnd() + "…" : t;
 }
+
 
 // ── Paleta ────────────────────────────────────────────────────────────────────
 const P = {
@@ -133,6 +134,16 @@ export function renderSintese(ctx: PdfCtx): void {
   const fatTotal12 = last12.reduce((s,m) => s + parseMoneyToNumber(m.valor), 0);
 
   const socios    = data.qsa?.quadroSocietario || [];
+  const normCpfS  = (v: string | undefined | null) => (v ?? "").replace(/\D/g, "");
+  const irPLMap:  Record<string, string> = {};
+  (data.irSocios ?? []).forEach(ir => { const k = normCpfS(ir.cpf); if (k) irPLMap[k] = ir.patrimonioLiquido; });
+  const moFmt = (n: number): string => {
+    if (!isFinite(n) || n === 0) return "—";
+    const a = Math.abs(n); const sg = n < 0 ? "-" : "";
+    if (a >= 1_000_000) return `${sg}R$ ${(a/1_000_000).toFixed(2).replace(".",",")}M`;
+    if (a >= 1_000)     return `${sg}R$ ${Math.round(a/1000)}k`;
+    return `${sg}R$ ${Math.round(a)}`;
+  };
   const scrRaw    = data.scr as unknown as Record<string,string|undefined>;
   const scrAntRaw = (data.scrAnterior || null) as unknown as Record<string,string|undefined>|null;
   const hasAnt    = scrAntRaw !== null;
@@ -224,9 +235,10 @@ export function renderSintese(ctx: PdfCtx): void {
   const lcVal     = parseFloat(balAno?.liquidezCorrente || "0") || 0;
   const endivPct  = parseFloat(balAno?.endividamentoTotal || "0") || 0;
 
-  const dec       = (decision||"—").replace(/_/g," ").toUpperCase();
-  const decAprov  = /APROV/i.test(dec) && !/CONDIC/i.test(dec);
-  const decReprov = /REPROV/i.test(dec);
+  const decRaw    = (decision||"—").replace(/_/g," ").toUpperCase();
+  const decAprov  = /APROV/i.test(decRaw) && !/CONDIC/i.test(decRaw);
+  const decReprov = /REPROV/i.test(decRaw);
+  const dec       = decAprov ? "Tend. Aprovação" : decReprov ? "Tend. Reprovação" : /CONDIC/i.test(decRaw) ? "Tend. Condicional" : "Pendente";
   const decColor: [number,number,number] = decAprov ? P.g6 : decReprov ? P.r6 : P.a5;
   const decBg:    [number,number,number] = decAprov ? P.g1 : decReprov ? P.r1 : P.a1;
   const score     = finalRating || 0;
@@ -308,7 +320,7 @@ export function renderSintese(ctx: PdfCtx): void {
     doc.text("Rating Capital", rCx, rCy+7.5, {align:"center"});
 
     // Decision badge
-    const dlbl = dec.length > 14 ? dec.slice(0,14) : dec;
+    const dlbl = dec;
     doc.setFont("helvetica","bold"); doc.setFontSize(6.5);
     const dw = doc.getTextWidth(dlbl)+9;
     doc.setFillColor(...decBg);
@@ -324,12 +336,12 @@ export function renderSintese(ctx: PdfCtx): void {
   // B2 — Mapa + Sócios
   // ════════════════════════════════════════════════════════════════════════════
   {
-    checkPageBreak(ctx, 58);
+    checkPageBreak(ctx, 73);
     stitle("Localização & Quadro Societário");
     const y0   = pos.y;
     const mapW = Math.round(CW * 0.42);
     const socW = CW - mapW - GAP;
-    const H    = 50;
+    const H    = 65;
 
     // Mapa
     card(ML, y0, mapW, H);
@@ -362,14 +374,27 @@ export function renderSintese(ctx: PdfCtx): void {
       sl.forEach((s,i) => {
         const ry = y0+8+i*rh;
         if (i%2===0) { doc.setFillColor(...P.x0); doc.rect(sx, ry, socW, rh, "F"); }
+        // Nome
         doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(...P.x9);
         doc.text(tr(s.nome||"—",28), sx+3, ry+4);
+        // Qualificação
         doc.setFont("helvetica","normal"); doc.setFontSize(5.5); doc.setTextColor(...P.x5);
         doc.text(tr(s.qualificacao||"—",16), sx+3, ry+rh-2.5);
+        // Participação (%) — direita topo
         const pct = (s.participacao||"—").replace("%","").trim();
         if (pct !== "—") {
           doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(...P.n8);
           doc.text(pct+"%", sx+socW-3, ry+4, {align:"right"});
+        }
+        // Patrimônio Líquido (IR) — direita, linha do meio
+        const cpfKey = normCpfS(s.cpfCnpj);
+        const plRaw  = cpfKey ? irPLMap[cpfKey] : undefined;
+        if (plRaw !== undefined) {
+          const plNum  = parseMoneyToNumber(plRaw);
+          const plStr  = moFmt(plNum);
+          const plColor: [number,number,number] = plNum > 0 ? P.g6 : plNum < 0 ? P.r6 : P.x4;
+          doc.setFont("courier","normal"); doc.setFontSize(5.5); doc.setTextColor(...plColor);
+          doc.text("PL " + plStr, sx+socW-3, ry+rh/2+1.5, {align:"right"});
         }
         doc.setDrawColor(...P.x1); doc.setLineWidth(0.15);
         doc.line(sx+2, ry+rh, sx+socW-2, ry+rh);
@@ -770,33 +795,65 @@ export function renderSintese(ctx: PdfCtx): void {
   }
 
   // ════════════════════════════════════════════════════════════════════════════
-  // B11 — Percepção do Analista
+  // B11 — Percepção do Analista (bloco editorial diferenciado)
   // ════════════════════════════════════════════════════════════════════════════
   {
-    checkPageBreak(ctx, 40);
-    stitle("Percepção do Analista");
-    const y0    = pos.y;
-    const texto = (resumoExecutivo || "Sem resumo executivo disponível.").trim();
-    const lines = doc.splitTextToSize(texto, CW-12) as string[];
-    const TH    = lines.length*4.5 + 22;
-    card(ML, y0, CW, TH);
+    const texto = (resumoExecutivo || "").trim();
+    const HEADER_H = 9;
+    const FOOTER_H = 8;
 
-    doc.setFont("helvetica","normal"); doc.setFontSize(7.5); doc.setTextColor(...P.x7);
-    doc.text(lines, ML+6, y0+9);
+    if (texto) {
+      const bodyLines = doc.splitTextToSize(texto, CW - 16) as string[];
+      const maxLines  = 8;
+      const visLines  = bodyLines.slice(0, maxLines);
+      if (bodyLines.length > maxLines) visLines[maxLines-1] = visLines[maxLines-1].replace(/…?$/, "…");
+      const BODY_H  = Math.max(22, visLines.length * 4.8 + 10);
+      const TOTAL_H = HEADER_H + BODY_H + FOOTER_H;
 
-    const ry = y0+TH-9;
-    doc.setDrawColor(...P.x1); doc.setLineWidth(0.2);
-    doc.line(ML+4, ry-1, ML+CW-4, ry-1);
-    doc.setFont("helvetica","normal"); doc.setFontSize(7); doc.setTextColor(...P.x5);
-    doc.text("Recomendação:", ML+6, ry+4.5);
-    const lx  = ML+6+doc.getTextWidth("Recomendação:")+3;
-    const dlbl= dec.length>14?dec.slice(0,14):dec;
-    doc.setFont("helvetica","bold"); doc.setFontSize(7);
-    const dw  = doc.getTextWidth(dlbl)+9;
-    doc.setFillColor(...decBg); doc.roundedRect(lx, ry, dw, 6, 1.5, 1.5, "F");
-    doc.setTextColor(...decColor); doc.text(dlbl, lx+dw/2, ry+4.5, {align:"center"});
+      checkPageBreak(ctx, TOTAL_H + 12);
+      stitle("Percepção do Analista");
+      const y0 = pos.y;
 
-    pos.y = y0+TH+5;
+      // ── Header navy900 ──────────────────────────────────────────────────────
+      doc.setFillColor(...P.n9);
+      doc.roundedRect(ML, y0, CW, HEADER_H + 2, 2, 2, "F");
+      doc.rect(ML, y0 + 3, CW, HEADER_H - 1, "F"); // achatar canto inferior
+      doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(...P.wh);
+      doc.text("PERCEPÇÃO DO ANALISTA", ML + 5, y0 + 6);
+
+      // Badge decisão no header (direita)
+      doc.setFont("helvetica","bold"); doc.setFontSize(6.5);
+      const dlbl = dec;
+      const dw   = doc.getTextWidth(dlbl) + 8;
+      doc.setFillColor(...decColor);
+      doc.roundedRect(ML + CW - dw - 3, y0 + 1.5, dw, 6, 1.5, 1.5, "F");
+      doc.setTextColor(...P.wh);
+      doc.text(dlbl, ML + CW - dw/2 - 3, y0 + 6, { align: "center" });
+
+      // ── Corpo navy50, texto itálico ─────────────────────────────────────────
+      doc.setFillColor(...P.n0);
+      doc.rect(ML, y0 + HEADER_H, CW, BODY_H, "F");
+      doc.setFont("helvetica","italic"); doc.setFontSize(8); doc.setTextColor(...P.x7);
+      drawJustifiedText(doc, visLines, ML + 8, y0 + HEADER_H + 8, CW - 16, 4.8);
+
+      // ── Rodapé referência à seção 03 ────────────────────────────────────────
+      doc.setFillColor(...P.x0);
+      doc.rect(ML, y0 + HEADER_H + BODY_H, CW, FOOTER_H, "F");
+      doc.setDrawColor(...P.x2); doc.setLineWidth(0.25);
+      doc.roundedRect(ML, y0, CW, TOTAL_H, 2, 2, "D"); // borda
+      doc.setFont("helvetica","normal"); doc.setFontSize(6.5); doc.setTextColor(...P.x5);
+      doc.text("Ver parecer completo na seção 03  →", ML + 5, y0 + HEADER_H + BODY_H + 5);
+
+      pos.y = y0 + TOTAL_H + 5;
+    } else {
+      checkPageBreak(ctx, 24);
+      stitle("Percepção do Analista");
+      const y0 = pos.y;
+      card(ML, y0, CW, 18);
+      doc.setFont("helvetica","normal"); doc.setFontSize(7.5); doc.setTextColor(...P.x4);
+      doc.text("Percepção do analista pendente", ML + CW/2, y0 + 10, { align: "center" });
+      pos.y = y0 + 23;
+    }
   }
 
   drawSpacer(ctx, 4);

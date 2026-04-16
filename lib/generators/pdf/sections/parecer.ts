@@ -4,7 +4,7 @@
  * Se não disponível, mostra card "pendente"
  */
 import type { PdfCtx } from "../context";
-import { newPage, drawHeader, checkPageBreak } from "../helpers";
+import { newPage, drawHeader, checkPageBreak, drawJustifiedText } from "../helpers";
 
 const P = {
   n9:  [12,  27,  58]  as [number,number,number],
@@ -14,6 +14,7 @@ const P = {
   n7:  [26,  58, 107]  as [number,number,number],
   a5:  [212, 149,  10] as [number,number,number],
   a1:  [253, 243, 215] as [number,number,number],
+  a0:  [255, 251, 235] as [number,number,number],
   r6:  [197,  48,  48] as [number,number,number],
   r1:  [254, 226, 226] as [number,number,number],
   r0:  [254, 242, 242] as [number,number,number],
@@ -40,9 +41,10 @@ export function renderParecerSection(ctx: PdfCtx): void {
   const { decision, finalRating, pontosFortes, pontosFracos, resumoExecutivo } = params;
   const GAP = 3.5;
 
-  const dec        = (decision || "PENDENTE").replace(/_/g," ").toUpperCase();
-  const decAprov   = /APROV/i.test(dec) && !/CONDIC/i.test(dec);
-  const decReprov  = /REPROV/i.test(dec);
+  const decRaw     = (decision || "PENDENTE").replace(/_/g," ").toUpperCase();
+  const decAprov   = /APROV/i.test(decRaw) && !/CONDIC/i.test(decRaw);
+  const decReprov  = /REPROV/i.test(decRaw);
+  const dec        = decAprov ? "Tend. de Aprovação" : decReprov ? "Tend. de Reprovação" : /CONDIC/i.test(decRaw) ? "Tend. Condicional" : "Pendente";
   const decColor: [number,number,number] = decAprov ? P.g6 : decReprov ? P.r6 : P.a5;
   const decBg:    [number,number,number] = decAprov ? P.g1 : decReprov ? P.r1 : P.a1;
   const score      = finalRating || 0;
@@ -64,7 +66,46 @@ export function renderParecerSection(ctx: PdfCtx): void {
 
   newPage(ctx);
   drawHeader(ctx);
-  stitle("04 · Parecer Preliminar");
+
+  // ── Banner da seção — navy900 full-width ───────────────────────────────────
+  {
+    const BH = 13;
+    doc.setFillColor(...P.n9);
+    doc.roundedRect(ML, pos.y, CW, BH + 2, 2, 2, "F");
+    doc.rect(ML, pos.y + 3, CW, BH - 1, "F");
+
+    // Número em amber
+    doc.setFont("courier", "bold"); doc.setFontSize(9); doc.setTextColor(...P.a5);
+    doc.text("03", ML + 5, pos.y + BH - 1);
+    const nw = doc.getTextWidth("03");
+
+    // Divider
+    doc.setDrawColor(...P.a5); doc.setLineWidth(0.5);
+    doc.line(ML + 5 + nw + 3, pos.y + 4, ML + 5 + nw + 3, pos.y + BH - 2);
+
+    // Title
+    doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...P.wh);
+    doc.text("PARECER PRELIMINAR", ML + 5 + nw + 7, pos.y + BH - 1);
+
+    // Badge decisão (direita) + score
+    const sR  = 5;
+    const sCx = ML + CW - sR - 4;
+    const sCy = pos.y + BH/2 + 1;
+    doc.setDrawColor(...scoreColor); doc.setLineWidth(1.5);
+    doc.circle(sCx, sCy, sR, "S");
+    doc.setFont("courier","bold"); doc.setFontSize(7); doc.setTextColor(...scoreColor);
+    doc.text(score.toFixed(1), sCx, sCy + 1.5, { align: "center" });
+
+    doc.setFont("helvetica","bold"); doc.setFontSize(6.5);
+    const dlbl = dec;
+    const dw   = doc.getTextWidth(dlbl) + 8;
+    doc.setFillColor(...decBg);
+    doc.roundedRect(sCx - sR - dw - 5, pos.y + BH/2 - 2.5, dw, 6, 1.5, 1.5, "F");
+    doc.setTextColor(...decColor);
+    doc.text(dlbl, sCx - sR - dw/2 - 5, pos.y + BH/2 + 2, { align: "center" });
+
+    pos.y += BH + 6;
+  }
 
   if (!aiAnalysis && !resumoExecutivo) {
     // Pending card
@@ -81,38 +122,23 @@ export function renderParecerSection(ctx: PdfCtx): void {
     return;
   }
 
-  // Resumo executivo
+  // Resumo executivo — estilo citação editorial
   const texto = (resumoExecutivo || "").trim();
   if (texto) {
     checkPageBreak(ctx, 30);
-    const lines = doc.splitTextToSize(texto, CW - 12) as string[];
-    const TH = Math.max(25, lines.length * 4.5 + 14);
-    doc.setFillColor(...P.x0);
-    doc.setDrawColor(...P.x2);
+    const lines = doc.splitTextToSize(texto, CW - 20) as string[];
+    const TH = Math.max(25, lines.length * 4.8 + 14);
+    // Borda esquerda amber + fundo amber50
+    doc.setFillColor(...P.a0);
+    doc.setDrawColor(...P.a1);
     doc.setLineWidth(0.25);
     doc.roundedRect(ML, pos.y, CW, TH, 2, 2, "FD");
-    doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(...P.x7);
-    doc.text(lines, ML + 6, pos.y + 9);
-
-    // Rating + decision footer
-    const fy = pos.y + TH - 9;
-    doc.setDrawColor(...P.x1); doc.setLineWidth(0.2);
-    doc.line(ML + 4, fy - 1, ML + CW - 4, fy - 1);
-
-    const sR = 5.5;
-    const sCx = ML + CW - sR - 4;
-    const sCy = fy + 4.5;
-    doc.setDrawColor(...scoreColor); doc.setLineWidth(1.8); doc.circle(sCx, sCy, sR, "S");
-    doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.setTextColor(...scoreColor);
-    doc.text(score.toFixed(1), sCx, sCy + 1.5, { align: "center" });
-
-    const dlbl = dec.length > 14 ? dec.slice(0, 14) : dec;
-    doc.setFont("helvetica","bold"); doc.setFontSize(6.5);
-    const dw = doc.getTextWidth(dlbl) + 9;
-    doc.setFillColor(...decBg);
-    doc.roundedRect(sCx - sR*2 - dw - 4, fy, dw, 5.5, 1.5, 1.5, "F");
-    doc.setTextColor(...decColor);
-    doc.text(dlbl, sCx - sR*2 - dw/2 - 4, fy + 4, { align: "center" });
+    // Barra esquerda amber
+    doc.setFillColor(...P.a5);
+    doc.rect(ML, pos.y + 2, 3, TH - 4, "F");
+    // Texto itálico sobre o fundo amber
+    doc.setFont("helvetica","italic"); doc.setFontSize(8.5); doc.setTextColor(...P.x7);
+    drawJustifiedText(doc, lines, ML + 10, pos.y + 9, CW - 20, 4.8);
 
     pos.y += TH + 5;
   }

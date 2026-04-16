@@ -4,7 +4,7 @@ import type { DS } from "./design-system";
 
 export type PdfDS = typeof DS;
 
-export type AlertSeverity = "ALTA" | "MODERADA" | "INFO";
+export type AlertSeverity = "CRÍTICO" | "RESTRITIVO" | "OBSERVAÇÃO";
 
 export interface Alert {
   message: string;
@@ -36,12 +36,18 @@ export interface PDFReportParams {
   decisionBorder: string;
   alavancagem?: number;
   observacoes?: string;
-  streetViewBase64?: string;
+  streetViewBase64?: string;        // heading 0° (frente)
+  streetView90Base64?: string;      // heading 90° (direita)
+  streetView180Base64?: string;     // heading 180° (atrás)
+  streetView270Base64?: string;     // heading 270° (esquerda)
   mapStaticBase64?: string;
+  mapEmbedUrl?: string;
+  streetViewInteractiveUrl?: string; // link pro Google Maps com Street View
   fundValidation?: FundValidationResult;
   creditLimit?: CreditLimitResult;
   histOperacoes?: Operacao[];
   committeMembers?: string;
+  capitalLogoB64?: string;
 }
 
 export type AutoCell = string | { content: string; styles?: Record<string, unknown> };
@@ -64,4 +70,5 @@ export interface PdfCtx {
   margin: number;
   contentW: number;
   footerDateStr: string;
+  logoB64: string | null;
 }

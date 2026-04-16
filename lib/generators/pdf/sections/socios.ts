@@ -51,6 +51,14 @@ export function renderSocios(ctx: PdfCtx): void {
 
   const GAP = 3.5;
 
+  // Mapa CPF → participacao societária (do QSA / contrato social)
+  const normCpf = (v: string | undefined | null) => (v ?? "").replace(/\D/g, "");
+  const qsaMap: Record<string, string> = {};
+  (data.qsa?.quadroSocietario ?? []).forEach(s => {
+    const k = normCpf(s.cpfCnpj);
+    if (k && s.participacao) qsaMap[k] = s.participacao;
+  });
+
   const stitle = (label: string) => {
     const y = pos.y;
     doc.setFont("helvetica", "bold");
@@ -144,7 +152,13 @@ export function renderSocios(ctx: PdfCtx): void {
     // KPI cards
     checkPageBreak(ctx, 22);
     {
-      const CH = 18; const cw = (CW - GAP * 3) / 4; const y0 = pos.y;
+      const CH = 18;
+      const partSoc = qsaMap[normCpf(ir.cpf)] ?? null;
+      const haspart = partSoc !== null;
+      // 5 cards se há participação, 4 caso contrário
+      const ncards = haspart ? 5 : 4;
+      const cw = (CW - GAP * (ncards - 1)) / ncards;
+      const y0 = pos.y;
       const plv = parseMoneyToNumber(ir.patrimonioLiquido || "0");
       icell(ML,              y0, cw, CH, "Renda Total",       mo(ir.rendimentoTotal));
       icell(ML+cw+GAP,       y0, cw, CH, "Rend. Tributáveis", mo(ir.rendimentosTributaveis));
@@ -154,6 +168,10 @@ export function renderSocios(ctx: PdfCtx): void {
         plv > 0 ? P.g1 : plv < 0 ? P.r1 : P.x1,
         plv > 0 ? P.g6 : plv < 0 ? P.r6 : P.x4,
       );
+      if (haspart) {
+        const pctStr = (partSoc!).replace("%","").trim() + "%";
+        icell(ML+(cw+GAP)*4, y0, cw, CH, "Part. Societária", pctStr, P.n0, P.n1, P.n7);
+      }
       pos.y = y0 + CH + 5;
     }
 

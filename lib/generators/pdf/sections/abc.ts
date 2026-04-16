@@ -130,7 +130,7 @@ export function renderABC(ctx: PdfCtx): void {
   }
 
   // Table
-  const shown = abc.clientes.slice(0, 5);
+  const shown = abc.clientes.slice(0, 10);
   const RH = 11; const HH = 9;
   const TH = HH + shown.length * RH + 8;
   checkPageBreak(ctx, TH + 6);

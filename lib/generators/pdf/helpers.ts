@@ -167,13 +167,19 @@ export function drawFooter(ctx: PdfCtx): void {
   doc.setFillColor(...DS.colors.accent);
   doc.rect(0, 284, W, 1.2, "F");
 
-  doc.setFontSize(DS.font.micro);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(...DS.colors.accent);
-  doc.text("capital", margin, 291);
-  const capFW = doc.getTextWidth("capital");
-  doc.setTextColor(...DS.colors.textOnDark);
-  doc.text("financas", margin + capFW + 0.8, 291);
+  // ── Logo Capital Finanças ──
+  if (ctx.logoB64) {
+    doc.addImage(ctx.logoB64, "PNG", margin, 286, 28, 8);
+  } else {
+    // Fallback: texto quando a imagem não está disponível
+    doc.setFontSize(DS.font.micro);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...DS.colors.accent);
+    doc.text("capital", margin, 291);
+    const capFW = doc.getTextWidth("capital");
+    doc.setTextColor(...DS.colors.textOnDark);
+    doc.text("financas", margin + capFW + 0.8, 291);
+  }
   doc.setFontSize(DS.font.micro);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(...DS.colors.textOnDark);
@@ -185,6 +191,44 @@ export function drawFooter(ctx: PdfCtx): void {
     doc.setTextColor(...DS.colors.textOnDark);
     doc.text(data.cnpj.razaoSocial.substring(0, 40), W / 2, 292, { align: "center" });
   }
+}
+
+/**
+ * Renderiza texto com justificação completa (bordas esq. e dir. alinhadas).
+ * A última linha de cada parágrafo fica alinhada à esquerda.
+ * @param doc    jsPDF instance (com fonte/tamanho/cor já configurados)
+ * @param lines  array de linhas produzido por doc.splitTextToSize()
+ * @param x      x inicial (margem esquerda do bloco de texto)
+ * @param startY y da primeira linha
+ * @param maxWidth largura máxima que cada linha deve preencher
+ * @param lineH  altura de linha em mm
+ */
+export function drawJustifiedText(
+  doc: PdfCtx["doc"],
+  lines: string[],
+  x: number,
+  startY: number,
+  maxWidth: number,
+  lineH: number
+): void {
+  lines.forEach((line, i) => {
+    const isLast = i === lines.length - 1;
+    const trimmed = line.trim();
+    const words = trimmed.split(/\s+/);
+
+    if (isLast || words.length <= 1 || trimmed.endsWith("…")) {
+      // Última linha ou linha curta: alinhamento à esquerda
+      doc.text(trimmed, x, startY + i * lineH);
+    } else {
+      const totalWordsW = words.reduce((s, w) => s + doc.getTextWidth(w), 0);
+      const extraPerGap = (maxWidth - totalWordsW) / (words.length - 1);
+      let curX = x;
+      words.forEach((word) => {
+        doc.text(word, curX, startY + i * lineH);
+        curX += doc.getTextWidth(word) + extraPerGap;
+      });
+    }
+  });
 }
 
 export function drawFooterAllPages(ctx: PdfCtx): void {
@@ -396,7 +440,7 @@ export function drawAlert(ctx: PdfCtx, severity: AlertSev, message: string, subt
 
 // Alert severity mapping from legacy ALTA/MODERADA/INFO to new format
 export function drawAlertLegacy(ctx: PdfCtx, text: string, severity: AlertSeverity, subtitle?: string): void {
-  const sev: AlertSev = severity === "ALTA" ? "high" : severity === "MODERADA" ? "medium" : "info";
+  const sev: AlertSev = severity === "CRÍTICO" ? "high" : severity === "RESTRITIVO" ? "medium" : "info";
   drawAlert(ctx, sev, text, subtitle);
 }
 
@@ -584,7 +628,7 @@ export type AlertaDet = { nivel: NivelAlerta; mensagem: string };
 export function drawDetAlerts(ctx: PdfCtx, alertas: AlertaDet[]): void {
   if (!alertas.length) return;
   alertas.forEach(al => {
-    const sev: AlertSeverity = al.nivel === "alta" ? "ALTA" : al.nivel === "media" ? "MODERADA" : "INFO";
+    const sev: AlertSeverity = al.nivel === "alta" ? "CRÍTICO" : al.nivel === "media" ? "RESTRITIVO" : "OBSERVAÇÃO";
     drawAlertDeduped(ctx, al.mensagem, sev);
   });
 }

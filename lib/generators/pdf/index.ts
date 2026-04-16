@@ -52,6 +52,18 @@ export async function buildPDFReport(params: PDFReportParams): Promise<Blob> {
   const contentW = W - margin * 2;
   const footerDateStr = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
 
+  // ── Logo Capital Finanças — fetch do arquivo público ──
+  let logoB64: string | null = params.capitalLogoB64 ?? null;
+  if (!logoB64) {
+    try {
+      const res = await fetch("/logos/capital-logo.png");
+      if (res.ok) {
+        const buf = await res.arrayBuffer();
+        logoB64 = btoa(Array.from(new Uint8Array(buf)).map(b => String.fromCharCode(b)).join(""));
+      }
+    } catch { /* logo opcional */ }
+  }
+
   // ── Clear dedup set for this run ──
   clearAlertDedup();
 
@@ -102,6 +114,7 @@ export async function buildPDFReport(params: PDFReportParams): Promise<Blob> {
     margin,
     contentW,
     footerDateStr,
+    logoB64,
   };
 
   // ── Render sections ──
