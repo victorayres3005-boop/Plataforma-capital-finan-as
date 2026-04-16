@@ -890,7 +890,11 @@ async function consultarCreditHubPorCPF(cpf: string, nomeSocio: string): Promise
 
 // ── Opção D: extrai empresas dos processos judiciais do sócio ────────────────
 // Identifica empresas que aparecem como parte em processos junto com o sócio.
-const COMPANY_RE = /\b(LTDA\.?|S\.A\.?|S\/A|EIRELI|S\.?S\.?|EPP|M\.?E\.?\b|HOLDINGS?|PARTICIPA[CÇ]|FOMENTO|SECURITIZADORA|INDUSTRI[AÀ]|COMERC[IÍ]|SERVI[CÇ]|CONSTRU[TÇ]|DISTRIBU[IÍ]|FINANC|INVEST|EMPREEND)/i;
+// Sufixos jurídicos — identifica nomes com forma jurídica explícita
+const COMPANY_SUFFIX_RE = /\b(LTDA\.?|S\.A\.?|S\/A|EIRELI|S\.?S\.?|EPP|M\.?E\.?\b|HOLDINGS?|PARTICIPA[CÇ]|FOMENTO|SECURITIZADORA)/i;
+// Palavras-chave de setor — identifica empresas pelo tipo de negócio (sem sufixo jurídico)
+const COMPANY_SECTOR_RE = /\b(INDUSTRI[AÀ]|COMERC[IÍ]|SERVI[CÇ]|CONSTRU[TÇ]|DISTRIBU[IÍ]|FINANC|INVEST|EMPREEND|STUDIO|ESTUDIO|BELEZA|ESTETICA|ESTET[IÍ]|SAL[AÃ]O|BARBEARIA|ACADEMIA|CL[IÍ]NICA|BOUTIQUE|FARMAC[IÍ]|DROGARIA|LABORAT[OÓ]|RESTAURANTE|PIZZARIA|LANCHONETE|PADARIA|MERCEARIA|MERCADO|SUPERMERC|IMOBILI[AÀ]|INCORPOR|LOGIST[IÍ]|TECNOLOGIA|CONSULTORIA|ENGENHARIA|CONTABILIDADE|ADVOCACIA|CORRETORA|TRANSPORTADORA|TRANSPORTES?\b|VIAGENS?\b|TURISMO|AGROPEC|AGRO\b|PECUAR)/i;
+const COMPANY_RE = new RegExp(COMPANY_SUFFIX_RE.source + "|" + COMPANY_SECTOR_RE.source, "i");
 
 function extrairEmpresasDeProcessos(
   d: Record<string, unknown>,
@@ -905,13 +909,16 @@ function extrairEmpresasDeProcessos(
   for (const proc of processos) {
     const envolvidos = proc?.envolvidos_ultima_movimentacao as Array<Record<string, unknown>> ?? [];
     for (const env of envolvidos) {
+      const tipo = String(env?.envolvido_tipo ?? "").toLowerCase();
+      // Pula advogados — só interessam partes (Ativo/Passivo/null) que sejam empresas
+      if (tipo === "advogado") continue;
+
       const nome = String(env?.nome ?? "").trim().toUpperCase();
       if (!nome || nome === nomeSocioNorm) continue;
       if (!COMPANY_RE.test(nome)) continue;
       if (vistos.has(nome)) continue;
       vistos.add(nome);
 
-      const tipo = String(env?.envolvido_tipo ?? "").toLowerCase();
       const relacao = tipo === "ativo" ? "Autor (Processo)" : tipo === "passivo" ? "Réu (Processo)" : "Via Processo";
 
       resultado.push({
