@@ -694,10 +694,12 @@ function pageSintese(params: PDFReportParams, date: string): string {
     </table>
     <div class="ifs-note">Instituições financeiras: ${fmt(scr.qtdeInstituicoes)} · Operações: ${fmt(scr.qtdeOperacoes)}</div>`;
   } else if (scr) {
+    const curtoPrazo = scr.carteiraCurtoPrazo ?? scr.carteiraAVencer;
     scrTable = `<table class="scr-tbl">
       <thead><tr><th>Métrica</th><th>Valor</th></tr></thead>
       <tbody>
-        <tr><td>Carteira A Vencer</td><td>${fmtMoneyAbr(scr.carteiraAVencer)}</td></tr>
+        <tr><td>Curto Prazo</td><td>${fmtMoneyAbr(curtoPrazo)}</td></tr>
+        <tr><td>Longo Prazo</td><td>${fmtMoneyAbr(scr.carteiraLongoPrazo)}</td></tr>
         <tr><td>Vencidos</td><td>${fmtMoneyAbr(scr.vencidos)}</td></tr>
         <tr><td>Prejuízos</td><td>${fmtMoneyAbr(scr.prejuizos)}</td></tr>
         <tr><td>Limite de Crédito</td><td>${fmtMoneyAbr(scr.limiteCredito)}</td></tr>
