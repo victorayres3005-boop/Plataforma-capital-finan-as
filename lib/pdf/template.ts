@@ -115,6 +115,19 @@ function page(content: string, pageNum: number, date: string): string {
 </div>`;
 }
 
+// ─── Ordena meses cronologicamente (jan/2024 < fev/2024 < ... < dez/2025) ─────
+function sortMesCrono(ms: Array<{mes:string;valor:string}>): Array<{mes:string;valor:string}> {
+  const key = (s: string) => {
+    const p = s.split("/");
+    if (p.length !== 2) return 0;
+    const mm: Record<string,number> = {jan:1,fev:2,mar:3,abr:4,mai:5,jun:6,jul:7,ago:8,set:9,out:10,nov:11,dez:12};
+    const m = isNaN(Number(p[0])) ? (mm[p[0].toLowerCase()] || 0) : Number(p[0]);
+    const y = Number(p[1]) < 100 ? Number(p[1]) + 2000 : Number(p[1]);
+    return y * 100 + m;
+  };
+  return [...ms].sort((a, b) => key(a.mes) - key(b.mes));
+}
+
 // ─── Bar chart ────────────────────────────────────────────────────────────────
 function buildBars(meses: {mes:string;valor:string}[], maxBarPx = 80): string {
   const MONTHS = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
@@ -645,7 +658,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
   }).join("");
 
   // Faturamento chart
-  const fatMeses = (d.faturamento?.meses ?? []).slice(-12);
+  const fatMeses = sortMesCrono(d.faturamento?.meses ?? []).slice(-12);
   const fatBars = fatMeses.length > 0 ? buildBars(fatMeses, 60) : "";
   const fmm = d.faturamento?.fmm12m ?? d.faturamento?.mediaAno ?? "—";
   const total12 = d.faturamento?.somatoriaAno ?? "—";
@@ -1097,7 +1110,7 @@ function pageParametros(params: PDFReportParams, date: string): string {
 function pageFaturamento(params: PDFReportParams, date: string): string {
   const fat = params.data.faturamento;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const meses = Array.from(new Map((fat?.meses ?? []).map((m: any) => [m.mes as string, m])).values()).slice(-12);
+  const meses = sortMesCrono(Array.from(new Map((fat?.meses ?? []).map((m: any) => [m.mes as string, m])).values())).slice(-12);
   const fmm = fat?.fmm12m ?? fat?.mediaAno ?? "—";
   const total12 = fat?.somatoriaAno ?? "—";
   const nMeses = meses.length;
