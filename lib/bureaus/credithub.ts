@@ -808,26 +808,69 @@ function parseEmpresasVinculadas(d: any, cpfSocio: string, nomeSocio: string): G
 }
 
 // Consulta CreditHub por CPF de sócio para obter empresas vinculadas
+// Usa o mesmo endpoint /simples/{key}/{cpf} com retry para lidar com push=true
 async function consultarCreditHubPorCPF(cpf: string, nomeSocio: string): Promise<GrupoEconomicoData["empresas"]> {
   if (!CREDITHUB_API_URL || !CREDITHUB_API_KEY) return [];
   const cpfNum = cpf.replace(/\D/g, "");
   if (cpfNum.length !== 11) return [];
 
-  try {
-    const url = `${CREDITHUB_API_URL}/simples/${CREDITHUB_API_KEY}/${cpfNum}`;
-    const res = await fetch(url, {
-      headers: { "Content-Type": "application/json" },
-      next: { revalidate: 0 },
-    });
-    if (!res.ok) return [];
-    const raw = await res.json();
-    console.log(`[credithub][grupo-economico] CPF=${cpfNum.substring(0, 3)}*** KEYS=${Object.keys(raw ?? {}).join(",")}`);
-    const d = raw?.data ?? raw;
-    console.log(`[credithub][grupo-economico] DATA_KEYS=${Object.keys(d ?? {}).join(",")}`);
-    return parseEmpresasVinculadas(d, cpfNum, nomeSocio);
-  } catch {
-    return [];
+  const url = `${CREDITHUB_API_URL}/simples/${CREDITHUB_API_KEY}/${cpfNum}`;
+  const MAX_ATTEMPTS = 8;
+  const DELAY_MS = 3000;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(url, {
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+      });
+      const text = await res.text();
+
+      // API retorna 500 + XML com push="true" enquanto processa — aguarda e tenta novamente
+      if (text.includes(`push="true"`) || text.includes("push='true'")) {
+        console.log(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** tentativa ${attempt}: push=true, aguardando...`);
+        if (attempt < MAX_ATTEMPTS) {
+          await new Promise(r => setTimeout(r, DELAY_MS));
+          continue;
+        }
+        console.warn(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** timeout após ${MAX_ATTEMPTS} tentativas`);
+        return [];
+      }
+
+      if (!res.ok) {
+        console.warn(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** status ${res.status}: ${text.slice(0,100)}`);
+        if (attempt < MAX_ATTEMPTS) {
+          await new Promise(r => setTimeout(r, DELAY_MS));
+          continue;
+        }
+        return [];
+      }
+
+      let raw: any;
+      try {
+        raw = JSON.parse(text);
+      } catch {
+        console.warn(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** resposta não é JSON: ${text.slice(0,100)}`);
+        return [];
+      }
+
+      const d = raw?.data ?? raw;
+      const topKeys = Object.keys(d ?? {}).join(", ");
+      const arrKeys = Object.keys(d ?? {}).filter(k => Array.isArray((d as Record<string,unknown>)[k]));
+      console.log(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** OK — keys: ${topKeys}`);
+      console.log(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** array keys: ${arrKeys.join(", ") || "(nenhum)"}`);
+
+      const empresas = parseEmpresasVinculadas(d, cpfNum, nomeSocio);
+      console.log(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** empresas extraídas: ${empresas.length}`);
+      return empresas;
+
+    } catch (err: any) {
+      console.warn(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** tentativa ${attempt} exception:`, String(err?.message ?? err));
+      if (attempt < MAX_ATTEMPTS) await new Promise(r => setTimeout(r, DELAY_MS));
+    }
   }
+
+  return [];
 }
 
 // Função pública: consulta grupo econômico de todos os sócios PF em paralelo + detecta parentesco
