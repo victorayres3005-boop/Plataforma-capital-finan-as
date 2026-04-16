@@ -1577,7 +1577,7 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
       {label:"Lucro Líquido",key:"lucroLiquido"},
       {label:"Margem Líquida",key:"margemLiquida"},
     ];
-    let dreRows = fields.map(f => {
+    const dreRows = fields.map(f => {
       const isPct = PCT_FIELDS.has(f.key as string);
       const cells = anos.map(a => {
         const v = a[f.key];
