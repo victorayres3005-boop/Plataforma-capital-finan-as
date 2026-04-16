@@ -164,10 +164,17 @@ function stitle(label: string): string {
 const CSS = `
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-@page{size:A4;margin:14mm 16mm}
+@page{size:A4;margin:0 16mm}
 @media print{
-  body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
-  .page{page-break-after:always}
+  body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;margin:0;padding:0;background:#fff}
+  /* ── Apenas capa tem sua própria página; todo o resto flui ── */
+  .page-capa{break-after:page;page-break-after:always}
+  /* ── Resetar card styles no print (fluxo contínuo) ── */
+  .page{margin:0!important;padding:0!important;max-width:none!important;box-shadow:none!important;border-radius:0!important;overflow:visible!important;background:transparent!important}
+  /* ── Content: sem padding lateral (gerido pelo @page); mínimo no topo ── */
+  .ct{padding:12px 0 32px}
+  /* ── Esconder header/footer por-seção — substituídos pelo global do Puppeteer ── */
+  .hdr,.ftr{display:none!important}
   .avoid-break{page-break-inside:avoid}
   /* ── Permit tall containers to flow across page boundaries (removes clip) ── */
   .tbl,.ge-block,.ge-tbl,.soc-tbl,.risk-section,.risk-cols,.risk-block,.perc,.ana-grid,
@@ -523,7 +530,7 @@ function pageCapa(params: PDFReportParams, date: string): string {
   const verCode = cnpjRaw.length >= 8 ? `${cnpjRaw.slice(0,4)}-${cnpjRaw.slice(4,8)}-${score.toFixed(1).replace(".","")}-CF` : "CF-2026";
 
   return `
-<div class="page" style="background:var(--n8);min-height:700px;display:flex;flex-direction:column;padding:0;position:relative;overflow:hidden">
+<div class="page page-capa" style="background:var(--n8);min-height:100vh;display:flex;flex-direction:column;padding:0;position:relative;overflow:hidden">
   <!-- topo: barra com logo -->
   <div style="padding:32px 48px 0;display:flex;justify-content:space-between;align-items:center">
     <div style="font-size:22px;font-weight:700;color:#fff">capital<span style="color:#73b815">finanças</span></div>
