@@ -135,8 +135,28 @@ export function renderSintese(ctx: PdfCtx): void {
 
   const socios    = data.qsa?.quadroSocietario || [];
   const normCpfS  = (v: string | undefined | null) => (v ?? "").replace(/\D/g, "");
-  const irPLMap:  Record<string, string> = {};
+  const normNomeS = (v: string | undefined | null) => (v ?? "").toUpperCase().trim().replace(/\s+/g, " ");
+
+  // Patrimônio líquido via IR
+  const irPLMap: Record<string, string> = {};
   (data.irSocios ?? []).forEach(ir => { const k = normCpfS(ir.cpf); if (k) irPLMap[k] = ir.patrimonioLiquido; });
+
+  // Enriquecimento via Contrato Social: CPF e participação quando ausentes no QSA
+  const contratoMapS: Record<string, { cpf: string; participacao: string }> = {};
+  (data.contrato?.socios ?? []).forEach((cs: { nome?: string; cpf?: string; participacao?: string }) => {
+    const k = normNomeS(cs.nome);
+    if (k) contratoMapS[k] = { cpf: normCpfS(cs.cpf), participacao: cs.participacao ?? "" };
+  });
+
+  // Participação via IR das sociedades (fallback final)
+  const cnpjEmpresaS = normCpfS((data.cnpj as unknown as Record<string,string>)?.cnpj);
+  const irPartMapS: Record<string, string> = {};
+  (data.irSocios ?? []).forEach(ir => {
+    const cpfK = normCpfS(ir.cpf);
+    if (!cpfK) return;
+    const soc = (ir.sociedades ?? []).find((s: { cnpj?: string; participacao?: string }) => normCpfS(s.cnpj) === cnpjEmpresaS);
+    if (soc?.participacao) irPartMapS[cpfK] = soc.participacao;
+  });
   const moFmt = (n: number): string => {
     if (!isFinite(n) || n === 0) return "—";
     const a = Math.abs(n); const sg = n < 0 ? "-" : "";
@@ -380,14 +400,20 @@ export function renderSintese(ctx: PdfCtx): void {
         // Qualificação
         doc.setFont("helvetica","normal"); doc.setFontSize(5.5); doc.setTextColor(...P.x5);
         doc.text(tr(s.qualificacao||"—",16), sx+3, ry+rh-2.5);
-        // Participação (%) — direita topo
-        const pct = (s.participacao||"—").replace("%","").trim();
+        // Participação (%) — QSA → Contrato Social → IR sociedades
+        const nomeKeyS = normNomeS(s.nome);
+        const contratoS = contratoMapS[nomeKeyS];
+        const cpfEnrich = normCpfS(s.cpfCnpj).length >= 11
+          ? normCpfS(s.cpfCnpj)
+          : (contratoS?.cpf || normCpfS(s.cpfCnpj));
+        const partEnrich = s.participacao || contratoS?.participacao || irPartMapS[cpfEnrich] || "";
+        const pct = (partEnrich||"—").replace("%","").trim();
         if (pct !== "—") {
           doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(...P.n8);
           doc.text(pct+"%", sx+socW-3, ry+4, {align:"right"});
         }
         // Patrimônio Líquido (IR) — direita, linha do meio
-        const cpfKey = normCpfS(s.cpfCnpj);
+        const cpfKey = cpfEnrich || normCpfS(s.cpfCnpj);
         const plRaw  = cpfKey ? irPLMap[cpfKey] : undefined;
         if (plRaw !== undefined) {
           const plNum  = parseMoneyToNumber(plRaw);

@@ -573,17 +573,48 @@ function pageSintese(params: PDFReportParams, date: string): string {
   // Sócios — CPF normalizado (só dígitos) para evitar mismatch entre
   // "123.456.789-10" (IR) e "12345678910" (QSA) ou variantes.
   const normCpf = (v: string | undefined | null) => (v ?? "").replace(/\D/g, "");
+  const normNome = (v: string | undefined | null) => (v ?? "").toUpperCase().trim().replace(/\s+/g, " ");
   const socios = d.qsa?.quadroSocietario ?? [];
+
+  // Patrimônio líquido: IR dos sócios, chaveado por CPF
   const irMap: Record<string, string> = {};
   (d.irSocios ?? []).forEach(ir => {
     const k = normCpf(ir.cpf);
     if (k) irMap[k] = ir.patrimonioLiquido;
   });
 
+  // Enriquecimento via Contrato Social: CPF e participação quando ausentes no QSA
+  const contratoMap: Record<string, { cpf: string; participacao: string }> = {};
+  (d.contrato?.socios ?? []).forEach((cs: { nome?: string; cpf?: string; participacao?: string }) => {
+    const k = normNome(cs.nome);
+    if (k) contratoMap[k] = { cpf: normCpf(cs.cpf), participacao: cs.participacao ?? "" };
+  });
+
+  // Participação via IR das sociedades (fallback final)
+  const cnpjEmpresa = normCpf(d.cnpj?.cnpj);
+  const irPartMap: Record<string, string> = {};
+  (d.irSocios ?? []).forEach(ir => {
+    const cpfK = normCpf(ir.cpf);
+    if (!cpfK) return;
+    const soc = (ir.sociedades ?? []).find((s: { cnpj?: string; participacao?: string }) => normCpf(s.cnpj) === cnpjEmpresa);
+    if (soc?.participacao) irPartMap[cpfK] = soc.participacao;
+  });
+
   const socRows = socios.map(s => {
-    const k = normCpf(s.cpfCnpj);
-    const pl = irMap[k] ? fmtMoneyAbr(irMap[k]) : "—";
-    return `<tr><td><b>${esc(s.nome)}</b></td><td style="font-family:'JetBrains Mono',monospace;font-size:11px">${fmtCpf(s.cpfCnpj)}</td><td>${esc(s.qualificacao)}</td><td style="color:var(--x4)">${fmt(s.participacao)}</td><td><b>${pl}</b></td></tr>`;
+    const nomeKey = normNome(s.nome);
+    const contratoEntry = contratoMap[nomeKey];
+
+    // CPF/CNPJ: QSA → Contrato Social (fallback)
+    const cpfRaw = normCpf(s.cpfCnpj).length >= 11
+      ? s.cpfCnpj
+      : (contratoEntry?.cpf ? contratoEntry.cpf : s.cpfCnpj);
+    const cpfK = normCpf(cpfRaw);
+
+    // Participação: QSA → Contrato Social → IR sociedades (fallback)
+    const part = s.participacao || contratoEntry?.participacao || irPartMap[cpfK] || "—";
+
+    const pl = irMap[cpfK] ? fmtMoneyAbr(irMap[cpfK]) : "—";
+    return `<tr><td><b>${esc(s.nome)}</b></td><td style="font-family:'JetBrains Mono',monospace;font-size:11px">${fmtCpf(cpfRaw)}</td><td>${esc(s.qualificacao)}</td><td style="color:var(--x4)">${fmt(part)}</td><td><b>${pl}</b></td></tr>`;
   }).join("");
 
   // SCR cards
