@@ -164,19 +164,16 @@ function stitle(label: string): string {
 const CSS = `
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-@page{size:A4;margin:12mm 24mm 10mm}
+@page{size:A4;margin:14mm 18mm}
 @media print{
   body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;margin:0;padding:0;background:#fff}
-  /* ── Header/footer global fixo — repete em cada página física ── */
-  .print-hdr{display:flex!important;position:fixed;top:0;left:0;right:0;height:12mm;z-index:9999;background:var(--n9);border-bottom:2px solid #84BF41;padding:0 24mm;justify-content:space-between;align-items:center}
-  .print-ftr{display:flex!important;position:fixed;bottom:0;left:0;right:0;height:10mm;z-index:9999;background:var(--x0);border-top:1px solid var(--x2);padding:0 24mm;justify-content:space-between;align-items:center}
   /* ── Apenas capa tem sua própria página; todo o resto flui ── */
-  .page-capa{break-after:page;page-break-after:always;overflow:hidden!important;min-height:273mm}
+  .page-capa{break-after:page;page-break-after:always;overflow:hidden!important;min-height:269mm}
   /* ── Resetar card styles no print p/ fluxo contínuo (exceto capa) ── */
   .page:not(.page-capa){margin:0!important;padding:0!important;max-width:none!important;box-shadow:none!important;border-radius:0!important;overflow:visible!important;background:transparent!important}
-  /* ── Content: sem padding lateral (gerido pelo @page 24mm); pequeno topo ── */
-  .ct{padding:4px 0 28px}
-  /* ── Esconder header/footer por-seção — substituídos pelo global fixo ── */
+  /* ── Content: padding leve no topo e fundo entre seções ── */
+  .ct{padding:2px 0 24px}
+  /* ── Esconder header/footer por-seção no print (sem rodapé em todas as páginas) ── */
   .hdr,.ftr{display:none!important}
   .avoid-break{page-break-inside:avoid}
   /* ── Permit tall containers to flow across page boundaries (removes clip) ── */
@@ -511,8 +508,6 @@ body{font-family:'DM Sans',sans-serif;font-size:var(--fs-body);background:#f0f2f
 .dist-bar.red{background:var(--r6)}
 .kpi-snap{display:grid;gap:8px;margin-bottom:14px}
 .kpi-snap.c4{grid-template-columns:repeat(4,1fr)}
-/* ── Print header/footer global (oculto na tela) ── */
-.print-hdr,.print-ftr{display:none}
 </style>`;
 
 // ─── Page 1: Capa ─────────────────────────────────────────────────────────────
@@ -1987,16 +1982,6 @@ export function gerarHtmlRelatorio(params: PDFReportParams): { html: string; hea
 ${CSS}
 </head>
 <body>
-<div class="print-hdr">
-  <span style="font-size:11px;font-weight:700;color:#fff">capital<span style="color:#84BF41">finanças</span></span>
-  <span style="font-size:8px;color:rgba(255,255,255,0.55)">Relatório de Due Diligence · ${date}</span>
-  <span style="font-size:8px;color:rgba(255,255,255,0.45)">Capital Finanças</span>
-</div>
-<div class="print-ftr">
-  <span style="font-size:8px;color:var(--x4)">Capital Finanças</span>
-  <span style="font-size:8px;color:var(--x4)">Relatório de Due Diligence · Documento Confidencial</span>
-  <span style="font-size:8px;color:var(--x4)">${date}</span>
-</div>
 ${pages}
 </body>
 </html>`;
