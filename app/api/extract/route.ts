@@ -1212,11 +1212,41 @@ Campos comuns em documentos de DIRPF (nomes típicos que você verá):
 - "Imposto Devido" / "Total do Imposto Apurado" → impostoDefinido
 - "Imposto Pago/Retido" / "IRRF" → impostoPago
 - "Imposto a Restituir" / "Restituição" → impostoRestituir
-- "Bens Imóveis" / "Imóveis e Terrenos" → bensImoveis
-- "Veículos Automotores Terrestres" → bensVeiculos
-- "Aplicações Financeiras" / "Investimentos" → aplicacoesFinanceiras
-- "Total de Bens e Direitos" → totalBensDireitos
-- "Dívidas e Ônus Reais" → dividasOnus
+- "Total de Bens e Direitos" → totalBensDireitos (use o valor total resumido, não some manualmente)
+- "Dívidas e Ônus Reais" / "Total de Dívidas e Ônus Reais" → dividasOnus
+
+═══ BENS E DIREITOS — COMO EXTRAIR CORRETAMENTE ═══
+A seção "Bens e Direitos" da DIRPF lista cada bem individualmente com código e valor.
+Você DEVE somar os valores de cada categoria:
+
+→ bensImoveis: SOME todos os bens com código 11 a 19 (imóveis)
+  Exemplos: "11 - Prédio residencial", "12 - Prédio comercial", "13 - Galpão",
+  "14 - Terra nua", "15 - Sala ou conjunto", "16 - Unidade em condomínio",
+  "17 - Benfeitorias em imóvel de terceiro", "18 - Imóvel no exterior", "19 - Imóvel rural"
+  Também: "Imóveis e Terrenos", "Bens Imóveis", "Imóvel Residencial", "Casa", "Apartamento"
+
+→ bensVeiculos: SOME todos os bens com código 21 a 29 (veículos e bens móveis)
+  Exemplos: "21 - Veículo automotor terrestre (automóvel, caminhonete, moto)",
+  "22 - Aeronave", "23 - Embarcação", "24 - Veículo de tração animal",
+  "29 - Outros bens móveis"
+  Também: "Veículos Automotores Terrestres", "Automóvel", "Carro", "Moto", "Motocicleta",
+  "Veículo", qualquer item claramente identificado como veículo terrestre, embarcação ou aeronave.
+  ⚠️ ATENÇÃO: se aparecer um carro/moto/veículo listado individualmente, inclua o valor em bensVeiculos.
+
+→ aplicacoesFinanceiras: SOME todos os bens com código 31 a 49 (aplicações, contas, investimentos)
+  Exemplos: "31 - Ações", "32 - Quotas ou quinhões de capital",
+  "41 - Caderneta de poupança", "42 - FGTS", "43 - Previdência privada",
+  "44 - Fundo de investimento", "45 - Conta corrente", "49 - Outros depósitos"
+  Também: "Aplicações Financeiras", "Investimentos", "Poupança", "CDB", "Tesouro Direto"
+
+→ outrosBens: tudo que não se encaixar nas categorias acima (código 51 a 99)
+  Exemplos: "51 - Joia, quadro, objeto de arte", "52 - Direito autoral",
+  "53 - Marca e patente", "61 - Crédito decorrente de empréstimo",
+  "62 - Crédito decorrente de alienação", "99 - Outros bens e direitos"
+
+REGRA DE ORO: Se o documento mostrar "Total de Bens e Direitos = R$ X", use esse valor
+exato em totalBensDireitos. Depois distribua nas subcategorias somando os itens listados.
+Se um item não se encaixar claramente em imóvel/veículo/aplicação, coloque em outrosBens.
 
 Regras críticas:
 - nomeSocio e anoBase são OBRIGATÓRIOS — não retorne JSON sem eles
@@ -1848,6 +1878,37 @@ function fillBalancoDefaults(data: Partial<BalancoData>): BalancoData {
 }
 
 function fillIRSocioDefaults(data: Partial<IRSocioData>): IRSocioData {
+  const parseMoney = (v: string | undefined | null): number => {
+    if (!v || v === "0,00") return 0;
+    const s = String(v).replace(/[R$\s]/g, "").trim();
+    const lastComma = s.lastIndexOf(",");
+    const lastDot   = s.lastIndexOf(".");
+    if (lastComma > lastDot) return parseFloat(s.replace(/\./g, "").replace(",", ".")) || 0;
+    return parseFloat(s.replace(/,/g, "")) || 0;
+  };
+  const fmtMoney = (n: number): string =>
+    n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const bensImoveis        = sanitizeMoney(data.bensImoveis);
+  const bensVeiculos       = sanitizeMoney(data.bensVeiculos);
+  const aplicacoes         = sanitizeMoney(data.aplicacoesFinanceiras);
+  const outrosBens         = sanitizeMoney(data.outrosBens);
+  const dividasOnus        = sanitizeMoney(data.dividasOnus);
+
+  // totalBensDireitos: usa o valor do documento se disponível; senão soma as subcategorias
+  const totalDoc   = parseMoney(data.totalBensDireitos);
+  const totalCalc  = parseMoney(bensImoveis) + parseMoney(bensVeiculos) + parseMoney(aplicacoes) + parseMoney(outrosBens);
+  const totalBens  = totalDoc > 0 ? sanitizeMoney(data.totalBensDireitos) : (totalCalc > 0 ? fmtMoney(totalCalc) : "0,00");
+
+  // patrimonioLiquido: recalcula server-side para garantir consistência
+  const totalBensN = parseMoney(totalBens);
+  const dividasN   = parseMoney(dividasOnus);
+  const plDocN     = parseMoney(data.patrimonioLiquido);
+  // Usa o valor do Gemini se razoável (diferença < 1% do total), senão recalcula
+  const plFinal = (plDocN !== 0 && Math.abs(plDocN - (totalBensN - dividasN)) < totalBensN * 0.01)
+    ? sanitizeMoney(data.patrimonioLiquido)
+    : fmtMoney(Math.max(0, totalBensN - dividasN));
+
   return {
     nomeSocio: sanitizeStr(data.nomeSocio, 100),
     cpf: data.cpf || "",
@@ -1861,13 +1922,13 @@ function fillIRSocioDefaults(data: Partial<IRSocioData>): IRSocioData {
     rendimentosTributaveis: sanitizeMoney(data.rendimentosTributaveis),
     rendimentosIsentos: sanitizeMoney(data.rendimentosIsentos),
     rendimentoTotal: sanitizeMoney(data.rendimentoTotal),
-    bensImoveis: sanitizeMoney(data.bensImoveis),
-    bensVeiculos: sanitizeMoney(data.bensVeiculos),
-    aplicacoesFinanceiras: sanitizeMoney(data.aplicacoesFinanceiras),
-    outrosBens: sanitizeMoney(data.outrosBens),
-    totalBensDireitos: sanitizeMoney(data.totalBensDireitos),
-    dividasOnus: sanitizeMoney(data.dividasOnus),
-    patrimonioLiquido: sanitizeMoney(data.patrimonioLiquido),
+    bensImoveis,
+    bensVeiculos,
+    aplicacoesFinanceiras: aplicacoes,
+    outrosBens,
+    totalBensDireitos: totalBens,
+    dividasOnus,
+    patrimonioLiquido: plFinal,
     impostoDefinido: sanitizeMoney(data.impostoDefinido),
     valorQuota: sanitizeMoney(data.valorQuota),
     impostoPago: sanitizeMoney(data.impostoPago),
