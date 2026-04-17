@@ -886,9 +886,11 @@ function pageSintese(params: PDFReportParams, date: string): string {
 
   // Pleito (from relatorioVisita) — tabela completa de parâmetros
   const rv = d.relatorioVisita;
-  const v_ = (val: string | undefined | null) => val && val.trim() ? val.trim() : "—";
-  const vMoney = (val: string | undefined | null) => val && val.trim() ? fmtMoneyAbr(val) : "—";
-  const vDias  = (val: string | undefined | null) => val && val.trim() ? `${val.trim()} dias` : "—";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const toS = (val: any): string => Array.isArray(val) ? val.join(", ") : (val == null ? "" : String(val));
+  const v_ = (val: unknown) => { const s = toS(val).trim(); return s || "—"; };
+  const vMoney = (val: unknown) => { const s = toS(val).trim(); return s ? fmtMoneyAbr(s) : "—"; };
+  const vDias  = (val: unknown) => { const s = toS(val).trim(); return s ? `${s} dias` : "—"; };
   const pleitoRows: Array<[string, string]> = [
     ["Limite Global",                    vMoney(rv?.limiteTotal)],
     ["Tranche Limite Global",            vMoney(rv?.tranche)],
@@ -1891,7 +1893,8 @@ function pageIRVisita(params: PDFReportParams, date: string): string {
     const recCls = recMap[rv.recomendacaoVisitante] ?? "";
     const recLabel = {aprovado:"Aprovado", condicional:"Condicional", reprovado:"Reprovado"}[rv.recomendacaoVisitante] ?? fmt(rv.recomendacaoVisitante);
 
-    const ctxText = rv.observacoesLivres || rv.descricaoEstrutura || "";
+    const toSrv = (v: unknown) => Array.isArray(v) ? (v as string[]).join(" ") : (v == null ? "" : String(v));
+    const ctxText = toSrv(rv.observacoesLivres) || toSrv(rv.descricaoEstrutura) || "";
 
     visitaSection = `
     ${stitle("14 · Relatório de visita")}
