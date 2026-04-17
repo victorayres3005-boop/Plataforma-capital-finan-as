@@ -128,6 +128,39 @@ function sortMesCrono(ms: Array<{mes:string;valor:string}>): Array<{mes:string;v
   return [...ms].sort((a, b) => key(a.mes) - key(b.mes));
 }
 
+// ─── Trend line SVG overlay (linear regression over bar chart) ────────────────
+function buildTrendSvg(meses: {mes:string;valor:string}[], maxBarPx = 80): string {
+  if (meses.length < 2) return "";
+  const vals = meses.map(m => numVal(m.valor));
+  const max = Math.max(...vals, 1);
+  const n = vals.length;
+  const H = 120; // matches .bars height in px
+
+  // Linear regression: y = slope * x + intercept (x = index 0..n-1)
+  const mx = (n - 1) / 2;
+  const my = vals.reduce((s, v) => s + v, 0) / n;
+  const num = vals.reduce((s, v, i) => s + (i - mx) * (v - my), 0);
+  const den = vals.reduce((s, _, i) => s + (i - mx) * (i - mx), 0);
+  const slope = den !== 0 ? num / den : 0;
+  const intercept = my - slope * mx;
+
+  // SVG coords: x = 0..100 (percentage), y = 0..H (top=0)
+  const toX = (i: number) => ((i + 0.5) / n * 100).toFixed(1);
+  const toY = (i: number) => {
+    const v = Math.max(0, slope * i + intercept);
+    return Math.max(0, Math.min(H, H - (v / max) * maxBarPx)).toFixed(1);
+  };
+
+  // Color: green if growing > 0.5% of mean per month, red if declining, gray if flat
+  const color = slope > my * 0.005 ? "#16a34a" : slope < -(my * 0.005) ? "#dc2626" : "#64748b";
+
+  return `<svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none" viewBox="0 0 100 ${H}" preserveAspectRatio="none">
+    <line x1="${toX(0)}" y1="${toY(0)}" x2="${toX(n-1)}" y2="${toY(n-1)}"
+      stroke="${color}" stroke-opacity="0.8" stroke-width="1.5" stroke-dasharray="5 3" stroke-linecap="round"
+      vector-effect="non-scaling-stroke"/>
+  </svg>`;
+}
+
 // ─── Bar chart ────────────────────────────────────────────────────────────────
 function buildBars(meses: {mes:string;valor:string}[], maxBarPx = 80): string {
   const MONTHS = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
@@ -164,12 +197,13 @@ function stitle(label: string): string {
 const CSS = `
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-@page{size:A4;margin:14mm 18mm}
+@page{size:210mm auto;margin:14mm 18mm}
 @media print{
   body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;margin:0;padding:0;background:#fff}
-  /* ── Apenas capa tem sua própria página; todo o resto flui ── */
-  .page-capa{break-after:page;page-break-after:always;overflow:hidden!important;min-height:269mm}
-  /* ── Resetar card styles no print p/ fluxo contínuo (exceto capa) ── */
+  /* ── Cada .page = uma página no PDF ── */
+  .page{break-after:page;page-break-after:always}
+  .page-capa{overflow:hidden!important;min-height:269mm}
+  /* ── Resetar card styles no print ── */
   .page:not(.page-capa){margin:0!important;padding:0!important;max-width:none!important;box-shadow:none!important;border-radius:0!important;overflow:visible!important;background:transparent!important}
   /* ── Content: padding leve no topo e fundo entre seções ── */
   .ct{padding:2px 0 24px}
@@ -218,7 +252,7 @@ const CSS = `
   --fs-chart:  7.5px; /* valores nos gráficos */
 }
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'DM Sans',sans-serif;font-size:var(--fs-body);background:#f0f2f7;color:var(--x9);-webkit-font-smoothing:antialiased}
+body{font-family:'DM Sans',sans-serif;font-size:var(--fs-body);background:#fff;color:var(--x9);-webkit-font-smoothing:antialiased}
 .mono{font-family:'JetBrains Mono',monospace}
 .page{max-width:860px;margin:20px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 4px 24px rgba(12,27,58,0.07)}
 /* ── Header / Footer ── */
@@ -503,11 +537,70 @@ body{font-family:'DM Sans',sans-serif;font-size:var(--fs-body);background:#f0f2f
 .badge.green{background:var(--g6);color:#fff}
 .badge.amber{background:var(--a5);color:#fff}
 .pb{border-top:2px dashed var(--x3);margin:28px 0;position:relative}
-.pb::after{content:attr(data-label);position:absolute;top:-9px;left:50%;transform:translateX(-50%);background:#f0f2f7;padding:0 12px;font-size:var(--fs-label);color:var(--x4)}
+.pb::after{content:attr(data-label);position:absolute;top:-9px;left:50%;transform:translateX(-50%);background:#fff;padding:0 12px;font-size:var(--fs-label);color:var(--x4)}
 .dist-bar{height:5px;border-radius:3px;background:var(--n8);display:inline-block;vertical-align:middle}
 .dist-bar.red{background:var(--r6)}
 .kpi-snap{display:grid;gap:8px;margin-bottom:14px}
 .kpi-snap.c4{grid-template-columns:repeat(4,1fr)}
+/* ── Síntese Preliminar — versão compacta para print ────────────────────────── */
+@media print{
+  .s-wrap{font-size:10px}
+  .s-wrap .stitle{margin:8px 0 5px}
+  .s-wrap .stitle:first-child{margin-top:0}
+  .s-wrap .emp{padding-bottom:10px;margin-bottom:10px}
+  .s-wrap .emp-name{font-size:14px}
+  .s-wrap .rat-c{width:54px;height:54px}
+  .s-wrap .rat-n{font-size:19px}
+  .s-wrap .istrip{gap:4px;margin-bottom:8px}
+  .s-wrap .icell{padding:5px 8px}
+  .s-wrap .icell .v{font-size:10.5px}
+  .s-wrap .icell .l{font-size:7.5px}
+  .s-wrap .icell .sub{font-size:7.5px}
+  .s-wrap .seg{padding:7px 11px;margin-bottom:8px;font-size:10px}
+  .s-wrap .map-frame{height:120px!important}
+  .s-wrap .addr-box{margin-bottom:10px;padding:10px 12px}
+  .s-wrap .addr-box .a{font-size:10px}
+  .s-wrap .soc-tbl thead th{padding:5px 10px;font-size:8px}
+  .s-wrap .soc-tbl tbody td{padding:4px 10px;font-size:10px}
+  .s-wrap .soc-extra{font-size:8.5px;margin-bottom:6px}
+  .s-wrap .ge-header{padding:5px 10px}
+  .s-wrap .ge-socio-hdr{padding:4px 10px;font-size:9px}
+  .s-wrap .ge-tbl th{padding:3px 8px;font-size:7.5px}
+  .s-wrap .ge-tbl td{padding:3px 8px;font-size:9.5px}
+  .s-wrap .risk-section{padding:10px;margin-bottom:10px}
+  .s-wrap .risk-cols{gap:7px;margin-bottom:8px}
+  .s-wrap .risk-block-hdr{padding:5px 10px}
+  .s-wrap .risk-block-hdr .big{font-size:16px}
+  .s-wrap .risk-block-body{padding:5px 10px}
+  .s-wrap .risk-detail{padding:2px 0;font-size:9.5px}
+  .s-wrap .risk-sep{margin:2px 0}
+  .s-wrap .risk-item{padding:3px 0;font-size:9.5px}
+  .s-wrap .scr-strip{gap:4px;margin-bottom:6px}
+  .s-wrap .scr-card{padding:5px 8px}
+  .s-wrap .scr-card .v{font-size:10.5px}
+  .s-wrap .fin-row{gap:8px;margin-bottom:10px}
+  .s-wrap .fin-box{padding:10px}
+  .s-wrap .bars{height:65px!important}
+  .s-wrap .bar{min-height:1px}
+  .s-wrap .bar-v{font-size:6.5px;top:-13px}
+  .s-wrap .bar-l{font-size:6.5px}
+  .s-wrap .kpi-row{padding-top:5px;margin-top:4px;font-size:9px}
+  .s-wrap .tbl thead th{padding:5px 10px;font-size:8px}
+  .s-wrap .tbl tbody td{padding:4px 10px;font-size:9.5px}
+  .s-wrap .scr-tbl thead th{padding:4px 8px;font-size:7.5px}
+  .s-wrap .scr-tbl tbody td{padding:3px 8px;font-size:9.5px}
+  .s-wrap .abc-wrap{padding:10px;margin-bottom:8px}
+  .s-wrap .abc-tbl thead th{padding:4px 8px;font-size:7.5px}
+  .s-wrap .abc-tbl tbody td{padding:3px 8px;font-size:9.5px}
+  .s-wrap .ana-grid{gap:5px;margin-bottom:10px}
+  .s-wrap .ana-col{padding:7px 9px}
+  .s-wrap .ana-h{margin-bottom:5px;padding-bottom:4px;font-size:8px}
+  .s-wrap .ana-item{padding:2px 0;font-size:9.5px}
+  .s-wrap .perc{padding:9px 11px}
+  .s-wrap .perc-text,.s-wrap .perc p{font-size:9.5px;line-height:1.55}
+  .s-wrap .perc-rec{margin-top:7px;padding-top:6px;font-size:9px}
+  .s-wrap .alert{padding:5px 10px;margin-bottom:4px;font-size:9.5px}
+}
 </style>`;
 
 // ─── Page 1: Capa ─────────────────────────────────────────────────────────────
@@ -743,8 +836,8 @@ function pageSintese(params: PDFReportParams, date: string): string {
     const hAtual   = periodoAtual ? `Atual (${esc(periodoAtual)})`   : "Atual";
     const hAnterior = periodoAnt  ? `Anterior (${esc(periodoAnt)})`  : "Anterior";
     scrTable = `<table class="scr-tbl">
-      <thead><tr><th>Métrica</th><th>${hAtual}</th><th>${hAnterior}</th><th>Var.</th></tr></thead>
-      <tbody>${rows.map(r=>`<tr><td>${esc(r.label)}</td><td>${r.curr}</td><td>${r.prev}</td><td class="var-cell ${r.varCls}">${r.varVal}</td></tr>`).join("")}${totalRows}</tbody>
+      <thead><tr><th>Métrica</th><th>${hAnterior}</th><th>${hAtual}</th><th>Var.</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr><td>${esc(r.label)}</td><td>${r.prev}</td><td>${r.curr}</td><td class="var-cell ${r.varCls}">${r.varVal}</td></tr>`).join("")}${totalRows}</tbody>
     </table>
     <div class="ifs-note">Instituições financeiras: ${fmt(scr.qtdeInstituicoes)} · Operações: ${fmt(scr.qtdeOperacoes)}</div>`;
   } else if (scr) {
@@ -786,7 +879,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
         <thead><tr><th style="width:40px">#</th><th>Cliente</th><th class="r">Faturamento</th><th class="r">% Rec.</th><th class="r">% Acum.</th><th style="width:50px">Cl.</th></tr></thead>
         <tbody>${rows2}</tbody>
       </table>
-      <div class="abc-summary">Top 3: <b>${fmt(abc.concentracaoTop3)}</b> · Top 5: <b>${fmt(abc.concentracaoTop5)}</b> · Total clientes: <b>${abc.totalClientesNaBase}</b></div>
+      <div class="abc-summary">Top 3: <b>${fmtPct(abc.concentracaoTop3)}</b> · Top 5: <b>${fmtPct(abc.concentracaoTop5)}</b> · Total clientes: <b>${abc.totalClientesNaBase}</b></div>
     </div>`;
   }
 
@@ -906,7 +999,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
     </div>`;
   }
 
-  const content = `
+  const content = `<div class="s-wrap">
     <!-- 1. Empresa + Rating -->
     <div class="emp">
       <div>
@@ -979,10 +1072,13 @@ function pageSintese(params: PDFReportParams, date: string): string {
           const hasSCR = e.scrTotal && e.scrTotal !== "—";
           const hasProt = e.protestos && e.protestos !== "—";
           const hasProc = e.processos && e.processos !== "—";
+          const relacaoLabel = (e.relacao ?? "")
+            .replace(/\bRéu\b/gi, "Polo Passivo")
+            .replace(/\bAutor\b(?=\s*\(Processo\))/gi, "Polo Ativo");
           return `<tr>
             <td><b>${esc(e.razaoSocial)}</b>${e.participacao ? `<span style="color:var(--x4);font-size:var(--fs-tag);margin-left:6px">${esc(e.participacao)}</span>` : ""}</td>
             <td class="mono">${cnpjFmt}</td>
-            <td><span class="ge-rel">${esc(e.relacao)}</span></td>
+            <td><span class="ge-rel">${esc(relacaoLabel)}</span></td>
             <td><span class="ge-badge ${sitCls}">${esc(e.situacao ?? "—")}</span></td>
             <td class="mono" style="color:${hasSCR ? "var(--n9)" : "var(--x4)"}">${hasSCR ? fmtMoneyAbr(e.scrTotal) : "—"}</td>
             <td style="text-align:center;color:${hasProt && e.protestos !== "0" ? "var(--r6)" : "var(--g6)"};font-weight:600">${hasProt ? e.protestos : "—"}</td>
@@ -1092,7 +1188,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
 
     <!-- 11. Percepção -->
     ${percHtml}
-  `;
+  </div>`;
 
   return page(content, 3, date);
 }
@@ -1216,7 +1312,10 @@ function pageFaturamento(params: PDFReportParams, date: string): string {
     </div>
     <div class="chart-box">
       <div class="chart-title">Faturamento mensal — últimos 12 meses</div>
-      <div class="bars">${bars || '<div style="color:var(--x4);font-size:12px;align-self:center">Dados não disponíveis</div>'}</div>
+      <div style="position:relative">
+        <div class="bars">${bars || '<div style="color:var(--x4);font-size:12px;align-self:center">Dados não disponíveis</div>'}</div>
+        ${meses.length > 1 ? buildTrendSvg(meses) : ""}
+      </div>
       <div class="kpi-row"><span>FMM: <b>${fmtMoneyAbr(fmm)}</b></span><span>Total: <b>${fmtMoneyAbr(total12)}</b></span><span>Var: <b style="color:${tendColor2}">${esc(tendLabel)}</b></span></div>
     </div>
     ${zeradosNote}
@@ -1365,7 +1464,7 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
 
     ${stitle("04 · Processos judiciais")}
     <div class="istrip c4" style="margin-bottom:14px">
-      <div class="icell ${totalProc > 5 ? "danger" : totalProc > 0 ? "warn" : "success"}"><div class="l">Total Passivo</div><div class="v ${totalProc > 5 ? "red" : totalProc > 0 ? "" : "green"}">${totalProc}</div></div>
+      <div class="icell ${totalProc > 5 ? "warn" : totalProc > 0 ? "" : "success"}"><div class="l">Total Processos</div><div class="v ${totalProc > 5 ? "" : totalProc > 0 ? "" : "green"}">${totalProc}</div></div>
       <div class="icell ${numVal(passivo) > 5 ? "danger" : ""}"><div class="l">Polo Passivo</div><div class="v ${numVal(passivo) > 5 ? "red" : ""}">${fmt(passivo)}</div></div>
       <div class="icell"><div class="l">Polo Ativo</div><div class="v">${fmt(ativo)}</div></div>
       <div class="icell ${temRJ ? "danger" : "success"}"><div class="l">Falência / RJ</div><div class="v ${temRJ ? "red" : "green"}">${temRJ ? "Sim" : "Não"}</div></div>
@@ -1391,7 +1490,7 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
       <thead><tr><th>Faixa</th><th class="r">Qtd</th><th class="r">Valor</th><th>Proporção</th></tr></thead>
       <tbody>${distFaixaProcRows}</tbody>
     </table>` : ""}
-    ${totalProc > 5 ? `<div class="alert alta"><span class="atag">ALTA</span> ${totalProc} processos em polo passivo — verificar detalhes</div>` : ""}
+    ${numVal(passivo) > 5 ? `<div class="alert alta"><span class="atag">ALTA</span> ${fmt(passivo)} processos no polo passivo — verificar detalhes</div>` : totalProc > 5 ? `<div class="alert moderada"><span class="atag">MOD</span> ${totalProc} processos judiciais identificados — verificar detalhes</div>` : ""}
     ${temRJ ? `<div class="alert alta"><span class="atag">ALTA</span> Pedido de falência ou recuperação judicial identificado</div>` : ""}
 
     ${(() => {
@@ -1708,8 +1807,8 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
     abcSection = `
     ${stitle("11 · Curva ABC — Concentração de sacados")}
     <div class="istrip c3" style="margin-bottom:10px">
-      <div class="icell warn"><div class="l">Top 3 Clientes</div><div class="v" style="color:var(--a5)">${fmt(top3Pct)}</div></div>
-      <div class="icell warn"><div class="l">Top 5 Clientes</div><div class="v" style="color:var(--a5)">${fmt(top5Pct)}</div></div>
+      <div class="icell warn"><div class="l">Top 3 Clientes</div><div class="v" style="color:var(--a5)">${fmtPct(top3Pct)}</div></div>
+      <div class="icell warn"><div class="l">Top 5 Clientes</div><div class="v" style="color:var(--a5)">${fmtPct(top5Pct)}</div></div>
       <div class="icell"><div class="l">Total Clientes</div><div class="v">${totalCli}</div></div>
     </div>
     <div class="abc-wrap">
@@ -1718,7 +1817,7 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
         <tbody>${abcRows}</tbody>
       </table>
     </div>
-    <div class="abc-summary">Top 3: <b>${fmt(top3Pct)}</b> · Top 5: <b>${fmt(top5Pct)}</b> · Total clientes: <b>${totalCli}</b></div>
+    <div class="abc-summary">Top 3: <b>${fmtPct(top3Pct)}</b> · Top 5: <b>${fmtPct(top5Pct)}</b> · Total clientes: <b>${totalCli}</b></div>
     ${abc.alertaConcentracao && abc.clientes[0] ? `<div class="alert alta" style="margin-top:8px"><span class="atag">ALTA</span> ${esc(abc.clientes[0].nome)} concentra ${fmtPct(abc.clientes[0].percentualReceita)} da receita — acima do limite recomendado</div>` : ""}`;
   }
 
@@ -1982,6 +2081,46 @@ export function gerarHtmlRelatorio(params: PDFReportParams): { html: string; hea
 ${CSS}
 </head>
 <body>
+<button class="print-fab" id="printBtn">
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+  Salvar como PDF
+</button>
+<style>
+  .print-fab{position:fixed;bottom:28px;right:28px;z-index:9999;display:flex;align-items:center;gap:8px;padding:11px 20px;background:#1a2b5e;color:#fff;border:none;border-radius:50px;font-size:13px;font-weight:600;font-family:sans-serif;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.25);transition:background .15s,transform .1s}
+  .print-fab:hover{background:#243a80;transform:translateY(-1px)}
+  .print-fab:active{transform:translateY(0)}
+  .print-fab:disabled{opacity:.6;cursor:not-allowed;transform:none}
+</style>
+<script>
+document.getElementById('printBtn').addEventListener('click', async function() {
+  var btn = this;
+  btn.disabled = true;
+  btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Gerando PDF...';
+  try {
+    var html = document.documentElement.outerHTML;
+    var cnpj = document.title.replace(/[^0-9]/g,'').slice(0,14) || 'relatorio';
+    var res = await fetch('__BASE_URL__/api/exportar-pdf-html', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ html: html, filename: 'relatorio-' + cnpj + '.pdf' })
+    });
+    if (!res.ok) throw new Error('Erro ' + res.status);
+    var blob = await res.blob();
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = 'relatorio-' + cnpj + '.pdf';
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 10000);
+  } catch(e) {
+    alert('Erro ao gerar PDF: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg> Salvar como PDF';
+  }
+});
+</script>
+<style>@keyframes spin{to{transform:rotate(360deg)}}</style>
 ${pages}
 </body>
 </html>`;

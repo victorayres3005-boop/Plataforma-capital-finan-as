@@ -969,6 +969,8 @@ function HistoricoContent() {
   const [filterRamo, setFilterRamo] = useState("");
   const [filterPeriodo, setFilterPeriodo] = useState("");
   const [showFilters, setShowFilters] = useState(false);
+  const [hideEmpty, setHideEmpty] = useState(true);
+  const [deletingEmpty, setDeletingEmpty] = useState(false);
   const [pageSize, setPageSize] = useState(20);
   const [notifications, setNotifications] = useState<{ id: string; message: string; read: boolean; created_at: string }[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -1014,6 +1016,39 @@ function HistoricoContent() {
 
   const activeFilters = [filterStatus, filterDecisao, filterRamo, filterPeriodo].filter(Boolean).length;
 
+  // Coletas sem nenhum documento — não têm utilidade prática
+  const isEmptyCollection = (col: DocumentCollection) =>
+    (col.documents || []).length === 0 && !col.rating && !col.ai_analysis;
+
+  const emptyCollections = useMemo(
+    () => collections.filter(isEmptyCollection),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [collections]
+  );
+
+  const handleDeleteEmpty = async () => {
+    if (emptyCollections.length === 0) return;
+    setDeletingEmpty(true);
+    try {
+      const supabase = createClient();
+      const { data: { user: u } } = await supabase.auth.getUser();
+      if (!u) throw new Error("Não autenticado");
+      const ids = emptyCollections.map(c => c.id);
+      const { error } = await supabase
+        .from("document_collections")
+        .delete()
+        .in("id", ids)
+        .eq("user_id", u.id);
+      if (error) throw error;
+      setCollections(prev => prev.filter(c => !ids.includes(c.id)));
+      toast.success(`${ids.length} coleta${ids.length !== 1 ? "s" : ""} vazia${ids.length !== 1 ? "s" : ""} excluída${ids.length !== 1 ? "s" : ""}`);
+    } catch (err) {
+      toast.error("Erro ao excluir vazias: " + (err instanceof Error ? err.message : "tente novamente"));
+    } finally {
+      setDeletingEmpty(false);
+    }
+  };
+
   const userName = user?.user_metadata?.full_name || user?.email?.split("@")[0] || "";
   const userInitial = userName.charAt(0).toUpperCase() || "U";
 
@@ -1032,6 +1067,8 @@ function HistoricoContent() {
   const grouped = useMemo(() => {
     const now = new Date();
     const filtered = collections.filter(col => {
+      // Oculta coletas sem documentos por padrão
+      if (hideEmpty && isEmptyCollection(col)) return false;
       const name = (col.company_name || col.label || "").toLowerCase();
       const cnpj = (col.cnpj || "").toLowerCase();
       const q = search.toLowerCase().trim();
@@ -1062,7 +1099,8 @@ function HistoricoContent() {
       cnpj: cols[0].cnpj,
       cols: cols.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
     }));
-  }, [collections, search, filterStatus, filterDecisao, filterRamo, filterPeriodo]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collections, search, filterStatus, filterDecisao, filterRamo, filterPeriodo, hideEmpty]);
 
   const totalEntries = grouped.reduce((s, g) => s + g.cols.length, 0);
   const visibleGroups = grouped.slice(0, pageSize);
@@ -1171,6 +1209,32 @@ function HistoricoContent() {
               ← Voltar
             </Link>
           </div>
+
+          {/* Aviso de coletas vazias */}
+          {!loading && emptyCollections.length > 0 && (
+            <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 bg-amber-50 border border-amber-200 rounded-lg mb-4 flex-wrap">
+              <p className="text-xs text-amber-700">
+                <span className="font-semibold">{emptyCollections.length} coleta{emptyCollections.length !== 1 ? "s" : ""} sem documentos</span>
+                {hideEmpty ? " ocultada" : " visível"}{emptyCollections.length !== 1 ? "s" : ""} no histórico
+              </p>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={() => setHideEmpty(p => !p)}
+                  className="text-xs font-medium text-amber-700 hover:text-amber-900 underline underline-offset-2 bg-transparent border-none cursor-pointer"
+                >
+                  {hideEmpty ? "Mostrar" : "Ocultar"}
+                </button>
+                <span className="text-amber-300 text-xs">|</span>
+                <button
+                  onClick={handleDeleteEmpty}
+                  disabled={deletingEmpty}
+                  className="text-xs font-medium text-red-600 hover:text-red-800 underline underline-offset-2 bg-transparent border-none cursor-pointer disabled:opacity-50"
+                >
+                  {deletingEmpty ? "Excluindo…" : "Excluir todas"}
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* ── Funil de Crédito Profissional ── */}
           {!loading && collections.length > 0 && (() => {

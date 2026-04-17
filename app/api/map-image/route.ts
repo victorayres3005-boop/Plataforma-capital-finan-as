@@ -35,8 +35,8 @@ export async function GET(req: NextRequest) {
 
   const url =
     type === "streetview"
-      ? `https://maps.googleapis.com/maps/api/streetview?size=600x300&location=${location}&fov=90&pitch=5&heading=${h}&key=${key}`
-      : `https://maps.googleapis.com/maps/api/staticmap?center=${location}&zoom=16&size=600x300&scale=2&maptype=hybrid`
+      ? `https://maps.googleapis.com/maps/api/streetview?size=640x480&scale=2&location=${location}&fov=80&pitch=5&heading=${h}&key=${key}`
+      : `https://maps.googleapis.com/maps/api/staticmap?center=${location}&zoom=16&size=640x480&scale=2&maptype=hybrid`
         + `&markers=color:red%7C${location}`
         + `&key=${key}`;
 

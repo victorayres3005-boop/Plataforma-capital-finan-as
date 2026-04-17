@@ -808,6 +808,71 @@ function parseEmpresasVinculadas(d: any, cpfSocio: string, nomeSocio: string): G
     }));
 }
 
+// ── Endpoint dedicado: GET /v1/grupo-economico/{documento} ──────────────────
+// Endpoint oficial da CreditHub para grupo econômico — retorna empresas
+// vinculadas diretamente para o CPF/CNPJ consultado.
+async function consultarGrupoEconomicoDedicado(
+  documento: string,
+  nomeSocio: string,
+): Promise<GrupoEconomicoData["empresas"]> {
+  if (!CREDITHUB_API_URL || !CREDITHUB_API_KEY) return [];
+  const docNum = documento.replace(/\D/g, "");
+  if (!docNum) return [];
+
+  const url = `${CREDITHUB_API_URL}/v1/grupo-economico/${docNum}`;
+  const MAX_ATTEMPTS = 8;
+  const DELAY_MS = 3000;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${CREDITHUB_API_KEY}`,
+        },
+        cache: "no-store",
+      });
+      const text = await res.text();
+
+      if (text.includes(`push="true"`) || text.includes("push='true'")) {
+        console.log(`[credithub][grupo-economico] ${docNum.slice(0,4)}*** tentativa ${attempt}: push=true, aguardando...`);
+        if (attempt < MAX_ATTEMPTS) {
+          await new Promise(r => setTimeout(r, DELAY_MS));
+          continue;
+        }
+        console.warn(`[credithub][grupo-economico] ${docNum.slice(0,4)}*** timeout após ${MAX_ATTEMPTS} tentativas`);
+        return [];
+      }
+
+      if (!res.ok) {
+        console.warn(`[credithub][grupo-economico] ${docNum.slice(0,4)}*** status ${res.status}: ${text.slice(0, 100)}`);
+        return [];
+      }
+
+      let raw: any;
+      try {
+        raw = JSON.parse(text);
+      } catch {
+        console.warn(`[credithub][grupo-economico] ${docNum.slice(0,4)}*** resposta não é JSON`);
+        return [];
+      }
+
+      const d = raw?.data ?? raw;
+      console.log(`[credithub][grupo-economico] ${docNum.slice(0,4)}*** keys: ${Object.keys(d ?? {}).join(", ")}`);
+
+      const empresas = parseEmpresasVinculadas(d, docNum, nomeSocio);
+      console.log(`[credithub][grupo-economico] ${docNum.slice(0,4)}*** empresas encontradas: ${empresas.length}`);
+      return empresas;
+
+    } catch (err: unknown) {
+      console.warn(`[credithub][grupo-economico] ${docNum.slice(0,4)}*** tentativa ${attempt} exception:`, String(err instanceof Error ? err.message : err));
+      if (attempt < MAX_ATTEMPTS) await new Promise(r => setTimeout(r, DELAY_MS));
+    }
+  }
+
+  return [];
+}
+
 // Consulta CreditHub por CPF de sócio para obter empresas vinculadas
 // Usa o mesmo endpoint /simples/{key}/{cpf} com retry para lidar com push=true
 async function consultarCreditHubPorCPF(cpf: string, nomeSocio: string): Promise<GrupoEconomicoData["empresas"]> {
@@ -920,11 +985,17 @@ function extrairEmpresasDeProcessos(
       if (vistos.has(nome)) continue;
       vistos.add(nome);
 
-      const relacao = tipo === "ativo" ? "Autor (Processo)" : tipo === "passivo" ? "Réu (Processo)" : "Via Processo";
+      // Tenta extrair CNPJ do envolvido — CreditHub inclui cpf_cnpj/documento em muitos casos
+      const cnpjRaw = String(
+        env?.cnpj ?? env?.cpf_cnpj ?? env?.documento ?? env?.cpfCnpj ?? ""
+      ).replace(/\D/g, "");
+      const cnpj = cnpjRaw.length === 14 ? cnpjRaw : "";
+
+      const relacao = tipo === "ativo" ? "Polo Ativo (Processo)" : tipo === "passivo" ? "Polo Passivo (Processo)" : "Via Processo";
 
       resultado.push({
         razaoSocial: nome,
-        cnpj: "",
+        cnpj,
         relacao,
         scrTotal: "—",
         protestos: "—",
@@ -932,13 +1003,119 @@ function extrairEmpresasDeProcessos(
         socioOrigem: nomeSocio,
         cpfSocio,
         participacao: "",
-        situacao: "VERIFICAR",
+        situacao: cnpj ? "VERIFICAR" : "VERIFICAR",
       });
     }
   }
 
-  console.log(`[credithub][cpf] CPF=${cpfSocio.slice(0,3)}*** empresas de processos: ${resultado.length}`);
+  console.log(`[credithub][cpf] CPF=${cpfSocio.slice(0,3)}*** empresas de processos: ${resultado.length} (${resultado.filter(e => e.cnpj).length} com CNPJ)`);
   return resultado;
+}
+
+// ── Busca CNPJ por nome via publica.cnpj.ws ──────────────────────────────────
+async function buscarCNPJPorNome(nomeEmpresa: string): Promise<string> {
+  const q = encodeURIComponent(nomeEmpresa.slice(0, 60));
+  try {
+    const res = await fetch(`https://publica.cnpj.ws/cnpj?q=${q}&quantidade=3`, {
+      headers: { "Accept": "application/json" },
+      signal: AbortSignal.timeout(5000),
+      cache: "no-store",
+    });
+    if (!res.ok) return "";
+    const data = await res.json() as unknown;
+    // Retorno é array de estabelecimentos
+    const arr = Array.isArray(data) ? data : (data as Record<string,unknown>)?.estabelecimentos ?? [];
+    if (!Array.isArray(arr) || arr.length === 0) return "";
+    const first = arr[0] as Record<string, unknown>;
+    // Normaliza nome para comparação
+    const nomeNorm = nomeEmpresa.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+    const found = (arr as Record<string,unknown>[]).find(e => {
+      const r = String(e?.razao_social ?? e?.nome_fantasia ?? "").replace(/[^A-Z0-9]/gi, "").toUpperCase();
+      return r.includes(nomeNorm.slice(0, 10)) || nomeNorm.includes(r.slice(0, 10));
+    }) ?? first;
+    const cnpj = String(found?.cnpj ?? found?.cnpj_basico ?? "").replace(/\D/g, "");
+    return cnpj.length === 14 ? cnpj : "";
+  } catch {
+    return "";
+  }
+}
+
+// ── Enriquece empresas do grupo econômico com dados do CreditHub ─────────────
+// Para cada empresa com CNPJ: busca protestos e processos no CreditHub.
+// Para empresas sem CNPJ: tenta encontrar via nome antes de enriquecer.
+// Máximo de MAX_ENRICH enriquecimentos para não estourar timeout da requisição.
+async function enriquecerEmpresasGrupoEconomico(
+  empresas: GrupoEconomicoData["empresas"],
+): Promise<GrupoEconomicoData["empresas"]> {
+  if (!CREDITHUB_API_URL || !CREDITHUB_API_KEY) return empresas;
+
+  const MAX_ENRICH = 5;
+  const RETRY_DELAY = 2000;
+  const MAX_ATTEMPTS = 4;
+
+  // Primeiro, tenta preencher CNPJs ausentes via nome (apenas empresas sem CNPJ)
+  const semCnpj = empresas.filter(e => !e.cnpj && e.situacao === "VERIFICAR").slice(0, 3);
+  await Promise.allSettled(semCnpj.map(async emp => {
+    const cnpj = await buscarCNPJPorNome(emp.razaoSocial);
+    if (cnpj) {
+      emp.cnpj = cnpj;
+      console.log(`[credithub][enrich] CNPJ encontrado para "${emp.razaoSocial.slice(0,30)}": ${cnpj.slice(0,4)}***`);
+    }
+  }));
+
+  // Enriquece empresas com CNPJ (agora inclui as que acabaram de ter CNPJ preenchido)
+  const paraEnriquecer = empresas.filter(e => e.cnpj && e.cnpj.length === 14).slice(0, MAX_ENRICH);
+
+  await Promise.allSettled(paraEnriquecer.map(async emp => {
+    const cnpj = emp.cnpj;
+    const url = `${CREDITHUB_API_URL}/simples/${CREDITHUB_API_KEY}/${cnpj}`;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        const res = await fetch(url, {
+          headers: { "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(8000),
+          cache: "no-store",
+        });
+        const text = await res.text();
+
+        if (text.includes(`push="true"`) || text.includes("push='true'")) {
+          if (attempt < MAX_ATTEMPTS) { await new Promise(r => setTimeout(r, RETRY_DELAY)); continue; }
+          break;
+        }
+        if (!res.ok) break;
+
+        let raw: any;
+        try { raw = JSON.parse(text); } catch { break; }
+        const d = raw?.data ?? raw;
+
+        // Protestos
+        const prot = parseProtestos(d);
+        const protQtd = Number(prot.vigentesQtd ?? 0);
+        emp.protestos = protQtd > 0
+          ? `${protQtd} (R$ ${prot.vigentesValor})`
+          : "0";
+
+        // Processos
+        const proc = parseProcessos(d);
+        const procQtd = Number(proc.passivosTotal ?? 0);
+        emp.processos = procQtd > 0 ? String(procQtd) : "0";
+
+        // Situação via Receita Federal (se vier no retorno)
+        const sit = String(d?.situacaoCadastral ?? d?.situacao ?? "").toUpperCase();
+        if (sit && emp.situacao === "VERIFICAR") {
+          emp.situacao = sit.includes("ATIVA") ? "ATIVA" : sit || "VERIFICAR";
+        }
+
+        console.log(`[credithub][enrich] ${cnpj.slice(0,4)}*** protestos=${protQtd} processos=${procQtd}`);
+        break;
+      } catch (err) {
+        if (attempt < MAX_ATTEMPTS) await new Promise(r => setTimeout(r, RETRY_DELAY));
+        else console.warn(`[credithub][enrich] ${cnpj.slice(0,4)}*** falhou:`, String(err instanceof Error ? err.message : err));
+      }
+    }
+  }));
+
+  return empresas;
 }
 
 // ── Opção B: empresa própria do sócio via rfb.cnpj → publica.cnpj.ws ─────────
@@ -998,9 +1175,14 @@ export async function consultarGrupoEconomicoSocios(
 
   const cnpjPrincipalNorm = (cnpjEmpresaPrincipal ?? "").replace(/\D/g, "");
 
-  // Consultas paralelas por CPF
+  // Consultas paralelas por CPF — usa endpoint dedicado /v1/grupo-economico primeiro;
+  // se retornar vazio, cai no fallback /simples que extrai via processos/QSA.
   const resultados = await Promise.allSettled(
-    sociosPF.map(s => consultarCreditHubPorCPF(s.cpfCnpj, s.nome))
+    sociosPF.map(async s => {
+      const dedicado = await consultarGrupoEconomicoDedicado(s.cpfCnpj, s.nome);
+      if (dedicado.length > 0) return dedicado;
+      return consultarCreditHubPorCPF(s.cpfCnpj, s.nome);
+    })
   );
 
   // Agrega e deduplica:
@@ -1061,7 +1243,12 @@ export async function consultarGrupoEconomicoSocios(
     }
   }
 
-  return { empresas, alertaParentesco, parentescosDetectados };
+  // ── Enriquecimento: busca CNPJ (quando ausente) + protestos/processos via CreditHub ──
+  // Muta os objetos da lista in-place (protestos, processos, cnpj, situação).
+  // Não bloqueia o retorno em caso de falha — erros são silenciados por Promise.allSettled.
+  const empresasEnriquecidas = await enriquecerEmpresasGrupoEconomico(empresas);
+
+  return { empresas: empresasEnriquecidas, alertaParentesco, parentescosDetectados };
 }
 
 // ─── Consulta principal ─────────────────────────────────────────────────────

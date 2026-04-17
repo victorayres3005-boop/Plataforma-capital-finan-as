@@ -237,6 +237,26 @@ function buildInitialSections(resumedDocs: CollectionDocument[]): Record<DocKey,
 
   const scrDocs = resumedDocs.filter(d => d.type === 'scr_bacen');
 
+  // Separa SCR da empresa (PJ) dos SCR de sócios (PF).
+  // tipoPessoa é definido em buildCollectionDocs.ts; fallback pelo filename para registros antigos.
+  const scrPJ = scrDocs.filter(d => {
+    const tp = (d.extracted_data as Record<string, unknown>)?.tipoPessoa;
+    if (tp === 'PJ') return true;
+    if (tp === 'PF') return false;
+    // Registros antigos sem tipoPessoa: se filename contém "socio" é PF, caso contrário PJ
+    return !String(d.filename ?? '').includes('socio');
+  });
+  const scrPF_atual = scrDocs.filter(d => {
+    const tp = (d.extracted_data as Record<string, unknown>)?.tipoPessoa;
+    if (tp !== 'PF' && !String(d.filename ?? '').includes('socio')) return false;
+    return !String(d.filename ?? '').includes('anterior');
+  });
+  const scrPF_anterior = scrDocs.filter(d => {
+    const tp = (d.extracted_data as Record<string, unknown>)?.tipoPessoa;
+    if (tp !== 'PF' && !String(d.filename ?? '').includes('socio')) return false;
+    return String(d.filename ?? '').includes('anterior');
+  });
+
   for (const doc of resumedDocs) {
     if (doc.type === 'scr_bacen') continue; // handle separately
     const key = DOC_TYPE_TO_KEY[doc.type];
@@ -245,14 +265,24 @@ function buildInitialSections(resumedDocs: CollectionDocument[]): Record<DocKey,
     sections[key].resumedFilenames = [...(sections[key].resumedFilenames || []), doc.filename];
   }
 
-  // SCR: primeiro (mais recente) → scr, segundo → scrAnterior
-  if (scrDocs.length >= 1) {
+  // SCR empresa (PJ): primeiro → scr, segundo → scrAnterior
+  if (scrPJ.length >= 1) {
     sections.scr.processedCount = 1;
-    sections.scr.resumedFilenames = [scrDocs[0].filename];
+    sections.scr.resumedFilenames = [scrPJ[0].filename];
   }
-  if (scrDocs.length >= 2) {
+  if (scrPJ.length >= 2) {
     sections.scrAnterior.processedCount = 1;
-    sections.scrAnterior.resumedFilenames = [scrDocs[1].filename];
+    sections.scrAnterior.resumedFilenames = [scrPJ[1].filename];
+  }
+
+  // SCR sócios (PF): um slot por tipo, pode ter múltiplos arquivos
+  if (scrPF_atual.length > 0) {
+    sections.scr_socio.processedCount = scrPF_atual.length;
+    sections.scr_socio.resumedFilenames = scrPF_atual.map(d => d.filename);
+  }
+  if (scrPF_anterior.length > 0) {
+    sections.scr_socio_anterior.processedCount = scrPF_anterior.length;
+    sections.scr_socio_anterior.resumedFilenames = scrPF_anterior.map(d => d.filename);
   }
 
   return sections;

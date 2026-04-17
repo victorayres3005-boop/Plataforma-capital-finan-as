@@ -216,7 +216,9 @@ function validarContraParametros(data: ExtractedData, settings: FundSettings): F
   });
 
   // ── 8. Processos Passivos ─────────────────────────────────────────────────
-  const passivosN = parseInt(data.processos?.passivosTotal || data.processos?.poloPassivoQtd || "0", 10) || 0;
+  // poloPassivoQtd = processos onde a empresa é RÉ (polo passivo)
+  // passivosTotal  = total de processos (qualquer polo) — usado como fallback quando polo não foi classificado
+  const passivosN = parseInt(data.processos?.poloPassivoQtd || data.processos?.passivosTotal || "0", 10) || 0;
   const passivosOk = passivosN <= settings.processos_passivos_max;
   const passivosStatus: CriterionStatus = passivosN === 0 ? "ok" : passivosOk ? "warning" : "error";
   criteria.push({
@@ -574,8 +576,8 @@ function validateExtractedData(data: ExtractedData): ValidationResult {
       warnings.push({ field: "valorTotalEstimado", document: "processos", message: `Valor estimado de processos (R$ ${data.processos.valorTotalEstimado}) representa ${pct}% do faturamento anual — risco jurídico elevado`, severity: "warning" });
     }
 
-    // Muitos processos passivos
-    const passivos = parseInt(data.processos.passivosTotal || data.processos.poloPassivoQtd || "0", 10) || 0;
+    // Muitos processos passivos (polo passivo = empresa é ré)
+    const passivos = parseInt(data.processos.poloPassivoQtd || data.processos.passivosTotal || "0", 10) || 0;
     if (passivos > 10) {
       warnings.push({ field: "passivosTotal", document: "processos", message: `${passivos} processos no polo passivo — volume elevado`, severity: "warning" });
     }
@@ -640,6 +642,8 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   const [editing, setEditing] = useState(false);
   const [generatingFormat, setGeneratingFormat] = useState<Format | null>(null);
   const [generatedFormats, setGeneratedFormats] = useState<Set<Format>>(new Set());
+  const [sharingReport, setSharingReport] = useState(false);
+  const [sharedUrl, setSharedUrl] = useState<string | undefined>(undefined);
 
   const setCNPJ = (k: keyof typeof data.cnpj, v: string) => setData(p => ({ ...p, cnpj: { ...p.cnpj, [k]: v } }));
   const setContrato = (k: keyof typeof data.contrato, v: string | boolean) => setData(p => ({ ...p, contrato: { ...p.contrato, [k]: v } }));
@@ -1663,6 +1667,13 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   // ═══════════════════════════════════════════════════
   const generateHTMLView = async () => {
     console.log("[generateHTMLView] ▶ iniciando");
+    // Abre a janela ANTES do async — único jeito de não ser bloqueada como popup
+    const w = window.open("", "_blank");
+    if (!w) {
+      toast.error("Popup bloqueado pelo navegador. Permita popups desta página e tente novamente.");
+      return;
+    }
+    w.document.write("<html><body style='font-family:sans-serif;padding:40px;color:#555'>Gerando preview, aguarde…</body></html>");
     toast.info("Gerando preview HTML…");
     setGeneratingFormat("html");
     try {
@@ -1694,35 +1705,80 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       };
       const html = await generateHTMLPreview(payload);
 
-      // 1) Tenta abrir em nova aba. Se popup bloqueado → fallback pra blob URL.
-      const w = window.open("", "_blank");
-      if (w) {
-        w.document.open();
-        w.document.write(html);
-        w.document.close();
-      } else {
-        // Fallback: cria blob e abre via link — funciona mesmo com popup blocker
-        const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const opened = window.open(url, "_blank");
-        if (!opened) {
-          toast.error("Popup bloqueado pelo navegador. Desative o bloqueador ou permita popups desta página.");
-          URL.revokeObjectURL(url);
-          throw new Error("popup_blocked");
-        }
-        // Limpa a URL depois que a aba carrega (não bloqueia a render)
-        setTimeout(() => URL.revokeObjectURL(url), 30000);
-      }
+      // Injeta a URL base para o botão "Salvar como PDF" funcionar do blob
+      const htmlWithUrl = html.replace("__BASE_URL__", window.location.origin);
+      // Navega a janela já aberta para o blob com o HTML final
+      const blob = new Blob([htmlWithUrl], { type: "text/html;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      w.location.href = url;
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
       setGeneratedFormats(p => new Set(p).add("html"));
       toast.success("Preview HTML aberto em nova aba");
     } catch (err) {
+      w.close();
       const msg = err instanceof Error ? err.message : "Falha ao gerar preview HTML";
       console.error("HTML view error:", err);
-      if (msg !== "popup_blocked") {
-        toast.error(`Erro ao gerar preview: ${msg}`);
-      }
+      toast.error(`Erro ao gerar preview: ${msg}`);
     } finally {
       setGeneratingFormat(null);
+    }
+  };
+
+  // ═══════════════════════════════════════════════════
+  // Share Report — gera link público via /r/{id}
+  // ═══════════════════════════════════════════════════
+  const shareReport = async () => {
+    setSharingReport(true);
+    toast.info("Gerando link público…");
+    try {
+      const maps = await fetchGoogleMapsImages();
+      const fresh = await getFreshFinalRating();
+      const htmlEndereco = data.cnpj?.endereco;
+      const htmlApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+      const payload = {
+        data, aiAnalysis, decision: fresh.decisao, finalRating: fresh.rating, alerts, alertsHigh,
+        pontosFortes, pontosFracos, perguntasVisita, resumoExecutivo,
+        companyAge, protestosVigentes, vencidosSCR, vencidas, prejuizosVal,
+        dividaAtiva, atraso, riskScore: riskScore as "alto" | "medio" | "baixo", decisionColor, decisionBg, decisionBorder,
+        observacoes: analystNotes.trim() || undefined,
+        streetViewBase64: maps.streetViewBase64,
+        streetView90Base64: maps.streetView90Base64,
+        streetView180Base64: maps.streetView180Base64,
+        streetView270Base64: maps.streetView270Base64,
+        streetViewInteractiveUrl: maps.streetViewInteractiveUrl,
+        mapStaticBase64: maps.mapStaticBase64,
+        mapEmbedUrl: htmlEndereco && htmlApiKey
+          ? `https://www.google.com/maps/embed/v1/place?key=${htmlApiKey}&q=${encodeURIComponent(htmlEndereco)}`
+          : undefined,
+        fundValidation,
+        creditLimit,
+        committeMembers: committeMembers.trim() || undefined,
+      };
+      const html = await generateHTMLPreview(payload);
+      // Substitui __BASE_URL__ pelo domínio real antes de salvar
+      const htmlFinal = html.replace("__BASE_URL__", window.location.origin);
+
+      const res = await fetch("/api/share-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          html: htmlFinal,
+          cnpj: data.cnpj?.cnpj ?? undefined,
+          company: data.cnpj?.razaoSocial ?? undefined,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const { url } = await res.json() as { url: string; id: string };
+      const fullUrl = url.startsWith("http") ? url : `${window.location.origin}${url}`;
+      setSharedUrl(fullUrl);
+      await navigator.clipboard.writeText(fullUrl).catch(() => {});
+      toast.success("Link copiado para a área de transferência!");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Falha ao gerar link";
+      console.error("[shareReport] erro:", err);
+      toast.error(`Erro ao compartilhar: ${msg}`);
+    } finally {
+      setSharingReport(false);
     }
   };
 
@@ -2589,6 +2645,9 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           generateExcel={wrappedGenerateExcel}
           generateHTML={wrappedGenerateHTML}
           generateHTMLView={wrappedGenerateHTMLView}
+          shareReport={shareReport}
+          sharingReport={sharingReport}
+          sharedUrl={sharedUrl}
         />
 
         {/* ── Sticky bottom action bar ── */}

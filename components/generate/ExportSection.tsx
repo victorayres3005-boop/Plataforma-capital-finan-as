@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, CheckCircle2 } from "lucide-react";
+import { Loader2, CheckCircle2, Link2 } from "lucide-react";
 import { SectionCard } from "@/components/report/ReportComponents";
 
 type Format = "pdf" | "docx" | "xlsx" | "html";
@@ -13,6 +13,9 @@ interface ExportSectionProps {
   generateExcel: () => void;
   generateHTML: () => void;
   generateHTMLView: () => void;
+  shareReport: () => void;
+  sharingReport?: boolean;
+  sharedUrl?: string;
 }
 
 export default function ExportSection({
@@ -23,6 +26,9 @@ export default function ExportSection({
   generateExcel,
   generateHTML,
   generateHTMLView,
+  shareReport,
+  sharingReport = false,
+  sharedUrl,
 }: ExportSectionProps) {
   return (
     <SectionCard
@@ -42,11 +48,11 @@ export default function ExportSection({
 
         <div className="flex gap-2.5 flex-wrap">
           {([
-            { fmt: "pdf"  as Format, label: "PDF",   sub: "Download direto (.pdf)", fn: generatePDF,   ext: ".pdf",  dot: "#dc2626", recommended: true },
-            { fmt: "html" as Format, label: "Visualizar",  sub: "Abre em nova aba",     fn: generateHTMLView,  ext: ".html", dot: "#203b88", recommended: false },
-            { fmt: "docx" as Format, label: "Word",  sub: "Editável (.docx)",     fn: generateDOCX,  ext: ".docx", dot: "#2b5eb7", recommended: false },
-            { fmt: "xlsx" as Format, label: "Excel", sub: "Dados tabulados",      fn: generateExcel, ext: ".xlsx", dot: "#1d6f42", recommended: false },
-            { fmt: "html" as Format, label: "HTML",  sub: "Web / impressão",      fn: generateHTML,  ext: ".html", dot: "#e34f26", recommended: false },
+            { fmt: "pdf"  as Format, label: "PDF",        sub: "Download direto (.pdf)", fn: generatePDF,      ext: ".pdf",  dot: "#dc2626", recommended: true },
+            { fmt: "html" as Format, label: "Visualizar", sub: "Abre em nova aba",       fn: generateHTMLView, ext: ".html", dot: "#203b88", recommended: false },
+            { fmt: "docx" as Format, label: "Word",       sub: "Editável (.docx)",       fn: generateDOCX,     ext: ".docx", dot: "#2b5eb7", recommended: false },
+            { fmt: "xlsx" as Format, label: "Excel",      sub: "Dados tabulados",        fn: generateExcel,    ext: ".xlsx", dot: "#1d6f42", recommended: false },
+            { fmt: "html" as Format, label: "HTML",       sub: "Web / impressão",        fn: generateHTML,     ext: ".html", dot: "#e34f26", recommended: false },
           ]).map(({ fmt, label, sub, fn, ext, dot, recommended }) => {
             const done    = generatedFormats.has(fmt);
             const loading = generatingFormat === fmt;
@@ -81,6 +87,37 @@ export default function ExportSection({
               </button>
             );
           })}
+        </div>
+
+        {/* Compartilhar — gera link público válido por 90 dias */}
+        <div className="mt-4 pt-4 border-t border-gray-100">
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              onClick={shareReport}
+              disabled={sharingReport || !!generatingFormat}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border text-[13px] font-medium transition-all duration-150 hover:shadow-sm
+                ${sharedUrl ? "bg-green-50 border-green-200 text-green-700" : "bg-white border-gray-200 text-cf-text-1"}
+                ${(sharingReport || !!generatingFormat) ? "opacity-55 cursor-not-allowed" : "cursor-pointer"}`}
+            >
+              {sharingReport ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : sharedUrl ? (
+                <CheckCircle2 size={14} className="text-green-600" />
+              ) : (
+                <Link2 size={14} />
+              )}
+              {sharingReport ? "Gerando link…" : sharedUrl ? "Link copiado!" : "Compartilhar relatório"}
+            </button>
+
+            {sharedUrl && (
+              <span className="text-[11px] text-cf-text-4 font-mono truncate max-w-xs select-all" title={sharedUrl}>
+                {sharedUrl}
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] text-cf-text-4 mt-1.5">
+            Gera um link público válido por 90 dias — qualquer pessoa com o link consegue visualizar.
+          </p>
         </div>
       </div>
     </SectionCard>
