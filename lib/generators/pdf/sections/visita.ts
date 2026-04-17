@@ -209,8 +209,10 @@ export function renderVisita(ctx: PdfCtx): void {
   }
 
   // Referências Comerciais / Fornecedores
-  if (rv.referenciasFornecedores && rv.referenciasFornecedores.trim()) {
-    const refs = rv.referenciasFornecedores
+  const rfRaw = rv.referenciasFornecedores;
+  const rfStr = Array.isArray(rfRaw) ? (rfRaw as string[]).join("; ") : (typeof rfRaw === "string" ? rfRaw : "");
+  if (rfStr.trim()) {
+    const refs = rfStr
       .split(/[;,]/)
       .map(r => r.trim())
       .filter(Boolean)

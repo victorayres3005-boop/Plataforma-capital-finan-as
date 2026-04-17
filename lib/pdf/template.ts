@@ -1914,16 +1914,21 @@ function pageIRVisita(params: PDFReportParams, date: string): string {
       <div class="icell"><div class="l">Endiv. Banco</div><div class="v ${rv.endividamentoBanco ? "" : "muted"}">${fmtMoneyAbr(rv.endividamentoBanco)}</div></div>
       <div class="icell"><div class="l">Endiv. FIDC</div><div class="v ${rv.endividamentoFactoring ? "" : "muted"}">${fmtMoneyAbr(rv.endividamentoFactoring)}</div></div>
     </div>
-    ${rv.referenciasFornecedores?.trim() ? `
-    ${stitle("Referências Comerciais / Fornecedores")}
+    ${(() => {
+      const rf = rv.referenciasFornecedores;
+      const rfStr = Array.isArray(rf) ? rf.join("; ") : (typeof rf === "string" ? rf : "");
+      if (!rfStr.trim()) return "";
+      const items = rfStr.split(/[;,]/).map((r: string) => r.trim()).filter(Boolean);
+      return `${stitle("Referências Comerciais / Fornecedores")}
     <div style="background:var(--wh);border:1px solid var(--x2);border-radius:8px;overflow:hidden;margin-bottom:14px">
       <div style="background:var(--n9);padding:6px 12px;font-size:11px;font-weight:700;color:#fff">
-        ${rv.referenciasFornecedores.split(/[;,]/).map(r => r.trim()).filter(Boolean).length} referência(s) informada(s)
+        ${items.length} referência(s) informada(s)
       </div>
-      ${rv.referenciasFornecedores.split(/[;,]/).map(r => r.trim()).filter(Boolean).map((r, i) =>
+      ${items.map((r: string, i: number) =>
         `<div style="padding:5px 12px;font-size:11px;color:var(--x7);${i % 2 !== 0 ? "background:var(--x0)" : ""}">• ${esc(r)}</div>`
       ).join("")}
-    </div>` : ""}`;
+    </div>`;
+    })()}`;
   }
 
   // Histórico de Consultas
