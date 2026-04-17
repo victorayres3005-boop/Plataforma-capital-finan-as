@@ -7,7 +7,7 @@ import { DocumentCollection } from "@/types";
 import {
   ArrowLeft, CheckCircle2, Clock, XCircle, AlertTriangle,
   Loader2, Building2, DollarSign, Calendar, Users, Shield, RefreshCw, FileText,
-  Percent, TrendingUp, Landmark, Package, Send,
+  Percent, TrendingUp, Landmark, Package, Send, AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Toaster } from "sonner";
@@ -81,8 +81,37 @@ const DECISOES: {
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────
+type FieldFormat = "text" | "currency" | "percent" | "days";
+
+// Validação leve: detecta valores que claramente não fazem sentido no formato esperado.
+// Retorna mensagem de aviso ou null. Não bloqueia a digitação — apenas sinaliza.
+function validateField(value: string, format: FieldFormat): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (format === "currency") {
+    const hasDigit = /\d/.test(trimmed);
+    if (!hasDigit) return "Informe um valor numérico (ex: R$ 150.000)";
+    return null;
+  }
+  if (format === "percent") {
+    const m = trimmed.match(/(\d+[.,]?\d*)/);
+    if (!m) return "Informe um percentual (ex: 2,5% a.m.)";
+    const n = parseFloat(m[1].replace(",", "."));
+    if (!isNaN(n) && n > 100 && !/a\.m\.|ao ano|a\.a\./i.test(trimmed)) {
+      return "Percentual > 100% — verifique a unidade";
+    }
+    return null;
+  }
+  if (format === "days") {
+    const hasDigit = /\d/.test(trimmed);
+    if (!hasDigit) return "Informe um número de dias (ex: 120 dias)";
+    return null;
+  }
+  return null;
+}
+
 function InputField({
-  label, value, onChange, placeholder, icon: Icon, hint,
+  label, value, onChange, placeholder, icon: Icon, hint, format = "text",
 }: {
   label: string;
   value: string;
@@ -90,7 +119,9 @@ function InputField({
   placeholder?: string;
   icon?: React.ElementType;
   hint?: string;
+  format?: FieldFormat;
 }) {
+  const warn = validateField(value, format);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <label style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.08em" }}>
@@ -112,7 +143,7 @@ function InputField({
             width: "100%",
             padding: Icon ? "9px 12px 9px 32px" : "9px 12px",
             fontSize: 13,
-            border: "1px solid #e2e8f0",
+            border: warn ? "1px solid #f59e0b" : "1px solid #e2e8f0",
             borderRadius: 8,
             outline: "none",
             background: "#fff",
@@ -120,11 +151,12 @@ function InputField({
             boxSizing: "border-box",
             transition: "border-color 0.15s",
           }}
-          onFocus={e => (e.target.style.borderColor = "#203b88")}
-          onBlur={e => (e.target.style.borderColor = "#e2e8f0")}
+          onFocus={e => (e.target.style.borderColor = warn ? "#f59e0b" : "#203b88")}
+          onBlur={e => (e.target.style.borderColor = warn ? "#f59e0b" : "#e2e8f0")}
         />
       </div>
-      {hint && <span style={{ fontSize: 10, color: "#94a3b8", fontStyle: "italic" }}>{hint}</span>}
+      {warn && <span style={{ fontSize: 10, color: "#d97706", display: "flex", alignItems: "center", gap: 4 }}><AlertCircle size={10} /> {warn}</span>}
+      {!warn && hint && <span style={{ fontSize: 10, color: "#94a3b8", fontStyle: "italic" }}>{hint}</span>}
     </div>
   );
 }
@@ -139,9 +171,8 @@ function ParecerContent() {
   const [decisao, setDecisao] = useState<DecisaoValue | null>(null);
   const [ratingAnalista, setRatingAnalista] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
-  // Estado de erro persistente do autosave — mostra no header para o analista
-  // saber que precisa agir (sessao expirada, rede, RLS violacao).
-  const [, setAutoSaveError] = useState<string | null>(null);
+  const [autoSaveError, setAutoSaveError] = useState<string | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [autoSaved, setAutoSaved] = useState(false);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialLoadDone = useRef(false);
@@ -188,7 +219,11 @@ function ParecerContent() {
           .select("*")
           .eq("id", id)
           .single();
-        if (error || !data) { toast.error("Coleta não encontrada."); return; }
+        if (error || !data) {
+          console.error("[parecer] erro ao carregar coleta:", error);
+          toast.error("Coleta não encontrada.");
+          return;
+        }
         setCollection(data as DocumentCollection);
 
         if (data.decisao) setDecisao(data.decisao as DecisaoValue);
@@ -220,11 +255,18 @@ function ParecerContent() {
         const ai = data.ai_analysis as Record<string, unknown> | null;
         const analista = ai?.parecerAnalista as Record<string, unknown> | null;
 
-        // Rating: prioriza o valor salvo pelo analista no parecerAnalista, depois a coluna denormalizada
+        // Rating: prioriza o valor salvo pelo analista no parecerAnalista, depois a coluna denormalizada.
+        // Normaliza sempre para number com 1 casa decimal (defensivo contra valores armazenados como string).
+        const normalizeRating = (v: unknown): number | null => {
+          if (v == null) return null;
+          const n = typeof v === "number" ? v : parseFloat(String(v).replace(",", "."));
+          if (isNaN(n)) return null;
+          return Math.round(n * 10) / 10;
+        };
         if (analista?.ratingAnalista != null) {
-          setRatingAnalista(Number(analista.ratingAnalista));
+          setRatingAnalista(normalizeRating(analista.ratingAnalista));
         } else if (data.rating != null) {
-          setRatingAnalista(Math.round(data.rating));
+          setRatingAnalista(normalizeRating(data.rating));
         }
         const aiParams = ai?.parametrosOperacionais as Record<string, unknown> | null;
         const src = (analista ?? aiParams ?? {}) as Record<string, unknown>;
@@ -255,19 +297,15 @@ function ParecerContent() {
         if (analista?.decisaoComite) setDecisaoComite(analista.decisaoComite as typeof decisaoComite);
         if (analista?.notaComite) setNotaComite(analista.notaComite as string);
 
-        // Recupera dados pendentes do localStorage (salvos no beforeunload anterior)
-        // IMPORTANTE: so aplica se o pending for mais recente que o ultimo save
-        // do Supabase. Se outra sessao editou a coleta depois do pending ser
-        // gravado, pergunta ao analista antes de sobrescrever.
+        // Recupera dados pendentes do localStorage (salvos no beforeunload anterior).
+        // Sempre pede confirmação antes de sobrescrever — em qualquer cenário de divergência,
+        // o analista decide se aplica o pending ou descarta.
         try {
           const pendingRaw = localStorage.getItem(`cf_parecer_pending_${id}`);
           if (pendingRaw) {
             const pending = JSON.parse(pendingRaw);
             const pendingAt = new Date(pending.savedAt).getTime();
             const age = Date.now() - pendingAt;
-            // Supabase retorna updated_at em alguns schemas — usa created_at como proxy
-            // se nao houver updated_at. Se o timestamp do Supabase for MAIS RECENTE que
-            // o pending, pergunta ao usuario antes de aplicar.
             const supaUpdatedAt = new Date(
               (data as unknown as { updated_at?: string; finished_at?: string; created_at?: string })
                 .updated_at ||
@@ -276,14 +314,14 @@ function ParecerContent() {
               0,
             ).getTime();
             const supabaseIsNewer = supaUpdatedAt > pendingAt;
+            const pendingFresh = age < 3600 * 1000 && pending.parecerAnalista;
+            const msg = supabaseIsNewer
+              ? "Há alterações locais pendentes, mas o banco tem dados MAIS RECENTES. Aplicar as alterações locais mesmo assim? (OK = aplicar pending, Cancelar = usar banco)"
+              : "Há alterações locais pendentes desta coleta que não chegaram ao banco. Aplicar agora? (OK = aplicar, Cancelar = descartar)";
             const shouldApplyPending =
-              age < 3600 * 1000 &&
-              pending.parecerAnalista &&
-              (!supabaseIsNewer ||
-                (typeof window !== "undefined" &&
-                  window.confirm(
-                    "Foram encontradas alteracoes locais pendentes desta coleta, mas o banco tem dados mais recentes. Aplicar as alteracoes locais mesmo assim? (OK = aplicar pending, Cancelar = descartar pending e usar Supabase)",
-                  )));
+              pendingFresh &&
+              typeof window !== "undefined" &&
+              window.confirm(msg);
             if (shouldApplyPending) {
               const p = pending.parecerAnalista;
               // Sobrescreve com dados pendentes (são mais recentes que o Supabase)
@@ -320,14 +358,20 @@ function ParecerContent() {
             }
             localStorage.removeItem(`cf_parecer_pending_${id}`);
           }
-        } catch { /* ignore pending recovery errors */ }
-
-        // Marca que o carregamento inicial terminou — libera o auto-save
-        setTimeout(() => { initialLoadDone.current = true; }, 100);
-      } catch {
+        } catch (err) {
+          console.error("[parecer] falha ao recuperar pending do localStorage:", err);
+        }
+      } catch (err) {
+        console.error("[parecer] erro ao carregar dados:", err);
         toast.error("Erro ao carregar dados da coleta.");
       } finally {
         setLoading(false);
+        // Libera o auto-save só DEPOIS que o loading virou false.
+        // Usamos double-rAF para garantir que todas as chamadas de setState
+        // acima já foram aplicadas antes do auto-save começar a observar mudanças.
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          initialLoadDone.current = true;
+        }));
       }
     })();
   }, [id]);
@@ -353,21 +397,27 @@ function ParecerContent() {
     };
   });
 
-  const doSave = useCallback(async () => {
-    if (!id) return;
+  // Retorna true se salvou com sucesso. Usado tanto pelo debounce quanto
+  // pelo fluxo síncrono (handleConfirmar / gerarPDFDecisao) que precisa
+  // garantir que dados pendentes foram ao banco antes de prosseguir.
+  const doSave = useCallback(async (): Promise<boolean> => {
+    if (!id) return false;
     try {
       const f = formRef.current;
       const supabase = createClient();
       const { data: session, error: authErr } = await supabase.auth.getUser();
       if (authErr || !session.user) {
-        setAutoSaveError("Sessão expirada — faça login de novo para salvar.");
-        return;
+        setAutoSaveError("Sessão expirada — faça login novamente para salvar.");
+        setSessionExpired(true);
+        console.error("[parecer] sessão expirada no autosave:", authErr);
+        return false;
       }
       const { data: current, error: fetchErr } = await supabase
         .from("document_collections").select("ai_analysis").eq("id", id).single();
       if (fetchErr) {
         setAutoSaveError(`Erro ao ler coleta: ${fetchErr.message}`);
-        return;
+        console.error("[parecer] erro ao ler coleta no autosave:", fetchErr);
+        return false;
       }
       const existingAi = (current?.ai_analysis as Record<string, unknown>) || {};
       const parecerAnalista = {
@@ -392,8 +442,6 @@ function ParecerContent() {
         decisaoComite: f.decisaoComite ?? null,
         notaComite: f.notaComite.trim() || null,
       };
-      // Agora sempre grava os 3 campos principais (inclusive null/vazio),
-      // para que limpar um valor limpe no banco tambem.
       const { error: updateErr } = await supabase.from("document_collections").update({
         ai_analysis: { ...existingAi, parecerAnalista },
         decisao: f.decisao ?? null,
@@ -402,16 +450,22 @@ function ParecerContent() {
       }).eq("id", id).eq("user_id", session.user.id);
       if (updateErr) {
         setAutoSaveError(`Erro ao salvar: ${updateErr.message}`);
-        return;
+        console.error("[parecer] erro ao salvar:", updateErr);
+        return false;
       }
       pendingSave.current = false;
       setAutoSaveError(null);
+      setSessionExpired(false);
       setAutoSaved(true);
       setTimeout(() => setAutoSaved(false), 2000);
+      // Limpa backup local — dados já estão no banco.
+      try { localStorage.removeItem(`cf_parecer_pending_${id}`); } catch { /* ignore */ }
+      return true;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setAutoSaveError(`Erro ao salvar: ${msg.substring(0, 80)}`);
-      console.warn("[parecer] autosave falhou:", msg);
+      console.error("[parecer] autosave falhou:", err);
+      return false;
     }
   }, [id]);
 
@@ -483,16 +537,31 @@ function ParecerContent() {
   const handleConfirmar = async () => {
     if (!decisao) { toast.error("Selecione uma decisão antes de confirmar."); return; }
     if (!id || !collection) return;
-    // Cancela auto-save pendente para evitar race condition
+    // Cancela o timer do debounce e força flush síncrono do auto-save
+    // para garantir que todo o estado atual foi ao banco antes do UPDATE final.
     if (autoSaveTimer.current) { clearTimeout(autoSaveTimer.current); autoSaveTimer.current = null; }
-    pendingSave.current = false;
     setSaving(true);
     try {
+      if (pendingSave.current) {
+        const saved = await doSave();
+        if (!saved) {
+          toast.error("Não foi possível salvar as alterações. Verifique os erros antes de confirmar.");
+          return;
+        }
+      }
       const supabase = createClient();
-      // Verificação de propriedade: garante que o update só afeta coletas do próprio usuário
       const { data: session } = await supabase.auth.getUser();
-      if (!session.user) { toast.error("Sessão expirada. Faça login novamente."); return; }
-      const existingAi = (collection.ai_analysis as Record<string, unknown>) || {};
+      if (!session.user) {
+        setSessionExpired(true);
+        toast.error("Sessão expirada. Faça login novamente.");
+        return;
+      }
+      // Busca estado atualizado do banco (não confia em `collection` stale) para
+      // preservar campos do ai_analysis que possam ter sido atualizados em paralelo.
+      const { data: fresh, error: freshErr } = await supabase
+        .from("document_collections").select("ai_analysis").eq("id", id).single();
+      if (freshErr) throw freshErr;
+      const existingAi = (fresh?.ai_analysis as Record<string, unknown>) || {};
       const parecerAnalista = {
         // Crédito e garantias
         limiteCredito: limiteCredito.trim() || null,
@@ -530,9 +599,11 @@ function ParecerContent() {
         ai_analysis: { ...existingAi, parecerAnalista },
       }).eq("id", id).eq("user_id", session.user.id);
       if (error) throw error;
+      try { localStorage.removeItem(`cf_parecer_pending_${id}`); } catch { /* ignore */ }
       toast.success("Parecer registrado com sucesso!");
       setTimeout(() => { window.location.href = `/historico?highlight=${id}`; }, 800);
     } catch (err) {
+      console.error("[parecer] erro ao confirmar parecer:", err);
       toast.error("Erro ao salvar: " + (err instanceof Error ? err.message : "Tente novamente"));
     } finally {
       setSaving(false);
@@ -540,7 +611,9 @@ function ParecerContent() {
   };
 
   // ── Derived ──
-  const showParams = !!decisao; // Sempre mostra parâmetros quando há decisão selecionada
+  // Mostra SEMPRE os parâmetros operacionais (não depende de `decisao`), para evitar
+  // que dados já salvos fiquem "órfãos" na UI quando o analista troca a decisão.
+  const showParams = true;
   const selectedD = DECISOES.find(d => d.value === decisao);
   const rating = ratingAnalista ?? collection?.rating ?? null;
   const ratingColor = rating != null ? (rating >= 7 ? "#16a34a" : rating >= 4 ? "#d97706" : "#dc2626") : "#94a3b8";
@@ -555,6 +628,16 @@ function ParecerContent() {
   const gerarPDFDecisao = async () => {
     setGeneratingPdf(true);
     try {
+      // Garante que qualquer alteração pendente seja salva ANTES de gerar o PDF,
+      // para evitar que o documento saia com dados divergentes do banco.
+      if (autoSaveTimer.current) { clearTimeout(autoSaveTimer.current); autoSaveTimer.current = null; }
+      if (pendingSave.current) {
+        const saved = await doSave();
+        if (!saved) {
+          toast.error("Salvamento pendente falhou — corrija os erros antes de gerar o PDF.");
+          return;
+        }
+      }
       const hoje = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
       const esc = (s: string) => (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -769,7 +852,12 @@ ${notas.trim() ? `
         <div style={{ maxWidth: 880, margin: "0 auto", padding: "0 24px", height: 56, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <a href="/" style={{ textDecoration: "none" }}><Logo height={24} /></a>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            {autoSaved && (
+            {autoSaveError && (
+              <span style={{ fontSize: 12, color: "#b91c1c", display: "flex", alignItems: "center", gap: 4, fontWeight: 600 }}>
+                <AlertCircle size={13} /> Não salvo
+              </span>
+            )}
+            {!autoSaveError && autoSaved && (
               <span style={{ fontSize: 12, color: "#16a34a", display: "flex", alignItems: "center", gap: 4 }}>
                 <CheckCircle2 size={13} /> Salvo automaticamente
               </span>
@@ -782,6 +870,35 @@ ${notas.trim() ? `
             </button>
           </div>
         </div>
+        {autoSaveError && (
+          <div style={{
+            background: sessionExpired ? "#fef2f2" : "#fffbeb",
+            borderTop: `1px solid ${sessionExpired ? "#fecaca" : "#fde68a"}`,
+            padding: "10px 24px",
+          }}>
+            <div style={{ maxWidth: 880, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: sessionExpired ? "#991b1b" : "#92400e" }}>
+                <AlertCircle size={15} />
+                <span>
+                  <strong>{sessionExpired ? "Sessão expirada:" : "Auto-save falhou:"}</strong> {autoSaveError}
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {sessionExpired ? (
+                  <button
+                    onClick={() => { window.location.href = `/login?returnTo=${encodeURIComponent(`/parecer?id=${id}`)}`; }}
+                    style={{ fontSize: 12, fontWeight: 700, color: "#fff", background: "#dc2626", border: "none", borderRadius: 6, padding: "6px 14px", cursor: "pointer" }}
+                  >Fazer login</button>
+                ) : (
+                  <button
+                    onClick={() => { doSave(); }}
+                    style={{ fontSize: 12, fontWeight: 700, color: "#fff", background: "#d97706", border: "none", borderRadius: 6, padding: "6px 14px", cursor: "pointer" }}
+                  >Tentar novamente</button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </header>
 
       {/* ── Content ── */}
@@ -958,6 +1075,18 @@ ${notas.trim() ? `
         {/* ── Parâmetros Operacionais + Decisão do Comitê ── */}
         {showParams && (<>
 
+          {decisao === "REPROVADO" && (
+            <div style={{
+              background: "#fff1f2", border: "1px solid #fca5a5", borderRadius: 12,
+              padding: "12px 16px", marginBottom: 16, display: "flex", alignItems: "flex-start", gap: 10,
+            }}>
+              <AlertCircle size={16} style={{ color: "#dc2626", flexShrink: 0, marginTop: 2 }} />
+              <div style={{ fontSize: 12, color: "#991b1b" }}>
+                <strong>Operação reprovada.</strong> Os parâmetros abaixo serão mantidos no registro para histórico, mas não devem ser considerados aprovados. Se preferir, limpe os campos antes de confirmar.
+              </div>
+            </div>
+          )}
+
           {/* ── Decisão do Comitê ── */}
           <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "24px", marginBottom: 20 }}>
             <p style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 16px" }}>
@@ -983,9 +1112,9 @@ ${notas.trim() ? `
               })}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.08em" }}>Nota do Comitê</label>
+              <label style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.08em" }}>Nota do Comitê <span style={{ color: "#cbd5e1", fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>— justificativa das decisões sobre os parâmetros</span></label>
               <textarea value={notaComite} onChange={e => setNotaComite(e.target.value)} rows={3}
-                placeholder="Justificativa das modificações, condições impostas, observações do comitê..."
+                placeholder="Ex: Limite reduzido de R$ 500k para R$ 300k devido à concentração de sacados..."
                 style={{ width: "100%", padding: "9px 12px", fontSize: 13, border: "1px solid #e2e8f0", borderRadius: 8, resize: "vertical",
                   outline: "none", color: "#0f172a", background: "#fff", fontFamily: "inherit", boxSizing: "border-box" }}
                 onFocus={e => (e.target.style.borderColor = "#203b88")}
@@ -1051,43 +1180,43 @@ ${notas.trim() ? `
               {/* Crédito e Garantias */}
               <p style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 12px" }}>Crédito e Garantias</p>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
-                <InputField label="Limite de Crédito" value={limiteCredito} onChange={setLimiteCredito} placeholder="ex: R$ 150.000" icon={DollarSign} hint="Sugestão IA" />
-                <InputField label="Concentração por Sacado" value={concentracao} onChange={setConcentracao} placeholder="ex: até 25%" icon={Users} />
+                <InputField label="Limite de Crédito" value={limiteCredito} onChange={setLimiteCredito} placeholder="ex: R$ 150.000" icon={DollarSign} hint="Sugestão IA" format="currency" />
+                <InputField label="Concentração por Sacado" value={concentracao} onChange={setConcentracao} placeholder="ex: até 25%" icon={Users} format="percent" />
                 <InputField label="Garantias" value={garantias} onChange={setGarantias} placeholder="ex: Aval dos sócios" icon={Shield} />
-                <InputField label="Prazo de Revisão" value={prazoRevisao} onChange={setPrazoRevisao} placeholder="ex: 180 dias" icon={RefreshCw} />
+                <InputField label="Prazo de Revisão" value={prazoRevisao} onChange={setPrazoRevisao} placeholder="ex: 180 dias" icon={RefreshCw} format="days" />
               </div>
 
               {/* Taxas */}
               <p style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 12px" }}>Taxas</p>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
-                <InputField label="Taxa Convencional" value={taxaConvencional} onChange={setTaxaConvencional} placeholder="ex: 2,5% a.m." icon={Percent} />
-                <InputField label="Taxa Comissária" value={taxaComissaria} onChange={setTaxaComissaria} placeholder="ex: 1,8% a.m." icon={Percent} />
-                <InputField label="Cobrança de TAC" value={tac} onChange={setTac} placeholder="ex: 0,3%" icon={TrendingUp} />
+                <InputField label="Taxa Convencional" value={taxaConvencional} onChange={setTaxaConvencional} placeholder="ex: 2,5% a.m." icon={Percent} format="percent" />
+                <InputField label="Taxa Comissária" value={taxaComissaria} onChange={setTaxaComissaria} placeholder="ex: 1,8% a.m." icon={Percent} format="percent" />
+                <InputField label="Cobrança de TAC" value={tac} onChange={setTac} placeholder="ex: 0,3%" icon={TrendingUp} format="percent" />
               </div>
 
               {/* Limites */}
               <p style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 12px" }}>Limites</p>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
-                <InputField label="Limite Total" value={limiteTotal} onChange={setLimiteTotal} placeholder="ex: R$ 500.000" icon={Landmark} />
-                <InputField label="Limite Convencional" value={limiteConvencional} onChange={setLimiteConvencional} placeholder="ex: R$ 300.000" icon={Landmark} />
-                <InputField label="Limite Comissária" value={limiteComissaria} onChange={setLimiteComissaria} placeholder="ex: R$ 200.000" icon={Landmark} />
-                <InputField label="Limite por Sacados" value={limitePorSacados} onChange={setLimitePorSacados} placeholder="ex: R$ 50.000" icon={Users} />
-                <InputField label="Ticket Médio" value={ticketMedio} onChange={setTicketMedio} placeholder="ex: R$ 15.000" icon={TrendingUp} />
+                <InputField label="Limite Total" value={limiteTotal} onChange={setLimiteTotal} placeholder="ex: R$ 500.000" icon={Landmark} format="currency" />
+                <InputField label="Limite Convencional" value={limiteConvencional} onChange={setLimiteConvencional} placeholder="ex: R$ 300.000" icon={Landmark} format="currency" />
+                <InputField label="Limite Comissária" value={limiteComissaria} onChange={setLimiteComissaria} placeholder="ex: R$ 200.000" icon={Landmark} format="currency" />
+                <InputField label="Limite por Sacados" value={limitePorSacados} onChange={setLimitePorSacados} placeholder="ex: R$ 50.000" icon={Users} format="currency" />
+                <InputField label="Ticket Médio" value={ticketMedio} onChange={setTicketMedio} placeholder="ex: R$ 15.000" icon={TrendingUp} format="currency" />
               </div>
 
               {/* Condições de Cobrança */}
               <p style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 12px" }}>Condições de Cobrança</p>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
-                <InputField label="Prazo de Recompra" value={prazoRecompra} onChange={setPrazoRecompra} placeholder="ex: 3 dias" icon={RefreshCw} />
-                <InputField label="Envio para Cartório" value={prazoCartorio} onChange={setPrazoCartorio} placeholder="ex: 5 dias" icon={Send} />
+                <InputField label="Prazo de Recompra" value={prazoRecompra} onChange={setPrazoRecompra} placeholder="ex: 3 dias" icon={RefreshCw} format="days" />
+                <InputField label="Envio para Cartório" value={prazoCartorio} onChange={setPrazoCartorio} placeholder="ex: 5 dias" icon={Send} format="days" />
               </div>
 
               {/* Prazos e Tranche */}
               <p style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 12px" }}>Prazos e Tranche</p>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <InputField label="Prazo Máximo" value={prazoMaximo} onChange={setPrazoMaximo} placeholder="ex: 120 dias" icon={Calendar} />
-                <InputField label="Tranche em R$" value={trancheValor} onChange={setTrancheValor} placeholder="ex: R$ 300.000" icon={DollarSign} />
-                <InputField label="Prazo Tranche (dias)" value={tranchePrazo} onChange={setTranchePrazo} placeholder="ex: 7 dias" icon={Package} />
+                <InputField label="Prazo Máximo" value={prazoMaximo} onChange={setPrazoMaximo} placeholder="ex: 120 dias" icon={Calendar} format="days" />
+                <InputField label="Tranche em R$" value={trancheValor} onChange={setTrancheValor} placeholder="ex: R$ 300.000" icon={DollarSign} format="currency" />
+                <InputField label="Prazo Tranche (dias)" value={tranchePrazo} onChange={setTranchePrazo} placeholder="ex: 7 dias" icon={Package} format="days" />
               </div>
             </div>
           </div>
@@ -1095,13 +1224,16 @@ ${notas.trim() ? `
 
         {/* ── Observações ── */}
         <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "24px", marginBottom: 20 }}>
-          <p style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 14, margin: "0 0 14px" }}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4, margin: "0 0 4px" }}>
             Observações do Analista
+          </p>
+          <p style={{ fontSize: 11, color: "#94a3b8", marginBottom: 14, margin: "0 0 14px" }}>
+            Considerações gerais sobre a análise (diferente da Nota do Comitê, que trata apenas dos parâmetros).
           </p>
           <textarea
             value={notas}
             onChange={e => setNotas(e.target.value)}
-            placeholder="Adicione observações, ressalvas ou justificativas para esta decisão..."
+            placeholder="Ex: Empresa com histórico consolidado, mas atentar para sazonalidade no 2º semestre..."
             rows={4}
             style={{
               width: "100%", padding: "10px 12px", fontSize: 13,
