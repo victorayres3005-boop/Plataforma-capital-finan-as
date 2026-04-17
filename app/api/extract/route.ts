@@ -1216,37 +1216,68 @@ Campos comuns em documentos de DIRPF (nomes típicos que você verá):
 - "Dívidas e Ônus Reais" / "Total de Dívidas e Ônus Reais" → dividasOnus
 
 ═══ BENS E DIREITOS — COMO EXTRAIR CORRETAMENTE ═══
-A seção "Bens e Direitos" da DIRPF lista cada bem individualmente com código e valor.
-Você DEVE somar os valores de cada categoria:
 
-→ bensImoveis: SOME todos os bens com código 11 a 19 (imóveis)
-  Exemplos: "11 - Prédio residencial", "12 - Prédio comercial", "13 - Galpão",
-  "14 - Terra nua", "15 - Sala ou conjunto", "16 - Unidade em condomínio",
-  "17 - Benfeitorias em imóvel de terceiro", "18 - Imóvel no exterior", "19 - Imóvel rural"
-  Também: "Imóveis e Terrenos", "Bens Imóveis", "Imóvel Residencial", "Casa", "Apartamento"
+⚠️ FORMATO ATUAL DA DIRPF (2020+): A "Declaração de Bens e Direitos" lista cada item em uma tabela
+com DUAS colunas numéricas iniciais: **GRUPO** (2 dígitos) e **CÓDIGO** (2 dígitos), seguidas de
+DISCRIMINAÇÃO, SITUAÇÃO EM 31/12 do ano anterior e SITUAÇÃO EM 31/12 do ano-calendário.
 
-→ bensVeiculos: SOME todos os bens com código 21 a 29 (veículos e bens móveis)
-  Exemplos: "21 - Veículo automotor terrestre (automóvel, caminhonete, moto)",
-  "22 - Aeronave", "23 - Embarcação", "24 - Veículo de tração animal",
-  "29 - Outros bens móveis"
-  Também: "Veículos Automotores Terrestres", "Automóvel", "Carro", "Moto", "Motocicleta",
-  "Veículo", qualquer item claramente identificado como veículo terrestre, embarcação ou aeronave.
-  ⚠️ ATENÇÃO: se aparecer um carro/moto/veículo listado individualmente, inclua o valor em bensVeiculos.
+Exemplo real que você verá:
+  GRUPO  CÓDIGO  DISCRIMINAÇÃO                          31/12/2023      31/12/2024
+  01     12      CASA ...                               640.000,00      640.000,00
+  02     01      VEICULO VW FOX ...                      34.615,00       34.615,00
+  02     01      VEICULO RAM RAMPAGE ...                      0,00      220.972,00
+  02     01      VEICULO VOLVO CX90 ...                 199.847,00      199.847,00
+  03     02      QUOTAS DE CAPITAL ...                  100.000,00      100.000,00
+  04     01      SALDO POUPANÇA ...                          0,00          401,14
+  06     01      CONTA CORRENTE ...                         10,00           10,00
 
-→ aplicacoesFinanceiras: SOME todos os bens com código 31 a 49 (aplicações, contas, investimentos)
-  Exemplos: "31 - Ações", "32 - Quotas ou quinhões de capital",
-  "41 - Caderneta de poupança", "42 - FGTS", "43 - Previdência privada",
-  "44 - Fundo de investimento", "45 - Conta corrente", "49 - Outros depósitos"
-  Também: "Aplicações Financeiras", "Investimentos", "Poupança", "CDB", "Tesouro Direto"
+⚠️ REGRA DE OURO: **USE SEMPRE A COLUNA MAIS RECENTE (31/12 do ano-calendário)**, NUNCA a do ano
+anterior. Ignore completamente a penúltima coluna.
 
-→ outrosBens: tudo que não se encaixar nas categorias acima (código 51 a 99)
-  Exemplos: "51 - Joia, quadro, objeto de arte", "52 - Direito autoral",
-  "53 - Marca e patente", "61 - Crédito decorrente de empréstimo",
-  "62 - Crédito decorrente de alienação", "99 - Outros bens e direitos"
+═══ MAPEAMENTO DOS GRUPOS ═══
 
-REGRA DE ORO: Se o documento mostrar "Total de Bens e Direitos = R$ X", use esse valor
-exato em totalBensDireitos. Depois distribua nas subcategorias somando os itens listados.
-Se um item não se encaixar claramente em imóvel/veículo/aplicação, coloque em outrosBens.
+→ **bensImoveis**: some TODOS os itens cujo **GRUPO = 01** (casa, apartamento, sala, terreno,
+  imóvel rural, benfeitoria, imóvel no exterior — qualquer imóvel).
+
+→ **bensVeiculos**: some TODOS os itens cujo **GRUPO = 02** (veículo terrestre, aeronave,
+  embarcação, outros bens móveis registráveis — carros, motos, caminhões, jet-skis, barcos,
+  aviões). **Se aparecem múltiplos carros, some TODOS, não pegue só o primeiro.**
+
+→ **aplicacoesFinanceiras**: some TODOS os itens cujo **GRUPO = 03, 04, 05, 06 ou 07**
+  (participações societárias, contas bancárias, aplicações, fundos, poupança, CDB, Tesouro,
+  previdência, conta corrente). Inclui contas correntes e saldos em conta-poupança.
+
+→ **outrosBens**: some os itens cujo **GRUPO = 08, 09, 10 ou superior** (créditos de empréstimo,
+  joias, obras de arte, direitos autorais, bens intangíveis).
+
+═══ FORMATO LEGADO (DIRPF antiga, pré-2019) ═══
+Se o documento NÃO tiver colunas GRUPO/CÓDIGO separadas e usar código único de 2 dígitos
+(ex: "12 - CASA"), use o mapeamento abaixo:
+  - 11-19 → bensImoveis
+  - 21-29 → bensVeiculos
+  - 31-49 → aplicacoesFinanceiras
+  - 51-99 → outrosBens
+
+═══ COMO PREENCHER totalBensDireitos ═══
+
+1º) PROCURE PRIMEIRO a seção "EVOLUÇÃO PATRIMONIAL" (geralmente na última página do PDF).
+    Ela traz linhas como "Bens e direitos em 31/12/2024 — 1.202.758,23". ESSE é o total
+    autoritativo. Use-o.
+
+2º) Se não achar Evolução Patrimonial, use a linha "TOTAL" que aparece no fim da tabela
+    de Bens e Direitos (última linha, após todos os itens).
+
+3º) Se nem isso houver, SOME bensImoveis + bensVeiculos + aplicacoesFinanceiras + outrosBens.
+
+❌ NUNCA pegue o valor do PRIMEIRO item da tabela como se fosse o total — isso é um erro
+   recorrente. O total é SEMPRE uma linha separada, identificada como "TOTAL" ou
+   "Bens e direitos em 31/12/YYYY".
+
+═══ VERIFICAÇÃO DE CONSISTÊNCIA (auto-checagem obrigatória) ═══
+Antes de devolver o JSON, CONFIRME:
+  bensImoveis + bensVeiculos + aplicacoesFinanceiras + outrosBens ≈ totalBensDireitos
+Se a diferença for > 5%, você ERROU alguma categoria. Releia a tabela item por item e
+refaça as somas. Diferença grande geralmente significa que você esqueceu um grupo inteiro.
 
 Regras críticas:
 - nomeSocio e anoBase são OBRIGATÓRIOS — não retorne JSON sem eles
@@ -1895,10 +1926,22 @@ function fillIRSocioDefaults(data: Partial<IRSocioData>): IRSocioData {
   const outrosBens         = sanitizeMoney(data.outrosBens);
   const dividasOnus        = sanitizeMoney(data.dividasOnus);
 
-  // totalBensDireitos: usa o valor do documento se disponível; senão soma as subcategorias
+  // Reconciliação de totalBensDireitos.
+  // O Gemini às vezes retorna um total que é só o primeiro item da lista (ex: "640k" quando
+  // na verdade o total é 1.2M), ou retorna subcategorias incompletas. Quando há divergência
+  // significativa, usamos o MAIOR dos dois — parte-se da premissa de que o menor está
+  // incompleto (o agregador raramente inventa valor, mas frequentemente perde itens).
   const totalDoc   = parseMoney(data.totalBensDireitos);
   const totalCalc  = parseMoney(bensImoveis) + parseMoney(bensVeiculos) + parseMoney(aplicacoes) + parseMoney(outrosBens);
-  const totalBens  = totalDoc > 0 ? sanitizeMoney(data.totalBensDireitos) : (totalCalc > 0 ? fmtMoney(totalCalc) : "0,00");
+  const maxTotal   = Math.max(totalDoc, totalCalc);
+  const diverges   = totalDoc > 0 && totalCalc > 0 && Math.abs(totalDoc - totalCalc) > maxTotal * 0.05;
+  if (diverges) {
+    console.warn(
+      `[IR extract] totalBensDireitos divergente: doc=${totalDoc}, calc=${totalCalc}. ` +
+      `Usando o maior (${maxTotal}). Subcategorias provavelmente incompletas.`,
+    );
+  }
+  const totalBens = maxTotal > 0 ? fmtMoney(maxTotal) : "0,00";
 
   // patrimonioLiquido: recalcula server-side para garantir consistência
   const totalBensN = parseMoney(totalBens);

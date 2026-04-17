@@ -1882,6 +1882,14 @@ function pageIRVisita(params: PDFReportParams, date: string): string {
           <div class="icell ${ir.coerenciaComEmpresa ? "success" : "warn"}"><div class="l">Coerência c/ empresa</div><div class="v ${ir.coerenciaComEmpresa ? "green" : ""} sm">${ir.coerenciaComEmpresa ? "Sim" : "Verificar"}</div></div>
         </div>
         ${!ir.debitosEmAberto ? `<div class="alert ok" style="margin:0"><span class="atag">OK</span> Sem débitos com a Receita Federal</div>` : `<div class="alert alta" style="margin:0"><span class="atag">ALTA</span> Débitos em aberto: ${esc(ir.descricaoDebitos ?? "")}</div>`}
+        ${(() => {
+          const soma = numVal(bensImoveis) + numVal(bensVeiculos) + numVal(ir.aplicacoesFinanceiras) + numVal((ir as { outrosBens?: string }).outrosBens ?? "0");
+          const total = numVal(ir.totalBensDireitos);
+          if (soma <= 0 || total <= 0) return "";
+          const maxV = Math.max(soma, total);
+          if (Math.abs(soma - total) <= maxV * 0.05) return "";
+          return `<div class="alert mod" style="margin:6px 0 0"><span class="atag">MODERADA</span> Subcategorias de bens (${fmtMoneyAbr(soma)}) divergem do total declarado (${fmtMoneyAbr(total)}) — extração pode estar incompleta, revisar documento fonte.</div>`;
+        })()}
       </div>`;
     }).join("");
     irSection = `${stitle("12 · IR dos sócios")}${irBlocks}`;

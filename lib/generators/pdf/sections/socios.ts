@@ -185,6 +185,22 @@ export function renderSocios(ctx: PdfCtx): void {
     if (anoBase > 0 && anoBase < anoAtual - 1) alertRow("mod", `IR do sócio ${ir.nomeSocio || ""} desatualizado — ano-base ${anoBase}`);
     const allZero = !parseMoneyToNumber(ir.rendimentoTotal || "0") && !parseMoneyToNumber(ir.totalBensDireitos || "0");
     if (allZero) alertRow("mod", "IR com valores zerados — possível extração incompleta");
+    // Reconciliação: se a soma das subcategorias diverge >5% do total declarado,
+    // a extração do Gemini provavelmente perdeu itens (veículos, imóveis ou aplicações).
+    const somaCat = parseMoneyToNumber(ir.bensImoveis || "0")
+      + parseMoneyToNumber(ir.bensVeiculos || "0")
+      + parseMoneyToNumber(ir.aplicacoesFinanceiras || "0")
+      + parseMoneyToNumber(ir.outrosBens || "0");
+    const totalDec = parseMoneyToNumber(ir.totalBensDireitos || "0");
+    if (somaCat > 0 && totalDec > 0) {
+      const diff = Math.abs(totalDec - somaCat);
+      const maxV = Math.max(totalDec, somaCat);
+      if (diff > maxV * 0.05) {
+        alertRow("mod",
+          `IR do sócio ${ir.nomeSocio || ""} — subcategorias divergem do total (soma ${mo(somaCat)} × total ${mo(totalDec)}). Revisar documento fonte.`,
+        );
+      }
+    }
     const plv = parseMoneyToNumber(ir.patrimonioLiquido || "0");
     if (plv > 0) alertRow("ok", `Sem débitos com a Receita Federal`);
   }
