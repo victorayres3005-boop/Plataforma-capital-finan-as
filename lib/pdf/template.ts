@@ -764,9 +764,10 @@ function pageSintese(params: PDFReportParams, date: string): string {
   const procColor = procTotal > 5 ? "red" : procTotal > 0 ? "red" : "green";
   const procDist = (proc?.distribuicao ?? []).slice(0, 4);
   const procDistRows = procDist.map(p => {
-    const tag2 = p.tipo.toLowerCase().includes("fiscal") ? "exec" :
-                 p.tipo.toLowerCase().includes("banco") || p.tipo.toLowerCase().includes("fidc") ? "banco" :
-                 p.tipo.toLowerCase().includes("trab") ? "np" : "sust";
+    const tipoLc2 = (p.tipo ?? "").toLowerCase();
+    const tag2 = tipoLc2.includes("fiscal") ? "exec" :
+                 tipoLc2.includes("banco") || tipoLc2.includes("fidc") ? "banco" :
+                 tipoLc2.includes("trab") ? "np" : "sust";
     const tagLabel2 = tag2 === "exec" ? "FISCAL" : tag2 === "banco" ? "BANCO" : tag2 === "np" ? "TRAB" : "CÍVEL";
     return `<div class="risk-item"><span class="risk-tag ${tag2}">${tagLabel2}</span><span class="desc">${esc(p.tipo)}</span><span class="amt red">${esc(p.qtd)} proc.</span></div>`;
   }).join("");
@@ -1362,20 +1363,20 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
 
   const distRows = (proc?.distribuicao ?? []).map(d => {
     const pct = parseFloat(d.pct) || 0;
-    const isFiscal = d.tipo.toLowerCase().includes("fiscal");
+    const isFiscal = (d.tipo ?? "").toLowerCase().includes("fiscal");
     return `<div class="prop-row"><span class="prop-label">${esc(d.tipo)}</span><div class="prop-fill${isFiscal ? " red" : ""}" style="width:${Math.min(pct,100)}%"></div><span class="prop-pct">${d.qtd} proc. <span style="color:var(--x4);font-weight:400">${d.pct ? "· " + d.pct + "%" : ""}</span></span></div>`;
   }).join("");
 
   const top5Proc = (proc?.top10Recentes ?? []).slice(0,5);
   const top5ProcRows = top5Proc.map(p =>
-    `<tr><td class="${p.tipo.toLowerCase().includes("fiscal") ? "red" : ""}">${esc(p.tipo)}</td><td>${fmtDate(p.data)}</td><td>${esc(p.assunto)}</td><td>${fmt(p.fase)}</td></tr>`
+    `<tr><td class="${(p.tipo ?? "").toLowerCase().includes("fiscal") ? "red" : ""}">${esc(p.tipo)}</td><td>${fmtDate(p.data)}</td><td>${esc(p.assunto)}</td><td>${fmt(p.fase)}</td></tr>`
   ).join("");
 
   // Top 10 por valor — suprimido se todos os valores forem zero
   const top10Valor = (proc?.top10Valor ?? []).slice(0,10);
   const hasNonZeroValues = top10Valor.some(p => numVal(p.valor) > 0);
   const top10ValorRows = hasNonZeroValues ? top10Valor.map(p => {
-    const isFiscal = p.tipo.toLowerCase().includes("fiscal");
+    const isFiscal = (p.tipo ?? "").toLowerCase().includes("fiscal");
     return `<tr>
       <td class="${isFiscal ? "red" : "b"}">${esc(p.tipo)}</td>
       <td>${esc(p.partes)}</td>
@@ -1490,7 +1491,7 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
       <thead><tr><th>Faixa</th><th class="r">Qtd</th><th class="r">Valor</th><th>Proporção</th></tr></thead>
       <tbody>${distFaixaProcRows}</tbody>
     </table>` : ""}
-    ${numVal(passivo) > 5 ? `<div class="alert alta"><span class="atag">ALTA</span> ${fmt(passivo)} processos no polo passivo — verificar detalhes</div>` : totalProc > 5 ? `<div class="alert moderada"><span class="atag">MOD</span> ${totalProc} processos judiciais identificados — verificar detalhes</div>` : ""}
+    ${numVal(passivo) > 5 ? `<div class="alert alta"><span class="atag">ALTA</span> ${fmt(passivo)} processos no polo passivo — verificar detalhes</div>` : totalProc > 5 ? `<div class="alert mod"><span class="atag">MOD</span> ${totalProc} processos judiciais identificados — verificar detalhes</div>` : ""}
     ${temRJ ? `<div class="alert alta"><span class="atag">ALTA</span> Pedido de falência ou recuperação judicial identificado</div>` : ""}
 
     ${(() => {
@@ -1841,7 +1842,7 @@ function pageIRVisita(params: PDFReportParams, date: string): string {
   let irSection = "";
   if (irSocios.length > 0) {
     const irBlocks = irSocios.map(ir => {
-      const initials = ir.nomeSocio.split(" ").slice(0,2).map(w => w[0]).join("").toUpperCase();
+      const initials = (ir.nomeSocio ?? "").split(" ").slice(0,2).map((w: string) => w[0] ?? "").join("").toUpperCase();
       const pl = numVal(ir.patrimonioLiquido ?? "0");
       const plBorder = pl > 500000 ? "var(--g6)" : pl > 0 ? "var(--a5)" : "var(--r6)";
       const impostoPago = ir.impostoPago ?? "0";

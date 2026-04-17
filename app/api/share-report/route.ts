@@ -40,8 +40,12 @@ export async function POST(req: Request) {
   });
 
   if (error) {
-    console.error("[share-report] supabase insert error:", error.message);
-    return Response.json({ error: error.message }, { status: 500 });
+    const isTableMissing = error.message?.includes("does not exist") || error.code === "42P01";
+    const userMsg = isTableMissing
+      ? "Tabela 'shared_reports' não existe — execute a migração SQL no Supabase (supabase/migrations/15_shared_reports.sql)"
+      : error.message;
+    console.error("[share-report] supabase insert error:", error.message, error.code);
+    return Response.json({ error: userMsg }, { status: 500 });
   }
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "";
