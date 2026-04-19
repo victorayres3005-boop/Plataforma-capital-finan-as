@@ -80,6 +80,17 @@ function getGrade(rating: number | null): { letter: string; bg: string; color: s
   return               { letter: "D", bg: "#FEE2E2", color: "#DC2626", border: "#FCA5A5" };
 }
 
+// Tooltip explicativo do rating — mostrado no hover do círculo A/B/C/D na lista.
+function getGradeTooltip(rating: number | null): string {
+  if (rating == null) return "Sem rating — análise ainda não foi gerada";
+  const faixa =
+    rating >= 8 ? "A · Baixo risco (rating 8-10): perfil saudável, recomendado"
+    : rating >= 5 ? "B · Risco moderado (rating 5-7,9): atenção recomendada"
+    : rating >= 3 ? "C · Risco elevado (rating 3-4,9): avaliar condições antes de aprovar"
+    : "D · Alto risco (rating 0-2,9): perfil crítico, evitar ou exigir garantias fortes";
+  return `Rating ${rating.toFixed(1)}/10 · ${faixa}`;
+}
+
 // ── Doc icon colors per type ──
 const DOC_ICON_STYLE: Record<string, { color: string; bg: string }> = {
   cnpj:            { color: "#3B82F6", bg: "#EFF6FF" },
@@ -361,7 +372,7 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate }
       {/* ── Collapsed row (56px) ── */}
       <div className="flex items-center gap-2.5 px-4 h-14 hover:bg-[#FAFAFA] transition-colors group">
         {/* Grade circle */}
-        <div style={{ width: 36, height: 36, borderRadius: "50%", background: grade.bg, border: `1.5px solid ${grade.border}`, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div title={getGradeTooltip(col.rating)} style={{ width: 36, height: 36, borderRadius: "50%", background: grade.bg, border: `1.5px solid ${grade.border}`, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", cursor: "help" }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: grade.color }}>{grade.letter}</span>
         </div>
 
@@ -960,16 +971,47 @@ export default function HistoricoPage() {
   );
 }
 
+// Chave e forma dos filtros persistidos entre sessões do Histórico.
+// Qualquer mudança nessa estrutura é compatível: valores ausentes caem no default.
+const HISTORICO_FILTERS_KEY = "cf_historico_filters_v1";
+type HistoricoFilters = {
+  filterStatus: string;
+  filterDecisao: string;
+  filterRamo: string;
+  filterPeriodo: string;
+  hideEmpty: boolean;
+};
+const DEFAULT_HISTORICO_FILTERS: HistoricoFilters = {
+  filterStatus: "",
+  filterDecisao: "",
+  filterRamo: "",
+  filterPeriodo: "",
+  hideEmpty: true,
+};
+function loadHistoricoFilters(): HistoricoFilters {
+  if (typeof window === "undefined") return DEFAULT_HISTORICO_FILTERS;
+  try {
+    const raw = localStorage.getItem(HISTORICO_FILTERS_KEY);
+    if (!raw) return DEFAULT_HISTORICO_FILTERS;
+    const parsed = JSON.parse(raw) as Partial<HistoricoFilters>;
+    return { ...DEFAULT_HISTORICO_FILTERS, ...parsed };
+  } catch { return DEFAULT_HISTORICO_FILTERS; }
+}
+
 function HistoricoContent() {
   const [collections, setCollections] = useState<DocumentCollection[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [filterStatus, setFilterStatus] = useState("");
-  const [filterDecisao, setFilterDecisao] = useState("");
-  const [filterRamo, setFilterRamo] = useState("");
-  const [filterPeriodo, setFilterPeriodo] = useState("");
+  // Debounce de 300ms no search para evitar re-filtragem a cada tecla em listas grandes.
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  // Estado inicial dos filtros vem do localStorage (preferências persistidas entre sessões).
+  const initialFilters = typeof window !== "undefined" ? loadHistoricoFilters() : DEFAULT_HISTORICO_FILTERS;
+  const [filterStatus, setFilterStatus] = useState(initialFilters.filterStatus);
+  const [filterDecisao, setFilterDecisao] = useState(initialFilters.filterDecisao);
+  const [filterRamo, setFilterRamo] = useState(initialFilters.filterRamo);
+  const [filterPeriodo, setFilterPeriodo] = useState(initialFilters.filterPeriodo);
   const [showFilters, setShowFilters] = useState(false);
-  const [hideEmpty, setHideEmpty] = useState(true);
+  const [hideEmpty, setHideEmpty] = useState(initialFilters.hideEmpty);
   const [deletingEmpty, setDeletingEmpty] = useState(false);
   const [pageSize, setPageSize] = useState(20);
   const [notifications, setNotifications] = useState<{ id: string; message: string; read: boolean; created_at: string }[]>([]);
@@ -1013,6 +1055,21 @@ function HistoricoContent() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  // Debounce da busca: atualiza debouncedSearch 300ms após o usuário parar de digitar.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // Persiste filtros em localStorage sempre que mudarem.
+  useEffect(() => {
+    try {
+      localStorage.setItem(HISTORICO_FILTERS_KEY, JSON.stringify({
+        filterStatus, filterDecisao, filterRamo, filterPeriodo, hideEmpty,
+      }));
+    } catch { /* ignore storage errors */ }
+  }, [filterStatus, filterDecisao, filterRamo, filterPeriodo, hideEmpty]);
 
   const activeFilters = [filterStatus, filterDecisao, filterRamo, filterPeriodo].filter(Boolean).length;
 
@@ -1071,7 +1128,8 @@ function HistoricoContent() {
       if (hideEmpty && isEmptyCollection(col)) return false;
       const name = (col.company_name || col.label || "").toLowerCase();
       const cnpj = (col.cnpj || "").toLowerCase();
-      const q = search.toLowerCase().trim();
+      // Usa debouncedSearch (em vez de search cru) para não filtrar a cada tecla.
+      const q = debouncedSearch.toLowerCase().trim();
       if (q && !name.includes(q) && !cnpj.includes(q)) return false;
       if (filterStatus && col.status !== filterStatus) return false;
       if (filterDecisao && col.decisao !== filterDecisao) return false;
@@ -1100,7 +1158,7 @@ function HistoricoContent() {
       cols: cols.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
     }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [collections, search, filterStatus, filterDecisao, filterRamo, filterPeriodo, hideEmpty]);
+  }, [collections, debouncedSearch, filterStatus, filterDecisao, filterRamo, filterPeriodo, hideEmpty]);
 
   const totalEntries = grouped.reduce((s, g) => s + g.cols.length, 0);
   const visibleGroups = grouped.slice(0, pageSize);
