@@ -375,7 +375,20 @@ export default function HomePage() {
       }
 
       const docs = (col.documents || []) as { type: string; extracted_data: Record<string, unknown> }[];
+      // Debug temporário: logar quando os documents da coleta chegam vazios ou o hydrate parece ter perdido dados.
+      // Remove isto depois que o bug "dados zerados ao voltar de /parecer" for diagnosticado.
+      if (!docs.length) {
+        console.warn(`[resume] Coleta ${collectionId} retornou documents=[] — dados ficarão zerados. ai_analysis presente: ${!!col.ai_analysis}`);
+      } else {
+        console.log(`[resume] Coleta ${collectionId} — ${docs.length} documentos, tipos:`, docs.map(d => d.type));
+      }
       const hydrated = hydrateFromCollection(docs);
+      if (!hydrated.cnpj?.razaoSocial && !hydrated.faturamento?.meses?.length) {
+        console.warn(`[resume] Hydrate resultou em cnpj.razaoSocial vazio E faturamento.meses vazio — investigar`, {
+          docsTypes: docs.map(d => d.type),
+          docsKeys: docs.map(d => Object.keys(d.extracted_data ?? {}).length),
+        });
+      }
 
       // Load resumoRisco from the parecer if it was saved
       if (col.documents?.some((d: { extracted_data?: { parecer?: string } }) => d.extracted_data?.parecer)) {
