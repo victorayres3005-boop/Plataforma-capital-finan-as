@@ -923,9 +923,13 @@ export default function HomePage() {
           const filteredByStatus = statusFilter !== "all"
             ? filteredByCompany.filter(c => c.status === statusFilter)
             : filteredByCompany;
-          const filtered = decisaoFilter !== "all"
+          const filteredByDecisao = decisaoFilter !== "all"
             ? filteredByStatus.filter(c => c.decisao === decisaoFilter)
             : filteredByStatus;
+          // "Últimas Coletas" só mostra coletas com mais de 4 arquivos analisados
+          // (critério pedido para esconder coletas de teste/rascunho da tela principal).
+          // O /historico continua mostrando todas.
+          const filtered = filteredByDecisao.filter(c => (c.documents?.length ?? 0) > 4);
           const hasActiveFilters = searchQuery.trim() || selectedCompany || statusFilter !== "all" || decisaoFilter !== "all";
 
           // ── Group by CNPJ + date (day) ─────────────────────────────────────
