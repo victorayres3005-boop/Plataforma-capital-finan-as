@@ -642,15 +642,20 @@ function ParecerContent() {
       const esc = (s: string) => (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
       const decLabel: Record<string, string> = { APROVADO: "APROVADO", APROVACAO_CONDICIONAL: "APROVAÇÃO CONDICIONAL", PENDENTE: "EM ANÁLISE", REPROVADO: "REPROVADO" };
-      const decStyle: Record<string, { bg: string; color: string }> = {
-        APROVADO: { bg: "#dcfce7", color: "#166534" }, APROVACAO_CONDICIONAL: { bg: "#fef3c7", color: "#92400e" },
-        PENDENTE: { bg: "#fef3c7", color: "#92400e" }, REPROVADO: { bg: "#fee2e2", color: "#991b1b" },
-      };
       const comiteLabel: Record<string, string> = { conforme_pleito: "Conforme Pleito", com_modificacoes: "Aprovado com Modificações", condicionado: "Condicionado" };
 
-      const rc = rating != null ? (rating >= 7 ? "#22c55e" : rating >= 4 ? "#f59e0b" : "#ef4444") : "#94a3b8";
+      // Cores alinhadas ao design system do relatório de síntese (template.ts):
+      // aprovado=--g6 (#5a8a2a), reprovado=--r6 (#c53030), pendente/condicional=--a5 (#d4940a).
+      const decVariant = (d: string | null): "success" | "warn" | "danger" | null => {
+        if (!d) return null;
+        if (d === "APROVADO") return "success";
+        if (d === "REPROVADO") return "danger";
+        return "warn"; // APROVACAO_CONDICIONAL, PENDENTE
+      };
+      const variant = decVariant(decisao);
+      const ratingVariant: "success" | "warn" | "danger" | null = rating == null
+        ? null : rating >= 7 ? "success" : rating >= 4 ? "warn" : "danger";
       const riskLabel = rating != null ? (rating >= 7 ? "BAIXO RISCO" : rating >= 4 ? "RISCO MODERADO" : "ALTO RISCO") : "";
-      const ds = decisao ? decStyle[decisao] || decStyle.PENDENTE : null;
 
       // Comparativo rows
       const rows: { label: string; pleito: string; aprovado: string }[] = [];
@@ -681,128 +686,200 @@ function ParecerContent() {
       if (garantias) cond.push({ label: "Garantias", value: garantias });
       if (prazoRevisao) cond.push({ label: "Prazo de Revisão", value: prazoRevisao });
 
+      // Logo SVG inline — mesma marca do relatório de síntese, versão clara para header.
+      const logoSvg = (whiteFill: boolean) => {
+        const blue = whiteFill ? "#ffffff" : "#163269";
+        const green = whiteFill ? "#84BF41" : "#84BF41";
+        return `<svg width="170" height="22" viewBox="0 0 451 58" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="31" cy="27" r="22" stroke="${blue}" stroke-width="4.5" fill="none"/>
+          <circle cx="31" cy="49" r="4.5" fill="${blue}"/>
+          <text x="66" y="46" font-family="'DM Sans',Arial,sans-serif" font-weight="700" font-size="38" letter-spacing="-0.3">
+            <tspan fill="${blue}">capital</tspan><tspan fill="${green}">finanças</tspan>
+          </text>
+        </svg>`;
+      };
+
       const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
 <title>Decisão do Comitê — ${esc(companyName)}</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Inter','Helvetica Neue',Arial,sans-serif;color:#111827;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-@page{margin:0}
-@media print{.no-print{display:none!important}}
-.page{min-height:100vh;display:flex;flex-direction:column}
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{
+    --n9:#163269;--n8:#1F478E;--n7:#2a5aad;--n1:#ccd9f0;--n0:#e8eef8;
+    --a5:#d4940a;--a1:#fdf3d7;--a0:#fef9ec;
+    --r6:#c53030;--r1:#fee2e2;--r0:#fef2f2;
+    --g6:#5a8a2a;--g1:#dff0c0;--g0:#f0f9e6;
+    --x9:#111827;--x7:#374151;--x5:#6b7280;--x4:#9ca3af;--x2:#e5e7eb;--x1:#f3f4f6;--x0:#f9fafb;
+    --gl:#84BF41;
+    --fs-kpi:14px;--fs-h3:12px;--fs-body:11px;--fs-label:9px;--fs-tag:8px;
+  }
+  body{font-family:'DM Sans',sans-serif;font-size:var(--fs-body);color:var(--x9);background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;-webkit-font-smoothing:antialiased}
+  .mono{font-family:'JetBrains Mono',monospace}
+  @page{size:210mm auto;margin:14mm 18mm}
+  @media print{
+    body{margin:0;padding:0}
+    .page{max-width:none!important;margin:0!important;box-shadow:none!important;border-radius:0!important}
+    .no-print{display:none!important}
+  }
+  .page{max-width:860px;margin:20px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 4px 24px rgba(12,27,58,0.07);display:flex;flex-direction:column;min-height:100vh}
+  /* Header */
+  .hdr{background:var(--n9);padding:14px 32px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid var(--gl)}
+  .hdr .meta{font-size:var(--fs-label);color:rgba(255,255,255,0.5);letter-spacing:0.04em}
+  .hdr .pg{background:var(--gl);color:#fff;font-size:var(--fs-body);font-weight:700;padding:3px 11px;border-radius:10px;margin-left:12px}
+  /* Conteúdo */
+  .ct{padding:28px 32px 32px;flex:1}
+  /* Empresa header */
+  .emp{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:20px;border-bottom:1px solid var(--x2);margin-bottom:24px;gap:24px}
+  .emp-name{font-size:20px;font-weight:700;color:var(--n9);margin-bottom:4px;line-height:1.2}
+  .emp-cnpj{font-size:var(--fs-h3);color:var(--x5)}
+  .emp-cnpj b{color:var(--x7);font-family:'JetBrains Mono',monospace}
+  .dec{display:inline-block;padding:3px 12px;border-radius:4px;font-size:var(--fs-label);font-weight:700;letter-spacing:0.06em;margin-top:8px}
+  .dec.success{background:var(--g1);color:var(--g6)}
+  .dec.warn{background:var(--a1);color:var(--a5)}
+  .dec.danger{background:var(--r1);color:var(--r6)}
+  /* Rating circle */
+  .rat{text-align:center;min-width:120px;flex-shrink:0}
+  .rat-c{width:72px;height:72px;border-radius:50%;border:3px solid;display:flex;flex-direction:column;align-items:center;justify-content:center;margin:0 auto 6px}
+  .rat-c.success{border-color:var(--g6);color:var(--g6)}
+  .rat-c.warn{border-color:var(--a5);color:var(--a5)}
+  .rat-c.danger{border-color:var(--r6);color:var(--r6)}
+  .rat-n{font-size:26px;font-weight:700;line-height:1}
+  .rat-d{font-size:var(--fs-label);color:var(--x4);margin-top:2px}
+  .rat-l{font-size:var(--fs-label);font-weight:700;letter-spacing:0.06em}
+  .rat-l.success{color:var(--g6)}
+  .rat-l.warn{color:var(--a5)}
+  .rat-l.danger{color:var(--r6)}
+  /* Section title */
+  .stitle{font-size:var(--fs-body);font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--x5);margin:28px 0 12px;display:flex;align-items:center;gap:10px}
+  .stitle:first-child{margin-top:0}
+  .stitle .tag{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:18px;border-radius:3px;background:var(--n9);color:#fff;font-size:var(--fs-tag);font-weight:700;padding:0 6px;letter-spacing:0.04em}
+  .stitle .line{flex:1;height:1px;background:var(--x2)}
+  /* Comparativo table */
+  .cmp{width:100%;border-collapse:separate;border-spacing:0;font-size:var(--fs-h3);border:1px solid var(--x2);border-radius:8px;overflow:hidden;margin-bottom:8px}
+  .cmp thead th{background:var(--n9);color:rgba(255,255,255,0.9);font-size:var(--fs-label);font-weight:600;letter-spacing:0.06em;text-transform:uppercase;padding:10px 14px;text-align:left}
+  .cmp thead th.c{text-align:center}
+  .cmp tbody td{padding:9px 14px;border-bottom:1px solid var(--x1);color:var(--x7);font-size:var(--fs-body)}
+  .cmp tbody tr:last-child td{border-bottom:none}
+  .cmp tbody tr:nth-child(even){background:var(--x0)}
+  .cmp td.label{color:var(--x5);font-weight:600}
+  .cmp td.val{text-align:center}
+  .cmp td.appr{text-align:center;font-weight:700;color:var(--x9)}
+  .cmp td.appr.changed{color:var(--n8)}
+  .cmp td.appr .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--n8);margin-left:6px;vertical-align:middle}
+  /* Condições grid */
+  .cond-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px}
+  .icell{padding:12px 14px;background:var(--x0);border-radius:6px;border:1px solid var(--x1);border-left:3px solid var(--n8)}
+  .icell .l{font-size:var(--fs-tag);font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--x4);margin-bottom:4px}
+  .icell .v{font-size:var(--fs-kpi);font-weight:700;color:var(--n9)}
+  /* Observações */
+  .note{background:#fff;border:1px solid var(--x2);border-left:4px solid var(--n8);border-radius:0 8px 8px 0;padding:14px 18px;margin-bottom:10px}
+  .note.analyst{border-left-color:var(--x4)}
+  .note .l{font-size:var(--fs-tag);font-weight:700;color:var(--n8);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px}
+  .note.analyst .l{color:var(--x5)}
+  .note .body{font-size:var(--fs-h3);color:var(--x7);line-height:1.6;white-space:pre-wrap}
+  /* Footer */
+  .ftr{background:var(--x0);border-top:1px solid var(--x2);padding:10px 32px;display:flex;justify-content:space-between;align-items:center}
+  .ftr span{font-size:var(--fs-label);color:var(--x4);letter-spacing:0.04em}
+  .ftr .logo{opacity:0.5;display:flex;align-items:center}
+  /* Botão flutuante */
+  .print-btn{position:fixed;bottom:24px;right:24px;padding:12px 24px;background:var(--n9);color:#fff;border:none;border-radius:10px;font-size:var(--fs-h3);font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(22,50,105,0.3);font-family:'DM Sans',sans-serif;letter-spacing:0.02em}
+  .print-btn:hover{background:var(--n8)}
 </style></head><body>
+
 <div class="page">
 
-<!-- ═══ HEADER BAR ═══ -->
-<div style="background:#0f1e3c;padding:28px 40px 0">
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
-    <div>
-      <div style="font-size:11px;font-weight:900;color:#fff;letter-spacing:.1em;text-transform:uppercase">CAPITAL <span style="color:#22c55e">FINANÇAS</span></div>
-      <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:2px;letter-spacing:.04em">DECISÃO DO COMITÊ DE CRÉDITO</div>
+  <!-- ═══ HEADER ═══ -->
+  <div class="hdr">
+    <div style="display:flex;align-items:center">${logoSvg(true)}</div>
+    <div style="display:flex;align-items:center">
+      <div class="meta">Decisão do Comitê de Crédito · ${esc(hoje)}</div>
+      <div class="pg">1</div>
     </div>
-    <div style="font-size:9px;color:rgba(255,255,255,.35)">${esc(hoje)}</div>
   </div>
-  <div style="height:1px;background:rgba(255,255,255,.08);margin-bottom:24px"></div>
 
-  <!-- Empresa + Decisão + Rating -->
-  <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:32px;flex-wrap:wrap;padding-bottom:24px">
-    <div style="flex:1;min-width:280px">
-      ${ds ? `<span style="display:inline-block;padding:4px 14px;border-radius:4px;background:${ds.bg};color:${ds.color};font-size:10px;font-weight:800;letter-spacing:.06em;margin-bottom:10px">${decLabel[decisao!] || decisao}</span>` : ""}
-      <div style="font-size:24px;font-weight:900;color:#fff;line-height:1.2;margin-bottom:6px">${esc(companyName)}</div>
-      <div style="font-size:11px;color:rgba(255,255,255,.45)">CNPJ ${esc(cnpj)}</div>
+  <!-- ═══ CONTEÚDO ═══ -->
+  <div class="ct">
+
+    <!-- Empresa / Decisão / Rating -->
+    <div class="emp">
+      <div style="flex:1">
+        <div class="emp-name">${esc(companyName)}</div>
+        <div class="emp-cnpj">CNPJ <b>${esc(cnpj)}</b></div>
+        ${variant && decisao ? `<span class="dec ${variant}">${decLabel[decisao] || decisao}${decisaoComite ? ` · ${esc(comiteLabel[decisaoComite] || decisaoComite)}` : ""}</span>` : ""}
+      </div>
+      ${rating != null && ratingVariant ? `
+      <div class="rat">
+        <div class="rat-c ${ratingVariant}">
+          <div class="rat-n">${rating}</div>
+          <div class="rat-d">/ 10</div>
+        </div>
+        <div class="rat-l ${ratingVariant}">${riskLabel}</div>
+      </div>` : ""}
     </div>
-    ${rating != null ? `
-    <div style="text-align:center;flex-shrink:0">
-      <div style="font-size:9px;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Rating de Crédito</div>
-      <div style="font-size:42px;font-weight:900;color:${rc};line-height:1">${rating}<span style="font-size:16px;color:rgba(255,255,255,.3)"> / 10</span></div>
-      <span style="display:inline-block;margin-top:6px;padding:3px 12px;border-radius:99px;background:${rc};color:#fff;font-size:8px;font-weight:800;letter-spacing:.06em">${riskLabel}</span>
+
+    ${rows.length > 0 ? `
+    <!-- Comparativo -->
+    <div class="stitle"><span class="tag">01</span>Comparativo: Pleito × Aprovado<div class="line"></div></div>
+    <table class="cmp">
+      <thead>
+        <tr>
+          <th>Parâmetro</th>
+          <th class="c">Pleito do Cedente</th>
+          <th class="c">Aprovado pelo Comitê</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(r => {
+          const diff = r.pleito !== "—" && r.aprovado !== "—" && r.pleito !== r.aprovado;
+          return `<tr>
+            <td class="label">${esc(r.label)}</td>
+            <td class="val">${esc(r.pleito)}</td>
+            <td class="appr${diff ? " changed" : ""}">${esc(r.aprovado)}${diff ? '<span class="dot"></span>' : ""}</td>
+          </tr>`;
+        }).join("")}
+      </tbody>
+    </table>
+    ` : ""}
+
+    ${cond.length > 0 ? `
+    <!-- Condições e Garantias -->
+    <div class="stitle"><span class="tag">02</span>Condições e Garantias<div class="line"></div></div>
+    <div class="cond-grid">
+      ${cond.map(c => `
+      <div class="icell">
+        <div class="l">${esc(c.label)}</div>
+        <div class="v">${esc(c.value)}</div>
+      </div>`).join("")}
+    </div>
+    ` : ""}
+
+    ${notaComite.trim() || notas.trim() ? `
+    <!-- Observações -->
+    <div class="stitle"><span class="tag">03</span>Observações<div class="line"></div></div>
+    ${notaComite.trim() ? `
+    <div class="note">
+      <div class="l">Nota do Comitê</div>
+      <div class="body">${esc(notaComite.trim())}</div>
     </div>` : ""}
+    ${notas.trim() ? `
+    <div class="note analyst">
+      <div class="l">Observações do Analista</div>
+      <div class="body">${esc(notas.trim())}</div>
+    </div>` : ""}
+    ` : ""}
+
   </div>
-</div>
 
-<!-- ═══ TÍTULO DA DECISÃO DO COMITÊ ═══ -->
-<div style="background:rgba(0,0,0,.15);padding:10px 40px">
-  <div style="font-size:9px;font-weight:800;color:#22c55e;letter-spacing:.08em;text-transform:uppercase">DECISÃO DO COMITÊ DE CRÉDITO${decisaoComite ? ` — ${esc(comiteLabel[decisaoComite] || decisaoComite)}` : ""}</div>
-</div>
-
-<!-- ═══ CONTEÚDO ═══ -->
-<div style="padding:28px 40px;flex:1">
-
-${rows.length > 0 ? `
-<!-- Seção: Comparativo -->
-<div style="display:flex;align-items:center;gap:10px;background:#eef3fb;border-left:4px solid #22c55e;padding:8px 14px;margin-bottom:18px;border-radius:0 4px 4px 0">
-  <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;background:#1a2744;color:#fff;font-size:9px;font-weight:800;border-radius:6px;flex-shrink:0">CP</span>
-  <span style="font-size:11px;font-weight:800;color:#1a2744;text-transform:uppercase;letter-spacing:.04em">Comparativo: Pleito do Cedente × Aprovado pelo Comitê</span>
-</div>
-<table style="width:100%;border-collapse:collapse;margin-bottom:28px">
-  <thead>
-    <tr>
-      <th style="background:#1a2744;color:#fff;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:10px 14px;text-align:left;border-radius:6px 0 0 0">Parâmetro</th>
-      <th style="background:#1a2744;color:#fff;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:10px 14px;text-align:center">Pleito do Cedente</th>
-      <th style="background:#1a2744;color:#fff;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:10px 14px;text-align:center;border-radius:0 6px 0 0">Aprovado pelo Comitê</th>
-    </tr>
-  </thead>
-  <tbody>
-    ${rows.map((r, i) => {
-      const diff = r.pleito !== "—" && r.aprovado !== "—" && r.pleito !== r.aprovado;
-      const bg = i % 2 === 0 ? "#fff" : "#f8fafc";
-      return `<tr style="background:${bg}">
-        <td style="padding:10px 14px;font-size:11px;font-weight:600;color:#64748b;border-bottom:1px solid #f1f5f9">${esc(r.label)}</td>
-        <td style="padding:10px 14px;font-size:11px;color:#374151;text-align:center;border-bottom:1px solid #f1f5f9">${esc(r.pleito)}</td>
-        <td style="padding:10px 14px;font-size:11px;font-weight:700;text-align:center;border-bottom:1px solid #f1f5f9;color:${diff ? "#7c3aed" : "#111827"}">${esc(r.aprovado)}${diff ? ' <span style="font-size:9px;color:#7c3aed;font-weight:800">●</span>' : ""}</td>
-      </tr>`;
-    }).join("")}
-  </tbody>
-</table>
-` : ""}
-
-${cond.length > 0 ? `
-<!-- Seção: Condições e Garantias -->
-<div style="display:flex;align-items:center;gap:10px;background:#eef3fb;border-left:4px solid #22c55e;padding:8px 14px;margin-bottom:18px;border-radius:0 4px 4px 0">
-  <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;background:#1a2744;color:#fff;font-size:9px;font-weight:800;border-radius:6px;flex-shrink:0">CG</span>
-  <span style="font-size:11px;font-weight:800;color:#1a2744;text-transform:uppercase;letter-spacing:.04em">Condições e Garantias</span>
-</div>
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:28px">
-  ${cond.map(c => `
-  <div style="background:#f8fafc;border-left:3px solid #1a2744;border-radius:0 8px 8px 0;padding:12px 16px">
-    <div style="font-size:9px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">${esc(c.label)}</div>
-    <div style="font-size:14px;font-weight:800;color:#1a2744">${esc(c.value)}</div>
-  </div>`).join("")}
-</div>
-` : ""}
-
-${notaComite.trim() || notas.trim() ? `
-<!-- Seção: Observações -->
-<div style="display:flex;align-items:center;gap:10px;background:#eef3fb;border-left:4px solid #22c55e;padding:8px 14px;margin-bottom:18px;border-radius:0 4px 4px 0">
-  <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;background:#1a2744;color:#fff;font-size:9px;font-weight:800;border-radius:6px;flex-shrink:0">NT</span>
-  <span style="font-size:11px;font-weight:800;color:#1a2744;text-transform:uppercase;letter-spacing:.04em">Observações</span>
-</div>
-${notaComite.trim() ? `
-<div style="background:#f0f4ff;border-left:4px solid #203b88;border-radius:0 8px 8px 0;padding:14px 18px;margin-bottom:12px">
-  <div style="font-size:8px;font-weight:800;color:#203b88;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Nota do Comitê</div>
-  <div style="font-size:12px;color:#374151;line-height:1.7;white-space:pre-wrap">${esc(notaComite.trim())}</div>
-</div>` : ""}
-${notas.trim() ? `
-<div style="background:#f8fafc;border-left:4px solid #94a3b8;border-radius:0 8px 8px 0;padding:14px 18px;margin-bottom:12px">
-  <div style="font-size:8px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Observações do Analista</div>
-  <div style="font-size:12px;color:#374151;line-height:1.7;white-space:pre-wrap">${esc(notas.trim())}</div>
-</div>` : ""}
-` : ""}
+  <!-- ═══ FOOTER ═══ -->
+  <div class="ftr">
+    <div class="logo">${logoSvg(false)}</div>
+    <span>Capital Finanças · Decisão do Comitê · Documento Confidencial</span>
+    <span>Pág. 1</span>
+  </div>
 
 </div>
 
-<!-- ═══ FOOTER ═══ -->
-<div style="background:#0f1e3c;padding:12px 40px;display:flex;justify-content:space-between;align-items:center;margin-top:auto">
-  <span style="font-size:9px;color:rgba(255,255,255,.3)">Documento confidencial — uso exclusivamente interno</span>
-  <span style="font-size:9px;color:rgba(255,255,255,.25)">Capital Finanças · ${esc(hoje)}</span>
-</div>
-
-</div>
-
-<!-- Botão imprimir (não aparece na impressão) -->
-<div class="no-print" style="position:fixed;bottom:24px;right:24px;display:flex;gap:10px;z-index:100">
-  <button onclick="window.print()" style="padding:12px 28px;background:#1a2744;color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.2);font-family:inherit">Salvar como PDF</button>
-</div>
+<button class="no-print print-btn" onclick="window.print()">Salvar como PDF</button>
 
 </body></html>`;
 
