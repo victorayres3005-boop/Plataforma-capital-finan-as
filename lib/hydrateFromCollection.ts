@@ -186,10 +186,13 @@ export function hydrateFromCollection(docs: { type: string; extracted_data: Reco
   // ─── Pós-hidratação: dedupe do QSA ───
   // O cartão CNPJ (via ReceitaWS) e o contrato social podem trazer o mesmo sócio
   // em duas entradas diferentes: uma com CPF preenchido + qualificação por extenso,
-  // outra sem CPF + qualificação com código ("49-Sócio-Administrador"). Mergia por
-  // nome normalizado e escolhe a entrada com mais dados.
+  // outra sem CPF + qualificação com código ("49-Sócio-Administrador"). Também
+  // é comum o mesmo nome chegar com/sem acentos ("JOÃO" vs "JOAO") de fontes
+  // distintas. A dedup prioriza CPF quando disponível, com fallback para nome
+  // normalizado sem acentos.
   if (result.qsa?.quadroSocietario && result.qsa.quadroSocietario.length > 1) {
-    const normName = (s: string) => String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
+    const stripAccents = (s: string) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const normName = (s: string) => stripAccents(s).trim().toLowerCase().replace(/\s+/g, " ");
     const normCpf  = (s: string) => String(s || "").replace(/\D/g, "");
     const stripQualCode = (q: string) => String(q || "").replace(/^\d+\s*-\s*/, "").trim();
     // Score: quanto mais campos preenchidos, melhor. CPF vale mais que qualificação.
@@ -202,16 +205,26 @@ export function hydrateFromCollection(docs: { type: string; extracted_data: Reco
       if (s.qualificacao && !/^\d+\s*-/.test(s.qualificacao)) pts += 1;
       return pts;
     };
-    const byName = new Map<string, typeof result.qsa.quadroSocietario[number]>();
+    // Chave de dedup: CPF (quando há ≥11 dígitos) ou nome normalizado sem acentos.
+    // Usar "cpf:" e "nm:" como prefixo evita colisões acidentais entre CPFs numéricos
+    // e nomes que começam com números.
+    const dedupKey = (s: { nome: string; cpfCnpj: string }) => {
+      const cpf = normCpf(s.cpfCnpj);
+      if (cpf.length >= 11) return `cpf:${cpf}`;
+      const nm = normName(s.nome);
+      return nm ? `nm:${nm}` : "";
+    };
+    const byKey = new Map<string, typeof result.qsa.quadroSocietario[number]>();
+    // Após a passagem principal, um segundo pass tenta unificar entradas "nm:"
+    // cujo nome já apareceu em alguma chave "cpf:" (caso o CPF chegou só em uma).
     for (const s of result.qsa.quadroSocietario) {
-      const key = normName(s.nome);
+      const key = dedupKey(s);
       if (!key) continue;
-      const existing = byName.get(key);
+      const existing = byKey.get(key);
       if (!existing) {
-        byName.set(key, s);
+        byKey.set(key, s);
         continue;
       }
-      // Merge: mantém o score maior mas preenche campos vazios do outro
       const winner = score(s) >= score(existing) ? s : existing;
       const loser  = winner === s ? existing : s;
       const merged = {
@@ -222,10 +235,31 @@ export function hydrateFromCollection(docs: { type: string; extracted_data: Reco
         dataEntrada: winner.dataEntrada || loser.dataEntrada,
         dataSaida:   winner.dataSaida   || loser.dataSaida,
       };
-      byName.set(key, merged);
+      byKey.set(key, merged);
+    }
+    // Segundo pass: se existe uma entrada "nm:<nome>" e outra "cpf:<cpf>" com o
+    // mesmo nome normalizado, mescla as duas sob a chave de CPF (preferida).
+    const cpfKeys = Array.from(byKey.keys()).filter(k => k.startsWith("cpf:"));
+    for (const cpfKey of cpfKeys) {
+      const entry = byKey.get(cpfKey);
+      if (!entry) continue;
+      const nmKey = `nm:${normName(entry.nome)}`;
+      const orphan = byKey.get(nmKey);
+      if (!orphan || orphan === entry) continue;
+      const winner = score(entry) >= score(orphan) ? entry : orphan;
+      const loser  = winner === entry ? orphan : entry;
+      byKey.set(cpfKey, {
+        nome: winner.nome,
+        cpfCnpj: normCpf(winner.cpfCnpj).length >= 11 ? winner.cpfCnpj : (normCpf(loser.cpfCnpj).length >= 11 ? loser.cpfCnpj : winner.cpfCnpj),
+        qualificacao: stripQualCode(winner.qualificacao) || stripQualCode(loser.qualificacao),
+        participacao: (winner.participacao && winner.participacao !== "—") ? winner.participacao : (loser.participacao || ""),
+        dataEntrada: winner.dataEntrada || loser.dataEntrada,
+        dataSaida:   winner.dataSaida   || loser.dataSaida,
+      });
+      byKey.delete(nmKey);
     }
     const before = result.qsa.quadroSocietario.length;
-    result.qsa.quadroSocietario = Array.from(byName.values());
+    result.qsa.quadroSocietario = Array.from(byKey.values());
     const after = result.qsa.quadroSocietario.length;
     if (after < before) {
       console.log(`[hydrate] QSA dedupe: ${before} → ${after} sócios (removidas ${before - after} duplicatas)`);
@@ -234,9 +268,13 @@ export function hydrateFromCollection(docs: { type: string; extracted_data: Reco
 
   // ─── Pós-hidratação: dedupe do IR dos sócios ───
   // Sócios podem aparecer duplicados quando múltiplos ano-base foram processados
-  // do mesmo CPF. Dedupe por CPF + ano-base, mantendo o registro com mais dados.
+  // do mesmo CPF, ou quando o Gemini não consegue extrair o CPF (recibo de entrega
+  // sem CPF visível). Dedupe por CPF+ano quando disponível; fallback para
+  // nome+ano (sem acentos) para não descartar registros órfãos.
   if (Array.isArray(result.irSocios) && result.irSocios.length > 1) {
     const normCpf = (s: string) => String(s || "").replace(/\D/g, "");
+    const stripAccents = (s: string) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const normName = (s: string) => stripAccents(s).trim().toLowerCase().replace(/\s+/g, " ");
     const numVal = (s: string | undefined) => {
       if (!s) return 0;
       const n = parseFloat(String(s).replace(/\./g, "").replace(",", "."));
@@ -249,12 +287,32 @@ export function hydrateFromCollection(docs: { type: string; extracted_data: Reco
     for (const ir of result.irSocios) {
       const cpf = normCpf(ir.cpf);
       const ano = String(ir.anoBase || "").trim();
-      const key = `${cpf}::${ano}`;
-      if (!key || key === "::") continue;
+      const nm  = normName(ir.nomeSocio);
+      // Chave preferida: CPF (11 dígitos) + ano. Senão, nome normalizado + ano.
+      // Se nem nome nem CPF forem válidos, descarta (entrada inútil).
+      const key = cpf.length >= 11 && ano ? `cpf:${cpf}::${ano}`
+                : nm && ano              ? `nm:${nm}::${ano}`
+                : nm                     ? `nm:${nm}::?`
+                : "";
+      if (!key) continue;
       const existing = byKey.get(key);
       if (!existing || irScore(ir) > irScore(existing)) {
         byKey.set(key, ir);
       }
+    }
+    // Segundo pass: se existe uma chave "nm:<nome>::<ano>" e uma "cpf:<cpf>::<ano>"
+    // com o mesmo nome normalizado, mescla sob CPF (preferida) mantendo o de maior score.
+    const cpfKeys = Array.from(byKey.keys()).filter(k => k.startsWith("cpf:"));
+    for (const cpfKey of cpfKeys) {
+      const entry = byKey.get(cpfKey);
+      if (!entry) continue;
+      const ano = cpfKey.split("::")[1] || "";
+      const nmKey = `nm:${normName(entry.nomeSocio)}::${ano}`;
+      const orphan = byKey.get(nmKey);
+      if (!orphan || orphan === entry) continue;
+      const winner = irScore(entry) >= irScore(orphan) ? entry : orphan;
+      byKey.set(cpfKey, winner);
+      byKey.delete(nmKey);
     }
     const beforeIr = result.irSocios.length;
     result.irSocios = Array.from(byKey.values());
