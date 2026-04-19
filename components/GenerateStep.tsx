@@ -1249,13 +1249,21 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   const parecerAnalistaOverride = (aiAnalysis as unknown as { parecerAnalista?: { ratingAnalista?: number | string | null; decisao?: string | null; decisaoComite?: string | null } } | null)?.parecerAnalista;
   const ratingOverrideRaw = parecerAnalistaOverride?.ratingAnalista;
   const ratingOverride = ratingOverrideRaw != null && ratingOverrideRaw !== "" ? Number(ratingOverrideRaw) : null;
-  const finalRating = (ratingOverride != null && !isNaN(ratingOverride))
-    ? ratingOverride
-    : (aiAnalysis ? aiAnalysis.rating : ratingScore);
+  // Único-source-of-truth para saber se a análise já foi carregada (cache ou IA).
+  // Enquanto não estiver pronta, NÃO mostramos ratingScore local — ele diverge
+  // do rating da IA e causava o KPI de Rating piscar durante o carregamento.
+  const analysisReady = aiAnalysis != null || analysisError != null;
+  const finalRating: number | null = (() => {
+    if (ratingOverride != null && !isNaN(ratingOverride)) return ratingOverride;
+    if (aiAnalysis) return aiAnalysis.rating;
+    if (analysisError) return ratingScore; // IA falhou de fato → usa fallback local
+    return null; // ainda carregando — UI mostra skeleton em vez de piscar
+  })();
   const decisaoOverride = parecerAnalistaOverride?.decisaoComite || parecerAnalistaOverride?.decisao || null;
   const decision: string =
     decisaoOverride ? String(decisaoOverride).toUpperCase() :
     aiAnalysis ? aiAnalysis.decisao :
+    finalRating == null ? "" :
     (finalRating >= 7 ? "APROVADO" : finalRating >= 4 ? "PENDENTE" : "REPROVADO");
   const decisionColor = decision === "APROVADO" ? "#16A34A" : decision === "REPROVADO" ? "#DC2626" : "#D97706";
   const decisionBg = decision === "APROVADO" ? "#F0FDF4" : decision === "PENDENTE" ? "#FFFBEB" : "#FEF2F2";
@@ -1405,7 +1413,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   // stale (usuario editou no parecer em outra aba, autosave ainda nao propagou,
   // ou o mount do GenerateStep ainda nao completou loadCachedAnalysis).
   const getFreshFinalRating = async (): Promise<{ rating: number; decisao: string }> => {
-    const localFallback = { rating: finalRating, decisao: decision };
+    const localFallback = { rating: finalRating ?? ratingScore, decisao: decision || "PENDENTE" };
     if (!collectionId) return localFallback;
     try {
       const supabase = createClient();
@@ -1420,13 +1428,13 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       // Prioridade: override analista > coluna rating > ai_analysis.rating > local
       const analistaRaw = pa?.ratingAnalista;
       const analistaNum = analistaRaw != null && analistaRaw !== "" ? Number(analistaRaw) : null;
-      let freshRating = finalRating;
+      let freshRating = finalRating ?? ratingScore;
       if (analistaNum != null && !isNaN(analistaNum)) freshRating = analistaNum;
       else if (row.rating != null) freshRating = Number(row.rating);
       else if (aiA && typeof aiA.rating === "number") freshRating = aiA.rating;
       const freshDecisao = pa?.decisaoComite
         ? String(pa.decisaoComite).toUpperCase()
-        : (row.decisao ? String(row.decisao).toUpperCase() : decision);
+        : (row.decisao ? String(row.decisao).toUpperCase() : (decision || "PENDENTE"));
       return { rating: freshRating, decisao: freshDecisao };
     } catch {
       return localFallback;
@@ -1971,17 +1979,19 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             <div className="kpi-grid">
               <KpiCard
                 label="Rating"
-                value={`${finalRating}/10`}
+                value={finalRating == null ? "—" : `${finalRating}/10`}
                 sub={(() => {
+                  if (!analysisReady) return "Carregando análise…";
                   const conf = aiAnalysis?.ratingConfianca;
                   const nivel = aiAnalysis?.nivelAnalise;
                   if (conf != null) {
                     const nivelLabel = nivel === "PRELIMINAR" ? "Preliminar" : nivel === "BASICO" ? "Básica" : nivel === "PADRAO" ? "Padrão" : nivel === "COMPLETO" ? "Completa" : "";
                     return `${nivelLabel ? `${nivelLabel} · ` : ""}${conf}% confiança`;
                   }
+                  if (finalRating == null) return "—";
                   return finalRating >= 7 ? "Perfil saudável" : finalRating >= 4 ? "Atenção recomendada" : "Perfil crítico";
                 })()}
-                variant={decision === "APROVADO" ? "success" : decision === "REPROVADO" ? "danger" : "warning"}
+                variant={!analysisReady ? "default" : decision === "APROVADO" ? "success" : decision === "REPROVADO" ? "danger" : "warning"}
               />
               <KpiCard
                 label="Dívida Total"

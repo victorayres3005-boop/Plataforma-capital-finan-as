@@ -62,21 +62,37 @@ export default function ReviewStep({ data, onComplete, onBack, onDataChange }: R
     return d;
   });
 
+  // Estado de abertura das sub-abas. Na primeira vez, aplica a regra automática
+  // (abre seções cuja qualidade dos dados está ruim); depois disso, preserva as
+  // escolhas manuais do analista via localStorage — senão as sub-abas "Contrato
+  // Social" e "SCR dos Sócios" abriam toda vez que o usuário entrava na Revisão.
+  // Contrato só abre automaticamente em caso de erro crítico (score === "error"),
+  // não mais em qualquer qualidade abaixo de "good".
+  const OPEN_KEY = "cf_review_open_v1";
   const [open, setOpen] = useState(() => {
     const qFat = avaliarQualidade("faturamento", data.faturamento as unknown as Record<string, unknown>);
     const qScr = avaliarQualidade("scr", data.scr as unknown as Record<string, unknown>);
     const qContrato = avaliarQualidade("contrato", data.contrato as unknown as Record<string, unknown>);
     const qCnpj = avaliarQualidade("cnpj", data.cnpj as unknown as Record<string, unknown>);
     const qQsa  = avaliarQualidade("qsa",  data.qsa  as unknown as Record<string, unknown>);
-    return {
-      cnpj: qCnpj.score !== "good",
-      qsa:  qQsa.score  !== "good",
-      contrato: qContrato.score !== "good",
+    const defaults = {
+      cnpj: qCnpj.score === "error",
+      qsa:  qQsa.score  === "error",
+      contrato: qContrato.score === "error",
       faturamento: qFat.score !== "good",
       scr: qScr.score !== "good" || qFat.score === "error",
       dre: false, balanco: false, curvaABC: false, irSocios: false, relatorioVisita: false,
-      scrSocios: (data.scrSocios?.length ?? 0) > 0,
+      scrSocios: false,
     };
+    if (typeof window === "undefined") return defaults;
+    try {
+      const saved = localStorage.getItem(OPEN_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved) as Partial<typeof defaults>;
+        return { ...defaults, ...parsed };
+      }
+    } catch { /* ignore */ }
+    return defaults;
   });
 
   const [showSCRDetails, setShowSCRDetails] = useState(false);
@@ -128,7 +144,11 @@ export default function ReviewStep({ data, onComplete, onBack, onDataChange }: R
     }
   }, [form]);
 
-  const toggle = (k: keyof typeof open) => setOpen(p => ({ ...p, [k]: !p[k] }));
+  const toggle = (k: keyof typeof open) => setOpen(p => {
+    const next = { ...p, [k]: !p[k] };
+    try { localStorage.setItem(OPEN_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+    return next;
+  });
 
   // ── CNPJ setters ──────────────────────────────────────────────────────────
   const setCNPJ = (k: keyof typeof form.cnpj, v: string) =>
