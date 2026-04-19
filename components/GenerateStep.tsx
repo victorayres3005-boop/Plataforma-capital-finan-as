@@ -1065,7 +1065,18 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           const { data: session } = await supabase.auth.getUser();
           _uploadCtx = { userId: session.user?.id ?? "anonymous", collectionId };
         }
-        const { error } = await supabase.from("document_collections").update({ documents, label: data.cnpj.razaoSocial || null, ...getCollectionMeta() }).eq("id", collectionId);
+        // Proteção crítica: se buildDocuments() retornar vazio enquanto a coleta
+        // no banco já tem documents preenchidos, NÃO sobrescreve. Isso evita o
+        // bug onde o auto-save dispara antes de `data` estar hidratado (ex: ao
+        // voltar de /parecer, mudar de abas rapidamente, ou cliques duplos) e
+        // apagaria os documentos salvos da coleta.
+        const payload: Record<string, unknown> = { label: data.cnpj.razaoSocial || null, ...getCollectionMeta() };
+        if (documents.length > 0) {
+          payload.documents = documents;
+        } else {
+          console.warn(`[handleSave] buildDocuments() retornou [] — preservando documents atual da coleta ${collectionId}`);
+        }
+        const { error } = await supabase.from("document_collections").update(payload).eq("id", collectionId);
         if (error) throw error;
         setSavedFeedback(true);
         toast.success("Coleta salva no histórico!");
@@ -1171,7 +1182,13 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             // Já existe uma coleta recente para o mesmo CNPJ, reutiliza
             setCollectionId(existing[0].id);
             const documents = buildDocuments();
-            await supabase.from("document_collections").update({ documents, label: data.cnpj.razaoSocial || null, ...getCollectionMeta() }).eq("id", existing[0].id);
+            const payload: Record<string, unknown> = { label: data.cnpj.razaoSocial || null, ...getCollectionMeta() };
+            if (documents.length > 0) {
+              payload.documents = documents;
+            } else {
+              console.warn(`[autoSave] buildDocuments() retornou [] — preservando documents da coleta reusada ${existing[0].id}`);
+            }
+            await supabase.from("document_collections").update(payload).eq("id", existing[0].id);
             setSavedFeedback(true);
             setTimeout(() => setSavedFeedback(false), 2000);
             return;
