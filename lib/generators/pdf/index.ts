@@ -21,6 +21,7 @@ import type { PDFReportParams } from "./context";
 import type { PdfCtx } from "./context";
 import { DS } from "./design-system";
 import { clearAlertDedup, drawFooterAllPages, parseMoneyToNumber } from "./helpers";
+import { CAPITAL_LOGO_B64 } from "@/lib/assets/capital-logo-b64";
 import { renderCapa } from "./sections/capa";
 import { renderIndice } from "./sections/indice";
 import { renderSintese } from "./sections/sintese";
@@ -52,17 +53,12 @@ export async function buildPDFReport(params: PDFReportParams): Promise<Blob> {
   const contentW = W - margin * 2;
   const footerDateStr = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
 
-  // ── Logo Capital Finanças — fetch do arquivo público ──
-  let logoB64: string | null = params.capitalLogoB64 ?? null;
-  if (!logoB64) {
-    try {
-      const res = await fetch("/logos/capital-logo.png");
-      if (res.ok) {
-        const buf = await res.arrayBuffer();
-        logoB64 = btoa(Array.from(new Uint8Array(buf)).map(b => String.fromCharCode(b)).join(""));
-      }
-    } catch { /* logo opcional */ }
-  }
+  // ── Logo Capital Finanças ──
+  // Prefere a logo passada via params (caller pode sobrescrever para white-label),
+  // senão usa a constante base64 embutida em lib/assets/capital-logo-b64.ts.
+  // Antes, usava fetch("/logos/capital-logo.png") — isso falhava no servidor
+  // (geração server-side), fazendo o rodapé cair no fallback textual.
+  const logoB64: string = params.capitalLogoB64 ?? CAPITAL_LOGO_B64;
 
   // ── Clear dedup set for this run ──
   clearAlertDedup();
