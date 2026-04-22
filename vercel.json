@@ -1,6 +1,15 @@
 {
   "framework": "nextjs",
+  "crons": [
+    {
+      "path": "/api/cron/goalfy-sync",
+      "schedule": "*/15 * * * *"
+    }
+  ],
   "functions": {
+    "app/api/extract/route.ts": {
+      "maxDuration": 60
+    },
     "app/api/generate-pdf/route.ts": {
       "memory": 1024,
       "maxDuration": 60
