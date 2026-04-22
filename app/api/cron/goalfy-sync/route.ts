@@ -58,9 +58,8 @@ export async function GET(req: Request) {
 
     const cards: GoalfyCard[] = await res.json();
 
-    // 2. Filtrar cards das últimas 48h para não reprocessar tudo sempre
-    const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-    const recent = cards.filter(c => c.createdAt >= cutoff);
+    // 2. Todos os cards do board (ignoreDuplicates cuida de não duplicar)
+    const recent = cards;
 
     if (recent.length === 0) {
       return Response.json({ synced: 0, message: "Sem novos cards nas últimas 48h" });
