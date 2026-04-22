@@ -103,18 +103,17 @@ export async function GET(req: Request) {
       };
     });
 
-    const { error, count } = await supabase
+    const { error } = await supabase
       .from("goalfy_pending_operations")
-      .upsert(rows, { onConflict: "goalfy_card_id", ignoreDuplicates: false })
-      .select("id", { count: "exact", head: true });
+      .upsert(rows, { onConflict: "goalfy_card_id" });
 
     if (error) {
       console.error("[goalfy-sync] supabase upsert:", error.message);
       return Response.json({ error: error.message }, { status: 500 });
     }
 
-    console.log(`[goalfy-sync] sincronizados ${count ?? rows.length} cards`);
-    return Response.json({ synced: count ?? rows.length, total_checked: cards.length });
+    console.log(`[goalfy-sync] sincronizados ${rows.length} cards`);
+    return Response.json({ synced: rows.length, total_checked: cards.length });
 
   } catch (err) {
     console.error("[goalfy-sync]", err);
