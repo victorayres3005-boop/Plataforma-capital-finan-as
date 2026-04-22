@@ -42,49 +42,46 @@ export async function POST(req: Request) {
     }[] = [];
 
     for (const doc of documents) {
-      if (!doc.url) {
-        // Mock: documeto sem URL real — criar entrada marcada como pendente
-        // TODO: remover este bloco quando as URLs reais forem fornecidas.
+      // Validar URL completa antes de tentar fetch
+      const isValidUrl = doc.url && (doc.url.startsWith("http://") || doc.url.startsWith("https://"));
+
+      if (!isValidUrl) {
         uploadedDocs.push({
           id: doc.id,
           blob_url: "",
           filename: doc.filename,
           doc_type: doc.type,
           size_bytes: doc.size_bytes ?? 0,
-          status: "mock_no_url",
+          status: "pending_upload",
         });
         continue;
       }
 
-      // Download do arquivo da Goalfy
-      const headers: Record<string, string> = {};
-      if (goalfyApiKey && GOALFY_BASE_URL && doc.url.includes(GOALFY_BASE_URL)) {
-        headers["Authorization"] = `Bearer ${goalfyApiKey}`;
+      try {
+        const fileRes = await fetch(doc.url, {
+          headers: goalfyApiKey ? { "Authorization": `Token ${goalfyApiKey}` } : {},
+        });
+
+        if (!fileRes.ok) {
+          console.warn(`[goalfy/importar] falha ao baixar ${doc.filename}: ${fileRes.status}`);
+          uploadedDocs.push({ id: doc.id, blob_url: "", filename: doc.filename, doc_type: doc.type, size_bytes: 0, status: "download_failed" });
+          continue;
+        }
+
+        const fileBuffer = Buffer.from(await fileRes.arrayBuffer());
+        const safeName   = doc.filename.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+        const blobPath   = `goalfy/${user.id}/${operation.id}/${safeName}`;
+
+        const { url: blobUrl } = await put(blobPath, fileBuffer, {
+          access: "public",
+          contentType: fileRes.headers.get("content-type") || "application/pdf",
+        });
+
+        uploadedDocs.push({ id: doc.id, blob_url: blobUrl, filename: doc.filename, doc_type: doc.type, size_bytes: fileBuffer.length, status: "uploaded" });
+      } catch (downloadErr) {
+        console.warn(`[goalfy/importar] erro ao processar ${doc.filename}:`, downloadErr);
+        uploadedDocs.push({ id: doc.id, blob_url: "", filename: doc.filename, doc_type: doc.type, size_bytes: 0, status: "pending_upload" });
       }
-
-      const fileRes = await fetch(doc.url, { headers });
-      if (!fileRes.ok) {
-        console.warn(`[goalfy/importar] falha ao baixar ${doc.filename}: ${fileRes.status}`);
-        continue;
-      }
-
-      const fileBuffer = Buffer.from(await fileRes.arrayBuffer());
-      const safeName   = doc.filename.replace(/[^a-zA-Z0-9.\-_]/g, "_");
-      const blobPath   = `goalfy/${user.id}/${operation.id}/${safeName}`;
-
-      const { url: blobUrl } = await put(blobPath, fileBuffer, {
-        access: "public",
-        contentType: fileRes.headers.get("content-type") || "application/pdf",
-      });
-
-      uploadedDocs.push({
-        id: doc.id,
-        blob_url: blobUrl,
-        filename: doc.filename,
-        doc_type: doc.type,
-        size_bytes: fileBuffer.length,
-        status: "uploaded",
-      });
     }
 
     // ─── Passo 3: criar document_collection no Supabase ──────────────────────
