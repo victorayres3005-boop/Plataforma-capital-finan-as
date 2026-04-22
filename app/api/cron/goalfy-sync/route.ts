@@ -105,7 +105,7 @@ export async function GET(req: Request) {
 
     const { error } = await supabase
       .from("goalfy_pending_operations")
-      .upsert(rows, { onConflict: "goalfy_card_id" });
+      .upsert(rows, { onConflict: "goalfy_card_id", ignoreDuplicates: true });
 
     if (error) {
       console.error("[goalfy-sync] supabase upsert:", error.message);
