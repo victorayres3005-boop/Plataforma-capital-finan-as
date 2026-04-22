@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 export const runtime = "nodejs";
 
 const GOALFY_WEBHOOK_URL = process.env.GOALFY_WEBHOOK_URL || "";
-const GOALFY_API_KEY = process.env.GOALFY_API_KEY || "";
+const _GOALFY_API_KEY = process.env.GOALFY_API_KEY || "";
 
 export async function POST(req: Request) {
   try {
@@ -31,12 +31,9 @@ export async function POST(req: Request) {
     const { mapToGoalfyPayload } = await import("@/lib/goalfy/mapper");
     const payload = mapToGoalfyPayload(data, aiAnalysis, settings);
 
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (GOALFY_API_KEY) headers["Authorization"] = `Bearer ${GOALFY_API_KEY}`;
-
     const res = await fetch(GOALFY_WEBHOOK_URL, {
       method: "POST",
-      headers,
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
 
@@ -46,7 +43,14 @@ export async function POST(req: Request) {
       return Response.json({ success: false, error: erro }, { status: res.status });
     }
 
-    return Response.json({ success: true, message: "Dados enviados para a Goalfy com sucesso" });
+    const responseData = await res.json().catch(() => ({}));
+    const cardId = responseData?.cardId || null;
+
+    return Response.json({
+      success: true,
+      message: "Dados enviados para a Goalfy com sucesso",
+      cardId,
+    });
 
   } catch (error) {
     console.error("[goalfy] erro:", error);
