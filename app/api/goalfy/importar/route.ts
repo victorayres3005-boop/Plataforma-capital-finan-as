@@ -137,7 +137,8 @@ export async function POST(req: Request) {
     });
 
   } catch (error) {
-    console.error("[goalfy/importar]", error);
-    return Response.json({ error: "Erro ao importar operação Goalfy" }, { status: 500 });
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("[goalfy/importar]", msg);
+    return Response.json({ error: `Erro ao importar: ${msg}` }, { status: 500 });
   }
 }
