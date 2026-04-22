@@ -15,8 +15,6 @@ export async function POST(req: Request) {
     const { operation } = body;
     if (!operation?.id) return Response.json({ error: "operation.id obrigatório" }, { status: 400 });
 
-    const GOALFY_BASE_URL = process.env.GOALFY_BASE_URL || "";
-    // TODO: usar para autenticar os downloads quando a API real estiver configurada
     const goalfyApiKey = process.env.GOALFY_API_KEY || "";
 
     // ─── Passo 1: obter detalhes da operação (e URLs de download) ─────────────
