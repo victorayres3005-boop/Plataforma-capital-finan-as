@@ -6,12 +6,13 @@ import { createClient } from "@/lib/supabase/client";
 import { DocumentCollection } from "@/types";
 import {
   ArrowLeft, CheckCircle2, Clock, XCircle, AlertTriangle,
-  Loader2, Building2, DollarSign, Calendar, Users, Shield, RefreshCw, FileText,
+  Loader2, DollarSign, Calendar, Users, Shield, RefreshCw, FileText,
   Percent, TrendingUp, Landmark, Package, Send, AlertCircle,
 } from "lucide-react";
+import { ScoreSection } from "@/components/score/ScoreSection";
 import { toast } from "sonner";
 import { Toaster } from "sonner";
-import { Download } from "lucide-react";
+import { Download, ExternalLink } from "lucide-react";
 
 // ── Logo ──────────────────────────────────────────────────────────────────
 function Logo({ height = 26 }: { height?: number }) {
@@ -617,27 +618,15 @@ function ParecerContent() {
   const selectedD = DECISOES.find(d => d.value === decisao);
   const rating = ratingAnalista ?? collection?.rating ?? null;
   const ratingColor = rating != null ? (rating >= 7 ? "#16a34a" : rating >= 4 ? "#d97706" : "#dc2626") : "#94a3b8";
-  const ratingBg = rating != null ? (rating >= 7 ? "#f0fdf4" : rating >= 4 ? "#fffbeb" : "#fff1f2") : "#f8fafc";
-  const ratingIsAnalista = ratingAnalista != null;
+const ratingIsAnalista = ratingAnalista != null;
   const companyName = collection?.company_name || collection?.label || "Empresa";
   const cnpj = collection?.cnpj || "—";
 
   // ── Gerar PDF Decisão do Comitê ──
   const [generatingPdf, setGeneratingPdf] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
-  const gerarPDFDecisao = async () => {
-    setGeneratingPdf(true);
-    try {
-      // Garante que qualquer alteração pendente seja salva ANTES de gerar o PDF,
-      // para evitar que o documento saia com dados divergentes do banco.
-      if (autoSaveTimer.current) { clearTimeout(autoSaveTimer.current); autoSaveTimer.current = null; }
-      if (pendingSave.current) {
-        const saved = await doSave();
-        if (!saved) {
-          toast.error("Salvamento pendente falhou — corrija os erros antes de gerar o PDF.");
-          return;
-        }
-      }
+  const buildDecisaoHtml = (): string => {
       const hoje = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
       const esc = (s: string) => (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -883,17 +872,61 @@ function ParecerContent() {
 
 </body></html>`;
 
-      // Abre em nova aba para impressão
+      return html;
+  };
+
+  const visualizarHTML = async () => {
+    setGeneratingPdf(true);
+    try {
+      if (autoSaveTimer.current) { clearTimeout(autoSaveTimer.current); autoSaveTimer.current = null; }
+      if (pendingSave.current) {
+        const saved = await doSave();
+        if (!saved) { toast.error("Salvamento pendente falhou — corrija os erros antes de gerar o PDF."); return; }
+      }
+      const html = buildDecisaoHtml();
       const blob = new Blob([html], { type: "text/html;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
       setTimeout(() => URL.revokeObjectURL(url), 10000);
       toast.success("Documento aberto — clique em 'Salvar como PDF' para baixar.");
     } catch (err) {
-      console.error("Erro ao gerar PDF:", err);
+      console.error("Erro ao gerar visualização:", err);
       toast.error("Erro ao gerar documento.");
     } finally {
       setGeneratingPdf(false);
+    }
+  };
+
+  const baixarPDF = async () => {
+    setDownloadingPdf(true);
+    try {
+      if (autoSaveTimer.current) { clearTimeout(autoSaveTimer.current); autoSaveTimer.current = null; }
+      if (pendingSave.current) {
+        const saved = await doSave();
+        if (!saved) { toast.error("Salvamento pendente falhou — corrija os erros antes de gerar o PDF."); return; }
+      }
+      const html = buildDecisaoHtml();
+      const res = await fetch("/api/exportar-pdf-html", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ html, filename: `parecer-${(cnpj || "decisao").replace(/\D/g, "")}.pdf` }),
+      });
+      if (!res.ok) throw new Error("Falha na geração do PDF");
+      const pdfBlob = await res.blob();
+      const url = URL.createObjectURL(pdfBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `parecer-${(cnpj || "decisao").replace(/\D/g, "")}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success("PDF baixado com sucesso!");
+    } catch (err) {
+      console.error("Erro ao baixar PDF:", err);
+      toast.error("Erro ao gerar PDF. Use 'Ver HTML' e imprima manualmente.");
+    } finally {
+      setDownloadingPdf(false);
     }
   };
 
@@ -981,38 +1014,36 @@ function ParecerContent() {
       {/* ── Content ── */}
       <main style={{ maxWidth: 880, margin: "0 auto", padding: "32px 24px 140px" }}>
 
-        {/* ── Page title ── */}
-        <div style={{ marginBottom: 28 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: "#0f172a", letterSpacing: "-0.02em", margin: 0 }}>Registrar Parecer Final</h1>
-          <p style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Defina a decisão do analista e os parâmetros operacionais para esta empresa.</p>
-        </div>
-
-        {/* ── Company card ── */}
+        {/* ── Hero Banner ── */}
         <div style={{
-          background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16,
-          padding: "20px 24px", marginBottom: 20, display: "flex", alignItems: "center",
-          justifyContent: "space-between", gap: 16, flexWrap: "wrap",
+          background: "linear-gradient(135deg, #1a2f6b 0%, #203b88 60%, #1e3a8a 100%)",
+          borderRadius: 20, padding: "28px 28px 24px", marginBottom: 24,
+          display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 20,
           position: "relative", overflow: "hidden",
         }}>
-          <div style={{ position: "absolute", top: 0, left: 0, width: 4, height: "100%", background: "#203b88", borderRadius: "8px 0 0 8px" }} />
-          <div style={{ display: "flex", alignItems: "center", gap: 14, paddingLeft: 8 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 10, background: "#eff6ff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <Building2 size={18} style={{ color: "#203b88" }} />
+          <div style={{ position: "absolute", top: -50, right: -50, width: 220, height: 220, borderRadius: "50%", background: "rgba(255,255,255,0.03)", pointerEvents: "none" }} />
+          <div style={{ position: "absolute", bottom: -30, right: 100, width: 130, height: 130, borderRadius: "50%", background: "rgba(168,217,107,0.06)", pointerEvents: "none" }} />
+
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 16, position: "relative" }}>
+            <div style={{ width: 44, height: 44, borderRadius: 12, background: "rgba(168,217,107,0.18)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <FileText size={22} style={{ color: "#a8d96b" }} />
             </div>
             <div>
-              <p style={{ fontSize: 16, fontWeight: 700, color: "#0f172a", margin: 0 }}>{companyName}</p>
-              <p style={{ fontSize: 12, color: "#64748b", margin: 0 }}>{cnpj}</p>
+              <p style={{ fontSize: 11, fontWeight: 700, color: "rgba(168,217,107,0.9)", textTransform: "uppercase", letterSpacing: "0.12em", margin: "0 0 4px" }}>Registrar Parecer Final</p>
+              <h1 style={{ fontSize: 22, fontWeight: 800, color: "#fff", margin: "0 0 4px", letterSpacing: "-0.01em" }}>{companyName}</h1>
+              <p style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", margin: 0 }}>CNPJ {cnpj}</p>
             </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0, position: "relative" }}>
             {rating != null && (
-              <div style={{ background: ratingBg, border: `1px solid ${ratingColor}22`, borderRadius: 10, padding: "6px 14px", textAlign: "center" }}>
-                <p style={{ fontSize: 10, fontWeight: 700, color: ratingColor, textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>{ratingIsAnalista ? "Rating Analista" : "Rating IA"}</p>
-                <p style={{ fontSize: 20, fontWeight: 800, color: ratingColor, margin: 0, lineHeight: 1.2 }}>{rating.toFixed(1)}<span style={{ fontSize: 11, fontWeight: 500 }}>/10</span></p>
+              <div style={{ background: "rgba(255,255,255,0.1)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", borderRadius: 12, padding: "8px 16px", textAlign: "center", border: "1px solid rgba(255,255,255,0.15)" }}>
+                <p style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.55)", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>{ratingIsAnalista ? "Comitê" : "Rating IA"}</p>
+                <p style={{ fontSize: 22, fontWeight: 900, color: ratingColor, margin: 0, lineHeight: 1.2 }}>{rating.toFixed(1)}<span style={{ fontSize: 11, fontWeight: 500, color: "rgba(255,255,255,0.4)" }}>/10</span></p>
               </div>
             )}
             {selectedD && (
-              <div style={{ background: selectedD.lightBg, border: `1px solid ${selectedD.border}`, borderRadius: 10, padding: "6px 14px", display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ background: `${selectedD.color}25`, border: `1px solid ${selectedD.color}55`, borderRadius: 10, padding: "8px 16px", display: "flex", alignItems: "center", gap: 6 }}>
                 <selectedD.Icon size={14} style={{ color: selectedD.color }} />
                 <span style={{ fontSize: 12, fontWeight: 700, color: selectedD.color }}>{selectedD.label}</span>
               </div>
@@ -1021,10 +1052,16 @@ function ParecerContent() {
         </div>
 
         {/* ── Decision section ── */}
-        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "24px", marginBottom: 20 }}>
-          <p style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 16, margin: "0 0 16px" }}>
-            Decisão do Analista
-          </p>
+        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "24px", marginBottom: 20, boxShadow: "0 2px 12px rgba(0,0,0,0.04)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 8, background: "linear-gradient(135deg, #1a2f6b, #203b88)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <CheckCircle2 size={15} style={{ color: "#a8d96b" }} />
+            </div>
+            <div>
+              <p style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", margin: 0 }}>Decisão do Analista</p>
+              <p style={{ fontSize: 11, color: "#94a3b8", margin: 0 }}>Selecione o resultado desta análise de crédito</p>
+            </div>
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             {DECISOES.map(d => {
               const selected = decisao === d.value;
@@ -1067,18 +1104,21 @@ function ParecerContent() {
         </div>
 
         {/* ── Rating do Comitê ── */}
-        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "24px", marginBottom: 20 }}>
+        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "24px", marginBottom: 20, boxShadow: "0 2px 12px rgba(0,0,0,0.04)" }}>
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20, gap: 16, flexWrap: "wrap" }}>
-            <div>
-              <p style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.1em", margin: 0 }}>
-                Rating do Comitê
-              </p>
-              <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 4, maxWidth: 420 }}>
-                Definido manualmente pelo comitê — este valor vai para o dashboard e histórico.
-                {collection.rating != null && (
-                  <span style={{ color: "#cbd5e1" }}> IA gerou {collection.rating.toFixed(1)}/10 apenas como referência.</span>
-                )}
-              </p>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: "linear-gradient(135deg, #1a2f6b, #203b88)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 2 }}>
+                <TrendingUp size={15} style={{ color: "#a8d96b" }} />
+              </div>
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", margin: 0 }}>Rating do Comitê</p>
+                <p style={{ fontSize: 11, color: "#94a3b8", marginTop: 4, maxWidth: 420 }}>
+                  Definido manualmente — vai para o dashboard e histórico.
+                  {collection.rating != null && (
+                    <span style={{ color: "#cbd5e1" }}> IA gerou {collection.rating.toFixed(1)}/10 como referência.</span>
+                  )}
+                </p>
+              </div>
             </div>
             {ratingAnalista != null && (
               <div style={{
@@ -1149,6 +1189,9 @@ function ParecerContent() {
           </div>
         </div>
 
+        {/* ── Score de Crédito V2 ── */}
+        {id && <ScoreSection collectionId={id} />}
+
         {/* ── Parâmetros Operacionais + Decisão do Comitê ── */}
         {showParams && (<>
 
@@ -1165,10 +1208,16 @@ function ParecerContent() {
           )}
 
           {/* ── Decisão do Comitê ── */}
-          <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "24px", marginBottom: 20 }}>
-            <p style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 16px" }}>
-              Decisão do Comitê sobre os Parâmetros
-            </p>
+          <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "24px", marginBottom: 20, boxShadow: "0 2px 12px rgba(0,0,0,0.04)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: "linear-gradient(135deg, #1a2f6b, #203b88)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Shield size={15} style={{ color: "#a8d96b" }} />
+              </div>
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", margin: 0 }}>Decisão do Comitê sobre os Parâmetros</p>
+                <p style={{ fontSize: 11, color: "#94a3b8", margin: 0 }}>Como os parâmetros do cedente foram tratados pelo comitê</p>
+              </div>
+            </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 18 }}>
               {([
                 { value: "conforme_pleito",   label: "Conforme Pleito",          sub: "Parâmetros aprovados exatamente como solicitado", color: "#16a34a", bg: "#f0fdf4", border: "#86efac" },
@@ -1204,7 +1253,7 @@ function ParecerContent() {
 
             {/* Coluna esquerda — Pleito do Cedente (só mostra se houver relatório de visita) */}
             {Object.values(visitaParams).some(v => v) && (
-              <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 16, padding: "22px" }}>
+              <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 16, padding: "22px", boxShadow: "0 2px 12px rgba(0,0,0,0.04)" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
                   <p style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.1em", margin: 0 }}>
                     Pleito do Cedente
@@ -1242,9 +1291,9 @@ function ParecerContent() {
             )}
 
             {/* Coluna direita — Parâmetros Aprovados pelo Comitê */}
-            <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "22px" }}>
+            <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "22px", boxShadow: "0 2px 12px rgba(0,0,0,0.04)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20 }}>
-                <p style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.1em", margin: 0 }}>
+                <p style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", margin: 0 }}>
                   Parâmetros Aprovados pelo Comitê
                 </p>
                 {collection.ai_analysis && (
@@ -1255,7 +1304,10 @@ function ParecerContent() {
               </div>
 
               {/* Crédito e Garantias */}
-              <p style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 12px" }}>Crédito e Garantias</p>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "0 0 12px", paddingBottom: 8, borderBottom: "1px solid #f1f5f9" }}>
+                <div style={{ width: 3, height: 12, borderRadius: 2, background: "#203b88", flexShrink: 0 }} />
+                <p style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.1em", margin: 0 }}>Crédito e Garantias</p>
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
                 <InputField label="Limite de Crédito" value={limiteCredito} onChange={setLimiteCredito} placeholder="ex: R$ 150.000" icon={DollarSign} hint="Sugestão IA" format="currency" />
                 <InputField label="Concentração por Sacado" value={concentracao} onChange={setConcentracao} placeholder="ex: até 25%" icon={Users} format="percent" />
@@ -1264,7 +1316,10 @@ function ParecerContent() {
               </div>
 
               {/* Taxas */}
-              <p style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 12px" }}>Taxas</p>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "0 0 12px", paddingBottom: 8, borderBottom: "1px solid #f1f5f9" }}>
+                <div style={{ width: 3, height: 12, borderRadius: 2, background: "#203b88", flexShrink: 0 }} />
+                <p style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.1em", margin: 0 }}>Taxas</p>
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
                 <InputField label="Taxa Convencional" value={taxaConvencional} onChange={setTaxaConvencional} placeholder="ex: 2,5% a.m." icon={Percent} format="percent" />
                 <InputField label="Taxa Comissária" value={taxaComissaria} onChange={setTaxaComissaria} placeholder="ex: 1,8% a.m." icon={Percent} format="percent" />
@@ -1272,7 +1327,10 @@ function ParecerContent() {
               </div>
 
               {/* Limites */}
-              <p style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 12px" }}>Limites</p>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "0 0 12px", paddingBottom: 8, borderBottom: "1px solid #f1f5f9" }}>
+                <div style={{ width: 3, height: 12, borderRadius: 2, background: "#203b88", flexShrink: 0 }} />
+                <p style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.1em", margin: 0 }}>Limites</p>
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
                 <InputField label="Limite Total" value={limiteTotal} onChange={setLimiteTotal} placeholder="ex: R$ 500.000" icon={Landmark} format="currency" />
                 <InputField label="Limite Convencional" value={limiteConvencional} onChange={setLimiteConvencional} placeholder="ex: R$ 300.000" icon={Landmark} format="currency" />
@@ -1282,14 +1340,20 @@ function ParecerContent() {
               </div>
 
               {/* Condições de Cobrança */}
-              <p style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 12px" }}>Condições de Cobrança</p>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "0 0 12px", paddingBottom: 8, borderBottom: "1px solid #f1f5f9" }}>
+                <div style={{ width: 3, height: 12, borderRadius: 2, background: "#203b88", flexShrink: 0 }} />
+                <p style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.1em", margin: 0 }}>Condições de Cobrança</p>
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
                 <InputField label="Prazo de Recompra" value={prazoRecompra} onChange={setPrazoRecompra} placeholder="ex: 3 dias" icon={RefreshCw} format="days" />
                 <InputField label="Envio para Cartório" value={prazoCartorio} onChange={setPrazoCartorio} placeholder="ex: 5 dias" icon={Send} format="days" />
               </div>
 
               {/* Prazos e Tranche */}
-              <p style={{ fontSize: 10, fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 12px" }}>Prazos e Tranche</p>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "0 0 12px", paddingBottom: 8, borderBottom: "1px solid #f1f5f9" }}>
+                <div style={{ width: 3, height: 12, borderRadius: 2, background: "#203b88", flexShrink: 0 }} />
+                <p style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.1em", margin: 0 }}>Prazos e Tranche</p>
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <InputField label="Prazo Máximo" value={prazoMaximo} onChange={setPrazoMaximo} placeholder="ex: 120 dias" icon={Calendar} format="days" />
                 <InputField label="Tranche em R$" value={trancheValor} onChange={setTrancheValor} placeholder="ex: R$ 300.000" icon={DollarSign} format="currency" />
@@ -1300,13 +1364,16 @@ function ParecerContent() {
         </>)}
 
         {/* ── Observações ── */}
-        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "24px", marginBottom: 20 }}>
-          <p style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4, margin: "0 0 4px" }}>
-            Observações do Analista
-          </p>
-          <p style={{ fontSize: 11, color: "#94a3b8", marginBottom: 14, margin: "0 0 14px" }}>
-            Considerações gerais sobre a análise (diferente da Nota do Comitê, que trata apenas dos parâmetros).
-          </p>
+        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "24px", marginBottom: 20, boxShadow: "0 2px 12px rgba(0,0,0,0.04)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 8, background: "linear-gradient(135deg, #1a2f6b, #203b88)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <FileText size={15} style={{ color: "#a8d96b" }} />
+            </div>
+            <div>
+              <p style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", margin: 0 }}>Observações do Analista</p>
+              <p style={{ fontSize: 11, color: "#94a3b8", margin: 0 }}>Considerações gerais — diferente da Nota do Comitê, que trata dos parâmetros.</p>
+            </div>
+          </div>
           <textarea
             value={notas}
             onChange={e => setNotas(e.target.value)}
@@ -1329,8 +1396,11 @@ function ParecerContent() {
       {/* ── Fixed bottom action bar ── */}
       <div style={{
         position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50,
-        background: "#fff", borderTop: "1px solid #f1f5f9",
-        boxShadow: "0 -4px 16px rgba(0,0,0,0.06)",
+        background: "rgba(255,255,255,0.92)",
+        backdropFilter: "blur(16px)",
+        WebkitBackdropFilter: "blur(16px)",
+        borderTop: "1px solid rgba(32,59,136,0.1)",
+        boxShadow: "0 -8px 32px rgba(0,0,0,0.08)",
       }}>
         <div style={{ maxWidth: 880, margin: "0 auto", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
           <div>
@@ -1347,8 +1417,27 @@ function ParecerContent() {
               Cancelar
             </button>
             <button
-              onClick={gerarPDFDecisao}
+              onClick={visualizarHTML}
               disabled={!decisao || generatingPdf}
+              style={{
+                display: "flex", alignItems: "center", gap: 7,
+                fontSize: 13, fontWeight: 600,
+                background: "none",
+                color: decisao ? "#64748b" : "#94a3b8",
+                border: `1px solid ${decisao ? "#cbd5e1" : "#e2e8f0"}`,
+                borderRadius: 8, padding: "9px 16px",
+                cursor: decisao ? "pointer" : "not-allowed",
+                transition: "all 0.2s",
+              }}
+            >
+              {generatingPdf
+                ? <><Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Abrindo...</>
+                : <><ExternalLink size={14} /> Ver HTML</>
+              }
+            </button>
+            <button
+              onClick={baixarPDF}
+              disabled={!decisao || downloadingPdf}
               style={{
                 display: "flex", alignItems: "center", gap: 7,
                 fontSize: 13, fontWeight: 600,
@@ -1360,9 +1449,9 @@ function ParecerContent() {
                 transition: "all 0.2s",
               }}
             >
-              {generatingPdf
-                ? <><Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Gerando...</>
-                : <><Download size={14} /> Baixar Decisão</>
+              {downloadingPdf
+                ? <><Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Gerando PDF...</>
+                : <><Download size={14} /> Baixar PDF</>
               }
             </button>
             <button
