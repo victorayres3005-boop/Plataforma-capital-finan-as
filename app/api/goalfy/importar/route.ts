@@ -41,7 +41,8 @@ export async function POST(req: Request) {
 
     for (const doc of documents) {
       // Validar URL completa antes de tentar fetch
-      const isValidUrl = doc.url && (doc.url.startsWith("http://") || doc.url.startsWith("https://"));
+      const urlStr = typeof doc.url === "string" ? doc.url : "";
+      const isValidUrl = urlStr.startsWith("http://") || urlStr.startsWith("https://");
 
       if (!isValidUrl) {
         uploadedDocs.push({
@@ -56,7 +57,7 @@ export async function POST(req: Request) {
       }
 
       try {
-        const fileRes = await fetch(doc.url, {
+        const fileRes = await fetch(urlStr, {
           headers: goalfyApiKey ? { "Authorization": `Token ${goalfyApiKey}` } : {},
         });
 
