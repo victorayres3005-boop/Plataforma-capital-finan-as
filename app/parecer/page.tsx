@@ -686,7 +686,7 @@ function ParecerContent() {
 
       // ── Notificações para alertas críticos ──────────────────
       try {
-        const alertasAlta = ((aiData.alertas as any[]) ?? []).filter(
+        const alertasAlta = ((existingAi.alertas as any[]) ?? []).filter(
           (a: any) => a.severidade?.toLowerCase() === 'alta'
         );
         const razaoSocial = collection?.company_name ?? 'Cedente';
@@ -702,7 +702,7 @@ function ParecerContent() {
 
         // ── Notificação de decisão REPROVADO ────────────────────
         if (decisao === 'REPROVADO') {
-          const resumo = (aiData.parecer as Record<string, unknown> | undefined)?.resumoExecutivo as string | undefined;
+          const resumo = (existingAi.parecer as Record<string, unknown> | undefined)?.resumoExecutivo as string | undefined;
           await supabase.from('notifications').insert({
             user_id: session.user.id,
             message: `❌ Parecer REPROVADO: ${razaoSocial} — ${resumo?.slice(0, 80) ?? 'ver parecer completo'}`,
