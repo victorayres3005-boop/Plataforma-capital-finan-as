@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { DocumentCollection } from "@/types";
+import type { ScoreResult } from "@/types/politica-credito";
 import {
   ArrowLeft, CheckCircle2, Clock, XCircle, AlertTriangle,
   Loader2, DollarSign, Calendar, Users, Shield, RefreshCw, FileText,
@@ -170,6 +171,8 @@ function ParecerContent() {
   const [loading, setLoading] = useState(true);
   const [collection, setCollection] = useState<DocumentCollection | null>(null);
   const [decisao, setDecisao] = useState<DecisaoValue | null>(null);
+  const [scoreV2, setScoreV2] = useState<ScoreResult | null>(null);
+  const [parecerId, setParecerId] = useState<string | null>(null);
   const [ratingAnalista, setRatingAnalista] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [autoSaveError, setAutoSaveError] = useState<string | null>(null);
@@ -226,6 +229,15 @@ function ParecerContent() {
           return;
         }
         setCollection(data as DocumentCollection);
+
+        // Carrega Score V2 e parecer existente em paralelo
+        const [scoreRow, parecerRow] = await Promise.all([
+          supabase.from("score_operacoes").select("score_result").eq("collection_id", id)
+            .order("preenchido_em", { ascending: false }).limit(1).maybeSingle(),
+          supabase.from("pareceres").select("id").eq("collection_id", id).maybeSingle(),
+        ]);
+        if (scoreRow.data?.score_result) setScoreV2(scoreRow.data.score_result as ScoreResult);
+        if (parecerRow.data?.id) setParecerId(parecerRow.data.id as string);
 
         if (data.decisao) setDecisao(data.decisao as DecisaoValue);
         if (data.observacoes) setNotas(data.observacoes);
@@ -600,6 +612,40 @@ function ParecerContent() {
         ai_analysis: { ...existingAi, parecerAnalista },
       }).eq("id", id).eq("user_id", session.user.id);
       if (error) throw error;
+
+      // Salva snapshot formal na tabela pareceres
+      try {
+        const aiData = (fresh?.ai_analysis as Record<string, unknown>) || {};
+        const parseBRNum = (s: string) => parseFloat(s.replace(/[^0-9,.]/g, "").replace(",", ".")) || null;
+        const parecerPayload = {
+          collection_id: id,
+          user_id: session.user.id,
+          cnpj: collection?.cnpj || null,
+          razao_social: collection?.company_name || null,
+          decisao_comite: decisao,
+          limite_aprovado: parseBRNum(limiteCredito || limiteTotal),
+          prazo_maximo: parseInt(prazoMaximo) || null,
+          concentracao_max: parseBRNum(concentracao),
+          score_v2_rating: scoreV2?.rating ?? null,
+          score_v2_pontos: scoreV2?.score_final ?? null,
+          score_v2_conf: scoreV2?.confianca_score ?? null,
+          rating_ia: (aiData.rating as number) ?? null,
+          decisao_ia: (aiData.decisao as string) ?? null,
+          garantias: garantias.trim() || null,
+          prazo_revisao: parseInt(prazoRevisao) || null,
+          observacoes: notas.trim() || null,
+          membros_comite: null,
+        };
+        if (parecerId) {
+          await supabase.from("pareceres").update(parecerPayload).eq("id", parecerId);
+        } else {
+          const { data: np } = await supabase.from("pareceres").insert(parecerPayload).select("id").single();
+          if (np?.id) setParecerId(np.id as string);
+        }
+      } catch (parecerErr) {
+        console.warn("[parecer] falha ao salvar em pareceres:", parecerErr);
+      }
+
       try { localStorage.removeItem(`cf_parecer_pending_${id}`); } catch { /* ignore */ }
       toast.success("Parecer registrado com sucesso!");
       setTimeout(() => { window.location.href = `/historico?highlight=${id}`; }, 800);
@@ -644,7 +690,7 @@ const ratingIsAnalista = ratingAnalista != null;
       const variant = decVariant(decisao);
       const ratingVariant: "success" | "warn" | "danger" | null = rating == null
         ? null : rating >= 7 ? "success" : rating >= 4 ? "warn" : "danger";
-      const riskLabel = rating != null ? (rating >= 7 ? "BAIXO RISCO" : rating >= 4 ? "RISCO MODERADO" : "ALTO RISCO") : "";
+      const _riskLabel = rating != null ? (rating >= 7 ? "BAIXO RISCO" : rating >= 4 ? "RISCO MODERADO" : "ALTO RISCO") : ""; void _riskLabel;
 
       // Comparativo rows
       const rows: { label: string; pleito: string; aprovado: string }[] = [];
@@ -796,13 +842,29 @@ const ratingIsAnalista = ratingAnalista != null;
         <div class="emp-cnpj">CNPJ <b>${esc(cnpj)}</b></div>
         ${variant && decisao ? `<span class="dec ${variant}">${decLabel[decisao] || decisao}${decisaoComite ? ` · ${esc(comiteLabel[decisaoComite] || decisaoComite)}` : ""}</span>` : ""}
       </div>
+      ${(() => {
+        if (!scoreV2) return "";
+        const v2colors: Record<string, string> = { A:"#16a34a", B:"#65a30d", C:"#d97706", D:"#ea580c", E:"#dc2626", F:"#991b1b" };
+        const v2bgs: Record<string, string>    = { A:"#f0fdf4", B:"#f7fee7", C:"#fffbeb", D:"#fff7ed", E:"#fef2f2", F:"#fff1f2" };
+        const v2lbls: Record<string, string>   = { A:"EXCELENTE", B:"BOM", C:"MODERADO", D:"FRACO", E:"RUIM", F:"CRÍTICO" };
+        const v2c   = v2colors[scoreV2.rating] ?? "#94a3b8";
+        const v2bg  = v2bgs[scoreV2.rating]    ?? "#f1f5f9";
+        const v2lbl = v2lbls[scoreV2.rating]   ?? "";
+        return `<div class="rat" style="min-width:86px">
+          <div style="width:68px;height:68px;border-radius:50%;border:3px solid ${v2c};background:${v2bg};display:flex;flex-direction:column;align-items:center;justify-content:center;margin:0 auto 6px">
+            <div style="font-size:32px;font-weight:900;color:${v2c};line-height:1">${scoreV2.rating}</div>
+          </div>
+          <div style="font-size:9px;font-weight:800;color:${v2c};letter-spacing:0.06em;text-align:center;text-transform:uppercase">RATING V2</div>
+          <div style="font-size:9px;color:#64748b;text-align:center;margin-top:1px">${scoreV2.score_final.toFixed(0)} pts · ${v2lbl}</div>
+        </div>`;
+      })()}
       ${rating != null && ratingVariant ? `
       <div class="rat">
         <div class="rat-c ${ratingVariant}">
           <div class="rat-n">${rating}</div>
           <div class="rat-d">/ 10</div>
         </div>
-        <div class="rat-l ${ratingVariant}">${riskLabel}</div>
+        <div class="rat-l ${ratingVariant}">OPINIÃO IA</div>
       </div>` : ""}
     </div>
 
@@ -1036,6 +1098,18 @@ const ratingIsAnalista = ratingAnalista != null;
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0, position: "relative" }}>
+            {scoreV2 && (() => {
+              const v2cores: Record<string, string> = { A:"#4ade80", B:"#a3e635", C:"#fbbf24", D:"#fb923c", E:"#f87171", F:"#fca5a5" };
+              const v2cor = v2cores[scoreV2.rating] ?? "#94a3b8";
+              return (
+                <div style={{ background: "rgba(255,255,255,0.1)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", borderRadius: 12, padding: "8px 16px", textAlign: "center", border: `1px solid ${v2cor}44` }}>
+                  <p style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.55)", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>Score V2</p>
+                  <p style={{ fontSize: 22, fontWeight: 900, color: v2cor, margin: 0, lineHeight: 1.2 }}>
+                    {scoreV2.rating}<span style={{ fontSize: 11, fontWeight: 500, color: "rgba(255,255,255,0.4)" }}> · {scoreV2.score_final.toFixed(0)}pts</span>
+                  </p>
+                </div>
+              );
+            })()}
             {rating != null && (
               <div style={{ background: "rgba(255,255,255,0.1)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", borderRadius: 12, padding: "8px 16px", textAlign: "center", border: "1px solid rgba(255,255,255,0.15)" }}>
                 <p style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.55)", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>{ratingIsAnalista ? "Comitê" : "Rating IA"}</p>
