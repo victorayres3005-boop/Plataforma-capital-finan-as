@@ -1,5 +1,6 @@
 import type { ExtractedData, AIAnalysis } from "@/types";
 import { calcularCobertura } from "@/lib/generators/helpers";
+import { recomputeSCRTotals } from "@/lib/hydrateFromCollection";
 
 interface Alert {
   message: string;
@@ -27,6 +28,9 @@ export interface HTMLReportParams {
 }
 
 export function buildHTMLReport(p: HTMLReportParams): string {
+  // Recalcula CP/LP/Total SCR a partir das faixas (idempotente; protege dados antigos)
+  if (p.data?.scr) p.data.scr = recomputeSCRTotals(p.data.scr);
+  if (p.data?.scrAnterior) p.data.scrAnterior = recomputeSCRTotals(p.data.scrAnterior);
   const d = p.data;
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { decision, finalRating, alerts, alertsHigh, pontosFortes, pontosFracos, perguntasVisita, resumoExecutivo, companyAge, vencidosSCR, vencidas, prejuizosVal, protestosVigentes } = p;

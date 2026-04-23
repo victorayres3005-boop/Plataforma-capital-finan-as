@@ -365,7 +365,7 @@ export async function buildDOCXReport(p: DOCXReportParams): Promise<Blob> {
                         ...([
                           { label: 'PRAZO MAXIMO', value: lc.prazo + ' dias' },
                           { label: 'REVISAO EM', value: new Date(lc.dataRevisao).toLocaleDateString('pt-BR') },
-                          { label: 'CONC. MAX/SACADO', value: fmtM(lc.limiteConcentracao) },
+                          { label: 'CONC. MAX/SACADO', value: fmtM(lc.limiteConcentracao ?? 0) },
                           { label: 'BASE CALCULO', value: `${fmtM(lc.fmmBase)} x ${lc.fatorBase}x` },
                         ].map(col => new TableCell({
                           shading: { type: 'clear' as const, fill: 'F8FAFC' },

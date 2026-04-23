@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { FundSettings, ExtractedData } from "@/types";
 import { DEFAULT_FUND_SETTINGS } from "@/types";
+import type { ScoreResult, RespostaCriterio } from "@/types/politica-credito";
 
 import { createClient } from "@supabase/supabase-js";
 import { generateEmbedding, buildEmbeddingText } from "@/lib/embeddings";
@@ -182,7 +183,7 @@ async function callGemini(prompt: string, data: string): Promise<string> {
       for (let attempt = 0; attempt < 1 + MAX_RATE_RETRIES; attempt++) {
         try {
           const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 25000); // 25s por chamada
+          const timeout = setTimeout(() => controller.abort(), 40000); // 40s — acomoda thinking budget
           let response: Response;
           try {
             response = await fetch(geminiUrl(model, apiKey), {
@@ -197,8 +198,9 @@ async function callGemini(prompt: string, data: string): Promise<string> {
                   temperature: 0,
                   maxOutputTokens: 16384,
                   responseMimeType: "application/json",
-                  // Desativa "thinking" do gemini-2.5-flash para não consumir tokens
-                  ...(model.includes("2.5") ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
+                  // Budget de 2048 tokens de raciocínio: suficiente para calibrar
+                  // rating com o Score V2 sem impacto significativo de latência.
+                  ...(model.includes("2.5") ? { thinkingConfig: { thinkingBudget: 2048 } } : {}),
                 },
               }),
               signal: controller.signal,
@@ -403,78 +405,27 @@ Critérios para [INFO] — severidade "INFO":
 — REGIME_TETO_SIMPLES: cedente no Simples Nacional com FMM próximo ao teto (~R$ 400k/mês) — risco de exclusão do regime e aumento abrupto de carga tributária (10–15%); pode impactar margens e fluxo de caixa
 — VISITA_NAO_RECOMENDADA: relatório de visita com recomendação negativa do visitante — dado de campo contradiz análise documental; pendente de esclarecimento obrigatório antes de qualquer aprovação
 
-=== CÁLCULO DO SCORE (0–10) ===
+=== SCORE E DECISÃO ===
 
-Calcule o score por componentes ponderados:
+IMPORTANTE — MUDANÇA DE ARQUITETURA:
+O score de crédito NÃO é mais calculado por você.
+O Score V2 da Política do Fundo já foi calculado pelo sistema
+e está no bloco "SCORE V2" acima.
 
-1. SCR (peso 18%):
-   Este componente avalia TANTO o SCR da empresa QUANTO o SCR dos sócios (se disponível).
-   — Sem vencidos, sem prejuízo, alavancagem <= 2x: 10,0
-   — Sem vencidos, sem prejuízo, alavancagem 2–3,5x: 8,0
-   — Sem vencidos, sem prejuízo, alavancagem 3,5–5x: 6,0
-   — Sem vencidos, com prejuízo leve (< 2% da carteira): 5,0
-   — Com vencidos: 2,0
-   — Com RJ: 0,0
-   Penalidade SCR dos sócios: se algum sócio tem vencidos > 0 ou prejuízos > 0, aplique -1,5 pts neste componente adicionalmente (sócio inadimplente = risco de gestão).
-   Penalidade de antecipação excessiva: se nas modalidades SCR aparecerem "desconto de duplicatas", "antecipação de recebíveis", "FIDC" ou similares com volume > 30% do FMM, aplique -0,5 pts (capacidade já comprometida com outros instrumentos).
+Seu papel agora é:
+1. Gerar o texto narrativo do parecer com base nos dados e no Score V2
+2. Identificar e listar alertas relevantes
+3. Confirmar ou ajustar a decisão (APROVADO/CONDICIONAL/PENDENTE/REPROVADO)
+   com base nos dados — mas SEMPRE respeitando:
+   - Score V2 A/B → máximo APROVADO
+   - Score V2 C/D → máximo APROVACAO_CONDICIONAL
+   - Score V2 E   → máximo PENDENTE
+   - Score V2 F   → REPROVADO (não negociar)
+   - Eliminatório detectado → REPROVADO obrigatório
 
-2. Faturamento (peso 17%):
-   — FMM acima do mínimo, consistente, sem zeros, tendência estável ou crescente: 10,0
-   — FMM acima do mínimo com irregularidades ou tendência de queda: 7,0
-   — FMM abaixo do mínimo: 2,0
-   — Faturamento não informado: 3,0
-   SAZONALIDADE: se o alerta FAT_SAZONALIDADE_CRITICA estiver presente, reduza a nota deste componente em -1,5 pts (FMM médio superestima capacidade).
-
-3. CCF — Cheques Sem Fundo (peso 15%):
-   ATENÇÃO: CCF é o indicador mais decisivo de disciplina de pagamento no sistema bancário. Para um FIDC, um cedente que não honrou cheques provavelmente também não honrará coobrigações. Trate com rigidez máxima.
-   — Sem nenhum registro de CCF: 10,0
-   — 1–3 registros em banco único, sem reincidência: 3,0
-   — 4+ registros OU múltiplos bancos OU reincidência: 0,0
-   — CCF não consultado: 7,0 (neutro — benefício da dúvida moderado)
-
-4. Protestos (peso 13%):
-   — Sem protestos vigentes: 10,0
-   — 1–2 protestos de valor baixo (< 5% FMM): 6,0
-   — Protestos de valor significativo (> 5% FMM): 2,0
-   — Não consultado: 5,0
-
-5. Processos (peso 9%):
-   — Sem processos: 10,0
-   — Processos de baixo valor / trabalhista isolado: 7,0
-   — Múltiplos processos ou valores altos: 4,0
-   — RJ ativo: 0,0
-   — Não consultado: 5,0
-
-6. Balanço/DRE (peso 9%):
-   — PL positivo, liquidez > 1,0, margem positiva: 10,0
-   — PL positivo, liquidez 0,5–1,0: 7,0
-   — PL positivo, liquidez < 0,5: 4,0
-   — PL negativo: 1,0
-   — Não informado: 5,0
-
-7. Sócios/Governança (peso 4%):
-   — IR atualizado, sem restrições, múltiplos sócios com participação equilibrada: 10,0
-   — IR com ressalvas ou desatualizado: 6,0
-   — Débitos em aberto / restrições: 2,0
-   — IR não informado: 4,0
-   MATURIDADE: considere a idade da empresa no ajuste final deste componente:
-     — empresa com 3–5 anos: -1,0 pt (baixa maturidade operacional)
-     — empresa com 5–10 anos: nota neutra
-     — empresa com > 10 anos: +0,5 pt (maturidade consolidada)
-   Alertas INCOERENCIA_DRE_FAT ou ALAVANCAGEM_DIVERGENTE presentes: -1,0 pt neste componente (governança financeira inconsistente).
-
-8. Curva ABC / Qualidade da Carteira de Sacados (peso 15%):
-   CONTEXTO FIDC: O risco numa operação de FIDC NÃO está só no cedente — está principalmente nos sacados que vão pagar as duplicatas. Num FIDC sem coobrigação forte, a qualidade do portfólio de sacados é O fator mais importante. Por isso este componente ganhou peso.
-   — Boa diversificação: maior sacado < 20% do faturamento, top 5 < 50%, base > 10 clientes: 10,0
-   — Concentração moderada: maior sacado 20–30% OU top 5 entre 50–70%: 7,0
-   — Concentração alta: maior sacado 30–50% OU top 5 > 70%: 4,0
-   — Concentração crítica: maior sacado > 50% — risco sistêmico: 1,0
-   — Curva ABC não informada: 5,0 (neutro — gere alerta SACADO_ABC_AUSENTE)
-   DILUIÇÃO SETORIAL: se o cedente for de prestação de serviços (CNAE 60-99 majoritário), reduza em -1,0 pt (maior risco de contestação).
-
-Score final = média ponderada (SCR 18% + Fat 17% + CCF 15% + Protestos 13% + Processos 9% + Balanço 9% + Sócios 4% + Sacados 15% = 100%)
-Penalidades adicionais: -1,0 por cada alerta [ALTA]; -0,3 por cada alerta [MODERADA] (mínimo 0)
-IMPORTANTE: CCF com qtdRegistros > 0 já força REPROVADO via regra absoluta — NÃO aplique penalidade dupla de -1,5 sobre o score. A regra absoluta é suficiente.
+NÃO retornar campo "rating" com valor calculado por você.
+Retornar "rating": {{SCORE_V2_SCALED}} (convertido do Score V2)
+Retornar "decisao" conforme as regras acima.
 
 === ANÁLISE COMPLEMENTAR FIDC ===
 
@@ -543,42 +494,31 @@ IMPORTANTE: Cada parágrafo deve ter 3-5 frases com dados concretos. NÃO seja g
 
 === PARÂMETROS OPERACIONAIS ===
 
-limiteAproximado: calcule como FMM × fator baseado no score e alertas. Reduza o fator se houver alerta SACADO_CONCENTRACAO_CRITICA ou SACADO_CONCENTRACAO_ALTA (portfólio concentrado exige limite menor para conter exposição).
-  — score >= 8,0 e sem [ALTA]: FMM × 0,8
-  — score 6,0–7,9 ou 1 alerta [ALTA]: FMM × 0,5
-  — score < 6,0 ou 2+ alertas [ALTA]: FMM × 0,3
-  — Redutor adicional se SACADO_CONCENTRACAO_CRITICA: multiplique o fator por 0,7
-  — Apresente: "~R$ [valor] (aproximadamente [X]x FMM — [raciocínio])"
+PARÂMETROS OPERACIONAIS — use as seguintes referências:
 
-prazoMaximo: ajuste conforme setor do cedente além do score
-  — score >= 8,0 e setor de ciclo curto (varejo/distribuição): "90 dias"
-  — score >= 8,0 e setor de ciclo longo (construção/agro/governo): "120 dias"
-  — score 6,0–7,9: "60–75 dias"
-  — score 4,0–5,9: "30–45 dias"
-  — score < 4,0: "Não recomendado"
+Taxa sugerida (baseada no rating V2):
+  Rating A → {{TAXA_RATING_A}}% a.m.
+  Rating B → {{TAXA_RATING_B}}% a.m.
+  Rating C → {{TAXA_RATING_C}}% a.m.
+  Rating D → {{TAXA_RATING_D}}% a.m.
+  Rating E → {{TAXA_RATING_E}}% a.m.
+  Rating F → não opera
 
-concentracaoSacado: use o menor limite entre o score e a situação da Curva ABC
-  — Score alto + Curva ABC diversificada (maior < 20%): "até 25% por sacado"
-  — Score moderado OU maior sacado 20–30%: "até 15% por sacado"
-  — Score baixo OU maior sacado > 30%: "até 10% por sacado"
-  — SACADO_CONCENTRACAO_CRITICA presente: "até 8% por sacado (carteira concentrada)"
+  Ajustes sobre a taxa base:
+  + 0,2% se operação a performar > 30%
+  + 0,3% se sem confirmação de lastro
+  - 0,1% se garantia real oferecida
+  - 0,2% se rating A com histórico limpo > 2 anos
 
-garantias: defina conforme score, alertas E estrutura societária — seja específico
-  — Score >= 8,0 sem alertas críticos, múltiplos sócios, IR em dia: "Aval dos sócios solidários"
-  — Score 6,0–7,9 ou alertas moderados: "Aval dos sócios solidários + cessão fiduciária de recebíveis (índice de cobertura mínimo 1,2x)"
-  — Score < 6,0 ou alertas [ALTA] de sócio/balanço: "Aval dos sócios solidários + garantia real (imóvel ou equipamento) + fundo de reserva de 5% do limite"
-  — CCF ou SCR vencido presentes (mas operação aprovada condicionalmente): "Garantia real obrigatória + aval + duplicatas cauccionadas em garantia — sem aprovação sem colateral tangível"
-  NOTA: Para cedentes sem coobrigação (FIDC sem coobrigação), explicite que o risco recai integralmente sobre a qualidade dos sacados e exija Curva ABC atualizada mensalmente.
+Limite: já calculado pelo sistema — mencione apenas no textoCompleto
+Prazo: já calculado pelo sistema — mencione apenas no textoCompleto
+Revisão: já calculada pelo sistema — mencione apenas no textoCompleto
 
-revisao:
-  — 0–1 alertas, score >= 7,5: "180 dias"
-  — 2–3 alertas OU score 6,0–7,4: "90 dias"
-  — 4+ alertas OU score < 6,0: "30–60 dias"
-  — SACADO_CONCENTRACAO_CRITICA ou SACADO_BASE_CRITICA: máximo 60 dias independente do score
-
-baseCalculo: descreva o raciocínio completo do limite, incluindo o componente de sacados (ex: "FMM de R$ X × 0,5 pelo score de Y/10, com redutor de 30% pela concentração de sacados (maior cliente = Z% do faturamento)")
-
-NÃO recalcule os indicadores já fornecidos no início do prompt. Use os valores pré-calculados.
+Para limiteAproximado: retorne string vazia ""
+Para prazoMaximo: retorne string vazia ""
+Para revisao: retorne string vazia ""
+Para concentracaoSacado: retorne "{{CONC_MAX_SACADO}}% por sacado"
+Para garantias: descreva o que é exigido baseado no rating V2 e nos dados disponíveis
 NÃO invente dados. Se ausente: "—" e alerta DADOS_PARCIAIS quando relevante.
 
 === ANÁLISE COM DOCUMENTAÇÃO PARCIAL ===
@@ -1010,6 +950,17 @@ function calcularPreRequisitos(data: Record<string, unknown>, settings: FundSett
     motivoReprovacao.push(`Empresa com ${idadeAnos.toFixed(1)} anos abaixo do minimo de ${settings.idade_minima_anos} anos`);
   }
 
+  // ── Sanções CEIS/CNEP — eliminatório fixo ──
+  const sancoes = (data as unknown as Record<string, unknown>).sancoes as Record<string, unknown> | undefined;
+  if (sancoes?.consultado) {
+    const sancoesCNPJ = (sancoes.sancoesCNPJ as unknown[]) ?? [];
+    const sancoesSocios = (sancoes.sancoesSocios as unknown[]) ?? [];
+    const ativas = [...sancoesCNPJ, ...sancoesSocios].filter((s: unknown) => (s as Record<string, unknown>).ativa);
+    if (ativas.length > 0) {
+      motivoReprovacao.push(`${ativas.length} sancao(oes) ativa(s) em CEIS/CNEP (Portal da Transparencia) — criterio eliminatorio`);
+    }
+  }
+
   // ── CCF — eliminatório fixo ──
   const protestos = (data.protestos ?? {}) as Record<string, unknown>;
   const processos = (data.processos ?? {}) as Record<string, unknown>;
@@ -1188,6 +1139,26 @@ ${(data.ccf && data.ccf.qtdRegistros > 0) ? `CCF — CHEQUES SEM FUNDO (Bureau):
 - Bancos com registro: ${data.ccf.bancos.map(b => `${b.banco || "N/D"}: ${b.quantidade || 0} ocorr.${b.motivo ? " (" + b.motivo + ")" : ""}${b.dataUltimo ? " — último: " + b.dataUltimo : ""}`).join("; ")}
 - Tendência: ${data.ccf.tendenciaLabel || "estável"}${(data.ccf.tendenciaVariacao ?? 0) !== 0 ? ` (${(data.ccf.tendenciaVariacao ?? 0) > 0 ? "+" : ""}${data.ccf.tendenciaVariacao}% vs período anterior)` : ""}` : "CCF: Não consultado ou sem ocorrências"}
 
+${(() => {
+  const san = (data as unknown as Record<string, unknown>).sancoes as Record<string, unknown> | undefined;
+  if (!san?.consultado) return "SANÇÕES CADASTRAIS (Portal da Transparência): Não consultado";
+  const cnpjLimpo = san.cnpjLimpo as boolean;
+  const sociosLimpos = san.sociosLimpos as boolean;
+  if (cnpjLimpo && sociosLimpos) return "SANÇÕES CADASTRAIS (Portal da Transparência): Empresa e sócios sem registros em CEIS/CNEP";
+  const linhas: string[] = ["SANÇÕES CADASTRAIS — ATENÇÃO: RESTRIÇÕES ENCONTRADAS:"];
+  if (!cnpjLimpo) {
+    const itens = (san.sancoesCNPJ as Record<string, unknown>[]) ?? [];
+    linhas.push(`- CNPJ sancionado: ${itens.length} ocorrência(s) em CEIS/CNEP`);
+    itens.slice(0, 3).forEach(s => linhas.push(`  · ${s.tipoSancao || "Sanção"} por ${s.orgaoSancionador} — ${s.dataInicioSancao}${s.dataFinalSancao ? ` até ${s.dataFinalSancao}` : " (sem data fim — vigente)"}`));
+  }
+  if (!sociosLimpos) {
+    const itens = (san.sancoesSocios as Record<string, unknown>[]) ?? [];
+    linhas.push(`- Sócios com restrições: ${itens.length} ocorrência(s) pessoais em CEIS`);
+    itens.slice(0, 3).forEach(s => linhas.push(`  · ${s.nomeSancionado}: ${s.tipoSancao || "Sanção"} por ${s.orgaoSancionador} (${s.dataInicioSancao})`));
+  }
+  return linhas.join("\n");
+})()}
+
 PARÂMETROS DO FUNDO:
 - FMM mínimo: R$ ${settings.fmm_minimo?.toLocaleString("pt-BR")}
 - Idade mínima: ${settings.idade_minima_anos} anos
@@ -1232,6 +1203,96 @@ Se aprovado: sugira limite de crédito (FMM × fator do fundo), prazo máximo e 
 Se condicional: liste as condições específicas.
 Se reprovado: explique o motivo principal e sugira prazo para reanálise.
 `;
+
+// ─────────────────────────────────────────
+// Score V2 — bloco de contexto para o Gemini
+// ─────────────────────────────────────────
+const PILAR_LABELS: Record<string, string> = {
+  perfil_empresa:    "Perfil da Empresa (peso 15%)",
+  saude_financeira:  "Saúde Financeira (peso 15%)",
+  risco_compliance:  "Risco e Compliance (peso 25%)",
+  socios_governanca: "Sócios e Governança (peso 10%)",
+  estrutura_operacao:"Estrutura da Operação (peso 35%)",
+};
+
+const CRITERIO_LABELS: Record<string, string> = {
+  segmento: "Segmento de Atuação", localizacao: "Localização",
+  capacidade_operacional: "Capacidade Operacional (Porte x Faturamento)",
+  estrutura_fisica: "Estrutura Física", patrimonio_empresa: "Patrimônio da Empresa",
+  qualidade_faturamento: "Faturamento (qualidade e consistência)",
+  analise_financeira: "Análise Financeira (DRE / Balanço)",
+  alavancagem: "Alavancagem (SCR / FMM)",
+  situacao_juridica: "Situação Jurídica (RJ, falência, execuções)",
+  protestos: "Protestos Vigentes", scr_endividamento: "SCR — Endividamento e Vencidos",
+  pefin_refin: "Negativações (Pefin / Refin / SPC)",
+  processos_judiciais: "Processos Judiciais (polo passivo)",
+  endividamento_socios: "Endividamento dos Sócios",
+  tempo_empresa: "Tempo dos Sócios na Empresa",
+  patrimonio_socios: "Patrimônio Declarado dos Sócios",
+  risco_sucessao: "Risco de Sucessão / Dependência Operacional",
+  confirmacao_lastro: "Confirmação de Lastro",
+  perfil_sacados: "Perfil e Qualidade dos Sacados",
+  tipo_operacao: "Tipo de Operação (performado / a performar)",
+  garantias: "Garantias Adicionais",
+  quantidade_fundos: "Relacionamento com Outros Fundos",
+};
+
+function buildScoreV2Block(score: ScoreResult, respostas?: RespostaCriterio[]): string {
+  const ratingDescricao: Record<string, string> = {
+    A: "Excelente (90–100 pts) — aprovação plena recomendada",
+    B: "Bom (80–89 pts) — aprovação normal",
+    C: "Moderado (70–79 pts) — aprovação condicional",
+    D: "Fraco (60–69 pts) — pendente de esclarecimentos",
+    E: "Ruim (50–59 pts) — reprovação recomendada",
+    F: "Crítico (0–49 pts) — reprovação imediata",
+  };
+
+  const pilaresOrdem = ["estrutura_operacao","risco_compliance","perfil_empresa","saude_financeira","socios_governanca"];
+  const pilares = pilaresOrdem
+    .filter(id => score.pontuacao_ponderada[id] !== undefined || score.pontos_brutos[id] !== undefined)
+    .map(id => {
+      const contrib = score.pontuacao_ponderada[id] ?? 0;
+      const brutos = score.pontos_brutos[id] ?? 0;
+      const label = PILAR_LABELS[id] ?? id;
+      const pendente = score.pilares_pendentes.includes(id);
+      if (pendente) return `  • ${label}: PENDENTE — não preenchido pelo analista`;
+
+      // Critérios respondidos neste pilar
+      const criteriosDopilar = (respostas ?? []).filter(r => r.pilar_id === id);
+      const criteriosStr = criteriosDopilar.length > 0
+        ? "\n" + criteriosDopilar.map(r => {
+            const nomeC = CRITERIO_LABELS[r.criterio_id] ?? r.criterio_id;
+            const modStr = r.modificador_label ? ` × ${r.modificador_multiplicador} (${r.modificador_label})` : "";
+            return `      - ${nomeC}: "${r.opcao_label}" → ${r.pontos_base} pts${modStr} = ${r.pontos_final.toFixed(1)} pts`;
+          }).join("\n")
+        : "";
+      return `  • ${label}: ${brutos.toFixed(1)} pts brutos → ${contrib.toFixed(1)} pts ponderados${criteriosStr}`;
+    })
+    .join("\n");
+
+  const confiancaDesc = score.confianca_score === "alta"
+    ? "alta (todos os pilares preenchidos)"
+    : score.confianca_score === "parcial"
+    ? "parcial (alguns pilares pendentes)"
+    : "baixa (maioria dos pilares pendentes)";
+
+  return `\n\n--- SCORE V2 DA POLÍTICA DE CRÉDITO (preenchido pelo analista) ---
+Score final: ${score.score_final.toFixed(1)} / 100
+Rating V2: ${score.rating} — ${ratingDescricao[score.rating] || ""}
+Confiança do score: ${confiancaDesc}
+Pilares pendentes: ${score.pilares_pendentes.length === 0 ? "nenhum" : score.pilares_pendentes.map(p => PILAR_LABELS[p] ?? p).join(", ")}
+
+Detalhamento por pilar (com critérios respondidos pelo analista):
+${pilares}
+
+INSTRUÇÕES PARA USO DO SCORE V2:
+1. O Score V2 foi preenchido pelo analista humano com base nos documentos. Use-o como âncora da sua avaliação — calibre o seu rating (0–10) de forma coerente com o rating V2 (A–F).
+2. Correspondência de referência: Rating A → score IA 8,0–10,0 | B → 6,5–8,0 | C → 5,0–6,5 | D → 3,5–5,0 | E → 2,0–3,5 | F → 0–2,0
+3. Se houver discrepância entre o score V2 e os dados brutos, mencione no textoCompleto e justifique sua posição.
+4. Pilares marcados como PENDENTE não foram avaliados pelo analista — não presuma a nota; trate como ausência de informação para aquela dimensão.
+5. NÃO use o score V2 para substituir sua análise — use-o para calibração. A decisão final de aprovação ainda deve seguir as regras absolutas do prompt.
+--- FIM SCORE V2 ---\n`;
+}
 
 // ─────────────────────────────────────────
 // HANDLER
@@ -1543,7 +1604,13 @@ Dívida total SCR: R$ ${_alav.totalDivida.toLocaleString("pt-BR", { minimumFract
             .replace(/`FMM_MINIMO`/g, `R$ ${_settings.fmm_minimo.toLocaleString("pt-BR")}`)
             .replace(/`IDADE_MINIMA`/g, String(_settings.idade_minima_anos))
             .replace(/`ALAV_SAUDAVEL`/g, String(_settings.alavancagem_saudavel))
-            .replace(/`ALAV_MAXIMA`/g, String(_settings.alavancagem_maxima));
+            .replace(/`ALAV_MAXIMA`/g, String(_settings.alavancagem_maxima))
+            .replace(/\{\{TAXA_RATING_A\}\}/g, String(_settings.taxa_base_rating_a ?? 1.5))
+            .replace(/\{\{TAXA_RATING_B\}\}/g, String(_settings.taxa_base_rating_b ?? 2.0))
+            .replace(/\{\{TAXA_RATING_C\}\}/g, String(_settings.taxa_base_rating_c ?? 2.5))
+            .replace(/\{\{TAXA_RATING_D\}\}/g, String(_settings.taxa_base_rating_d ?? 3.5))
+            .replace(/\{\{TAXA_RATING_E\}\}/g, String(_settings.taxa_base_rating_e ?? 5.0))
+            .replace(/\{\{CONC_MAX_SACADO\}\}/g, String(_settings.concentracao_max_sacado));
 
           // Cobertura documental — informa a IA sobre o que está disponível
           const cobertura = calcularCobertura(_body.data as Record<string, unknown>);
@@ -1556,7 +1623,14 @@ Dívida total SCR: R$ ${_alav.totalDivida.toLocaleString("pt-BR", { minimumFract
             indicadores: { idadeEmpresa: String(_preReq.idadeAnos) + " anos", alavancagem: alav.label },
           };
           const fewShotBlock = userId ? await getFewShotExamples(userId, currentSnapshot) : "";
-          const dynamicPrompt = basePrompt + coberturaBlock + (fewShotBlock || "");
+          const scoreV2 = _body.scoreV2 as ScoreResult | undefined;
+          const scoreV2Respostas = _body.scoreV2Respostas as RespostaCriterio[] | undefined;
+          const scoreV2Block = scoreV2 ? buildScoreV2Block(scoreV2, scoreV2Respostas) : "";
+          const scoreV2Scaled = scoreV2?.score_final != null
+            ? (scoreV2.score_final / 10).toFixed(1)
+            : "—";
+          const dynamicPrompt = (basePrompt + coberturaBlock + (fewShotBlock || "") + scoreV2Block)
+            .replace(/\{\{SCORE_V2_SCALED\}\}/g, scoreV2Scaled);
 
           const sintesePrompt = PROMPT_SINTESE(_body.data as ExtractedData, _settings, _preReq);
 

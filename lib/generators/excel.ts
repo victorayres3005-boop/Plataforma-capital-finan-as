@@ -234,7 +234,7 @@ export async function buildExcelReport(p: ExcelReportParams): Promise<Blob> {
           const detailItems = [
             { label: 'Prazo Maximo', value: lc.prazo + ' dias' },
             { label: 'Revisao em', value: new Date(lc.dataRevisao).toLocaleDateString('pt-BR') },
-            { label: 'Conc. Max/Sacado', value: fmtM(lc.limiteConcentracao) },
+            { label: 'Conc. Max/Sacado', value: fmtM(lc.limiteConcentracao ?? 0) },
             { label: 'Base (FMM x Fator)', value: `${fmtM(lc.fmmBase)} x ${lc.fatorBase}x = ${fmtM(lc.limiteBase)}` },
           ];
           detailItems.forEach((item, i) => field2(item.label, item.value, i));

@@ -685,7 +685,7 @@ export function gerarAlertasSCR(
   }
   if (fmmVal > 0) {
     const alav = parseMoneyToNumber(scr.totalDividasAtivas || "0") / fmmVal;
-    if (alav > 1.5) out.push({ nivel: "media", mensagem: `Alavancagem de ${fmtBR(alav, 1)}x — acima do patamar conservador` });
+    if (alav > 1.5) out.push({ nivel: "media", mensagem: `Alavancagem de ${fmtBR(alav, 2)}x — acima do patamar conservador` });
   }
   if (scrAnterior?.totalDividasAtivas) {
     const divAt = parseMoneyToNumber(scr.totalDividasAtivas || "0");

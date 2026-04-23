@@ -47,7 +47,7 @@ export default function ImportarGoalfyPage() {
   const [loading, setLoading]         = useState(true);
   const [syncing, setSyncing]         = useState(false);
   const [isMock, setIsMock]           = useState(false);
-  const [_setupRequired, setSetupRequired] = useState(false);
+  const [setupRequired, setSetupRequired] = useState(false);
   const [error, setError]             = useState<string | null>(null);
   const [importing, setImporting]     = useState<Record<string, boolean>>({});
   const [imported, setImported]       = useState<Record<string, string>>({});  // opId → collectionId

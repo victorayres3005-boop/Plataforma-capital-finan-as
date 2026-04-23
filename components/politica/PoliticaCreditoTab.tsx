@@ -5,7 +5,7 @@ import { Save, Loader2, Check, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import type { ConfiguracaoPolitica } from "@/types/politica-credito";
-import { DEFAULT_POLITICA_V2 } from "@/lib/politica-credito/defaults";
+import { DEFAULT_POLITICA_V2, mergeComDefaults } from "@/lib/politica-credito/defaults";
 import { validarPolitica, validarPesosPilares, somarPesos } from "@/lib/politica-credito/validators";
 import { PolicyVersionBanner } from "./PolicyVersionBanner";
 import { ElegibilidadeTab } from "./ElegibilidadeTab";
@@ -13,12 +13,14 @@ import { PesosTab } from "./PesosTab";
 import { CriteriosTab } from "./CriteriosTab";
 import { RatingTab } from "./RatingTab";
 import { AlertasTab } from "./AlertasTab";
+import { OperacionalTab } from "./OperacionalTab";
 
 const TABS = [
   { id: "elegibilidade", label: "Elegibilidade" },
   { id: "pesos",         label: "Pesos dos Pilares" },
   { id: "criterios",     label: "Critérios" },
   { id: "rating",        label: "Rating" },
+  { id: "operacional",   label: "Operacional" },
   { id: "alertas",       label: "Alertas" },
 ] as const;
 
@@ -53,19 +55,7 @@ export function PoliticaCreditoTab({ userId }: Props) {
 
         if (data) {
           skipDirty.current = true;
-          setConfig({
-            id: data.id,
-            user_id: data.user_id,
-            versao: data.versao ?? "V2",
-            status: data.status ?? "rascunho",
-            parametros_elegibilidade: data.parametros_elegibilidade ?? DEFAULT_POLITICA_V2.parametros_elegibilidade,
-            pesos_pilares: data.pesos_pilares ?? DEFAULT_POLITICA_V2.pesos_pilares,
-            pilares: data.pilares ?? DEFAULT_POLITICA_V2.pilares,
-            faixas_rating: data.faixas_rating ?? DEFAULT_POLITICA_V2.faixas_rating,
-            alertas: data.alertas ?? DEFAULT_POLITICA_V2.alertas,
-            criado_em: data.criado_em,
-            atualizado_em: data.atualizado_em,
-          });
+          setConfig(mergeComDefaults(data as Record<string, unknown>));
         }
       } catch (err) {
         console.warn("[PoliticaCreditoTab] load error:", err);
@@ -284,6 +274,9 @@ export function PoliticaCreditoTab({ userId }: Props) {
           faixas={config.faixas_rating}
           onChange={f => setConfig(prev => ({ ...prev, faixas_rating: f }))}
         />
+      )}
+      {activeTab === "operacional" && (
+        <OperacionalTab userId={userId} />
       )}
       {activeTab === "alertas" && (
         <AlertasTab

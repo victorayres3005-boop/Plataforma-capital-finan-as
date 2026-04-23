@@ -6,6 +6,7 @@
  */
 import type { PdfCtx } from "../context";
 import { newPage, drawHeader, checkPageBreak, drawSpacer, fmtBR, parseMoneyToNumber, drawJustifiedText } from "../helpers";
+import { recomputeSCRTotals } from "@/lib/hydrateFromCollection";
 
 // ── Utilitários ───────────────────────────────────────────────────────────────
 function sortMes(ms: Array<{ mes: string; valor: string }>) {
@@ -55,6 +56,9 @@ const P = {
 };
 
 export function renderSintese(ctx: PdfCtx): void {
+  // Recalcula CP/LP/Total SCR a partir das faixas (idempotente; protege dados antigos no banco)
+  if (ctx.data?.scr) ctx.data.scr = recomputeSCRTotals(ctx.data.scr);
+  if (ctx.data?.scrAnterior) ctx.data.scrAnterior = recomputeSCRTotals(ctx.data.scrAnterior);
   const { doc, pos, params, data, margin: ML, contentW: CW } = ctx;
   const { decision, finalRating, companyAge, pontosFortes, pontosFracos, resumoExecutivo, protestosVigentes } = params;
 
@@ -133,22 +137,21 @@ export function renderSintese(ctx: PdfCtx): void {
     : last12.length > 0 ? last12.reduce((s,m) => s + parseMoneyToNumber(m.valor), 0) / last12.length : 0;
   const fatTotal12 = last12.reduce((s,m) => s + parseMoneyToNumber(m.valor), 0);
 
-  const socios    = data.qsa?.quadroSocietario || [];
   const normCpfS  = (v: string | undefined | null) => (v ?? "").replace(/\D/g, "");
   const normNomeS = (v: string | undefined | null) => (v ?? "").toUpperCase().trim().replace(/\s+/g, " ");
 
-  // Patrimônio líquido via IR
+  // Patrimônio líquido via IR — indexado por CPF (apenas dígitos)
   const irPLMap: Record<string, string> = {};
   (data.irSocios ?? []).forEach(ir => { const k = normCpfS(ir.cpf); if (k) irPLMap[k] = ir.patrimonioLiquido; });
 
-  // Enriquecimento via Contrato Social: CPF e participação quando ausentes no QSA
+  // Enriquecimento via Contrato Social: CPF e participação indexados por nome normalizado
   const contratoMapS: Record<string, { cpf: string; participacao: string }> = {};
   (data.contrato?.socios ?? []).forEach((cs: { nome?: string; cpf?: string; participacao?: string }) => {
     const k = normNomeS(cs.nome);
-    if (k) contratoMapS[k] = { cpf: normCpfS(cs.cpf), participacao: cs.participacao ?? "" };
+    if (k) contratoMapS[k] = { cpf: normCpfS(cs.cpf ?? ""), participacao: cs.participacao ?? "" };
   });
 
-  // Participação via IR das sociedades (fallback final)
+  // Participação via IR das sociedades (fallback final quando nem QSA nem contrato têm %)
   const cnpjEmpresaS = normCpfS((data.cnpj as unknown as Record<string,string>)?.cnpj);
   const irPartMapS: Record<string, string> = {};
   (data.irSocios ?? []).forEach(ir => {
@@ -157,6 +160,17 @@ export function renderSintese(ctx: PdfCtx): void {
     const soc = (ir.sociedades ?? []).find((s: { cnpj?: string; participacao?: string }) => normCpfS(s.cnpj) === cnpjEmpresaS);
     if (soc?.participacao) irPartMapS[cpfK] = soc.participacao;
   });
+
+  // Fonte primária: QSA. Fallback: contrato social (quando QSA não foi enviado)
+  const qsaSocios = data.qsa?.quadroSocietario ?? [];
+  const socios = qsaSocios.length > 0
+    ? qsaSocios
+    : (data.contrato?.socios ?? []).map(cs => ({
+        nome: cs.nome ?? "",
+        cpfCnpj: cs.cpf ?? "",
+        qualificacao: cs.qualificacao ?? "",
+        participacao: cs.participacao ?? "",
+      }));
   const moFmt = (n: number): string => {
     if (!isFinite(n) || n === 0) return "—";
     const a = Math.abs(n); const sg = n < 0 ? "-" : "";
@@ -164,16 +178,23 @@ export function renderSintese(ctx: PdfCtx): void {
     if (a >= 1_000)     return `${sg}R$ ${Math.round(a/1000)}k`;
     return `${sg}R$ ${Math.round(a)}`;
   };
-  const scrRaw    = data.scr as unknown as Record<string,string|undefined>;
-  const scrAntRaw = (data.scrAnterior || null) as unknown as Record<string,string|undefined>|null;
-  const hasAnt    = scrAntRaw !== null;
+  let scrRaw    = data.scr as unknown as Record<string,string|undefined>;
+  let scrAntRaw = (data.scrAnterior || null) as unknown as Record<string,string|undefined>|null;
+  const hasAnt  = scrAntRaw !== null;
+  // Sort by period: scrRaw = more recent (Atual), scrAntRaw = older (Anterior)
+  if (scrAntRaw) {
+    const parseScrPrd = (s: string) => { const p = (s ?? "").split("/"); return p.length === 2 ? parseInt(p[1], 10) * 100 + parseInt(p[0], 10) : 0; };
+    if (parseScrPrd(scrRaw?.periodoReferencia ?? "") < parseScrPrd(scrAntRaw.periodoReferencia ?? "")) {
+      [scrRaw, scrAntRaw] = [scrAntRaw, scrRaw];
+    }
+  }
 
   const scrCurto  = parseMoneyToNumber(scrRaw?.carteiraCurtoPrazo  || scrRaw?.carteiraAVencer || "0");
   const scrLongo  = parseMoneyToNumber(scrRaw?.carteiraLongoPrazo  || "0");
   const scrVenc   = parseMoneyToNumber(scrRaw?.vencidos            || "0");
   const scrPrej   = parseMoneyToNumber(scrRaw?.prejuizos           || "0");
   const scrLim    = parseMoneyToNumber(scrRaw?.limiteCredito       || "0");
-  const scrTotal  = parseMoneyToNumber(scrRaw?.totalDividasAtivas  || "0");
+  const scrTotal  = scrCurto + scrLongo + scrVenc + scrPrej;
   const scrInstit = parseInt(scrRaw?.qtdeInstituicoes || "0") || 0;
   const scrOps    = scrRaw?.qtdeOperacoes || "";
 
@@ -182,12 +203,20 @@ export function renderSintese(ctx: PdfCtx): void {
   const scrAntVenc  = scrAntRaw ? parseMoneyToNumber(scrAntRaw.vencidos || "0") : null;
   const scrAntPrej  = scrAntRaw ? parseMoneyToNumber(scrAntRaw.prejuizos || "0") : null;
   const scrAntLim   = scrAntRaw ? parseMoneyToNumber(scrAntRaw.limiteCredito || "0") : null;
-  const scrAntTotal = scrAntRaw ? parseMoneyToNumber(scrAntRaw.totalDividasAtivas || "0") : null;
+  const scrAntTotal = scrAntRaw ? (scrAntCurto ?? 0) + (scrAntLongo ?? 0) + (scrAntVenc ?? 0) + (scrAntPrej ?? 0) : null;
+
+  const scrAlavAtual = params.alavancagem ?? (fmm12m > 0 ? scrTotal / fmm12m : 0);
+  const scrAlavAnt   = hasAnt && fmm12m > 0 && (scrAntTotal ?? 0) > 0 ? (scrAntTotal as number) / fmm12m : null;
 
   const protAtivos = (data.protestos?.detalhes || []).filter(p => !p.regularizado);
   const protQtd    = protestosVigentes || protAtivos.length;
   const protVlr    = protAtivos.reduce((s,p) => s + parseMoneyToNumber(p.valor || "0"), 0);
-  const protRec    = [...protAtivos].sort((a,b) => (b.data||"").localeCompare(a.data||""))[0] ?? null;
+  const protDateKey = (d: string): string => {
+    if (!d) return "";
+    const br = d.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+    return br ? `${br[3]}-${br[2]}-${br[1]}` : d;
+  };
+  const protRec    = [...protAtivos].sort((a,b) => protDateKey(b.data||"").localeCompare(protDateKey(a.data||"")))[0] ?? null;
 
   const classifyP = (esp: string, cr: string, ap: string) => {
     const d = (esp+" "+cr+" "+ap).toLowerCase();
@@ -385,7 +414,21 @@ export function renderSintese(ctx: PdfCtx): void {
     doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(...P.wh);
     doc.text("SÓCIOS / QSA", sx+4, y0+5.8);
 
-    const sl = socios.slice(0,6);
+    // Deduplicate by normalized name, merging CPF and participação from duplicate rows
+    const seenS = new Map<string, typeof socios[0]>();
+    socios.forEach(s => {
+      const k = normNomeS(s.nome);
+      if (!k) return;
+      const ex = seenS.get(k);
+      if (!ex) {
+        seenS.set(k, s);
+      } else {
+        const mergedCpf = normCpfS(ex.cpfCnpj ?? "").length >= 11 ? ex.cpfCnpj : (s.cpfCnpj || ex.cpfCnpj);
+        const mergedPart = ex.participacao || s.participacao;
+        seenS.set(k, { ...ex, cpfCnpj: mergedCpf, participacao: mergedPart });
+      }
+    });
+    const sl = Array.from(seenS.values()).slice(0,6);
     if (sl.length === 0) {
       doc.setFont("helvetica","normal"); doc.setFontSize(7); doc.setTextColor(...P.x4);
       doc.text("Sem dados", sx+socW/2, y0+H/2, {align:"center"});
@@ -397,9 +440,10 @@ export function renderSintese(ctx: PdfCtx): void {
         // Nome
         doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(...P.x9);
         doc.text(tr(s.nome||"—",28), sx+3, ry+4);
-        // Qualificação
+        // Qualificação (strip leading QSA numeric code e.g. "49-Sócio-Administrador" → "Sócio-Administrador")
+        const cleanQualS = (s.qualificacao || "").replace(/^\d{1,3}[-\s]+/, "").trim();
         doc.setFont("helvetica","normal"); doc.setFontSize(5.5); doc.setTextColor(...P.x5);
-        doc.text(tr(s.qualificacao||"—",16), sx+3, ry+rh-2.5);
+        doc.text(tr(cleanQualS||"—",16), sx+3, ry+rh-2.5);
         // Participação (%) — QSA → Contrato Social → IR sociedades
         const nomeKeyS = normNomeS(s.nome);
         const contratoS = contratoMapS[nomeKeyS];
@@ -762,7 +806,8 @@ export function renderSintese(ctx: PdfCtx): void {
       {label:"Limite de Crédito", cur:scrLim,   ant:scrAntLim},
       {label:"Total Dívidas",     cur:scrTotal, ant:scrAntTotal, bold:true},
     ];
-    const TH = HH + rows.length*RH + NOTE + 4;
+    const hasAlav = scrAlavAtual > 0 || scrAlavAnt !== null;
+    const TH = HH + rows.length*RH + (hasAlav ? RH : 0) + NOTE + 4;
     checkPageBreak(ctx, 7 + TH + 5); // 7=stitle, +5 buffer
     stitle("SCR — Sistema de Crédito");
     const y0   = pos.y;
@@ -800,6 +845,27 @@ export function renderSintese(ctx: PdfCtx): void {
       doc.setDrawColor(...P.x1); doc.setLineWidth(0.15);
       doc.line(ML+2, ry+RH, ML+CW-2, ry+RH);
     });
+
+    if (hasAlav) {
+      const ry = y0 + HH + rows.length * RH;
+      if (rows.length % 2 === 0) { doc.setFillColor(...P.x0); doc.rect(ML, ry, CW, RH, "F"); }
+      doc.setFont("helvetica","normal"); doc.setFontSize(7); doc.setTextColor(...P.x7);
+      doc.text("Alavancagem", ML+4, ry+5);
+      const alavCurStr = scrAlavAtual > 0 ? scrAlavAtual.toFixed(2) + "x" : "—";
+      doc.text(alavCurStr, ML+CW*0.55, ry+5);
+      if (hasAnt && scrAlavAnt !== null) {
+        doc.setFont("helvetica","normal"); doc.setFontSize(7); doc.setTextColor(...P.x5);
+        doc.text(scrAlavAnt > 0 ? scrAlavAnt.toFixed(2) + "x" : "—", ML+CW*0.72, ry+5);
+        if (scrAlavAnt > 0 && scrAlavAtual > 0) {
+          const vp = (scrAlavAtual - scrAlavAnt) / scrAlavAnt * 100;
+          const vc: [number,number,number] = vp > 0 ? P.r6 : P.g6;
+          doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(...vc);
+          doc.text((vp > 0 ? "+" : "") + fmtBR(vp, 0) + "%", ML+CW*0.9, ry+5);
+        }
+      }
+      doc.setDrawColor(...P.x1); doc.setLineWidth(0.15);
+      doc.line(ML+2, ry+RH, ML+CW-2, ry+RH);
+    }
 
     if (NOTE > 0) {
       const parts: string[] = [];

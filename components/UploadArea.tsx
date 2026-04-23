@@ -59,12 +59,15 @@ export interface UploadAreaProps {
   icon: React.ReactNode;
   docKey: string;
   resumedFilenames?: string[];
+  fromCache?: boolean;
+  onForceReextract?: () => void;
 }
 
 export default function UploadArea({
   title, description, files, onAddFiles, onRemoveFile,
   processing, doneCount, errorCount, errorType,
   onRetry, onReprocess, reprocessing, icon, docKey, resumedFilenames,
+  fromCache, onForceReextract,
 }: UploadAreaProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -259,7 +262,7 @@ export default function UploadArea({
 
       {/* ── Reprocess button — visible after successful extraction ── */}
       {onReprocess && isDone && !hasError && !processing && (hasFiles || hasResumed) && (
-        <div className="px-4 pb-3">
+        <div className="px-4 pb-3 flex items-center gap-2">
           <button
             onClick={e => { e.stopPropagation(); onReprocess(); }}
             disabled={reprocessing}
@@ -268,6 +271,15 @@ export default function UploadArea({
             {reprocessing ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
             {reprocessing ? "Reextraindo..." : "Reprocessar extracao"}
           </button>
+          {fromCache && onForceReextract && (
+            <button
+              onClick={e => { e.stopPropagation(); onForceReextract(); }}
+              title="Resultado veio do cache — clique para forçar nova extração com o modelo atualizado"
+              className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-700 border border-amber-200 rounded-lg px-2.5 py-1.5 hover:bg-amber-50 transition-colors"
+            >
+              <RefreshCw size={10} /> Reextrair (cache)
+            </button>
+          )}
         </div>
       )}
 

@@ -366,13 +366,15 @@ export default function ReviewStep({ data, onComplete, onBack, onDataChange }: R
       <div
         style={{
           position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 30,
-          background: "white",
-          borderTop: "1px solid #E5E7EB",
-          boxShadow: "0 -4px 20px rgba(0,0,0,0.09)",
-          padding: "12px 20px",
+          background: "rgba(255,255,255,0.92)",
+          backdropFilter: "blur(16px)",
+          WebkitBackdropFilter: "blur(16px)",
+          borderTop: "1px solid rgba(32,59,136,0.1)",
+          boxShadow: "0 -8px 32px rgba(0,0,0,0.08)",
+          padding: "12px 24px",
         }}
       >
-        <div style={{ maxWidth: "720px", margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+        <div style={{ maxWidth: "900px", margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
           {/* Esquerda */}
           <button
             onClick={onBack}

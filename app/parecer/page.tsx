@@ -5,6 +5,9 @@ import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { DocumentCollection } from "@/types";
 import type { ScoreResult } from "@/types/politica-credito";
+import { hydrateFromCollection } from "@/lib/hydrateFromCollection";
+import { autoPreencherScore } from "@/lib/politica-credito/auto-score";
+import type { AutoScoreResultado } from "@/lib/politica-credito/auto-score";
 import {
   ArrowLeft, CheckCircle2, Clock, XCircle, AlertTriangle,
   Loader2, DollarSign, Calendar, Users, Shield, RefreshCw, FileText,
@@ -171,7 +174,9 @@ function ParecerContent() {
   const [loading, setLoading] = useState(true);
   const [collection, setCollection] = useState<DocumentCollection | null>(null);
   const [decisao, setDecisao] = useState<DecisaoValue | null>(null);
+  const [fundSettings, setFundSettings] = useState<Record<string, number> | null>(null);
   const [scoreV2, setScoreV2] = useState<ScoreResult | null>(null);
+  const [autoScore, setAutoScore] = useState<AutoScoreResultado | null>(null);
   const [parecerId, setParecerId] = useState<string | null>(null);
   const [ratingAnalista, setRatingAnalista] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
@@ -230,12 +235,25 @@ function ParecerContent() {
         }
         setCollection(data as DocumentCollection);
 
-        // Carrega Score V2 e parecer existente em paralelo
-        const [scoreRow, parecerRow] = await Promise.all([
+        // Auto-score a partir dos dados extraídos
+        const docs = (data.documents ?? []) as { type: string; extracted_data: Record<string, unknown> }[];
+        const extractedData = hydrateFromCollection(docs);
+        const resultado = autoPreencherScore(extractedData);
+        setAutoScore(resultado);
+        console.log('[auto-score carregado]', resultado.criterios_auto);
+        console.log('[manuais pendentes]', resultado.criterios_manuais);
+
+        // Carrega Score V2, parecer existente e fund_settings em paralelo
+        const { data: { user: currentUser } } = await supabase.auth.getUser();
+        const [scoreRow, parecerRow, fsRow] = await Promise.all([
           supabase.from("score_operacoes").select("score_result").eq("collection_id", id)
             .order("preenchido_em", { ascending: false }).limit(1).maybeSingle(),
           supabase.from("pareceres").select("id").eq("collection_id", id).maybeSingle(),
+          currentUser
+            ? supabase.from("fund_settings").select("*").eq("user_id", currentUser.id).maybeSingle()
+            : Promise.resolve({ data: null }),
         ]);
+        if (fsRow.data) setFundSettings(fsRow.data as Record<string, number>);
         if (scoreRow.data?.score_result) setScoreV2(scoreRow.data.score_result as ScoreResult);
         if (parecerRow.data?.id) setParecerId(parecerRow.data.id as string);
 
@@ -617,6 +635,23 @@ function ParecerContent() {
       try {
         const aiData = (fresh?.ai_analysis as Record<string, unknown>) || {};
         const parseBRNum = (s: string) => parseFloat(s.replace(/[^0-9,.]/g, "").replace(",", ".")) || null;
+        const _ratingV2 = autoScore?.score?.rating ?? null;
+        const _dataProximaReanalise = (() => {
+          if (!_ratingV2) return null;
+          const DIAS: Record<string, number> = {
+            A: fundSettings?.reanalise_rating_a_dias ?? 180,
+            B: fundSettings?.reanalise_rating_b_dias ?? 120,
+            C: fundSettings?.reanalise_rating_c_dias ?? 120,
+            D: fundSettings?.reanalise_rating_d_dias ?? 120,
+            E: fundSettings?.reanalise_rating_e_dias ?? 90,
+            F: fundSettings?.reanalise_rating_f_dias ?? 45,
+          };
+          const dias = DIAS[_ratingV2] ?? 90;
+          const d = new Date();
+          d.setDate(d.getDate() + dias);
+          return d.toISOString().split('T')[0];
+        })();
+
         const parecerPayload = {
           collection_id: id,
           user_id: session.user.id,
@@ -635,6 +670,9 @@ function ParecerContent() {
           prazo_revisao: parseInt(prazoRevisao) || null,
           observacoes: notas.trim() || null,
           membros_comite: null,
+          data_proxima_reanalise: _dataProximaReanalise,
+          rating_v2: _ratingV2,
+          score_v2: autoScore?.score?.score_final ?? null,
         };
         if (parecerId) {
           await supabase.from("pareceres").update(parecerPayload).eq("id", parecerId);
@@ -645,6 +683,33 @@ function ParecerContent() {
       } catch (parecerErr) {
         console.warn("[parecer] falha ao salvar em pareceres:", parecerErr);
       }
+
+      // ── Notificações para alertas críticos ──────────────────
+      try {
+        const alertasAlta = ((aiData.alertas as any[]) ?? []).filter(
+          (a: any) => a.severidade?.toLowerCase() === 'alta'
+        );
+        const razaoSocial = collection?.company_name ?? 'Cedente';
+
+        if (alertasAlta.length > 0) {
+          const notificacoes = alertasAlta.map((a: any) => ({
+            user_id: session.user.id,
+            message: `🚨 Alerta crítico em ${razaoSocial}: ${a.descricao ?? a.codigo}`,
+            read: false,
+          }));
+          await supabase.from('notifications').insert(notificacoes);
+        }
+
+        // ── Notificação de decisão REPROVADO ────────────────────
+        if (decisao === 'REPROVADO') {
+          const resumo = (aiData.parecer as Record<string, unknown> | undefined)?.resumoExecutivo as string | undefined;
+          await supabase.from('notifications').insert({
+            user_id: session.user.id,
+            message: `❌ Parecer REPROVADO: ${razaoSocial} — ${resumo?.slice(0, 80) ?? 'ver parecer completo'}`,
+            read: false,
+          });
+        }
+      } catch { /* notificação é secundária — não bloqueia fluxo */ }
 
       try { localStorage.removeItem(`cf_parecer_pending_${id}`); } catch { /* ignore */ }
       toast.success("Parecer registrado com sucesso!");
@@ -690,7 +755,7 @@ const ratingIsAnalista = ratingAnalista != null;
       const variant = decVariant(decisao);
       const ratingVariant: "success" | "warn" | "danger" | null = rating == null
         ? null : rating >= 7 ? "success" : rating >= 4 ? "warn" : "danger";
-      const _riskLabel = rating != null ? (rating >= 7 ? "BAIXO RISCO" : rating >= 4 ? "RISCO MODERADO" : "ALTO RISCO") : ""; void _riskLabel;
+      const riskLabel = rating != null ? (rating >= 7 ? "BAIXO RISCO" : rating >= 4 ? "RISCO MODERADO" : "ALTO RISCO") : "";
 
       // Comparativo rows
       const rows: { label: string; pleito: string; aprovado: string }[] = [];
@@ -864,7 +929,7 @@ const ratingIsAnalista = ratingAnalista != null;
           <div class="rat-n">${rating}</div>
           <div class="rat-d">/ 10</div>
         </div>
-        <div class="rat-l ${ratingVariant}">OPINIÃO IA</div>
+        <div class="rat-l ${ratingVariant}">${riskLabel}</div>
       </div>` : ""}
     </div>
 

@@ -1,6 +1,7 @@
 import type { jsPDF } from "jspdf";
 import type { ExtractedData, AIAnalysis, FundValidationResult, CreditLimitResult, Operacao } from "@/types";
 import type { DS } from "./design-system";
+import type { ScoreResult, RespostaCriterio } from "@/types/politica-credito";
 
 export type PdfDS = typeof DS;
 
@@ -48,6 +49,8 @@ export interface PDFReportParams {
   histOperacoes?: Operacao[];
   committeMembers?: string;
   capitalLogoB64?: string;
+  scoreV2?: ScoreResult;
+  scoreV2Respostas?: RespostaCriterio[];
 }
 
 export type AutoCell = string | { content: string; styles?: Record<string, unknown> };

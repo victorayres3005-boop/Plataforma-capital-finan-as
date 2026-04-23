@@ -66,6 +66,7 @@ export function renderIndice(ctx: PdfCtx): void {
     { label: "Curva ABC — Top Clientes",   obrigatorio: false, present: !!(d.curvaABC?.clientes?.length) },
     { label: "IR dos Sócios",              obrigatorio: false, present: !!(d.irSocios?.length) },
     { label: "Relatório de Visita",        obrigatorio: false, present: !!(d.relatorioVisita?.dataVisita || d.relatorioVisita?.responsavelVisita) },
+    { label: "CCF (Cheques Sem Fundo)",    obrigatorio: true,  present: d.ccf != null },
     { label: "SCR Período Anterior",       obrigatorio: false, present: !!(d.scrAnterior?.periodoReferencia) },
     { label: "Grupo Econômico",            obrigatorio: false, present: !!(d.grupoEconomico?.empresas?.length) },
     { label: "SCR dos Sócios",             obrigatorio: false, present: !!(d.scrSocios?.length) },

@@ -1,6 +1,7 @@
 ﻿"use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { ArrowLeft, Loader2, CheckCircle2, AlertTriangle, Pencil, RotateCcw, ArrowRight } from "lucide-react";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -19,7 +20,10 @@ import AlertList from "@/components/AlertList";
 import NotasSection from "@/components/generate/NotasSection";
 import VisitaSection from "@/components/generate/VisitaSection";
 import ExportSection from "@/components/generate/ExportSection";
-import { ExtractedData, CollectionDocument, DocumentCollection, FundSettings, DEFAULT_FUND_SETTINGS, AIAnalysis, FundCriterion, FundValidationResult, CriterionStatus, FundPreset, CreditLimitResult } from "@/types";
+import { ExtractedData, CollectionDocument, DocumentCollection, FundSettings, AIAnalysis, FundCriterion, FundValidationResult, CriterionStatus, CreditLimitResult } from "@/types";
+import { DEFAULT_POLITICA_V2 } from "@/lib/politica-credito/defaults";
+import type { ParametrosElegibilidade, ScoreResult, RespostaCriterio } from "@/types/politica-credito";
+import { autoPreencherScore } from "@/lib/politica-credito/auto-score";
 import type { OriginalFiles } from "@/components/UploadStep";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { SectionCard, KpiCard, StatusPill, CriteriaItem, MetricBarChart, ScrTable, AlertBanner, ResultadoBox } from "@/components/report/ReportComponents";
@@ -37,7 +41,16 @@ interface GenerateStepProps {
   // do parent ja criou uma coleta antes do GenerateStep montar.
   collectionId?: string | null;
   onCollectionIdChange?: (id: string) => void;
+  onAbrirScoreForm?: () => void;
 }
+
+const MANUAIS_OBRIGATORIOS = [
+  { id: 'segmento',          label: 'Segmento de atuação'   },
+  { id: 'estrutura_fisica',  label: 'Estrutura física'      },
+  { id: 'garantias',         label: 'Garantias'             },
+  { id: 'patrimonio_socios', label: 'Patrimônio dos sócios' },
+  { id: 'risco_sucessao',    label: 'Risco de sucessão'     },
+];
 
 // Module-level refs for upload context (set by component)
 let _uploadCtx: { userId: string; collectionId: string } | null = null;
@@ -155,7 +168,7 @@ function validarContraParametros(data: ExtractedData, settings: FundSettings): F
   // ── 4. Alavancagem ────────────────────────────────────────────────────────
   const dividaTotal = parseMoney(data.scr.totalDividasAtivas);
   const alavancagem = fmmVal > 0 && dividaTotal > 0 ? dividaTotal / fmmVal : 0;
-  const alavStr = fmmVal > 0 && dividaTotal > 0 ? `${alavancagem.toFixed(1)}x FMM` : dividaTotal === 0 ? "Sem dívida" : "Sem FMM";
+  const alavStr = fmmVal > 0 && dividaTotal > 0 ? `${alavancagem.toFixed(2)}x FMM` : dividaTotal === 0 ? "Sem dívida" : "Sem FMM";
   const alavStatus: CriterionStatus =
     fmmVal === 0 ? "unknown" :
     dividaTotal === 0 ? "ok" :
@@ -636,7 +649,7 @@ function validateExtractedData(data: ExtractedData): ValidationResult {
   };
 }
 
-export default function GenerateStep({ data: initialData, originalFiles, onBack, onReset, collectionId: collectionIdProp, onCollectionIdChange, ...rest }: GenerateStepProps) {
+export default function GenerateStep({ data: initialData, originalFiles, onBack, onReset, collectionId: collectionIdProp, onCollectionIdChange, onAbrirScoreForm, ...rest }: GenerateStepProps) {
   void rest; // onNotify e onFirstCollection substituídos pela página /parecer
   const [data, setData] = useState<ExtractedData>(() => JSON.parse(JSON.stringify(initialData)));
   const [editing, setEditing] = useState(false);
@@ -685,39 +698,90 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     try { localStorage.setItem(NOTES_KEY, analystNotes); } catch { /* ignore */ }
   }, [analystNotes]);
 
-  // ── Fund Settings + Presets ──
-  const [fundSettings, setFundSettings] = useState<FundSettings>(DEFAULT_FUND_SETTINGS);
-  const [fundPresets, setFundPresets] = useState<FundPreset[]>([]);
-  const [selectedPresetId, setSelectedPresetId] = useState<string | "active" | null>("active");
+  // ── Fund Settings (carregados da Política de Crédito V2 + fund_settings) ──
+  const [elegibilidade, setElegibilidade] = useState<ParametrosElegibilidade>(DEFAULT_POLITICA_V2.parametros_elegibilidade);
+  const [fundSettings, setFundSettings] = useState<Partial<FundSettings>>({});
+  const [scoreV2, setScoreV2] = useState<ScoreResult | null>(null);
   useEffect(() => {
-    const loadSettings = async () => {
+    const loadPolicy = async () => {
       try {
         const supabase = createClient();
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
-        const [{ data: s }, { data: presets }] = await Promise.all([
-          supabase.from("fund_settings").select("*").eq("user_id", user.id).maybeSingle(),
-          supabase.from("fund_presets").select("*").eq("user_id", user.id).order("created_at"),
+        const [politicaRes, fundRes] = await Promise.all([
+          supabase
+            .from("politica_credito_config")
+            .select("parametros_elegibilidade")
+            .eq("user_id", user.id)
+            .order("atualizado_em", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+          supabase
+            .from("fund_settings")
+            .select("*")
+            .eq("user_id", user.id)
+            .maybeSingle(),
         ]);
-        if (s) setFundSettings({ ...DEFAULT_FUND_SETTINGS, ...s });
-        if (presets) setFundPresets(presets);
+        if (politicaRes.data?.parametros_elegibilidade) {
+          setElegibilidade({ ...DEFAULT_POLITICA_V2.parametros_elegibilidade, ...politicaRes.data.parametros_elegibilidade });
+        }
+        if (fundRes.data) {
+          setFundSettings(fundRes.data as Partial<FundSettings>);
+        }
       } catch { /* use defaults */ }
     };
-    loadSettings();
+    loadPolicy();
   }, []);
 
-  // Derives the settings to validate against (active or selected preset)
-  const activeValidationSettings: FundSettings = (() => {
-    if (selectedPresetId === "active" || selectedPresetId === null) return fundSettings;
-    const preset = fundPresets.find(p => p.id === selectedPresetId);
-    return preset ? { ...DEFAULT_FUND_SETTINGS, ...preset } : fundSettings;
-  })();
-  const selectedPresetName = selectedPresetId === "active" || selectedPresetId === null
-    ? "Configurações Ativas"
-    : fundPresets.find(p => p.id === selectedPresetId)?.name ?? "Configurações Ativas";
-  const selectedPresetColor = selectedPresetId === "active" || selectedPresetId === null
-    ? "#203b88"
-    : fundPresets.find(p => p.id === selectedPresetId)?.color ?? "#203b88";
+  // Auto-score calculado a partir dos dados extraídos — usado como fallback quando scoreV2 manual está vazio
+  const autoScoreResultado = useMemo(() => autoPreencherScore(data), [data]);
+
+  const pendentesScore = MANUAIS_OBRIGATORIOS.filter(c =>
+    autoScoreResultado.criterios_manuais.includes(c.id)
+  );
+
+  // ── Score V2 (carregado de score_operacoes) ──
+  const [scoreV2Respostas, setScoreV2Respostas] = useState<RespostaCriterio[]>([]);
+  useEffect(() => {
+    if (!collectionId) return;
+    const loadScore = async () => {
+      try {
+        const supabase = createClient();
+        const { data } = await supabase
+          .from("score_operacoes")
+          .select("score_result, respostas")
+          .eq("collection_id", collectionId)
+          .order("preenchido_em", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (data?.score_result) setScoreV2(data.score_result as ScoreResult);
+        if (data?.respostas) setScoreV2Respostas(data.respostas as RespostaCriterio[]);
+      } catch { /* ignore */ }
+    };
+    loadScore();
+  }, [collectionId]);
+
+  const activeValidationSettings: FundSettings = {
+    fmm_minimo: elegibilidade.fmm_minimo,
+    idade_minima_anos: elegibilidade.tempo_constituicao_minimo_anos,
+    alavancagem_saudavel: elegibilidade.alavancagem_saudavel,
+    alavancagem_maxima: elegibilidade.alavancagem_maxima,
+    prazo_maximo_aprovado: elegibilidade.prazo_maximo_aprovado,
+    prazo_maximo_condicional: elegibilidade.prazo_maximo_condicional,
+    concentracao_max_sacado: elegibilidade.concentracao_max_sacado,
+    fator_limite_base: elegibilidade.fator_limite_base,
+    revisao_aprovado_dias: elegibilidade.revisao_aprovado_dias,
+    revisao_condicional_dias: elegibilidade.revisao_condicional_dias,
+    protestos_max: elegibilidade.protestos_max,
+    processos_passivos_max: elegibilidade.processos_passivos_max,
+    scr_vencidos_max_pct: elegibilidade.scr_vencidos_max_pct,
+    // fund_settings tem prioridade sobre elegibilidade para campos operacionais
+    ...fundSettings,
+  };
+  const selectedPresetName = "Política de Crédito V2";
+  const selectedPresetColor = "#203b88";
+
+  const router = useRouter();
 
   // ── AI Analysis with cache ──
   const [aiAnalysis, setAiAnalysis] = useState<AIAnalysis | null>(null);
@@ -869,6 +933,13 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
   const runAnalysisRef = useRef<(() => void) | null>(null);
 
+  // Feature 1 — Solicitar permissão de notificação no mount
+  useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
+  }, []);
+
   useEffect(() => {
     if (analysisFetched.current) return;
     analysisFetched.current = true;
@@ -890,7 +961,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         const res = await fetch("/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ data, settings: fundSettings, user_id: currentUser?.id }),
+          body: JSON.stringify({ data, settings: activeValidationSettings, user_id: currentUser?.id, scoreV2: scoreV2 ?? autoScoreResultado.score, scoreV2Respostas: scoreV2Respostas.length ? scoreV2Respostas : autoScoreResultado.respostas }),
         });
         if (!res.ok) {
           throw new Error(res.status === 504 ? "Timeout (504) — tente novamente." : `Erro HTTP ${res.status}`);
@@ -991,12 +1062,24 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             console.warn("[generate] idParaSalvar is null — ai_analysis not saved to Supabase");
           }
 
+          // Feature 1 — Notificação de conclusão da análise
+          {
+            const empresa = data.cnpj?.razaoSocial || data.cnpj?.nomeFantasia || "Empresa";
+            const r = analysisJson.analysis!.rating;
+            const dec = analysisJson.analysis!.decisao;
+            const body = r != null ? `Rating ${r.toFixed(1)}/10 · ${dec || "Análise concluída"}` : "Análise concluída";
+            toast.success("Análise IA concluída", { description: `${empresa} · ${body}`, duration: 7000 });
+            if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+              try { new Notification(`✅ ${empresa}`, { body, icon: "/icon.svg" }); } catch { /* unsupported */ }
+            }
+          }
+
           // Auto-send to Goalfy (fire-and-forget)
           try {
             fetch("/api/goalfy", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ data, aiAnalysis: analysisJson.analysis, settings: fundSettings }),
+              body: JSON.stringify({ data, aiAnalysis: analysisJson.analysis, settings: activeValidationSettings }),
             }).then(r => r.json()).then(gj => {
               if (gj.mock) {
                 console.log("[generate] Goalfy: webhook não configurado (mock)");
@@ -1139,7 +1222,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         id = await handleSave();
       }
       if (!id) throw new Error("Não foi possível salvar a coleta");
-      window.location.href = `/parecer?id=${id}`;
+      router.push(`/parecer?id=${id}`);
     } catch (err) {
       toast.error("Erro ao salvar: " + (err instanceof Error ? err.message : "Verifique a conexão"));
       setFinishing(false);
@@ -1270,12 +1353,53 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   // Enquanto não estiver pronta, NÃO mostramos ratingScore local — ele diverge
   // do rating da IA e causava o KPI de Rating piscar durante o carregamento.
   const analysisReady = aiAnalysis != null || analysisError != null;
-  const finalRating: number | null = (() => {
-    if (ratingOverride != null && !isNaN(ratingOverride)) return ratingOverride;
-    if (aiAnalysis) return aiAnalysis.rating;
-    if (analysisError) return ratingScore; // IA falhou de fato → usa fallback local
-    return null; // ainda carregando — UI mostra skeleton em vez de piscar
-  })();
+
+  // Feature 5 — Alerta de vencimento de documentos (> 12 meses)
+  const docAgeWarnings = useMemo(() => {
+    const warnings: string[] = [];
+    const now = new Date();
+    function parsePeriodo(s: string): Date | null {
+      if (!s) return null;
+      const m1 = s.match(/^(\d{1,2})[\/\-](\d{4})$/);
+      if (m1) return new Date(parseInt(m1[2]), parseInt(m1[1]) - 1, 1);
+      const m2 = s.match(/^(\d{4})[\/\-](\d{2})$/);
+      if (m2) return new Date(parseInt(m2[1]), parseInt(m2[2]) - 1, 1);
+      const m3 = s.match(/(\d{4})/);
+      if (m3) return new Date(parseInt(m3[1]), 11, 31);
+      return null;
+    }
+    const scrRef = data.scr?.periodoReferencia;
+    if (scrRef) {
+      const d = parsePeriodo(scrRef);
+      if (d) {
+        const months = (now.getFullYear() - d.getFullYear()) * 12 + now.getMonth() - d.getMonth();
+        if (months > 12) warnings.push(`SCR com ${months} meses de defasagem (ref.: ${scrRef})`);
+      }
+    }
+    const balPeriodo = data.balanco?.periodoMaisRecente ?? data.balanco?.anos?.[0]?.ano;
+    if (balPeriodo) {
+      const d = parsePeriodo(balPeriodo);
+      if (d) {
+        const months = (now.getFullYear() - d.getFullYear()) * 12 + now.getMonth() - d.getMonth();
+        if (months > 12) warnings.push(`Balanço patrimonial com ${months} meses de defasagem (ref.: ${balPeriodo})`);
+      }
+    }
+    return warnings;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Converter score V2 (0–100) para escala 0–10 para compatibilidade com o template
+  const finalRatingFromV2 = autoScoreResultado?.score?.score_final != null
+    ? autoScoreResultado.score.score_final / 10
+    : null
+
+  // Cascata atualizada — V2 tem prioridade máxima
+  const finalRating: number | null =
+    ratingOverride ??       // override manual do analista
+    finalRatingFromV2 ??    // ← NOVO: score V2 convertido
+    aiAnalysis?.rating ??   // Gemini (fallback)
+    ratingScore ??          // heurística local
+    null
   const decisaoOverride = parecerAnalistaOverride?.decisaoComite || parecerAnalistaOverride?.decisao || null;
   const decision: string =
     decisaoOverride ? String(decisaoOverride).toUpperCase() :
@@ -1351,27 +1475,130 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
   // ── Credit Limit Result ──
   const creditLimit: CreditLimitResult = (() => {
-    const fmmRaw = parseMoney(data.faturamento.fmm12m || data.faturamento.mediaAno || data.faturamento.somatoriaAno || '0');
-    const fator = activeValidationSettings.fator_limite_base;
-    const limiteBase = fmmRaw * fator;
-    const classificacao: 'APROVADO' | 'CONDICIONAL' | 'REPROVADO' =
-      (fundValidation.hasEliminatoria || fundValidation.failCount > 0) ? 'REPROVADO'
-      : fundValidation.warnCount > 0 ? 'CONDICIONAL' : 'APROVADO';
-    const fatorReducao = classificacao === 'REPROVADO' ? 0 : classificacao === 'CONDICIONAL' ? 0.7 : 1;
-    const limiteAjustado = limiteBase * fatorReducao;
-    const prazo = classificacao === 'APROVADO' ? activeValidationSettings.prazo_maximo_aprovado
-      : classificacao === 'CONDICIONAL' ? activeValidationSettings.prazo_maximo_condicional : 0;
-    const revisaoDias = classificacao !== 'REPROVADO'
-      ? (classificacao === 'APROVADO' ? activeValidationSettings.revisao_aprovado_dias : activeValidationSettings.revisao_condicional_dias)
-      : 0;
+    const s = activeValidationSettings;
+    const fmmRaw = parseMoney(
+      data?.faturamento?.fmm12m ??
+      data?.faturamento?.mediaAno ??
+      data?.faturamento?.somatoriaAno
+    );
+
+    // ── Usar rating V2 como fonte primária ──────────────────────────────
+    const ratingV2     = autoScoreResultado?.score?.rating;   // 'A'|'B'|'C'|'D'|'E'|'F'
+    const scoreV2Final = autoScoreResultado?.score?.score_final ?? 0;
+
+    // Eliminatórios determinísticos
+    const temEliminatoria = fundValidation?.hasEliminatoria ?? false;
+    const failCount       = fundValidation?.failCount ?? 0;
+
+    // ── Fator de limite por rating V2 ────────────────────────────────────
+    const FATOR_POR_RATING: Record<string, number> = {
+      A: 0.80, B: 0.65, C: 0.50, D: 0.30, E: 0.20, F: 0.00,
+    };
+    const PRAZO_POR_RATING: Record<string, number> = {
+      A: s.prazo_maximo_aprovado    ?? 90,
+      B: s.prazo_maximo_aprovado    ?? 90,
+      C: s.prazo_maximo_condicional ?? 60,
+      D: s.prazo_maximo_condicional ?? 60,
+      E: 30,
+      F: 0,
+    };
+    const REVISAO_POR_RATING: Record<string, number> = {
+      A: s.reanalise_rating_a_dias ?? 180,
+      B: s.reanalise_rating_b_dias ?? 120,
+      C: s.reanalise_rating_c_dias ?? 120,
+      D: s.reanalise_rating_d_dias ?? 120,
+      E: s.reanalise_rating_e_dias ?? 90,
+      F: s.reanalise_rating_f_dias ?? 45,
+    };
+    const CLASSIFICACAO_POR_RATING: Record<string, "APROVADO" | "CONDICIONAL" | "REPROVADO"> = {
+      A: 'APROVADO',
+      B: 'APROVADO',
+      C: 'CONDICIONAL',
+      D: 'CONDICIONAL',
+      E: 'CONDICIONAL',
+      F: 'REPROVADO',
+    };
+
+    // Eliminatório sobrescreve tudo
+    const rating = (temEliminatoria || failCount > 0) ? 'F' : (ratingV2 ?? 'C');
+
+    const fatorReducao   = FATOR_POR_RATING[rating]    ?? 0.50;
+    const limiteBase     = fmmRaw * (s.fator_limite_base ?? 0.5);
+    const limiteAjustado = limiteBase * (fatorReducao / 0.5); // normaliza pelo fator base
+    const prazo          = PRAZO_POR_RATING[rating]    ?? 60;
+    const revisaoDias    = REVISAO_POR_RATING[rating]  ?? 90;
+    const classificacao  = CLASSIFICACAO_POR_RATING[rating] ?? 'CONDICIONAL';
+
     const dataRevisao = new Date();
     dataRevisao.setDate(dataRevisao.getDate() + revisaoDias);
+
+    // ── Taxa sugerida por rating V2 ─────────────────────────────────────
+    const TAXA_POR_RATING: Record<string, number> = {
+      A: s.taxa_base_rating_a ?? 1.8,
+      B: s.taxa_base_rating_b ?? 2.0,
+      C: s.taxa_base_rating_c ?? 2.2,
+      D: s.taxa_base_rating_d ?? 2.5,
+      E: s.taxa_base_rating_e ?? 2.8,
+      F: 0,
+    };
+    const taxaBase = TAXA_POR_RATING[rating] ?? 2.2;
+    const taxaAjustes: string[] = [];
+    let taxaFinal = taxaBase;
+
+    // Ajuste por % de operação a performar
+    const vendasDuplicataRaw = data?.relatorioVisita?.vendasDuplicata ?? '100';
+    const pctPerformada = (() => {
+      const n = parseFloat(String(vendasDuplicataRaw).replace(',', '.').replace('%', '').trim());
+      return isNaN(n) ? 100 : n;
+    })();
+    if (pctPerformada < 70) {
+      taxaFinal += 0.2;
+      taxaAjustes.push('+0,2% operação a performar');
+    }
+
+    // Ajuste por modalidade comissária (sem confirmação de lastro)
+    const temComissaria = data?.relatorioVisita?.modalidade === 'comissaria';
+    if (temComissaria) {
+      taxaFinal += 0.3;
+      taxaAjustes.push('+0,3% operação comissária');
+    }
+
+    // Desconto por garantia real (imóvel ou investimento)
+    const garantiasRaw = (data?.relatorioVisita as Record<string, unknown> | undefined)?.garantias;
+    const garantiaReal = Array.isArray(garantiasRaw) && garantiasRaw.some(
+      (g: unknown) => typeof g === 'string' && (g.toLowerCase().includes('imóvel') || g.toLowerCase().includes('investimento'))
+    );
+    if (garantiaReal) {
+      taxaFinal -= 0.1;
+      taxaAjustes.push('-0,1% garantia real');
+    }
+
+    // Rating F ou eliminatório → não opera
+    if (rating === 'F' || temEliminatoria) {
+      taxaFinal = 0;
+      taxaAjustes.length = 0;
+    }
+
+    const taxaSugerida = Math.round(taxaFinal * 100) / 100;
+
     return {
-      classificacao, limiteAjustado, limiteBase, fmmBase: fmmRaw, fatorBase: fator, fatorReducao,
-      prazo, revisaoDias, dataRevisao: dataRevisao.toISOString(),
-      concentracaoMaxPct: activeValidationSettings.concentracao_max_sacado,
-      limiteConcentracao: limiteAjustado * (activeValidationSettings.concentracao_max_sacado / 100),
-      presetName: selectedPresetName,
+      classificacao,
+      limiteBase,
+      limiteAjustado,
+      fmmBase:     fmmRaw,
+      fatorBase:   s.fator_limite_base,
+      fatorReducao,
+      prazo,
+      revisaoDias,
+      dataRevisao:        dataRevisao.toISOString(),
+      concentracaoMaxPct: s.concentracao_max_sacado ?? 20,
+      limiteConcentracao: limiteAjustado * ((s.concentracao_max_sacado ?? 20) / 100),
+      presetName:         selectedPresetName,
+      ratingV2:           rating,
+      scoreV2:            scoreV2Final,
+      taxaSugerida,
+      taxaBase,
+      taxaAjustes,
     };
   })();
 
@@ -1398,7 +1625,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     };
     save();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [collectionId, selectedPresetId, fundValidation.passCount, fundValidation.failCount, fundValidation.warnCount]);
+  }, [collectionId, fundValidation.passCount, fundValidation.failCount, fundValidation.warnCount]);
 
   // ═══════════════════════════════════════════════════
   // PDF Generation
@@ -1549,6 +1776,8 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         creditLimit,
         histOperacoes: histOperacoes.length ? histOperacoes : undefined,
         committeMembers: committeMembers.trim() || undefined,
+        scoreV2: scoreV2 ?? undefined,
+        scoreV2Respostas: scoreV2Respostas.length ? scoreV2Respostas : undefined,
       };
 
       // Adiciona mapEmbedUrl para preview interativo (usado no HTML, ignorado no PDF)
@@ -1622,6 +1851,8 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           observacoes: analystNotes.trim() || undefined,
           fundValidation, creditLimit,
           committeMembers: committeMembers.trim() || undefined,
+          scoreV2: scoreV2 ?? undefined,
+          scoreV2Respostas: scoreV2Respostas.length ? scoreV2Respostas : undefined,
         });
         triggerDownload(blob, `capital-financas-${safeName}-${dateStr}.pdf`);
         setGeneratedFormats(p => new Set(p).add("pdf"));
@@ -1727,6 +1958,8 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         fundValidation,
         creditLimit,
         committeMembers: committeMembers.trim() || undefined,
+        scoreV2: scoreV2 ?? undefined,
+        scoreV2Respostas: scoreV2Respostas.length ? scoreV2Respostas : undefined,
       };
       const html = await generateHTMLPreview(payload);
 
@@ -1778,6 +2011,8 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         fundValidation,
         creditLimit,
         committeMembers: committeMembers.trim() || undefined,
+        scoreV2: scoreV2 ?? undefined,
+        scoreV2Respostas: scoreV2Respostas.length ? scoreV2Respostas : undefined,
       };
       const html = await generateHTMLPreview(payload);
       // Substitui __BASE_URL__ pelo domínio real antes de salvar
@@ -1938,25 +2173,41 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     <div className="w-full animate-slide-up flex gap-8 items-start">
 
       {/* ── Sidebar de navegação (desktop) ── */}
-      <nav className="hidden lg:flex flex-col gap-1.5 w-[240px] flex-shrink-0 sticky self-start" style={{ top: "80px" }}>
-        <p className="text-[11px] font-bold text-cf-text-4 uppercase tracking-[0.14em] px-3 mb-1">Navegação</p>
+      <nav className="hidden lg:flex flex-col gap-1 w-[220px] flex-shrink-0 sticky self-start" style={{ top: "80px" }}>
+        <div style={{ background: "linear-gradient(135deg, #1a2f6b, #203b88)", borderRadius: 12, padding: "12px 14px", marginBottom: 8 }}>
+          <p style={{ fontSize: 10, fontWeight: 800, color: "rgba(255,255,255,0.6)", textTransform: "uppercase", letterSpacing: "0.12em", margin: "0 0 2px" }}>Relatório</p>
+          <p style={{ fontSize: 12, fontWeight: 700, color: "#fff", margin: 0 }}>{initialData?.cnpj?.razaoSocial?.split(" ")[0] || "Empresa"}</p>
+        </div>
         {navItems.map(item => (
           <a
             key={item.id}
             href={`#${item.id}`}
-            className="flex items-center gap-3 py-2.5 px-3 rounded-xl text-[13px] font-medium text-cf-text-2 no-underline transition-all hover:bg-blue-50/80 hover:text-cf-navy hover:shadow-sm"
+            className="flex items-center gap-3 py-2 px-3 rounded-xl text-[13px] font-medium text-cf-text-2 no-underline transition-all hover:bg-blue-50/80 hover:text-cf-navy"
             onClick={e => { e.preventDefault(); document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
           >
-            <span className="w-9 h-9 rounded-xl bg-cf-surface-2 flex items-center justify-center text-[11px] font-bold text-cf-text-3 shrink-0 shadow-sm">
+            <span className="w-8 h-8 rounded-lg bg-white border border-[#e8edf5] flex items-center justify-center text-[11px] font-bold text-cf-text-3 shrink-0 shadow-sm">
               {item.icon}
             </span>
-            <span className="leading-snug">{item.label}</span>
+            <span className="leading-snug text-[12px]">{item.label}</span>
           </a>
         ))}
       </nav>
 
       {/* ── Conteúdo principal ── */}
       <div className="flex-1 min-w-0 pb-28 flex flex-col gap-7">
+
+        {/* Feature 5 — Alerta de vencimento de documentos */}
+        {docAgeWarnings.length > 0 && (
+          <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 12, padding: "12px 16px", display: "flex", alignItems: "flex-start", gap: 10 }}>
+            <AlertTriangle size={15} style={{ color: "#D97706", flexShrink: 0, marginTop: 1 }} />
+            <div>
+              <p style={{ fontSize: 12, fontWeight: 700, color: "#92400E", margin: "0 0 3px" }}>Documentos com defasagem — considere atualizar antes de decidir</p>
+              {docAgeWarnings.map((w: string, i: number) => (
+                <p key={i} style={{ fontSize: 11, color: "#B45309", margin: 0 }}>· {w}</p>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ════════════════════════════════════════
             SEÇÃO 00 — SUMÁRIO EXECUTIVO
@@ -1994,22 +2245,33 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
             {/* 4 KPI cards */}
             <div className="kpi-grid">
-              <KpiCard
-                label="Rating"
-                value={finalRating == null ? "—" : `${finalRating}/10`}
-                sub={(() => {
-                  if (!analysisReady) return "Carregando análise…";
-                  const conf = aiAnalysis?.ratingConfianca;
-                  const nivel = aiAnalysis?.nivelAnalise;
-                  if (conf != null) {
-                    const nivelLabel = nivel === "PRELIMINAR" ? "Preliminar" : nivel === "BASICO" ? "Básica" : nivel === "PADRAO" ? "Padrão" : nivel === "COMPLETO" ? "Completa" : "";
-                    return `${nivelLabel ? `${nivelLabel} · ` : ""}${conf}% confiança`;
-                  }
-                  if (finalRating == null) return "—";
-                  return finalRating >= 7 ? "Perfil saudável" : finalRating >= 4 ? "Atenção recomendada" : "Perfil crítico";
-                })()}
-                variant={!analysisReady ? "default" : decision === "APROVADO" ? "success" : decision === "REPROVADO" ? "danger" : "warning"}
-              />
+              {scoreV2 ? (
+                <KpiCard
+                  label="Rating V2"
+                  value={`${scoreV2.rating} · ${scoreV2.score_final.toFixed(0)} pts`}
+                  sub={finalRating != null
+                    ? `IA: ${finalRating.toFixed(1)}/10 · ${aiAnalysis?.ratingConfianca ?? "—"}% conf.`
+                    : `Score estruturado · ${scoreV2.confianca_score === "alta" ? "Alta confiança" : scoreV2.confianca_score === "parcial" ? "Confiança parcial" : "Confiança baixa"}`}
+                  variant={scoreV2.rating === "A" || scoreV2.rating === "B" ? "success" : scoreV2.rating === "C" ? "warning" : "danger"}
+                />
+              ) : (
+                <KpiCard
+                  label="Rating IA"
+                  value={finalRating == null ? "—" : `${finalRating}/10`}
+                  sub={(() => {
+                    if (!analysisReady) return "Carregando análise…";
+                    const conf = aiAnalysis?.ratingConfianca;
+                    const nivel = aiAnalysis?.nivelAnalise;
+                    if (conf != null) {
+                      const nivelLabel = nivel === "PRELIMINAR" ? "Preliminar" : nivel === "BASICO" ? "Básica" : nivel === "PADRAO" ? "Padrão" : nivel === "COMPLETO" ? "Completa" : "";
+                      return `${nivelLabel ? `${nivelLabel} · ` : ""}${conf}% confiança`;
+                    }
+                    if (finalRating == null) return "—";
+                    return finalRating >= 7 ? "Perfil saudável" : finalRating >= 4 ? "Atenção recomendada" : "Perfil crítico";
+                  })()}
+                  variant={!analysisReady ? "default" : decision === "APROVADO" ? "success" : decision === "REPROVADO" ? "danger" : "warning"}
+                />
+              )}
               <KpiCard
                 label="Dívida Total"
                 value={dividaAtiva > 0 ? `R$ ${data.scr.totalDividasAtivas}` : "—"}
@@ -2342,18 +2604,6 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           title="Política do Fundo"
           headerRight={
             <div className="flex items-center gap-2">
-              {fundPresets.length > 0 && (
-                <select
-                  value={selectedPresetId ?? "active"}
-                  onChange={e => setSelectedPresetId(e.target.value)}
-                  className="text-[11px] font-medium text-cf-text-2 bg-cf-surface-2 border border-cf-border rounded-md px-2 py-1 cursor-pointer outline-none max-w-[160px]"
-                >
-                  <option value="active">Configurações Ativas</option>
-                  {fundPresets.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-              )}
               {fundValidation.failCount > 0 && (
                 <StatusPill label={`${fundValidation.failCount} reprovado${fundValidation.failCount !== 1 ? "s" : ""}`} variant="red" />
               )}
@@ -2416,7 +2666,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
                 />
                 <KpiCard
                   label="Conc. máx./sacado"
-                  value={`R$ ${Math.round(creditLimit.limiteConcentracao).toLocaleString("pt-BR")}`}
+                  value={`R$ ${Math.round(creditLimit.limiteConcentracao ?? 0).toLocaleString("pt-BR")}`}
                   sub={`${creditLimit.concentracaoMaxPct}% do limite`}
                 />
                 <KpiCard
@@ -2706,17 +2956,47 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             </div>
 
             <div className="flex items-center gap-2.5">
-              <GoalfyButton data={data} aiAnalysis={aiAnalysis} settings={fundSettings} disabled={!aiAnalysis} />
-              <button
-                onClick={handleGoToParecer}
-                disabled={finishing}
-                className="btn-green min-h-0 px-[18px] py-2 text-[13px] flex items-center gap-1.5"
-              >
-                {finishing
-                  ? <><Loader2 size={13} className="animate-spin" /> Salvando...</>
-                  : <>Registrar Parecer <ArrowRight size={13} /></>
-                }
-              </button>
+              <GoalfyButton data={data} aiAnalysis={aiAnalysis} settings={activeValidationSettings} disabled={!aiAnalysis} />
+              <div className="flex flex-col items-end gap-2">
+                {pendentesScore.length > 0 && (
+                  <div style={{
+                    background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 10,
+                    padding: "10px 14px", maxWidth: 340,
+                  }}>
+                    <p style={{ fontSize: 12, fontWeight: 700, color: "#92400e", margin: "0 0 4px" }}>
+                      Preencha os critérios obrigatórios no Score V2 antes de gerar o parecer:
+                    </p>
+                    <ul style={{ margin: "0 0 8px", paddingLeft: 16 }}>
+                      {pendentesScore.map(c => (
+                        <li key={c.id} style={{ fontSize: 11, color: "#b45309" }}>{c.label}</li>
+                      ))}
+                    </ul>
+                    {onAbrirScoreForm && (
+                      <button
+                        onClick={onAbrirScoreForm}
+                        style={{
+                          fontSize: 11, fontWeight: 700, color: "#d97706",
+                          background: "transparent", border: "1px solid #fbbf24",
+                          borderRadius: 6, padding: "3px 10px", cursor: "pointer",
+                        }}
+                      >
+                        Preencher agora
+                      </button>
+                    )}
+                  </div>
+                )}
+                <button
+                  onClick={handleGoToParecer}
+                  disabled={finishing || pendentesScore.length > 0}
+                  className="btn-green min-h-0 px-[18px] py-2 text-[13px] flex items-center gap-1.5"
+                  style={pendentesScore.length > 0 ? { opacity: 0.4, cursor: "not-allowed" } : undefined}
+                >
+                  {finishing
+                    ? <><Loader2 size={13} className="animate-spin" /> Salvando...</>
+                    : <>Registrar Parecer <ArrowRight size={13} /></>
+                  }
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -21,9 +21,9 @@ const GEMINI_API_KEYS = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_K
   .map(k => k.trim())
   .filter(Boolean);
 
-// 3.1 Pro como primário — modelo mais capaz para extração de documentos complexos.
-// 2.5 Pro como segundo fallback, Flash como terceiro em caso de rate limit ou timeout.
-const GEMINI_MODELS = ["gemini-3.1-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
+// Flash como primário — melhor custo-benefício para extração estruturada.
+// Pro como fallback para documentos complexos (contrato, SCR detalhado).
+const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"];
 
 const OPENROUTER_API_KEYS = (process.env.OPENROUTER_API_KEYS || process.env.OPENROUTER_API_KEY || "")
   .split(",").map(k => k.trim()).filter(Boolean);

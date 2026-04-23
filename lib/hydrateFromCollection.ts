@@ -1,6 +1,58 @@
 import { ExtractedData, SCRData } from "@/types";
 
 /**
+ * Recalcula carteiraCurtoPrazo/LongoPrazo/vencidos/prejuizos/totalDividasAtivas
+ * a partir das faixas detalhadas armazenadas. Usado no hydrate pra corrigir
+ * registros antigos salvos com CP errado (ex.: ignorando faixa "De 181 a 360").
+ *
+ * Regra BACEN:
+ *   Curto Prazo = ate30d + d31_60 + d61_90 + d91_180 + d181_360
+ *   Longo Prazo = acima360d
+ *   Total       = CP + LP + Vencidos + Prejuízos
+ *
+ * Só sobrescreve se pelo menos uma faixa tiver valor > 0 — caso contrário
+ * preserva os valores já presentes (evita zerar tudo por falta de faixas).
+ */
+export function recomputeSCRTotals<T extends Partial<SCRData>>(scr: T): T {
+  if (!scr) return scr;
+  const parseBR = (s: unknown): number => {
+    if (s == null || s === "") return 0;
+    const str = String(s).trim().replace(/^R\$\s*/i, "").replace(/\./g, "").replace(",", ".");
+    const n = parseFloat(str);
+    return isNaN(n) ? 0 : n;
+  };
+  const fmtBR = (n: number): string =>
+    n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const fa = scr.faixasAVencer;
+  const fv = scr.faixasVencidos;
+  const fp = scr.faixasPrejuizos;
+
+  const curtoFaixas = fa
+    ? parseBR(fa.ate30d) + parseBR(fa.d31_60) + parseBR(fa.d61_90) + parseBR(fa.d91_180) + parseBR(fa.d181_360)
+    : 0;
+  const longoFaixas = fa ? parseBR(fa.acima360d) : 0;
+  const vencFaixas = fv
+    ? parseBR(fv.ate30d) + parseBR(fv.d31_60) + parseBR(fv.d61_90) + parseBR(fv.d91_180) + parseBR(fv.d181_360) + parseBR(fv.acima360d)
+    : 0;
+  const prejFaixas = fp ? parseBR(fp.ate12m) + parseBR(fp.acima12m) : 0;
+
+  // Preserva valores atuais quando não há faixas — não sobrescreve com 0.
+  const out = { ...scr } as T;
+  if (curtoFaixas > 0) out.carteiraCurtoPrazo = fmtBR(curtoFaixas);
+  if (longoFaixas > 0) out.carteiraLongoPrazo = fmtBR(longoFaixas);
+  if (vencFaixas > 0)  out.vencidos          = fmtBR(vencFaixas);
+  if (prejFaixas > 0)  out.prejuizos         = fmtBR(prejFaixas);
+  // carteiraAVencer = CP + LP (total a vencer)
+  if (curtoFaixas + longoFaixas > 0) out.carteiraAVencer = fmtBR(curtoFaixas + longoFaixas);
+  // totalDividasAtivas = Responsabilidade Total (CP + LP + Vencidos + Prejuízos)
+  const total = curtoFaixas + longoFaixas + vencFaixas + prejFaixas;
+  if (total > 0) out.totalDividasAtivas = fmtBR(total);
+
+  return out;
+}
+
+/**
  * Converte um periodoReferencia em qualquer formato razoável para uma chave
  * numérica comparável (ano*100 + mes). Aceita "MM/YYYY", "MM-YYYY",
  * "YYYY-MM", "YYYY/MM" e nomes de mês em português ("março/2026", "mar/26").
@@ -136,7 +188,7 @@ export function hydrateFromCollection(docs: { type: string; extracted_data: Reco
   if (scrEmpresa.length === 1) {
     const { _editedManually: _em1, _warnings: _w1, ...data1 } = scrEmpresa[0].extracted_data!;
     void _em1; void _w1;
-    result.scr = { ...result.scr, ...data1 } as ExtractedData["scr"];
+    result.scr = recomputeSCRTotals({ ...result.scr, ...data1 }) as ExtractedData["scr"];
   } else if (scrEmpresa.length >= 2) {
     const sorted = sortSCRDocsDesc(scrEmpresa);
     const kAtual = periodoRefToKey(sorted[0].extracted_data?.periodoReferencia);
@@ -149,8 +201,8 @@ export function hydrateFromCollection(docs: { type: string; extracted_data: Reco
     void _em1; void _w1;
     const { _editedManually: _em2, _warnings: _w2, ...data2 } = sorted[1].extracted_data!;
     void _em2; void _w2;
-    result.scr = { ...result.scr, ...data1 } as ExtractedData["scr"];
-    result.scrAnterior = { ...result.scrAnterior, ...data2 } as ExtractedData["scr"];
+    result.scr = recomputeSCRTotals({ ...result.scr, ...data1 }) as ExtractedData["scr"];
+    result.scrAnterior = recomputeSCRTotals({ ...result.scrAnterior, ...data2 }) as ExtractedData["scr"];
   }
 
   if (scrSociosDocs.length > 0) {

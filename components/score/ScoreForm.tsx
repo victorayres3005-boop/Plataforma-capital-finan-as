@@ -19,6 +19,11 @@ interface Props {
   readOnly?: boolean;
 }
 
+const MANUAIS_OBRIGATORIOS = [
+  'segmento', 'estrutura_fisica', 'garantias',
+  'patrimonio_socios', 'risco_sucessao',
+];
+
 const PILAR_COLORS: Record<string, string> = {
   perfil_empresa:    "#73b815",
   saude_financeira:  "#d97706",
@@ -50,6 +55,7 @@ export function ScoreForm({ config, initialRespostas = [], onScoreCalculated, re
       opcao_label: opcaoLabel, pontos_base, pontos_final,
       modificador_label: modLabel, modificador_multiplicador: modMult,
       observacao: observacoes[`${pilarId}-${criterioId}`],
+      fonte_preenchimento: 'manual',
     };
     const novas = [...respostas.filter(r => !(r.criterio_id === criterioId && r.pilar_id === pilarId)), nova];
     setRespostas(novas);
@@ -247,6 +253,24 @@ function CriterioItem({ criterio, cor, resp, obsValue, onSelect, onObs, readOnly
           {/* Nome + badges */}
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
             <p style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", margin: 0 }}>{criterio.nome}</p>
+            {resp?.fonte_preenchimento === 'auto' && (
+              <span style={{
+                fontSize: '10px', fontWeight: 500, padding: '1px 6px',
+                borderRadius: '99px', background: '#e0f2fe', color: '#0369a1',
+                verticalAlign: 'middle',
+              }}>
+                Auto
+              </span>
+            )}
+            {!resp && MANUAIS_OBRIGATORIOS.includes(criterio.id) && (
+              <span style={{
+                fontSize: '10px', fontWeight: 500, padding: '1px 6px',
+                borderRadius: '99px', background: '#fef9c3', color: '#854d0e',
+                verticalAlign: 'middle',
+              }}>
+                Obrigatório
+              </span>
+            )}
             {criterio.obrigatorio && (
               <span style={{ fontSize: 9, fontWeight: 800, color: "#dc2626", background: "#fef2f2", borderRadius: 3, padding: "1px 5px" }}>
                 OBRIG.

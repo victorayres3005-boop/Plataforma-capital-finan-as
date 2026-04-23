@@ -9,7 +9,7 @@ import {
   ChevronDown, ChevronUp, ChevronRight, FileText,
   Loader2, Pencil, Check, RotateCcw, Inbox, Trash2, Download,
   Search, Settings, HelpCircle, Bell, Clock, Filter, X,
-  LogOut, User, ChevronDown as ChDown,
+  LogOut, User, ChevronDown as ChDown, Plus,
 } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/lib/useAuth";
@@ -105,13 +105,13 @@ const DOC_ICON_STYLE: Record<string, { color: string; bg: string }> = {
   outro:           { color: "#9CA3AF", bg: "#F9FAFB" },
 };
 
-function getStatusDisplay(col: DocumentCollection): { label: string; bg: string; color: string } {
-  if (col.status !== "finished") return { label: "Em andamento", bg: "#FEF3C7", color: "#D97706" };
+function getStatusDisplay(col: DocumentCollection): { label: string; bg: string; color: string; border: string } {
+  if (col.status !== "finished") return { label: "Em andamento", bg: "#FEF3C7", color: "#D97706", border: "#FDE68A" };
   switch (col.decisao) {
-    case "APROVADO":              return { label: "Aprovado",    bg: "#DCFCE7", color: "#16A34A" };
-    case "APROVACAO_CONDICIONAL": return { label: "Condicional", bg: "#EDE9FE", color: "#7C3AED" };
-    case "REPROVADO":             return { label: "Reprovado",   bg: "#FEE2E2", color: "#DC2626" };
-    default:                      return { label: "Pendente",    bg: "#F1F5F9", color: "#6B7280" };
+    case "APROVADO":              return { label: "Aprovado",    bg: "#DCFCE7", color: "#16A34A", border: "#86EFAC" };
+    case "APROVACAO_CONDICIONAL": return { label: "Condicional", bg: "#EDE9FE", color: "#7C3AED", border: "#C4B5FD" };
+    case "REPROVADO":             return { label: "Reprovado",   bg: "#FEE2E2", color: "#DC2626", border: "#FCA5A5" };
+    default:                      return { label: "Pendente",    bg: "#F1F5F9", color: "#6B7280", border: "#E2E8F0" };
   }
 }
 
@@ -175,7 +175,7 @@ const DOC_FIELDS: Record<string, { key: string; label: string; type: "text" | "s
 };
 
 // ── CollectionRow — single entry row ──
-function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate }: {
+function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, v2Map }: {
   col: DocumentCollection;
   isGrouped: boolean;
   userName: string;
@@ -183,6 +183,7 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate }
   highlight: boolean;
   onDelete: (id: string) => void;
   onUpdate: (id: string, docs: CollectionDocument[]) => void;
+  v2Map?: Map<string, string>;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
@@ -371,10 +372,32 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate }
     <div ref={ref} className={highlight ? "ring-1 ring-cf-green/40" : ""}>
       {/* ── Collapsed row (56px) ── */}
       <div className="flex items-center gap-2.5 px-4 h-14 hover:bg-[#FAFAFA] transition-colors group">
-        {/* Grade circle */}
+        {/* Grade circle (IA) */}
         <div title={getGradeTooltip(col.rating)} style={{ width: 36, height: 36, borderRadius: "50%", background: grade.bg, border: `1.5px solid ${grade.border}`, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", cursor: "help" }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: grade.color }}>{grade.letter}</span>
         </div>
+
+        {/* V2 rating badge */}
+        {(() => {
+          const v2r = v2Map?.get(col.id);
+          if (!v2r) return null;
+          const V2C: Record<string, { c: string; bg: string }> = {
+            A:{c:"#16a34a",bg:"#f0fdf4"}, B:{c:"#65a30d",bg:"#f7fee7"},
+            C:{c:"#d97706",bg:"#fffbeb"}, D:{c:"#ea580c",bg:"#fff7ed"},
+            E:{c:"#dc2626",bg:"#fef2f2"}, F:{c:"#991b1b",bg:"#fff1f2"},
+          };
+          const cfg = V2C[v2r] ?? { c:"#94a3b8", bg:"#f1f5f9" };
+          return (
+            <div title={`Score V2: ${v2r}`} style={{
+              width: 20, height: 20, borderRadius: 4, flexShrink: 0,
+              background: cfg.bg, border: `1px solid ${cfg.c}55`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 10, fontWeight: 800, color: cfg.c, cursor: "help",
+            }}>
+              {v2r}
+            </div>
+          );
+        })()}
 
         {/* Company name — only when not in a group */}
         {!isGrouped && (
@@ -420,7 +443,8 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate }
         })()}
 
         {/* Status */}
-        <span style={{ fontSize: 11, fontWeight: 600, background: status.bg, color: status.color, borderRadius: 999, padding: "2px 10px", whiteSpace: "nowrap", flexShrink: 0 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, background: status.bg, color: status.color, border: `1px solid ${status.border}`, borderRadius: 999, padding: "2px 10px", whiteSpace: "nowrap", flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5 }}>
+          <span style={{ width: 5, height: 5, borderRadius: "50%", background: status.color, flexShrink: 0 }} />
           {status.label}
         </span>
 
@@ -843,7 +867,7 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate }
 }
 
 // ── GroupCard — wrapper for same-company entries ──
-function GroupCard({ group, userName, userId, highlightId, onDelete, onDeleteAll, onUpdate }: {
+function GroupCard({ group, userName, userId, highlightId, onDelete, onDeleteAll, onUpdate, v2Map }: {
   group: { key: string; name: string; cnpj: string | null; cols: DocumentCollection[] };
   userName: string;
   userId?: string;
@@ -851,14 +875,36 @@ function GroupCard({ group, userName, userId, highlightId, onDelete, onDeleteAll
   onDelete: (id: string) => void;
   onDeleteAll: (ids: string[]) => void;
   onUpdate: (id: string, docs: CollectionDocument[]) => void;
+  v2Map?: Map<string, string>;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
   const [deletingAll, setDeletingAll] = useState(false);
+  const [showCompare, setShowCompare] = useState(false);
+  const [compareIds, setCompareIds] = useState<string[]>([]);
   const isGroup = group.cols.length > 1;
   const visible = showAll ? group.cols : group.cols.slice(0, 3);
   const hidden = group.cols.length - 3;
+
+  const toggleCompare = (id: string) =>
+    setCompareIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : prev.length < 2 ? [...prev, id] : [prev[1], id]);
+
+  // Feature 4 — dados para sparkline de rating
+  const ratingHistory = group.cols
+    .filter(c => c.rating != null)
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+    .map(c => ({ rating: c.rating!, date: c.created_at }));
+
+  const sparklineSvg = (() => {
+    const vals = ratingHistory.map(r => r.rating);
+    if (vals.length < 2) return null;
+    const w = 56, h = 20, min = Math.min(...vals), max = Math.max(...vals), range = max - min || 0.1;
+    const pts = vals.map((v, i) => `${((i / (vals.length - 1)) * (w - 4) + 2).toFixed(1)},${(h - 2 - ((v - min) / range) * (h - 4)).toFixed(1)}`).join(" ");
+    const trend = vals[vals.length - 1] - vals[0];
+    const c = trend > 0.2 ? "#16a34a" : trend < -0.2 ? "#dc2626" : "#6b7280";
+    return { pts, color: c, trend };
+  })();
 
   const handleDeleteAll = async () => {
     setDeletingAll(true);
@@ -888,7 +934,7 @@ function GroupCard({ group, userName, userId, highlightId, onDelete, onDeleteAll
   if (!isGroup) {
     return (
       <div className="bg-white rounded-xl border border-[#E2E8F0] overflow-hidden">
-        <CollectionRow col={group.cols[0]} isGrouped={false} userName={userName} userId={userId} highlight={group.cols[0].id === highlightId} onDelete={onDelete} onUpdate={onUpdate} />
+        <CollectionRow col={group.cols[0]} isGrouped={false} userName={userName} userId={userId} highlight={group.cols[0].id === highlightId} onDelete={onDelete} onUpdate={onUpdate} v2Map={v2Map} />
       </div>
     );
   }
@@ -913,6 +959,29 @@ function GroupCard({ group, userName, userId, highlightId, onDelete, onDeleteAll
         <span style={{ fontSize: 11, fontWeight: 700, background: "#E0E7FF", color: "#3730A3", borderRadius: 999, padding: "2px 8px", flexShrink: 0 }}>
           {group.cols.length} entradas
         </span>
+
+        {/* Feature 4 — Sparkline de rating */}
+        {sparklineSvg && (
+          <div style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }} title={`Evolução rating: ${ratingHistory.map(r => r.rating.toFixed(1)).join(" → ")}`}>
+            <svg width={56} height={20}>
+              <polyline points={sparklineSvg.pts} fill="none" stroke={sparklineSvg.color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+            </svg>
+            <span style={{ fontSize: 10, fontWeight: 700, color: sparklineSvg.color }}>
+              {sparklineSvg.trend > 0.2 ? `+${sparklineSvg.trend.toFixed(1)}` : sparklineSvg.trend < -0.2 ? sparklineSvg.trend.toFixed(1) : "—"}
+            </span>
+          </div>
+        )}
+
+        {/* Feature 2 — Botão comparar */}
+        <div onClick={e => e.stopPropagation()} className="flex-shrink-0">
+          <button
+            onClick={() => { setShowCompare(true); setCompareIds(group.cols.slice(0, 2).map(c => c.id)); }}
+            title="Comparar duas análises desta empresa lado a lado"
+            style={{ fontSize: 11, fontWeight: 600, background: "rgba(32,59,136,0.08)", color: "#1E3A5F", border: "1px solid rgba(32,59,136,0.15)", borderRadius: 6, padding: "2px 8px", cursor: "pointer", whiteSpace: "nowrap" }}
+          >
+            Comparar
+          </button>
+        </div>
 
         {/* Botão apagar todas */}
         <div onClick={e => e.stopPropagation()} className="flex-shrink-0">
@@ -946,7 +1015,7 @@ function GroupCard({ group, userName, userId, highlightId, onDelete, onDeleteAll
       {!collapsed && (
         <div className="divide-y divide-[#F8FAFC]">
           {visible.map(col => (
-            <CollectionRow key={col.id} col={col} isGrouped userName={userName} userId={userId} highlight={col.id === highlightId} onDelete={onDelete} onUpdate={onUpdate} />
+            <CollectionRow key={col.id} col={col} isGrouped userName={userName} userId={userId} highlight={col.id === highlightId} onDelete={onDelete} onUpdate={onUpdate} v2Map={v2Map} />
           ))}
           {!showAll && hidden > 0 && (
             <button
@@ -958,6 +1027,95 @@ function GroupCard({ group, userName, userId, highlightId, onDelete, onDeleteAll
           )}
         </div>
       )}
+
+      {/* Feature 2 — Modal de comparação */}
+      {showCompare && (() => {
+        const colA = group.cols.find(c => c.id === compareIds[0]);
+        const colB = group.cols.find(c => c.id === compareIds[1]);
+        const fmtDate = (d: string) => new Date(d).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" });
+        const fmtFmm = (v: number | null | undefined) => v ? `R$ ${(v / 1000).toFixed(0)}K` : "—";
+        const decBg: Record<string, string> = { APROVADO: "#DCFCE7", REPROVADO: "#FEE2E2", APROVACAO_CONDICIONAL: "#EDE9FE" };
+        const decColor: Record<string, string> = { APROVADO: "#16A34A", REPROVADO: "#DC2626", APROVACAO_CONDICIONAL: "#7C3AED" };
+        const decLabel: Record<string, string> = { APROVADO: "Aprovado", REPROVADO: "Reprovado", APROVACAO_CONDICIONAL: "Condicional", PENDENTE: "Pendente" };
+        const CompareCol = ({ col }: { col: DocumentCollection | undefined }) => !col ? null : (
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontSize: 11, color: "#9CA3AF", margin: "0 0 10px" }}>{fmtDate(col.created_at)}</p>
+            {/* Rating */}
+            <div style={{ marginBottom: 12 }}>
+              <p style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Rating</p>
+              {col.rating != null ? (
+                <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+                  <span style={{ fontSize: 28, fontWeight: 800, color: col.rating >= 7 ? "#16a34a" : col.rating >= 4 ? "#d97706" : "#dc2626" }}>{col.rating.toFixed(1)}</span>
+                  <span style={{ fontSize: 12, color: "#9CA3AF" }}>/10</span>
+                </div>
+              ) : <span style={{ fontSize: 20, color: "#CBD5E1" }}>—</span>}
+            </div>
+            {/* Decisão */}
+            <div style={{ marginBottom: 12 }}>
+              <p style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Decisão</p>
+              {col.decisao ? (
+                <span style={{ fontSize: 11, fontWeight: 700, background: decBg[col.decisao] || "#F1F5F9", color: decColor[col.decisao] || "#6B7280", borderRadius: 999, padding: "3px 10px" }}>
+                  {decLabel[col.decisao] || col.decisao}
+                </span>
+              ) : <span style={{ fontSize: 12, color: "#CBD5E1" }}>Pendente</span>}
+            </div>
+            {/* FMM */}
+            <div style={{ marginBottom: 12 }}>
+              <p style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>FMM 12m</p>
+              <p style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{fmtFmm(col.fmm_12m)}</p>
+            </div>
+            {/* Docs */}
+            <div>
+              <p style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Documentos</p>
+              <p style={{ fontSize: 13, color: "#374151" }}>{col.documents?.length ?? 0} doc{(col.documents?.length ?? 0) !== 1 ? "s" : ""}</p>
+            </div>
+          </div>
+        );
+        return (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowCompare(false)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden" onClick={e => e.stopPropagation()}>
+              {/* Header */}
+              <div style={{ background: "linear-gradient(135deg, #1a2f6b, #203b88)", padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <p style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.6)", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0 0 2px" }}>Comparativo</p>
+                  <p style={{ fontSize: 14, fontWeight: 700, color: "#fff", margin: 0 }}>{group.name}</p>
+                </div>
+                <button onClick={() => setShowCompare(false)} style={{ background: "rgba(255,255,255,0.12)", border: "none", borderRadius: 8, color: "#fff", cursor: "pointer", padding: "6px 8px", display: "flex", alignItems: "center" }}>
+                  <X size={14} />
+                </button>
+              </div>
+              {/* Seleção de entradas */}
+              <div style={{ padding: "12px 20px", borderBottom: "1px solid #E2E8F0", display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {group.cols.map(col => {
+                  const sel = compareIds.includes(col.id);
+                  const idx = compareIds.indexOf(col.id);
+                  return (
+                    <button key={col.id} onClick={() => toggleCompare(col.id)}
+                      style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 6, cursor: "pointer", border: sel ? "1.5px solid #203b88" : "1.5px solid #E2E8F0", background: sel ? "#EEF2FF" : "#fff", color: sel ? "#203b88" : "#9CA3AF", display: "flex", alignItems: "center", gap: 4 }}>
+                      {sel && <span style={{ width: 14, height: 14, borderRadius: "50%", background: idx === 0 ? "#203b88" : "#7C3AED", color: "#fff", fontSize: 9, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{idx + 1}</span>}
+                      {new Date(col.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" })}
+                      {col.rating != null && <span style={{ color: sel ? "#203b88" : "#CBD5E1", fontWeight: 700 }}> · {col.rating.toFixed(1)}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+              {/* Comparação lado a lado */}
+              {compareIds.length === 2 && colA && colB ? (
+                <div style={{ padding: "20px", display: "flex", gap: 16 }}>
+                  <div style={{ width: 3, borderRadius: 99, background: "linear-gradient(180deg, #203b88, #7C3AED)", flexShrink: 0, alignSelf: "stretch" }} />
+                  <CompareCol col={colA} />
+                  <div style={{ width: 1, background: "#E2E8F0", flexShrink: 0 }} />
+                  <CompareCol col={colB} />
+                </div>
+              ) : (
+                <div style={{ padding: "32px 20px", textAlign: "center", color: "#9CA3AF", fontSize: 13 }}>
+                  Selecione 2 entradas acima para comparar
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -1000,6 +1158,7 @@ function loadHistoricoFilters(): HistoricoFilters {
 
 function HistoricoContent() {
   const [collections, setCollections] = useState<DocumentCollection[]>([]);
+  const [v2Map, setV2Map] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   // Debounce de 300ms no search para evitar re-filtragem a cada tecla em listas grandes.
@@ -1030,7 +1189,25 @@ function HistoricoContent() {
         if (!u) { setCollections([]); return; }
         const { data, error } = await supabase.from("document_collections").select("*").eq("user_id", u.id).order("created_at", { ascending: false });
         if (error) throw error;
-        setCollections((data || []) as DocumentCollection[]);
+        const cols = (data || []) as DocumentCollection[];
+        setCollections(cols);
+        if (cols.length > 0) {
+          const ids = cols.map(c => c.id);
+          const { data: scoreRows } = await supabase
+            .from("score_operacoes")
+            .select("collection_id, score_result")
+            .in("collection_id", ids)
+            .order("preenchido_em", { ascending: false });
+          const map = new Map<string, string>();
+          if (scoreRows) {
+            for (const row of scoreRows) {
+              if (!map.has(row.collection_id) && (row.score_result as { rating?: string } | null)?.rating) {
+                map.set(row.collection_id, (row.score_result as { rating: string }).rating);
+              }
+            }
+          }
+          setV2Map(map);
+        }
       } catch (err) { toast.error("Erro ao carregar histórico: " + (err instanceof Error ? err.message : "Verifique o Supabase")); }
       finally { setLoading(false); }
     };
@@ -1184,19 +1361,19 @@ function HistoricoContent() {
         <div className="max-w-6xl mx-auto px-6" style={{ height: "56px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <Link href="/"><Logo /></Link>
           <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-            <a href="/historico" className="hidden sm:flex items-center gap-1.5" style={{ fontSize: "13px", fontWeight: 600, color: "#203b88", padding: "5px 10px", borderRadius: "6px", textDecoration: "none", background: "#EFF6FF" }}>
+            <Link href="/historico" className="hidden sm:flex items-center gap-1.5" style={{ fontSize: "13px", fontWeight: 600, color: "#203b88", padding: "5px 10px", borderRadius: "6px", textDecoration: "none", background: "#EFF6FF" }}>
               <Clock size={14} /> Histórico
-            </a>
-            <a href="/ajuda" className="hidden sm:flex items-center justify-center" style={{ color: "#94A3B8", padding: "6px", borderRadius: "6px", transition: "all 0.15s" }}
+            </Link>
+            <Link href="/ajuda" className="hidden sm:flex items-center justify-center" style={{ color: "#94A3B8", padding: "6px", borderRadius: "6px", transition: "all 0.15s" }}
               onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "#475569"; (e.currentTarget as HTMLElement).style.background = "#F1F5F9"; }}
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "#94A3B8"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}>
               <HelpCircle size={18} />
-            </a>
-            <a href="/configuracoes" className="hidden sm:flex items-center justify-center" style={{ color: "#94A3B8", padding: "6px", borderRadius: "6px", transition: "all 0.15s" }}
+            </Link>
+            <Link href="/configuracoes" className="hidden sm:flex items-center justify-center" style={{ color: "#94A3B8", padding: "6px", borderRadius: "6px", transition: "all 0.15s" }}
               onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "#475569"; (e.currentTarget as HTMLElement).style.background = "#F1F5F9"; }}
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "#94A3B8"; (e.currentTarget as HTMLElement).style.background = "transparent"; }}>
               <Settings size={18} />
-            </a>
+            </Link>
             {!authLoading && user && (
               <>
                 <div className="relative" style={{ marginLeft: "4px" }}>
@@ -1223,7 +1400,7 @@ function HistoricoContent() {
                     </div>
                   )}
                 </div>
-                <a href="/perfil" className="hidden sm:flex items-center gap-2" style={{ padding: "4px 8px", borderRadius: "8px", textDecoration: "none", marginLeft: "4px", transition: "background 0.15s" }}
+                <Link href="/perfil" className="hidden sm:flex items-center gap-2" style={{ padding: "4px 8px", borderRadius: "8px", textDecoration: "none", marginLeft: "4px", transition: "background 0.15s" }}
                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "#F8FAFC"; }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}>
                   <div style={{ width: "26px", height: "26px", borderRadius: "99px", background: "linear-gradient(135deg, #1a3560 0%, #203b88 100%)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -1231,7 +1408,7 @@ function HistoricoContent() {
                   </div>
                   <span style={{ fontSize: "13px", fontWeight: 500, color: "#374151", maxWidth: "90px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{userName}</span>
                   <ChDown size={12} style={{ color: "#9CA3AF" }} />
-                </a>
+                </Link>
                 <button onClick={signOut} className="hidden sm:flex items-center gap-1.5" style={{ fontSize: "13px", fontWeight: 400, color: "#94A3B8", background: "transparent", border: "none", cursor: "pointer", padding: "5px 8px", borderRadius: "6px", transition: "color 0.15s" }}
                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "#EF4444"; }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "#94A3B8"; }}>
@@ -1249,25 +1426,41 @@ function HistoricoContent() {
       </header>
 
       {/* ══ CONTENT ══ */}
-      <main className="flex-1 max-w-4xl mx-auto w-full px-5 sm:px-6 py-8">
+      <main className="flex-1 max-w-4xl mx-auto w-full px-5 sm:px-6 pb-8">
 
-        {/* Page header */}
-        <div className="mb-6">
-          <div className="flex items-start justify-between gap-4 mb-3">
-            <div>
-              <h1 className="text-lg font-bold text-[#111827]">Histórico de Relatórios</h1>
-              {!loading && (
-                <p className="text-xs text-[#9CA3AF] mt-0.5">
-                  {totalEntries} coleta{totalEntries !== 1 ? "s" : ""} encontrada{totalEntries !== 1 ? "s" : ""}
-                  {grouped.length !== totalEntries && ` · ${grouped.length} empresa${grouped.length !== 1 ? "s" : ""}`}
-                </p>
-              )}
+        {/* ── Hero header ── */}
+        <div style={{ background: "linear-gradient(135deg, #1a2f6b 0%, #203b88 60%, #1e3a8a 100%)", padding: "28px 28px 24px", borderRadius: "0 0 20px 20px", marginBottom: "24px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 12, background: "rgba(168,217,107,0.15)", border: "1px solid rgba(168,217,107,0.3)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Clock size={20} style={{ color: "#a8d96b" }} />
+              </div>
+              <div>
+                <h1 style={{ fontSize: 20, fontWeight: 800, color: "#fff", margin: 0, letterSpacing: "-0.3px" }}>Histórico de Relatórios</h1>
+                {!loading && (
+                  <p style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", margin: "3px 0 0" }}>
+                    {totalEntries} coleta{totalEntries !== 1 ? "s" : ""} · {grouped.length} empresa{grouped.length !== 1 ? "s" : ""}
+                  </p>
+                )}
+              </div>
             </div>
-            <Link href="/" className="btn-secondary text-xs flex-shrink-0">
-              ← Voltar
-            </Link>
+            {!loading && (
+              <div style={{ display: "flex", gap: 20 }}>
+                {[
+                  { label: "Total", value: totalEntries, color: "#fff" },
+                  { label: "Empresas", value: grouped.length, color: "#a8d96b" },
+                ].map((s) => (
+                  <div key={s.label} style={{ textAlign: "right" }}>
+                    <p style={{ fontSize: 22, fontWeight: 800, color: s.color, margin: 0, lineHeight: 1 }}>{s.value}</p>
+                    <p style={{ fontSize: 10, color: "rgba(255,255,255,0.45)", margin: "3px 0 0", textTransform: "uppercase", letterSpacing: "0.06em" }}>{s.label}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
+        </div>
 
+        <div className="mb-6">
           {/* Aviso de coletas vazias */}
           {!loading && emptyCollections.length > 0 && (
             <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 bg-amber-50 border border-amber-200 rounded-lg mb-4 flex-wrap">
@@ -1535,24 +1728,33 @@ function HistoricoContent() {
             ))}
           </div>
         ) : grouped.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
-            <div className="w-14 h-14 rounded-2xl bg-[#F1F5F9] flex items-center justify-center">
-              {search || activeFilters > 0 ? <Search size={24} className="text-[#CBD5E1]" /> : <Inbox size={24} className="text-[#CBD5E1]" />}
+          <div className="flex flex-col items-center justify-center py-28 gap-5 text-center">
+            <div style={{ width: 76, height: 76, borderRadius: 22, background: "linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 6px 20px rgba(32,59,136,0.10)" }}>
+              {search || activeFilters > 0
+                ? <Search size={32} style={{ color: "#203b88", opacity: 0.45 }} />
+                : <Inbox size={32} style={{ color: "#203b88", opacity: 0.45 }} />}
             </div>
-            <div>
-              <h3 className="text-base font-bold text-[#374151] mb-1">
+            <div style={{ maxWidth: 320 }}>
+              <h3 style={{ fontSize: 17, fontWeight: 800, color: "#111827", marginBottom: 8 }}>
                 {search || activeFilters > 0 ? "Nenhum relatório encontrado" : "Nenhuma coleta salva ainda"}
               </h3>
-              <p className="text-sm text-[#9CA3AF]">
-                {search || activeFilters > 0 ? "Tente outros filtros ou inicie uma nova análise" : "Finalize uma coleta para vê-la aqui."}
+              <p style={{ fontSize: 13, color: "#9CA3AF", lineHeight: 1.6, margin: 0 }}>
+                {search || activeFilters > 0
+                  ? "Tente outros filtros ou termos diferentes para encontrar o que procura."
+                  : "Finalize uma coleta e ela aparecerá aqui. Todas as suas análises de crédito ficam registradas nesta tela."}
               </p>
             </div>
             {search || activeFilters > 0 ? (
-              <button onClick={() => { setSearch(""); setFilterStatus(""); setFilterDecisao(""); setFilterRamo(""); setFilterPeriodo(""); }} className="btn-secondary text-xs mt-2">
-                Limpar busca
+              <button
+                onClick={() => { setSearch(""); setFilterStatus(""); setFilterDecisao(""); setFilterRamo(""); setFilterPeriodo(""); }}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 18px", borderRadius: 9, background: "white", color: "#374151", fontSize: 13, fontWeight: 600, border: "1px solid #E2E8F0", cursor: "pointer", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}
+              >
+                <X size={13} /> Limpar filtros
               </button>
             ) : (
-              <Link href="/" className="btn-green mt-2">+ Nova Coleta</Link>
+              <Link href="/" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "10px 22px", borderRadius: 10, background: "linear-gradient(135deg, #1a2f6b, #203b88)", color: "white", fontSize: 13, fontWeight: 700, textDecoration: "none", boxShadow: "0 3px 10px rgba(32,59,136,0.28)" }}>
+                <Plus size={14} /> Nova Coleta
+              </Link>
             )}
           </div>
         ) : (
@@ -1567,6 +1769,7 @@ function HistoricoContent() {
                 onDelete={handleDelete}
                 onDeleteAll={handleDeleteAll}
                 onUpdate={handleUpdate}
+                v2Map={v2Map}
               />
             ))}
             {hasMore && (
@@ -1587,10 +1790,20 @@ function HistoricoContent() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-[#E2E8F0] mt-16 py-6">
-        <p className="text-center text-[11px] text-[#9CA3AF]">
-          &copy; {new Date().getFullYear()} Capital Finanças — Documentos processados com segurança
-        </p>
+      <footer style={{ background: "#f1f5f9", borderTop: "1px solid #e2e8f0", marginTop: 40 }}>
+        <div style={{ height: 3, background: "linear-gradient(90deg, #73b815, #a8d96b 60%, transparent)" }} />
+        <div style={{ maxWidth: 960, margin: "0 auto", padding: "22px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+          <svg width="150" height="22" viewBox="0 0 451 58" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="31" cy="27" r="22" stroke="#203b88" strokeWidth="4.5" fill="none" />
+            <circle cx="31" cy="49" r="4.5" fill="#203b88" />
+            <text x="66" y="46" fontFamily="'Open Sans', Arial, sans-serif" fontWeight="700" fontSize="38" letterSpacing="-0.5">
+              <tspan fill="#203b88">capital</tspan><tspan fill="#73b815">finanças</tspan>
+            </text>
+          </svg>
+          <p style={{ fontSize: 12, color: "#94a3b8", margin: 0, letterSpacing: "0.01em" }}>
+            © {new Date().getFullYear()} Capital Finanças · Uso interno e confidencial
+          </p>
+        </div>
       </footer>
     </div>
   );

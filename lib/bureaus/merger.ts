@@ -1,14 +1,18 @@
-import type { ExtractedData, BureauScore, ProtestosData, ProcessosData } from "@/types";
+import type { ExtractedData, BureauScore, ProtestosData, ProcessosData, SancoesData } from "@/types";
 import type { CreditHubResult } from "./credithub";
 import type { SerasaResult } from "./serasa";
 import type { SPCResult } from "./spc";
 import type { QuodResult } from "./quod";
+import type { BrasilApiResult } from "./brasilapi";
+import type { SancoesResult } from "./transparencia";
 
 export interface BureauResults {
   credithub?: CreditHubResult;
   serasa?: SerasaResult;
   spc?: SPCResult;
   quod?: QuodResult;
+  brasilapi?: BrasilApiResult;
+  sancoes?: SancoesResult;
 }
 
 export function mergeBureauResults(
@@ -131,6 +135,59 @@ export function mergeBureauResults(
   if (results.quod?.success && !results.quod.mock) {
     bureausConsultados.push("Quod");
     if (results.quod.score) score.quod = results.quod.score;
+  }
+
+  // ── BrasilAPI (Receita Federal oficial) ─────────────────────────────────
+  if (results.brasilapi?.success && results.brasilapi.data) {
+    const ba = results.brasilapi.data;
+    const base = merged.cnpj ?? data.cnpj;
+    merged.cnpj = {
+      ...base,
+      // Situação cadastral da Receita tem prioridade — fonte mais confiável
+      situacaoCadastral: ba.situacaoCadastral || base.situacaoCadastral,
+      dataSituacaoCadastral: ba.dataSituacaoCadastral || base.dataSituacaoCadastral,
+      motivoSituacao: ba.motivoSituacaoCadastral || base.motivoSituacao,
+      // Preenche campos vazios
+      porte: base.porte || ba.porte,
+      naturezaJuridica: base.naturezaJuridica || ba.descricaoNaturezaJuridica || ba.naturezaJuridica,
+      cnaePrincipal: base.cnaePrincipal || ba.cnaePrincipal,
+      endereco: base.endereco || ba.endereco,
+      telefone: base.telefone || ba.telefones[0] || "",
+      email: base.email || ba.emails[0] || "",
+      dataAbertura: base.dataAbertura || ba.dataAbertura,
+      capitalSocialCNPJ: base.capitalSocialCNPJ || (ba.capitalSocial > 0 ? `R$ ${ba.capitalSocial.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : ""),
+    };
+    // QSA: se vazia, popula com dados da BrasilAPI
+    const sociosReais = (data.qsa?.quadroSocietario || []).filter(s => s.nome || s.cpfCnpj);
+    if (sociosReais.length === 0 && ba.qsa.length > 0) {
+      merged.qsa = {
+        capitalSocial: data.qsa?.capitalSocial || "",
+        quadroSocietario: ba.qsa.map(s => ({
+          nome: s.nome,
+          cpfCnpj: s.cpfCnpj,
+          qualificacao: s.qualificacao,
+          participacao: s.percentualCapital > 0 ? `${s.percentualCapital}%` : "",
+          dataEntrada: s.dataEntrada,
+        })),
+      };
+    }
+    bureausConsultados.push("BrasilAPI (Receita Federal)");
+  }
+
+  // ── Sanções CEIS/CNEP (Portal da Transparência) ──────────────────────────
+  if (results.sancoes?.success && !results.sancoes.mock) {
+    const s = results.sancoes;
+    const sancoesData: SancoesData = {
+      consultado: true,
+      cnpjLimpo: s.cnpjLimpo,
+      sociosLimpos: s.sociosLimpos,
+      totalSancoes: s.totalSancoes,
+      sancoesCNPJ: s.sancoesCNPJ,
+      sancoesSocios: s.sancoesSocios,
+      dataConsulta: new Date().toISOString(),
+    };
+    merged.sancoes = sancoesData;
+    bureausConsultados.push("Portal da Transparência (CEIS/CNEP)");
   }
 
   merged.score = Object.keys(score).length > 0 ? score : data.score;

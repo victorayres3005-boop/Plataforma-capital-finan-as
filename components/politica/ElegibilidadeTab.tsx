@@ -13,12 +13,11 @@ export function ElegibilidadeTab({ params, onChange }: Props) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {/* Critérios quantitativos */}
+
+      {/* Critérios eliminatórios quantitativos */}
       <div style={{ background: "white", borderRadius: 14, border: "1px solid #e8edf5", overflow: "hidden" }}>
         <div style={{ padding: "18px 20px 0" }}>
-          <p style={{ fontSize: 12, fontWeight: 800, color: "#374151", textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 16px" }}>
-            Critérios Quantitativos
-          </p>
+          <SectionTitle label="Pré-requisitos Mínimos" subtitle="Critérios eliminatórios — reprovação automática se não atender" />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, paddingBottom: 20 }}>
             <NumField
               label="FMM Mínimo"
@@ -43,12 +42,153 @@ export function ElegibilidadeTab({ params, onChange }: Props) {
         </div>
       </div>
 
-      {/* Critérios qualitativos / booleanos */}
+      {/* Alavancagem */}
+      <div style={{ background: "white", borderRadius: 14, border: "1px solid #e8edf5", overflow: "hidden" }}>
+        <div style={{ padding: "18px 20px 0" }}>
+          <SectionTitle label="Limites de Alavancagem" subtitle="Dívida total SCR ÷ FMM — quanto menor, mais saudável" />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, paddingBottom: 20 }}>
+            <NumField
+              label="Alavancagem Saudável"
+              description="Até esse valor = aprovado sem ressalvas"
+              value={params.alavancagem_saudavel}
+              onChange={v => set("alavancagem_saudavel", v)}
+              suffix="x FMM"
+              step={0.1}
+              min={0}
+            />
+            <NumField
+              label="Alavancagem Máxima"
+              description="Acima = reprovado automaticamente"
+              value={params.alavancagem_maxima}
+              onChange={v => set("alavancagem_maxima", v)}
+              suffix="x FMM"
+              step={0.1}
+              min={0}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Parâmetros operacionais */}
+      <div style={{ background: "white", borderRadius: 14, border: "1px solid #e8edf5", overflow: "hidden" }}>
+        <div style={{ padding: "18px 20px 0" }}>
+          <SectionTitle label="Parâmetros Operacionais" subtitle="Prazos, concentração e fator de limite" />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, paddingBottom: 20 }}>
+            <NumField
+              label="Prazo Máx. Aprovado"
+              description="Prazo máximo para operação aprovada"
+              value={params.prazo_maximo_aprovado}
+              onChange={v => set("prazo_maximo_aprovado", v)}
+              suffix="dias"
+              min={1}
+            />
+            <NumField
+              label="Prazo Máx. Condicional"
+              description="Prazo para aprovação condicional"
+              value={params.prazo_maximo_condicional}
+              onChange={v => set("prazo_maximo_condicional", v)}
+              suffix="dias"
+              min={1}
+            />
+            <NumField
+              label="Concentração Máx. Sacado"
+              description="Máximo por sacado no total da carteira"
+              value={params.concentracao_max_sacado}
+              onChange={v => set("concentracao_max_sacado", v)}
+              suffix="%"
+              step={1}
+              min={1}
+              max={100}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Limite de crédito e revisão */}
+      <div style={{ background: "white", borderRadius: 14, border: "1px solid #e8edf5", overflow: "hidden" }}>
+        <div style={{ padding: "18px 20px 0" }}>
+          <SectionTitle label="Limite de Crédito e Revisão" subtitle="Cálculo do limite sugerido e períodos de revisão" />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, paddingBottom: 20 }}>
+            <NumField
+              label="Fator Base do Limite"
+              description="Limite sugerido = FMM × este fator"
+              value={params.fator_limite_base}
+              onChange={v => set("fator_limite_base", v)}
+              suffix="x FMM"
+              step={0.1}
+              min={0.1}
+            />
+            <NumField
+              label="Revisão Aprovado"
+              description="Prazo para revisar empresa aprovada"
+              value={params.revisao_aprovado_dias}
+              onChange={v => set("revisao_aprovado_dias", v)}
+              suffix="dias"
+              min={1}
+            />
+            <NumField
+              label="Revisão Condicional"
+              description="Prazo para revisar aprovação condicional"
+              value={params.revisao_condicional_dias}
+              onChange={v => set("revisao_condicional_dias", v)}
+              suffix="dias"
+              min={1}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Restrições SCR e bureau */}
+      <div style={{ background: "white", borderRadius: 14, border: "1px solid #e8edf5", overflow: "hidden" }}>
+        <div style={{ padding: "18px 20px 0" }}>
+          <SectionTitle label="Restrições Bureau e SCR" subtitle="Limites eliminatórios para protestos, processos e inadimplência" />
+          <div style={{ marginBottom: 12, padding: "10px 14px", borderRadius: 8, background: "#fef2f2", border: "1px solid #fecaca" }}>
+            <p style={{ fontSize: 10, fontWeight: 700, color: "#dc2626", margin: "0 0 6px", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              Critérios fixos — não configuráveis
+            </p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {["CCF — Cheques sem fundo > 0 ocorrências", "Recuperação Judicial / Falência ativa"].map(t => (
+                <span key={t} style={{ fontSize: 10, fontWeight: 700, color: "#dc2626", background: "#fee2e2", border: "1px solid #fca5a5", borderRadius: 5, padding: "3px 9px" }}>{t}</span>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, paddingBottom: 20 }}>
+            <NumField
+              label="Protestos Máximos"
+              description="Número máximo de protestos vigentes"
+              value={params.protestos_max}
+              onChange={v => set("protestos_max", v)}
+              suffix="protestos"
+              step={1}
+              min={0}
+            />
+            <NumField
+              label="Processos Passivos Máx."
+              description="Número máximo de processos passivos"
+              value={params.processos_passivos_max}
+              onChange={v => set("processos_passivos_max", v)}
+              suffix="processos"
+              step={1}
+              min={0}
+            />
+            <NumField
+              label="SCR Vencidos Máx."
+              description="% máxima de dívidas vencidas no SCR"
+              value={params.scr_vencidos_max_pct}
+              onChange={v => set("scr_vencidos_max_pct", v)}
+              suffix="% do total"
+              step={1}
+              min={0}
+              max={100}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Restrições qualitativas */}
       <div style={{ background: "white", borderRadius: 14, border: "1px solid #e8edf5", overflow: "hidden" }}>
         <div style={{ padding: "18px 20px" }}>
-          <p style={{ fontSize: 12, fontWeight: 800, color: "#374151", textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 16px" }}>
-            Restrições Qualitativas
-          </p>
+          <SectionTitle label="Restrições Qualitativas" subtitle="Situações que bloqueiam ou condicionam a aprovação" />
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <ToggleField
               label="Aceita cedentes com débitos em outros fundos"
@@ -66,7 +206,6 @@ export function ElegibilidadeTab({ params, onChange }: Props) {
         </div>
       </div>
 
-      {/* Meta */}
       {params.ultima_atualizacao && (
         <p style={{ fontSize: 11, color: "#9ca3af", textAlign: "right", margin: 0 }}>
           Última atualização: {params.ultima_atualizacao}
@@ -78,11 +217,22 @@ export function ElegibilidadeTab({ params, onChange }: Props) {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
+function SectionTitle({ label, subtitle }: { label: string; subtitle: string }) {
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <p style={{ fontSize: 12, fontWeight: 800, color: "#374151", textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 2px" }}>
+        {label}
+      </p>
+      <p style={{ fontSize: 11, color: "#94a3b8", margin: 0 }}>{subtitle}</p>
+    </div>
+  );
+}
+
 function NumField({
-  label, description, value, onChange, prefix, suffix, step = 1, min = 0, format,
+  label, description, value, onChange, prefix, suffix, step = 1, min = 0, max, format,
 }: {
   label: string; description: string; value: number; onChange: (v: number) => void;
-  prefix?: string; suffix?: string; step?: number; min?: number; format?: "currency";
+  prefix?: string; suffix?: string; step?: number; min?: number; max?: number; format?: "currency";
 }) {
   const formatted = format === "currency"
     ? value.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })
@@ -100,6 +250,7 @@ function NumField({
           onChange={e => onChange(parseFloat(e.target.value) || 0)}
           step={step}
           min={min}
+          max={max}
           style={{
             flex: 1, height: 36, border: "1px solid #e5e7eb", borderRadius: 8,
             padding: "0 10px", fontSize: 13, fontWeight: 600, color: "#111827",
@@ -132,7 +283,6 @@ function ToggleField({
         borderRadius: 10, cursor: "pointer", transition: "all 0.15s",
       }}
     >
-      {/* Toggle pill */}
       <div style={{
         position: "relative", width: 40, height: 22, borderRadius: 11,
         background: value ? "#16a34a" : "#d1d5db",

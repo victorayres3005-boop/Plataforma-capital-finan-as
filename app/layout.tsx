@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Open_Sans, DM_Sans, JetBrains_Mono } from "next/font/google";
 import { Toaster } from "sonner";
 import PageTransition from "@/components/PageTransition";
+import LayoutShell from "@/components/layout/LayoutShell";
 import "./globals.css";
 
 const openSans = Open_Sans({
@@ -50,7 +51,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className={`${openSans.variable} ${dmSans.variable} ${jetbrainsMono.variable} ${dmSans.className} antialiased`}>
-        <PageTransition>{children}</PageTransition>
+        <LayoutShell>
+          <PageTransition>{children}</PageTransition>
+        </LayoutShell>
         <Toaster richColors position="top-right" />
       </body>
     </html>

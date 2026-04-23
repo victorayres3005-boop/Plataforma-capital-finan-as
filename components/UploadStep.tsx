@@ -25,9 +25,10 @@ interface SectionState {
 }
 
 // ─── Fila global de extração — evita estouro de quota (RPM) no Gemini ───
-// Gemini 2.5 Pro free tier: 5 RPM → mínimo 12s entre chamadas.
+// Flash free tier: 15 RPM → 4s entre chamadas suficiente.
+// Backend já trata 429 com backoff — delay aqui só previne rajadas.
 // Primeira chamada da fila é imediata; as demais esperam EXTRACT_DELAY_MS.
-const EXTRACT_DELAY_MS = 15000;
+const EXTRACT_DELAY_MS = 4000;
 let extractQueue: Promise<unknown> = Promise.resolve();
 let extractPending = 0;
 

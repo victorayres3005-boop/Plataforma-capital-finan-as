@@ -181,6 +181,21 @@ function parseProtestos(d: any): ProtestosData {
           ? c.registros
           : [];
 
+    // Regularizado SÓ quando houver evidência explícita — flag boolean true, status textual
+    // de regularização, OU string não-vazia em anuencia (ex: "SIM", "DEFERIDA"). Objeto em
+    // anuencia (ex: {tipo:"parcial"}) NÃO conta, pois o CreditHub pode retornar estrutura
+    // de detalhes sem o protesto estar de fato regularizado.
+    const isRegularizado = (x: any): boolean => {
+      if (x.regularizado === true || x.temAnuencia === true) return true;
+      const statusStr = String(x.status ?? x.situacao ?? "").toUpperCase();
+      if (/PAGO|CANCELADO|BAIXADO|QUITADO|SUSTADO|RETIRADO|REGULARIZADO/.test(statusStr)) return true;
+      // anuencia: só conta se for string positiva — objeto/array NÃO
+      if (typeof x.anuencia === "string") {
+        return /SIM|TRUE|DEFERIDA|CONCEDIDA|REGULARIZADO/i.test(x.anuencia);
+      }
+      return false;
+    };
+
     if (protestosInner.length > 0) {
       protestosInner.forEach((p: any) => {
         const rawValor = p.valor ?? p.valorProtestado ?? p.valorTitulo ?? 0;
@@ -194,7 +209,7 @@ function parseProtestos(d: any): ProtestosData {
           nomeCedente:      p.nomeCedente ?? p.cedente ?? p.credor ?? "",
           nomeApresentante: p.nomeApresentante ?? p.apresentante ?? "",
           cartorioNome, municipio, uf,
-          regularizado: !!p.temAnuencia || !!p.regularizado || !!p.anuencia,
+          regularizado: isRegularizado(p),
         });
       });
     } else {
@@ -206,7 +221,7 @@ function parseProtestos(d: any): ProtestosData {
         nomeCedente:      c.nomeCedente ?? c.cedente ?? c.credor ?? "",
         nomeApresentante: c.nomeApresentante ?? c.apresentante ?? "",
         cartorioNome, municipio, uf,
-        regularizado: !!(c.regularizado || c.temAnuencia),
+        regularizado: isRegularizado(c),
       });
     }
   });
@@ -214,16 +229,21 @@ function parseProtestos(d: any): ProtestosData {
   // ── Deduplicação: inclui cartório na chave para não eliminar protestos
   //    legítimos em cartórios diferentes com mesmo valor/data/cedente ────────
   const vistos = new Set<string>();
+  let dedupDropped = 0;
   const todosUniq = todos.filter(p => {
     const cedente = (p.nomeCedente || p.nomeApresentante || "").toLowerCase().trim();
     const key = `${p.data}|${p.valor}|${cedente}|${p.cartorioNome.toLowerCase().trim()}`;
-    if (vistos.has(key)) return false;
+    if (vistos.has(key)) { dedupDropped++; return false; }
     vistos.add(key);
     return true;
   });
+  if (dedupDropped > 0) {
+    console.log(`[credithub][protestos] dedup descartou ${dedupDropped} de ${todos.length}`);
+  }
 
   const vigentes     = todosUniq.filter(p => !p.regularizado);
   const regularizados = todosUniq.filter(p => p.regularizado);
+  console.log(`[credithub][protestos] total=${todos.length} uniq=${todosUniq.length} vigentes=${vigentes.length} regularizados=${regularizados.length}`);
 
   const vigentesValor     = vigentes.reduce((s, p) => s + p.valor, 0);
   const regularizadosValor = regularizados.reduce((s, p) => s + p.valor, 0);

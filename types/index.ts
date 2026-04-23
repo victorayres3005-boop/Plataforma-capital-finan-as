@@ -4,6 +4,36 @@ export interface Socio {
   cpf: string;
   participacao: string;
   qualificacao: string;
+  // Qualificação completa (contrato social)
+  rg?: string;
+  orgaoEmissorRg?: string;
+  dataNascimento?: string;
+  estadoCivil?: string;
+  regimeBens?: string;
+  enderecoResidencial?: string;
+  administrador?: boolean;
+  quotas?: number;
+  valorTotalQuotas?: string;
+}
+
+export interface Filial {
+  cnpj: string;
+  nire?: string;
+  logradouro?: string;
+  numero?: string;
+  bairro?: string;
+  municipio: string;
+  uf: string;
+  cep?: string;
+}
+
+export interface SocioRetirante {
+  nome: string;
+  cpf: string;
+  quotasCedidas: number;
+  valorQuotasCedidas: string;
+  cessionario?: string;
+  dataRetirada?: string;
 }
 
 // ─── Cartão CNPJ ───
@@ -51,11 +81,30 @@ export interface ContratoSocialData {
   socios: Socio[];
   capitalSocial: string;
   objetoSocial: string;
+  objetoSocialItems?: string[];
   dataConstituicao: string;
   temAlteracoes: boolean;
   prazoDuracao: string;
   administracao: string;
   foro: string;
+  // Campos enriquecidos
+  cnpj?: string;
+  nire?: string;
+  nomeFantasia?: string;
+  filiais?: Filial[];
+  sociosRetirantes?: SocioRetirante[];
+  quadroAnterior?: Socio[];
+  totalQuotas?: number;
+  quotaValorUnitario?: string;
+  capitalIntegralizado?: boolean;
+  registro?: {
+    protocolo?: string;
+    dataProtocolo?: string;
+    numeroRegistro?: string;
+    dataRegistro?: string;
+    dataEfeitos?: string;
+    orgao?: string;
+  };
 }
 
 // ─── Faturamento ───
@@ -149,6 +198,8 @@ export interface SCRData {
   semHistorico?: boolean;
   numeroIfs?: string;
   tipoPessoa?: "PF" | "PJ";
+  semDados?: boolean;
+  fonteBureau?: string;
 }
 
 // ─── Protestos ───
@@ -301,35 +352,54 @@ export interface RelatorioVisitaData {
   pleito?: string;
   modalidade?: "comissaria" | "convencional" | "hibrida" | "outra";
 
+  // ─── Contatos ───
+  emailFinanceiro?: string;
+  nomeSocio?: string;
+  celularSocio?: string;
+  nomeConjuge?: string;
+  cpfConjuge?: string;
+
   // ─── Parâmetros Operacionais ───
-  taxaConvencional?: string;         // taxa para modalidade convencional (%)
-  taxaComissaria?: string;           // taxa para modalidade comissária (%)
-  limiteTotal?: string;              // limite total (R$)
+  taxaConvencional?: string;         // taxa duplicata (%)
+  taxaCheque?: string;               // taxa cheque (%)
+  taxaComissaria?: string;           // taxa comissária (%)
+  limiteTotal?: string;              // limite global (R$)
   limiteConvencional?: string;       // limite convencional (R$)
   limiteComissaria?: string;         // limite comissária (R$)
-  limitePorSacado?: string;          // limite por sacado — 20 a 30% (R$)
-  limitePrincipaisSacados?: string;  // limite principais sacados — 30 a 40% (R$)
-  ticketMedio?: string;              // ticket médio por duplicata (R$)
-  valorCobrancaBoleto?: string;      // valor cobrado por cobrança de boleto (R$)
-  prazoRecompraCedente?: string;     // condição: prazo de recompra pelo cedente (dias)
-  prazoEnvioCartorio?: string;       // condição: envio para cartório em X dias
+  limiteDuplicatasPJ?: string;       // limite duplicatas concentração PJ (R$)
+  limiteChequesPJ?: string;          // limite cheques concentração PJ (R$)
+  concentracaoPercent?: string;      // concentração por sacado (%)
+  limitePorSacado?: string;          // limite por sacado (R$)
+  limitePrincipaisSacados?: string;  // limite principais sacados (R$)
+  ticketMinimo?: string;             // ticket mínimo NF (R$)
+  ticketMaximo?: string;             // ticket máximo NF (R$)
+  ticketMedio?: string;              // ticket médio NF (R$)
+  valorCobrancaBoleto?: string;      // valor boleto (R$)
+  prazoRecompraCedente?: string;     // prazo recompra pelo cedente (dias)
+  prazoEnvioCartorio?: string;       // envio para cartório (dias)
   prazoMaximoOp?: string;            // prazo máximo da operação (dias)
-  cobrancaTAC?: string;              // cobrança de TAC (valor ou "Sim"/"Não")
-  tranche?: string;                  // valor da tranche principal (R$)
-  trancheChecagem?: string;          // valor da tranche de checagem (R$) — separado
+  cobrancaTAC?: string;              // TAC (valor ou "Sim"/"Não")
+  tranche?: string;                  // tranche principal (R$)
+  trancheChecagem?: string;          // tranche checagem (R$)
   prazoTranche?: string;             // prazo da tranche (dias)
+  operaCheque?: boolean;             // opera cheque de terceiros
+  desagioPropostoPercent?: string;   // deságio proposto (%)
 
-  // ─── Dados da Empresa (coletados na visita) ───
-  folhaPagamento?: string;           // folha de pagamento mensal (R$)
-  endividamentoBanco?: string;       // endividamento com bancos (R$)
-  endividamentoFactoring?: string;   // endividamento com factoring/FIDC (R$)
-  vendasCheque?: string;             // % vendas via cheque
-  vendasDuplicata?: string;          // % vendas via duplicata
-  vendasOutras?: string;             // % outras formas de venda
-  prazoMedioFaturamento?: string;    // prazo médio de faturamento (dias)
-  prazoMedioEntrega?: string;        // prazo médio de entrega das mercadorias (dias)
-  referenciasFornecedores?: string;      // referências comerciais / fornecedores (texto livre — legado)
-  referenciasComerciais?: ReferenciaComercial[]; // referências estruturadas (novo)
+  // ─── Dados da Empresa ───
+  folhaPagamento?: string;
+  endividamentoBanco?: string;
+  endividamentoFactoring?: string;
+  vendasCheque?: string;
+  vendasDuplicata?: string;
+  vendasOutras?: string;
+  prazoVenda?: string;               // prazo de venda ex: "30/60/90"
+  prazoFornecedores?: string;        // prazo pagamento fornecedores
+  mixRecebiveis?: string;            // mix de recebíveis
+  frequenciaOperacao?: string;       // frequência de operação
+  prazoMedioFaturamento?: string;
+  prazoMedioEntrega?: string;
+  referenciasFornecedores?: string;
+  referenciasComerciais?: ReferenciaComercial[];
 }
 
 // ─── IR dos Sócios ───
@@ -342,7 +412,9 @@ export interface SociedadeIR {
 export interface IRSocioData {
   nomeSocio: string;
   cpf: string;
+  cpfConjuge?: string;
   anoBase: string;
+  exercicio?: string;
   tipoDocumento?: "recibo" | "declaracao" | "extrato";
   numeroRecibo?: string;
   dataEntrega?: string;
@@ -351,6 +423,7 @@ export interface IRSocioData {
   descricaoDebitos?: string;
   rendimentosTributaveis: string;
   rendimentosIsentos: string;
+  rendimentosTributacaoExclusiva?: string;
   rendimentoTotal: string;
   bensImoveis: string;
   bensVeiculos: string;
@@ -551,6 +624,30 @@ export interface BureauScore {
   };
 }
 
+// ─── Sanções CEIS/CNEP (Portal da Transparência) ───
+export interface SancaoItem {
+  tipo: "CEIS" | "CNEP";
+  cpfCnpjSancionado: string;
+  nomeSancionado: string;
+  tipoSancao: string;
+  orgaoSancionador: string;
+  fundamentacaoLegal: string;
+  dataInicioSancao: string;
+  dataFinalSancao: string | null;
+  valorMulta: number | null;
+  ativa: boolean;
+}
+
+export interface SancoesData {
+  consultado: boolean;
+  cnpjLimpo: boolean;
+  sociosLimpos: boolean;
+  totalSancoes: number;
+  sancoesCNPJ: SancaoItem[];
+  sancoesSocios: SancaoItem[];
+  dataConsulta: string;
+}
+
 // ─── Dados extraídos consolidados ───
 export interface ExtractedData {
   cnpj: CNPJData;
@@ -573,6 +670,7 @@ export interface ExtractedData {
   resumoRisco: string;
   ccf?: CCFData;
   historicoConsultas?: HistoricoConsultaItem[];
+  sancoes?: SancoesData;
 }
 
 // ─── Histórico de Operações ───
@@ -750,6 +848,26 @@ export interface FundSettings {
   protestos_max: number;
   processos_passivos_max: number;
   scr_vencidos_max_pct: number;
+  // Prazo de reanálise por faixa de rating V2 (opcional — usa fallbacks se ausente)
+  reanalise_rating_a_dias?: number;
+  reanalise_rating_b_dias?: number;
+  reanalise_rating_c_dias?: number;
+  reanalise_rating_d_dias?: number;
+  reanalise_rating_e_dias?: number;
+  reanalise_rating_f_dias?: number;
+  // Taxa base por rating V2 (% a.m.) — usada no ANALYSIS_PROMPT e relatório
+  taxa_base_rating_a?: number;
+  taxa_base_rating_b?: number;
+  taxa_base_rating_c?: number;
+  taxa_base_rating_d?: number;
+  taxa_base_rating_e?: number;
+  // Exceções e alçadas
+  overlimit_permitido_pct?: number;
+  flexibilizacao_prazo_dias?: number;
+  tolerancia_atraso_dias?: number;
+  permite_excecao_eliminatorio?: boolean;
+  // Garantias por rating (ex: ['D', 'E', 'F'])
+  garantia_obrigatoria_rating?: string[];
 }
 
 export const DEFAULT_FUND_SETTINGS: FundSettings = {
@@ -774,14 +892,21 @@ export interface CreditLimitResult {
   limiteAjustado: number;
   limiteBase: number;
   fmmBase: number;
-  fatorBase: number;
+  fatorBase?: number;
   fatorReducao: number;
   prazo: number;
   revisaoDias: number;
   dataRevisao: string; // ISO string
   concentracaoMaxPct: number;
-  limiteConcentracao: number;
-  presetName: string;
+  limiteConcentracao?: number;
+  presetName?: string;
+  // Campos derivados do Score V2
+  ratingV2?: string;
+  scoreV2?: number;
+  // Taxa sugerida ao cedente
+  taxaSugerida?: number;   // % a.m. final (após ajustes)
+  taxaBase?: number;       // % a.m. antes dos ajustes
+  taxaAjustes?: string[];  // lista de ajustes aplicados
 }
 
 // ── Fund Presets ───────────────────────────────────────────────────────────────

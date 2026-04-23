@@ -43,10 +43,27 @@ export interface PesosPilares {
 
 // ─── Parâmetros de elegibilidade ──────────────────────────────────────────────
 export interface ParametrosElegibilidade {
+  // Critérios eliminatórios
   tempo_constituicao_minimo_anos: number;
   fmm_minimo: number;
   aceita_com_debitos_outros_fundos: boolean;
   aceita_recuperacao_judicial_homologada: boolean;
+  // Alavancagem
+  alavancagem_saudavel: number;
+  alavancagem_maxima: number;
+  // SCR
+  scr_vencidos_max_pct: number;
+  // Restrições bureau
+  protestos_max: number;
+  processos_passivos_max: number;
+  // Parâmetros operacionais
+  prazo_maximo_aprovado: number;
+  prazo_maximo_condicional: number;
+  concentracao_max_sacado: number;
+  fator_limite_base: number;
+  revisao_aprovado_dias: number;
+  revisao_condicional_dias: number;
+  // Meta
   versao: string;
   ultima_atualizacao: string;
   atualizado_por: string;
@@ -99,6 +116,7 @@ export interface RespostaCriterio {
   modificador_multiplicador?: number;
   pontos_final: number;
   observacao?: string;
+  fonte_preenchimento?: 'auto' | 'manual';
 }
 
 // ─── Resultado calculado do score ─────────────────────────────────────────────

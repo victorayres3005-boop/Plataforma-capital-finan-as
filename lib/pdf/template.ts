@@ -1,5 +1,6 @@
 import type { PDFReportParams } from "@/lib/generators/pdf";
 import type { FundCriterion } from "@/types";
+import type { RespostaCriterio } from "@/types/politica-credito";
 import { CAPITAL_LOGO_B64 } from "@/lib/assets/capital-logo-b64";
 import { recomputeSCRTotals } from "@/lib/hydrateFromCollection";
 
@@ -304,6 +305,8 @@ body{font-family:'DM Sans',sans-serif;font-size:var(--fs-body);background:#fff;c
 .icell .v.green{color:var(--g6)}
 .icell .v.muted{color:var(--x4)}
 .icell .sub{font-size:var(--fs-label);color:var(--x5);margin-top:2px}
+.icell .ajustes{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.ajuste-tag{font-size:10px;background:#f1f5f9;padding:2px 6px;border-radius:4px;color:#64748b}
 /* ── Segmento / CNAE ── */
 .seg{padding:12px 16px;background:var(--n0);border-radius:6px;border:1px solid var(--n1);margin-bottom:18px;font-size:var(--fs-h3);color:var(--n7)}
 .seg b{color:var(--n9)}
@@ -1342,7 +1345,23 @@ function pageParametros(params: PDFReportParams, date: string): string {
       <div class="icell"><div class="l">FMM Base</div><div class="v sm mono">${params.creditLimit.fmmBase ? "R$\u00a0" + params.creditLimit.fmmBase.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}) : "—"}</div></div>
       <div class="icell"><div class="l">Fator de Redução</div><div class="v sm">${params.creditLimit.fatorReducao ? (params.creditLimit.fatorReducao * 100).toFixed(0) + "%" : "—"}</div></div>
       <div class="icell"><div class="l">Conc. máx. sacado</div><div class="v sm">${params.creditLimit.concentracaoMaxPct ? params.creditLimit.concentracaoMaxPct.toFixed(0) + "%" : "—"}</div></div>
-    </div>` : '<div style="color:var(--x4);font-size:12px;padding:20px;text-align:center">Limite de crédito não calculado</div>'}
+    </div>
+    ${(params.creditLimit.taxaSugerida ?? 0) > 0 ? `
+    <div class="istrip c3" style="margin-bottom:8px">
+      <div class="icell navy">
+        <div class="l">Taxa Sugerida</div>
+        <div class="v">${params.creditLimit.taxaSugerida!.toFixed(2)}% a.m.</div>
+        <div class="sub">Base: ${params.creditLimit.taxaBase?.toFixed(2)}% · Rating ${esc(params.creditLimit.ratingV2 ?? "—")}</div>
+        ${params.creditLimit.taxaAjustes && params.creditLimit.taxaAjustes.length > 0 ? `<div class="ajustes">${params.creditLimit.taxaAjustes.map(a => `<span class="ajuste-tag">${esc(a)}</span>`).join("")}</div>` : ""}
+      </div>
+    </div>` : `
+    <div class="istrip c3" style="margin-bottom:8px">
+      <div class="icell danger">
+        <div class="l">Taxa</div>
+        <div class="v red">Não opera</div>
+        <div class="sub">Rating ${esc(params.creditLimit.ratingV2 ?? "F")} — operação não recomendada</div>
+      </div>
+    </div>`}` : '<div style="color:var(--x4);font-size:12px;padding:20px;text-align:center">Limite de crédito não calculado</div>'}
   `;
 
   return page(content, 6, date);
@@ -2169,6 +2188,8 @@ function pageScoreV2(params: PDFReportParams, date: string): string {
   const s = params.scoreV2;
   if (!s) return "";
 
+  const respostas: RespostaCriterio[] = params.scoreV2Respostas ?? [];
+
   const PILAR_NOMES: Record<string, string> = {
     perfil_empresa: "Perfil da Empresa",
     saude_financeira: "Saúde Financeira",
@@ -2177,17 +2198,43 @@ function pageScoreV2(params: PDFReportParams, date: string): string {
     estrutura_operacao: "Estrutura da Operação",
   };
   const PILAR_PESOS: Record<string, number> = {
-    perfil_empresa: 15,
-    saude_financeira: 15,
-    risco_compliance: 25,
-    socios_governanca: 10,
-    estrutura_operacao: 35,
+    perfil_empresa: 15, saude_financeira: 15, risco_compliance: 25,
+    socios_governanca: 10, estrutura_operacao: 35,
+  };
+  const CRITERIO_NOMES: Record<string, string> = {
+    segmento: "Segmento de Atuação", localizacao: "Localização",
+    capacidade_operacional: "Capacidade Operacional",
+    estrutura_fisica: "Estrutura Física", patrimonio_empresa: "Patrimônio da Empresa",
+    qualidade_faturamento: "Faturamento (qualidade e consistência)",
+    analise_financeira: "Análise Financeira (DRE / Balanço)",
+    alavancagem: "Alavancagem (SCR / FMM)",
+    situacao_juridica: "Situação Jurídica", protestos: "Protestos Vigentes",
+    scr_endividamento: "SCR — Endividamento e Vencidos",
+    pefin_refin: "Negativações (Pefin / Refin / SPC)",
+    processos_judiciais: "Processos Judiciais",
+    endividamento_socios: "Endividamento dos Sócios",
+    tempo_empresa: "Tempo dos Sócios na Empresa",
+    patrimonio_socios: "Patrimônio Declarado dos Sócios",
+    risco_sucessao: "Risco de Sucessão",
+    confirmacao_lastro: "Confirmação de Lastro",
+    perfil_sacados: "Perfil e Qualidade dos Sacados",
+    tipo_operacao: "Tipo de Operação",
+    garantias: "Garantias Adicionais",
+    quantidade_fundos: "Relacionamento com Outros Fundos",
   };
 
   const RATING_CORES: Record<string, string> = {
-    A: "#22c55e", B: "#86efac", C: "#fde047", D: "#fb923c", E: "#f97316", F: "#ef4444",
+    A: "#16a34a", B: "#65a30d", C: "#d97706", D: "#ea580c", E: "#dc2626", F: "#991b1b",
+  };
+  const RATING_BGS: Record<string, string> = {
+    A: "#f0fdf4", B: "#f7fee7", C: "#fffbeb", D: "#fff7ed", E: "#fef2f2", F: "#fff1f2",
+  };
+  const RATING_LBLS: Record<string, string> = {
+    A: "EXCELENTE", B: "BOM", C: "MODERADO", D: "FRACO", E: "RUIM", F: "CRÍTICO",
   };
   const ratingCor = RATING_CORES[s.rating] ?? "#64748b";
+  const ratingBg = RATING_BGS[s.rating] ?? "#f1f5f9";
+  const ratingLbl = RATING_LBLS[s.rating] ?? s.rating;
 
   const confiancaLabel = s.confianca_score === "alta" ? "Alta — todos os pilares preenchidos"
     : s.confianca_score === "parcial" ? "Parcial — alguns pilares pendentes"
@@ -2195,74 +2242,139 @@ function pageScoreV2(params: PDFReportParams, date: string): string {
   const confiancaCor = s.confianca_score === "alta" ? "#16a34a"
     : s.confianca_score === "parcial" ? "#d97706" : "#dc2626";
 
-  const pilaresOrdem = ["estrutura_operacao", "risco_compliance", "perfil_empresa", "saude_financeira", "socios_governanca"];
+  const pilaresOrdem = ["estrutura_operacao", "risco_compliance", "saude_financeira", "perfil_empresa", "socios_governanca"];
+
+  // ── Resumo por pilar (tabela superior) ────────────────────────────────────
   const pilaresRows = pilaresOrdem.map(pid => {
     const nome = PILAR_NOMES[pid] ?? pid;
     const peso = PILAR_PESOS[pid] ?? 0;
     const bruto = s.pontos_brutos[pid] ?? 0;
     const ponderado = s.pontuacao_ponderada[pid] ?? 0;
     const isPendente = s.pilares_pendentes.includes(pid);
-    const barW = Math.round(ponderado / peso * 100);
-    return `
-    <tr>
-      <td style="padding:8px 10px;font-size:11px;font-weight:600;color:#0f172a">${esc(nome)}</td>
-      <td style="padding:8px 10px;font-size:11px;color:#64748b;text-align:center">${peso}%</td>
-      <td style="padding:8px 10px;font-size:11px;color:#374151;text-align:center">${isPendente ? "—" : bruto.toFixed(1) + " pts"}</td>
-      <td style="padding:8px 10px;font-size:11px;font-weight:700;color:#0f172a;text-align:center">${isPendente ? "—" : ponderado.toFixed(1)}</td>
-      <td style="padding:8px 10px;width:120px">
-        ${isPendente
-          ? `<span style="font-size:10px;color:#d97706;background:#fef3c7;border:1px solid #fbbf24;border-radius:4px;padding:2px 7px">Pendente</span>`
-          : `<div style="background:#e2e8f0;border-radius:4px;height:8px;width:100%"><div style="background:${ratingCor};height:8px;border-radius:4px;width:${barW}%"></div></div>`
-        }
-      </td>
+    const barW = isPendente ? 0 : Math.min(100, Math.round(ponderado / peso * 100));
+    const scoreBar = isPendente
+      ? `<span style="font-size:9px;color:#d97706;background:#fef3c7;border:1px solid #fbbf24;border-radius:3px;padding:1px 6px">Pendente</span>`
+      : `<div style="background:#e2e8f0;border-radius:3px;height:6px;width:100%"><div style="background:${ratingCor};height:6px;border-radius:3px;width:${barW}%"></div></div>`;
+    return `<tr>
+      <td style="padding:7px 10px;font-size:10.5px;font-weight:600;color:#0f172a">${esc(nome)}</td>
+      <td style="padding:7px 10px;font-size:10px;color:#64748b;text-align:center">${peso}%</td>
+      <td style="padding:7px 10px;font-size:10px;color:#374151;text-align:center;font-family:'JetBrains Mono',monospace">${isPendente ? "—" : bruto.toFixed(1)}</td>
+      <td style="padding:7px 10px;font-size:11px;font-weight:700;color:${isPendente ? "#94a3b8" : ratingCor};text-align:center;font-family:'JetBrains Mono',monospace">${isPendente ? "—" : ponderado.toFixed(1)}</td>
+      <td style="padding:7px 10px;width:110px">${scoreBar}</td>
     </tr>`;
+  }).join("");
+
+  // ── Detalhamento por pilar (critérios respondidos) ─────────────────────────
+  const pilaresDetalhe = pilaresOrdem.map(pid => {
+    const nome = PILAR_NOMES[pid] ?? pid;
+    const peso = PILAR_PESOS[pid] ?? 0;
+    const ponderado = s.pontuacao_ponderada[pid] ?? 0;
+    const isPendente = s.pilares_pendentes.includes(pid);
+    const criteriosPilar = respostas.filter(r => r.pilar_id === pid);
+
+    if (isPendente) {
+      return `<div style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:10px">
+        <div style="background:#f8fafc;padding:8px 12px;display:flex;justify-content:space-between;align-items:center">
+          <div style="font-size:10.5px;font-weight:700;color:#374151">${esc(nome)}</div>
+          <span style="font-size:9px;background:#fef3c7;color:#d97706;border:1px solid #fbbf24;border-radius:3px;padding:1px 6px;font-weight:700">PENDENTE</span>
+        </div>
+      </div>`;
+    }
+
+    if (criteriosPilar.length === 0) return "";
+
+    const criteriosHtml = criteriosPilar.map(r => {
+      const nomeC = CRITERIO_NOMES[r.criterio_id] ?? r.criterio_id;
+      const modStr = r.modificador_label
+        ? `<span style="font-size:9px;color:#64748b;margin-left:4px">× ${r.modificador_multiplicador} (${esc(r.modificador_label)})</span>`
+        : "";
+      const ptsFinal = r.pontos_final.toFixed(1);
+      const ptsBase = r.pontos_base;
+      const ptsColor = r.pontos_final >= ptsBase * 0.7 ? "#16a34a" : r.pontos_final >= ptsBase * 0.3 ? "#d97706" : "#dc2626";
+      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid #f1f5f9">
+        <div style="flex:1;font-size:10px;color:#374151">${esc(nomeC)}</div>
+        <div style="font-size:10px;color:#64748b;max-width:200px;text-align:right">${esc(r.opcao_label)}${modStr}</div>
+        <div style="font-size:10.5px;font-weight:700;color:${ptsColor};min-width:40px;text-align:right;font-family:'JetBrains Mono',monospace">${ptsFinal}</div>
+      </div>`;
+    }).join("");
+
+    return `<div style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:10px">
+      <div style="background:#f8fafc;padding:8px 12px;display:flex;justify-content:space-between;align-items:center">
+        <div style="font-size:10.5px;font-weight:700;color:#374151">${esc(nome)}</div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">Peso ${peso}%</span>
+          <span style="font-size:11px;font-weight:800;color:${ratingCor};font-family:'JetBrains Mono',monospace">${ponderado.toFixed(1)} pts</span>
+        </div>
+      </div>
+      <div style="background:#fff">${criteriosHtml}<div style="height:1px;display:none"></div></div>
+    </div>`;
   }).join("");
 
   const content = `
     ${stitle("Score de Crédito V2 — Capital Finanças")}
-    <div style="display:flex;align-items:flex-start;gap:24px;margin-bottom:20px">
-      <div style="text-align:center;flex-shrink:0">
-        <div style="width:90px;height:90px;border-radius:50%;border:4px solid ${ratingCor};display:flex;flex-direction:column;align-items:center;justify-content:center;margin:0 auto 8px">
-          <div style="font-size:32px;font-weight:800;color:${ratingCor};line-height:1">${s.score_final.toFixed(0)}</div>
-          <div style="font-size:10px;color:#94a3b8">/100</div>
+
+    <!-- Score hero + tabela resumo -->
+    <div style="display:flex;align-items:flex-start;gap:20px;margin-bottom:18px">
+      <!-- Círculo de rating -->
+      <div style="text-align:center;flex-shrink:0;min-width:100px">
+        <div style="width:84px;height:84px;border-radius:50%;border:4px solid ${ratingCor};background:${ratingBg};display:flex;flex-direction:column;align-items:center;justify-content:center;margin:0 auto 6px">
+          <div style="font-size:30px;font-weight:900;color:${ratingCor};line-height:1">${s.score_final.toFixed(0)}</div>
+          <div style="font-size:9px;color:#94a3b8;margin-top:1px">/100</div>
         </div>
-        <div style="display:inline-block;padding:4px 16px;border-radius:6px;font-size:14px;font-weight:900;background:${ratingCor};color:#fff;margin-bottom:4px">
+        <div style="display:inline-block;padding:3px 12px;border-radius:5px;font-size:12px;font-weight:900;background:${ratingCor};color:#fff;margin-bottom:3px;letter-spacing:0.04em">
           Rating ${esc(s.rating)}
         </div>
-        <div style="font-size:10px;color:#64748b">Versão ${esc(s.versao_politica)}</div>
+        <div style="font-size:9px;font-weight:700;color:${ratingCor};text-transform:uppercase;letter-spacing:0.08em">${esc(ratingLbl)}</div>
+        <div style="font-size:8.5px;color:#94a3b8;margin-top:2px">Política ${esc(s.versao_politica)}</div>
       </div>
-      <div style="flex:1">
+
+      <!-- Tabela de pilares -->
+      <div style="flex:1;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
         <table style="width:100%;border-collapse:collapse">
           <thead>
-            <tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">
-              <th style="padding:8px 10px;font-size:10px;font-weight:700;color:#64748b;text-align:left;text-transform:uppercase;letter-spacing:0.05em">Pilar</th>
-              <th style="padding:8px 10px;font-size:10px;font-weight:700;color:#64748b;text-align:center;text-transform:uppercase;letter-spacing:0.05em">Peso</th>
-              <th style="padding:8px 10px;font-size:10px;font-weight:700;color:#64748b;text-align:center;text-transform:uppercase;letter-spacing:0.05em">Pontos</th>
-              <th style="padding:8px 10px;font-size:10px;font-weight:700;color:#64748b;text-align:center;text-transform:uppercase;letter-spacing:0.05em">Contribuição</th>
-              <th style="padding:8px 10px;font-size:10px;font-weight:700;color:#64748b;text-align:left;text-transform:uppercase;letter-spacing:0.05em">Aproveitamento</th>
+            <tr style="background:#163269">
+              <th style="padding:7px 10px;font-size:9px;font-weight:700;color:rgba(255,255,255,0.7);text-align:left;text-transform:uppercase;letter-spacing:0.05em">Pilar</th>
+              <th style="padding:7px 10px;font-size:9px;font-weight:700;color:rgba(255,255,255,0.7);text-align:center;text-transform:uppercase;letter-spacing:0.05em">Peso</th>
+              <th style="padding:7px 10px;font-size:9px;font-weight:700;color:rgba(255,255,255,0.7);text-align:center;text-transform:uppercase;letter-spacing:0.05em">Pts brutos</th>
+              <th style="padding:7px 10px;font-size:9px;font-weight:700;color:rgba(255,255,255,0.7);text-align:center;text-transform:uppercase;letter-spacing:0.05em">Contribuição</th>
+              <th style="padding:7px 10px;font-size:9px;font-weight:700;color:rgba(255,255,255,0.7);text-align:left;text-transform:uppercase;letter-spacing:0.05em">Aproveitamento</th>
             </tr>
           </thead>
-          <tbody style="border:1px solid #e2e8f0">
+          <tbody>
             ${pilaresRows}
-            <tr style="background:#f0f4ff;border-top:2px solid #c7d2fe">
-              <td style="padding:10px;font-size:12px;font-weight:800;color:#1e3a8a">Score Final</td>
-              <td style="padding:10px;font-size:12px;font-weight:700;color:#374151;text-align:center">100%</td>
-              <td style="padding:10px;text-align:center">—</td>
-              <td style="padding:10px;font-size:14px;font-weight:900;color:${ratingCor};text-align:center">${s.score_final.toFixed(1)}</td>
-              <td style="padding:10px"></td>
+            <tr style="background:#eef3ff;border-top:2px solid #c7d2fe">
+              <td style="padding:8px 10px;font-size:11px;font-weight:800;color:#1e3a8a">SCORE FINAL</td>
+              <td style="padding:8px 10px;font-size:10px;font-weight:700;color:#374151;text-align:center">100%</td>
+              <td style="padding:8px 10px;text-align:center;color:#94a3b8">—</td>
+              <td style="padding:8px 10px;font-size:14px;font-weight:900;color:${ratingCor};text-align:center;font-family:'JetBrains Mono',monospace">${s.score_final.toFixed(1)}</td>
+              <td style="padding:8px 10px"></td>
             </tr>
           </tbody>
         </table>
-        <div style="margin-top:10px;display:flex;align-items:center;gap:8px">
-          <div style="font-size:10px;font-weight:700;color:#374151">Confiança:</div>
-          <div style="font-size:10px;font-weight:600;color:${confiancaCor}">${esc(confiancaLabel)}</div>
-        </div>
-        ${s.pilares_pendentes.length > 0 ? `
-        <div style="margin-top:6px;font-size:10px;color:#d97706">
-          Pilares pendentes de preenchimento: ${s.pilares_pendentes.map(p => PILAR_NOMES[p] ?? p).join(", ")}
-        </div>` : ""}
       </div>
-    </div>`;
+    </div>
+
+    <!-- Confiança + pendentes -->
+    <div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:6px;padding:6px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px">
+        <span style="font-size:9px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">Confiança do score:</span>
+        <span style="font-size:10px;font-weight:700;color:${confiancaCor}">${esc(confiancaLabel)}</span>
+      </div>
+      ${s.pilares_pendentes.length > 0 ? `
+      <div style="display:flex;align-items:center;gap:6px;padding:6px 12px;background:#fffbeb;border:1px solid #fcd34d;border-radius:6px">
+        <span style="font-size:9px;font-weight:700;color:#d97706;text-transform:uppercase;letter-spacing:0.05em">Pendentes:</span>
+        <span style="font-size:10px;color:#92400e">${s.pilares_pendentes.map(p => PILAR_NOMES[p] ?? p).join(", ")}</span>
+      </div>` : `
+      <div style="display:flex;align-items:center;gap:6px;padding:6px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px">
+        <span style="font-size:10px;font-weight:600;color:#16a34a">✓ Todos os pilares preenchidos</span>
+      </div>`}
+    </div>
+
+    <!-- Detalhamento por critério (se respostas disponíveis) -->
+    ${respostas.length > 0 ? `
+    ${stitle("Critérios Avaliados por Pilar")}
+    ${pilaresDetalhe}
+    ` : ""}`;
 
   return page(content, 11, date);
 }

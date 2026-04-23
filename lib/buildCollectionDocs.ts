@@ -26,7 +26,9 @@ export function buildCollectionDocs(data: ExtractedData): CollectionDocument[] {
   if (data.faturamento.meses.length > 0 || (data.faturamento.somatoriaAno && data.faturamento.somatoriaAno !== "0,00")) {
     docs.push({ type: "faturamento", filename: "faturamento.pdf", extracted_data: asRec(data.faturamento), uploaded_at: ts() });
   }
-  if (data.scr.totalDividasAtivas || data.scr.operacoesEmAtraso) {
+  if (data.scr.periodoReferencia || data.scr.carteiraAVencer || data.scr.totalDividasAtivas ||
+      data.scr.qtdeInstituicoes || data.scr.vencidos || data.scr.operacoesEmAtraso ||
+      data.scr.carteiraCurtoPrazo || (data.scr.modalidades && data.scr.modalidades.length > 0)) {
     docs.push({ type: "scr_bacen", filename: "scr-bacen.pdf", extracted_data: asRec({ ...data.scr, tipoPessoa: "PJ" }), uploaded_at: ts() });
   }
   if (data.scrAnterior) {

@@ -165,6 +165,57 @@ export function renderConformidade(ctx: PdfCtx): void {
       icell(ML+(cw+GAP)*3,   y0, cw, CH, "Tranche",         rv.tranche||"—");
       pos.y = y0 + CH + 5;
     }
+
+    // ── Row 4 — Parâmetros Calculados (Score V2) ─────────────────────────────
+    const lc = params.creditLimit;
+    if (lc) {
+      checkPageBreak(ctx, 30);
+
+      // Separador "Score V2"
+      {
+        const sy = pos.y;
+        const label = "Score V2";
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(5.5);
+        doc.setTextColor(...P.x4);
+        doc.text(label.toUpperCase(), ML, sy + 3);
+        const tw = doc.getTextWidth(label.toUpperCase());
+        doc.setDrawColor(...P.x2);
+        doc.setLineWidth(0.2);
+        doc.line(ML + tw + 2.5, sy + 2.5, ML + CW, sy + 2.5);
+        pos.y += 6;
+      }
+
+      // Células coloridas por rating
+      checkPageBreak(ctx, 20);
+      {
+        const CH = 18; const cw = (CW - GAP * 3) / 4;
+        const rating  = lc.ratingV2 ?? "";
+        const naoOpera = rating === "F" || (lc.taxaSugerida ?? 0) === 0;
+        const bom      = rating === "A" || rating === "B";
+        const bg: [number,number,number] = naoOpera ? P.r0 : bom ? P.g0 : P.n0;
+        const bd: [number,number,number] = naoOpera ? P.r1 : bom ? P.g1 : P.n1;
+        const vc: [number,number,number] = naoOpera ? P.r6 : bom ? P.g6 : P.n9;
+
+        const taxaStr   = naoOpera
+          ? "Não opera"
+          : `${(lc.taxaSugerida ?? 0).toFixed(2).replace(".", ",")}% a.m.`;
+        const limiteStr = lc.limiteAjustado > 0
+          ? `R$ ${lc.limiteAjustado.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+          : "—";
+        const prazoStr  = lc.prazo > 0 ? `${lc.prazo} dias` : "—";
+        const revisaoStr = lc.revisaoDias > 0
+          ? `${lc.revisaoDias} dias (Rating ${rating || "—"})`
+          : "—";
+
+        const y0 = pos.y;
+        icell(ML,            y0, cw, CH, "Taxa Sugerida",   taxaStr,    bg, bd, vc);
+        icell(ML+cw+GAP,     y0, cw, CH, "Limite Sugerido", limiteStr,  bg, bd, vc);
+        icell(ML+(cw+GAP)*2, y0, cw, CH, "Prazo Máximo",    prazoStr,   bg, bd, vc);
+        icell(ML+(cw+GAP)*3, y0, cw, CH, "Revisão",         revisaoStr, bg, bd, vc);
+        pos.y = y0 + CH + 5;
+      }
+    }
   } else {
     checkPageBreak(ctx, 14);
     doc.setFont("helvetica","normal"); doc.setFontSize(7.5); doc.setTextColor(...P.x4);

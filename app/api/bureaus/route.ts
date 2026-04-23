@@ -6,6 +6,8 @@ import { consultarCreditHub, consultarGrupoEconomicoSocios } from "@/lib/bureaus
 import { consultarSerasa } from "@/lib/bureaus/serasa";
 import { consultarSPC } from "@/lib/bureaus/spc";
 import { consultarQuod } from "@/lib/bureaus/quod";
+import { consultarBrasilApi } from "@/lib/bureaus/brasilapi";
+import { consultarSancoes } from "@/lib/bureaus/transparencia";
 import { mergeBureauResults } from "@/lib/bureaus/merger";
 import { enrichProcessosWithDataJud } from "@/lib/bureaus/datajud";
 import { cacheGet, cacheSet, cacheClear, cacheClearAll, cacheSize } from "@/lib/bureaus/cache";
@@ -69,15 +71,22 @@ export async function POST(req: NextRequest) {
 
     console.log(`[bureaus] Grupo econômico: ${sociosParaGrupo.length} sócio(s) PF — ${sociosIR.length} via IR, ${sociosQSA.length} via QSA`);
 
-    const [credithub, serasa, spc, quod, grupoEconomico] = await Promise.allSettled([
+    const [credithub, serasa, spc, quod, grupoEconomico, brasilapi, sancoes] = await Promise.allSettled([
       consultarCreditHubComCache(cnpj, creditHubRaw),
       consultarSerasa(cnpj),
       consultarSPC(cnpj),
       consultarQuod(cnpj),
       consultarGrupoEconomicoSocios(sociosParaGrupo, cnpj),
+      consultarBrasilApi(cnpj),
+      consultarSancoes(cnpj, sociosParaGrupo),
     ]);
 
     const grupoEconomicoResult = grupoEconomico.status === "fulfilled" ? grupoEconomico.value : undefined;
+    const brasilapiResult = brasilapi.status === "fulfilled" ? brasilapi.value : undefined;
+    const sancoesResult = sancoes.status === "fulfilled" ? sancoes.value : undefined;
+
+    console.log(`[bureaus] BrasilAPI: ${brasilapiResult?.success ? "ok" : brasilapiResult?.error || "erro"}`);
+    console.log(`[bureaus] Sanções: ${sancoesResult?.mock ? "sem chave API" : sancoesResult?.success ? `${sancoesResult.totalSancoes} sanção(ões)` : sancoesResult?.error || "erro"}`);
 
     const results = {
       credithub: credithub.status === "fulfilled"
@@ -86,6 +95,8 @@ export async function POST(req: NextRequest) {
       serasa: serasa.status === "fulfilled" ? serasa.value : undefined,
       spc:    spc.status    === "fulfilled" ? spc.value    : undefined,
       quod:   quod.status   === "fulfilled" ? quod.value   : undefined,
+      brasilapi: brasilapiResult,
+      sancoes: sancoesResult,
     };
 
     const bureausConsultados = [
@@ -124,10 +135,15 @@ export async function POST(req: NextRequest) {
       success: true,
       merged,
       bureaus: {
-        credithub: { success: results.credithub?.success, mock: results.credithub?.mock, error: results.credithub?.error },
-        serasa:    { success: results.serasa?.success,    mock: results.serasa?.mock,    error: results.serasa?.error    },
-        spc:       { success: results.spc?.success,       mock: results.spc?.mock,       error: results.spc?.error       },
-        quod:      { success: results.quod?.success,      mock: results.quod?.mock,      error: results.quod?.error      },
+        credithub:   { success: results.credithub?.success,   mock: results.credithub?.mock,   error: results.credithub?.error   },
+        serasa:      { success: results.serasa?.success,      mock: results.serasa?.mock,      error: results.serasa?.error      },
+        spc:         { success: results.spc?.success,         mock: results.spc?.mock,         error: results.spc?.error         },
+        quod:        { success: results.quod?.success,        mock: results.quod?.mock,        error: results.quod?.error        },
+        brasilapi:   { success: results.brasilapi?.success,   mock: results.brasilapi?.mock,   error: results.brasilapi?.error,
+                       situacaoCadastral: results.brasilapi?.data?.situacaoCadastral,
+                       ativa: results.brasilapi?.data?.ativa },
+        sancoes:     { success: results.sancoes?.success,     mock: results.sancoes?.mock,     error: results.sancoes?.error,
+                       totalSancoes: results.sancoes?.totalSancoes, cnpjLimpo: results.sancoes?.cnpjLimpo },
       },
     });
   } catch (err) {

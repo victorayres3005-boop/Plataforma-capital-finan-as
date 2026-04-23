@@ -76,7 +76,7 @@ export function crossValidate(data: ExtractedData): CrossValidationAlert[] {
         alerts.push({
           severidade: "MODERADA",
           codigo: "ALAVANCAGEM_DIVERGENTE",
-          descricao: `Alavancagem via SCR=${alavScr.toFixed(1)}x FMM difere de Passivo/PL=${alavBal.toFixed(1)}x (divergência ${(divA * 100).toFixed(0)}%)`,
+          descricao: `Alavancagem via SCR=${alavScr.toFixed(2)}x FMM difere de Passivo/PL=${alavBal.toFixed(2)}x (divergência ${(divA * 100).toFixed(0)}%)`,
           impacto: "Balanço pode estar desatualizado ou há dívidas não-bancárias relevantes não capturadas no SCR",
           mitigacao: "Verificar data base do balanço e identificar composição do passivo circulante",
         });
@@ -179,6 +179,70 @@ export function crossValidate(data: ExtractedData): CrossValidationAlert[] {
           descricao: `Empresa com ${anosIdade.toFixed(1)} anos de fundação mas faturamento anual > R$ 1M`,
           impacto: "Crescimento acelerado pode indicar oportunidade ou pode esconder erros de governança ainda não maduros",
           mitigacao: "Validar histórico dos sócios em outras empresas e governança operacional na visita",
+        });
+      }
+    }
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // 7. Faturamento: soma dos meses × total declarado
+  // ═════════════════════════════════════════════════════════════════════════
+  const somaMeses = (data.faturamento?.meses ?? [])
+    .reduce((acc, m) => acc + parseBrMoney(m.valor), 0);
+  const totalDeclarado = parseBrMoney(data.faturamento?.somatoriaAno);
+
+  if (somaMeses > 0 && totalDeclarado > 0) {
+    const divergenciaFat = Math.abs(somaMeses - totalDeclarado) / Math.max(somaMeses, totalDeclarado);
+    if (divergenciaFat > 0.05) {
+      alerts.push({
+        severidade: "MODERADA",
+        codigo: "FAT_SOMA_DIVERGE_TOTAL",
+        descricao: `Soma dos meses (R$ ${(somaMeses / 1000).toFixed(0)}k) difere ${(divergenciaFat * 100).toFixed(0)}% do total declarado (R$ ${(totalDeclarado / 1000).toFixed(0)}k)`,
+        impacto: "Possível mês zerado não capturado ou valor incorreto em algum mês",
+        mitigacao: "Conferir linha a linha no documento original — meses com R$ 0,00 devem estar presentes",
+      });
+    }
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // 8. Capital social: QSA × Contrato Social
+  // ═════════════════════════════════════════════════════════════════════════
+  const qsaCap = parseBrMoney(data.qsa?.capitalSocial);
+  const contrCap = parseBrMoney(data.contrato?.capitalSocial);
+
+  if (qsaCap > 0 && contrCap > 0) {
+    const divergenciaCap = Math.abs(qsaCap - contrCap) / Math.max(qsaCap, contrCap);
+    if (divergenciaCap > 0.05) {
+      alerts.push({
+        severidade: "MODERADA",
+        codigo: "CAPITAL_SOCIAL_DIVERGENTE",
+        descricao: `QSA declara capital de R$ ${(qsaCap / 1000).toFixed(0)}k mas Contrato declara R$ ${(contrCap / 1000).toFixed(0)}k (divergência ${(divergenciaCap * 100).toFixed(0)}%)`,
+        impacto: "Um dos documentos pode estar desatualizado — pode haver alteração contratual não refletida no QSA ou vice-versa",
+        mitigacao: "Verificar datas de emissão dos dois documentos e solicitar o mais recente",
+      });
+    }
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // 9. CPF dos sócios: QSA × IR declarado
+  // Verifica se o CPF de cada IR de sócio consta no quadro societário do QSA.
+  // ═════════════════════════════════════════════════════════════════════════
+  const qsaCpfs = new Set(
+    (data.qsa?.quadroSocietario ?? [])
+      .map(s => s.cpfCnpj?.replace(/\D/g, ""))
+      .filter((c): c is string => !!c && c.length >= 11)
+  );
+
+  if (qsaCpfs.size > 0) {
+    for (const ir of irSocios) {
+      const irCpf = ir.cpf?.replace(/\D/g, "");
+      if (irCpf && irCpf.length === 11 && !qsaCpfs.has(irCpf)) {
+        alerts.push({
+          severidade: "MODERADA",
+          codigo: "IR_SOCIO_CPF_NAO_ENCONTRADO_QSA",
+          descricao: `IR de ${ir.nomeSocio || "sócio"} (CPF ${ir.cpf}) não encontrado no QSA da empresa`,
+          impacto: "Possível IR de pessoa sem vínculo societário atual, ou QSA/IR com CPF divergente por erro de extração",
+          mitigacao: "Confirmar CPF no documento original e verificar se houve alteração societária recente",
         });
       }
     }
