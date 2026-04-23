@@ -519,21 +519,25 @@ export default function HomePage() {
 
   // ── Busca e realtime de coletas ──
   const fetchCollections = useCallback(async () => {
-    if (!user) { setLoadingCollections(false); return; }
+    if (!user?.id) { setLoadingCollections(false); return; }
     try {
       const supabase = createClient();
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("document_collections")
         .select("*")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })
         .limit(50);
+      // Não sobrescreve dados existentes se a query falhou (RLS, rede, token ainda propagando)
+      if (error) return;
       const cols = (data as DocumentCollection[]) || [];
       setCollections(cols);
       saveCachedCollections(cols);
     } catch { /* silent */ }
     finally { setLoadingCollections(false); }
-  }, [user]);
+  // user?.id em vez de user — evita re-fetch quando o objeto muda mas o ID é o mesmo (refresh de token)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   // Carrega na montagem e quando volta ao dashboard
   useEffect(() => {
