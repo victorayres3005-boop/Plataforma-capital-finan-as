@@ -686,13 +686,14 @@ function ParecerContent() {
 
       // ── Notificações para alertas críticos ──────────────────
       try {
-        const alertasAlta = ((existingAi.alertas as any[]) ?? []).filter(
-          (a: any) => a.severidade?.toLowerCase() === 'alta'
+        type AlertaItem = { severidade?: string; descricao?: string; codigo?: string };
+        const alertasAlta = ((existingAi.alertas as AlertaItem[]) ?? []).filter(
+          (a) => a.severidade?.toLowerCase() === 'alta'
         );
         const razaoSocial = collection?.company_name ?? 'Cedente';
 
         if (alertasAlta.length > 0) {
-          const notificacoes = alertasAlta.map((a: any) => ({
+          const notificacoes = alertasAlta.map((a) => ({
             user_id: session.user.id,
             message: `🚨 Alerta crítico em ${razaoSocial}: ${a.descricao ?? a.codigo}`,
             read: false,

@@ -1,9 +1,11 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // lib/politica-credito/auto-score.ts
 // Auto-preenchimento do Score V2 a partir dos dados extraídos dos documentos
 // Gerado com base nos schemas reais do sistema — não alterar nomes de campo
 
 import { calcularScore } from './calculator'
 import { DEFAULT_POLITICA_V2 } from './defaults'
+import type { ExtractedData } from '@/types'
 import type {
   RespostaCriterio,
   ScoreResult,
@@ -75,7 +77,7 @@ export interface AutoScoreResultado {
 // ─── Função principal ─────────────────────────────────────────────────────────
 
 export function autoPreencherScore(
-  data: any,
+  data: ExtractedData,
   config: ConfiguracaoPolitica = DEFAULT_POLITICA_V2,
   respostasManuaisExistentes: RespostaCriterio[] = []
 ): AutoScoreResultado {
@@ -376,17 +378,23 @@ export function autoPreencherScore(
   }
 
   // 7. Análise Financeira — DRE / Balanço (8 pts)
-  const temDRE     = !!data?.dre?.receitaBruta || !!data?.dre?.receitaLiquida
-  const temBalanco = !!data?.balanco?.ativoTotal || !!data?.balanco?.patrimonioLiquido
+  // Acessa os dados do ano mais recente (anos[0]) ou diretamente se vier achatado
+  const dreRaw     = (data?.dre as any)
+  const balancoRaw = (data?.balanco as any)
+  const dreAno     = dreRaw?.anos?.[0] ?? dreRaw
+  const balancoAno = balancoRaw?.anos?.[0] ?? balancoRaw
+
+  const temDRE     = !!dreAno?.receitaBruta || !!dreAno?.receitaLiquida
+  const temBalanco = !!balancoAno?.ativoTotal || !!balancoAno?.patrimonioLiquido
 
   if (temDRE || temBalanco) {
-    const pl           = parseBRL(data?.balanco?.patrimonioLiquido)
-    const ativoTotal   = parseBRL(data?.balanco?.ativoTotal)
-    const passivoCP    = parseBRL(data?.balanco?.passivoCirculante)
-    const ativoCP      = parseBRL(data?.balanco?.ativoCirculante)
+    const pl           = parseBRL(balancoAno?.patrimonioLiquido)
+    const ativoTotal   = parseBRL(balancoAno?.ativoTotal)
+    const passivoCP    = parseBRL(balancoAno?.passivoCirculante)
+    const ativoCP      = parseBRL(balancoAno?.ativoCirculante)
     const liquidez     = passivoCP > 0 ? ativoCP / passivoCP : 0
-    const receitaLiq   = parseBRL(data?.dre?.receitaLiquida ?? data?.dre?.receitaBruta)
-    const lucroLiq     = parseBRL(data?.dre?.lucroLiquido ?? data?.dre?.resultadoLiquido)
+    const receitaLiq   = parseBRL(dreAno?.receitaLiquida ?? dreAno?.receitaBruta)
+    const lucroLiq     = parseBRL(dreAno?.lucroLiquido ?? dreAno?.resultadoLiquido)
     const margem       = receitaLiq > 0 ? (lucroLiq / receitaLiq) * 100 : 0
 
     let opcao_label: string
@@ -419,7 +427,7 @@ export function autoPreencherScore(
       opcao_label,
       pontos_base:  pontos,
       pontos_final: pontos,
-      observacao:   `PL: ${data?.balanco?.patrimonioLiquido ?? 'n/d'} | Liquidez: ${liquidez.toFixed(2)} | Margem: ${margem.toFixed(1)}%`,
+      observacao:   `PL: ${balancoAno?.patrimonioLiquido ?? 'n/d'} | Liquidez: ${liquidez.toFixed(2)} | Margem: ${margem.toFixed(1)}%`,
     }, 'auto')
   } else {
     criterios_manuais.push('analise_financeira')
@@ -467,7 +475,7 @@ export function autoPreencherScore(
   // ─── PILAR: Sócios e Governança ────────────────────────────────────────────
 
   // 9. Endividamento dos Sócios (6 pts)
-  if (data?.scrSocios?.length > 0) {
+  if ((data?.scrSocios?.length ?? 0) > 0) {
     const socios = data.scrSocios as any[]
     const algumComVencido = socios.some(
       s => parseBRL(s?.periodoAtual?.vencidos) > 0
