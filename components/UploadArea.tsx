@@ -242,9 +242,11 @@ export default function UploadArea({
 
       {/* ── Inline error + retry ── */}
       {hasError && !processing && (
-        <div className="px-4 pb-3 flex items-center gap-3">
-          <p className="text-[11px] text-red-600 flex-1 leading-snug">
-            {errorType === "quota" ? "API indisponível — limite de uso atingido. Tente em alguns minutos."
+        <div className={`px-4 pb-3 flex items-center gap-3 ${errorType === "scanned" ? "bg-amber-50/60" : ""}`}>
+          <p className={`text-[11px] flex-1 leading-snug ${errorType === "scanned" ? "text-amber-800" : "text-red-600"}`}>
+            {errorType === "scanned"
+              ? "⚠️ PDF escaneado — sem texto selecionável. Envie a versão digital ou use um conversor OCR (ex: Adobe, ilovepdf.com) antes de enviar."
+              : errorType === "quota" ? "API indisponível — limite de uso atingido. Tente em alguns minutos."
               : errorType === "parse" ? "Não foi possível interpretar o documento. Verifique o arquivo."
               : errorType === "empty" ? "Arquivo vazio ou ilegível. Envie um arquivo com conteúdo."
               : "Erro na extração. Tente novamente ou use outro formato."}
@@ -252,9 +254,13 @@ export default function UploadArea({
           {onRetry && errorType !== "empty" && (
             <button
               onClick={e => { e.stopPropagation(); onRetry(); }}
-              className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-600 border border-red-200 rounded-lg px-2.5 py-1.5 hover:bg-red-50 transition-colors flex-shrink-0"
+              className={`inline-flex items-center gap-1 text-[11px] font-semibold border rounded-lg px-2.5 py-1.5 transition-colors flex-shrink-0 ${
+                errorType === "scanned"
+                  ? "text-amber-700 border-amber-300 hover:bg-amber-100"
+                  : "text-red-600 border-red-200 hover:bg-red-50"
+              }`}
             >
-              <RefreshCw size={10} /> Tentar novamente
+              <RefreshCw size={10} /> {errorType === "scanned" ? "Tentar outro arquivo" : "Tentar novamente"}
             </button>
           )}
         </div>

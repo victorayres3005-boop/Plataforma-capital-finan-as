@@ -3080,6 +3080,13 @@ async function processExtract(
     if (isImage) {
       imageContent = { mimeType, base64: buffer.toString("base64") };
     } else if (ext === "pdf") {
+      // Detectar PDF escaneado (sem texto) antes de enviar ao Gemini
+      if (rawPdfText.trim().length < 50) {
+        return NextResponse.json({
+          error: "PDF escaneado sem texto selecionável",
+          meta: { isScanned: true, rawTextLength: rawPdfText.trim().length },
+        }, { status: 422 });
+      }
       if (TEXT_MODE_TYPES.includes(docType)) {
         const hasUsefulText = rawPdfText.trim().length > 200 && /\d/.test(rawPdfText);
         if (hasUsefulText) {
@@ -3118,7 +3125,8 @@ async function processExtract(
         cnpj: 4000, qsa: 6000, faturamento: 20000, scr: 15000,
         protestos: 8000, processos: 12000, grupoEconomico: 8000,
         dre: 12000, balanco: 12000, ir_socio: 25000,
-        // relatorio_visita / contrato / curva_abc → modo visual, não chegam aqui
+        curva_abc: 30000,  // tabelas grandes com muitos clientes
+        // relatorio_visita / contrato → modo visual, não chegam aqui
       };
       textContent = textContent.substring(0, maxChars[docType] || 10000);
     }
@@ -3157,8 +3165,8 @@ async function processExtract(
     const thinkingBudgetMap: Record<string, number> = {
       relatorio_visita:  512,  // reduzido de 1024 — Files API + 3.1 Pro cascade pode exceder 52s
       contrato:          512,
-      ir_socio:          256,  // DIRPF pode ser grande (500KB+) — budget menor evita timeout
-      curva_abc:         256,
+      ir_socio:            0,  // tabelas/listas — thinking sem ganho; evita timeout no Hobby plan
+      curva_abc:           0,  // tabela de clientes — sem raciocínio necessário
       faturamento:         0,  // extração de tabela simples — thinking adiciona latência sem ganho
       scr:               256,
       dre:               256,
@@ -3179,11 +3187,13 @@ async function processExtract(
         const zodWarnings: Array<{field: string; message: string}> = [];
         try {
           let data: AnyExtracted;
+          let _rawAiResponse = "";
           const inputMode = _imageContent ? "binary" : "text";
           _send(controller, "status", { message: "Processando documento...", inputMode, textLen: _textContent.length, docType: _docType });
 
           try {
             const aiResponse = await callAI(_prompt, _textContent, _imageContent, _maxOutputTokens, _imageContent ? _buffer : undefined, _thinkingBudget);
+            _rawAiResponse = aiResponse;
             console.log(`[extract] AI response length: ${aiResponse.length}`);
             console.log(`[extract] AI raw response (first 1000 chars):`, aiResponse.substring(0, 1000));
             const rawParsed = parseJSON<Record<string, unknown>>(aiResponse);
@@ -3436,6 +3446,8 @@ async function processExtract(
                   ai_powered: true,
                   cached: false,
                   zod_warnings: zodWarnings.length > 0 ? zodWarnings : null,
+                  input_chars: _textContent.length || null,
+                  raw_response: filled === 0 ? _rawAiResponse.slice(0, 5000) || null : null,
                 });
               } catch { /* nunca falha a requisicao */ }
             })();

@@ -523,16 +523,19 @@ export default function UploadStep({
         const filledFields = (meta?.filledFields as number | undefined) ?? -1;
         const isEmptyExtraction = filledFields === 0;
 
+        const isScanned = meta?.isScanned === true || (json.error as string || "").includes("escaneado");
         if (!resOk || !json.success || meta?.aiError || isEmptyExtraction) {
-          const errMsg = isEmptyExtraction
-            ? "Nenhum campo foi extraído do documento. Verifique se o PDF está legível ou tente outro arquivo."
-            : (meta?.errorMessage as string || json.error as string || "");
+          const errMsg = isScanned
+            ? "PDF escaneado (sem texto selecionável). Envie a versão digital ou converta com OCR antes de enviar."
+            : isEmptyExtraction
+              ? "Nenhum campo foi extraído do documento. Verifique se o PDF está legível ou tente outro arquivo."
+              : (meta?.errorMessage as string || json.error as string || "");
           setSections(prev => ({
             ...prev,
             [type]: {
               ...prev[type],
               errorCount: prev[type].errorCount + 1,
-              errorType: meta?.errorType as string || (isEmptyExtraction ? "empty" : (resOk ? "unknown" : "quota")),
+              errorType: isScanned ? "scanned" : (meta?.errorType as string || (isEmptyExtraction ? "empty" : (resOk ? "unknown" : "quota"))),
               errorMessage: errMsg,
               lastFailedFile: file,
             },
