@@ -17,7 +17,7 @@ import { buildCollectionDocs } from "@/lib/buildCollectionDocs";
 import { DRAFT_KEY } from "@/components/ReviewStep";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import Link from "next/link";
-import { LogOut, User, Menu, X, Clock, Shield, Plus, Building2, ArrowRight, ArrowLeft, Calendar, Home, Bell, Search, Loader2, Settings, HelpCircle, ChevronDown, FileText, Hash, DollarSign, RefreshCw, CheckCircle2, XCircle, AlertCircle, RotateCcw } from "lucide-react";
+import { LogOut, User, Menu, X, Clock, Shield, Plus, Building2, ArrowRight, ArrowLeft, Calendar, Home, Bell, Search, Loader2, Settings, HelpCircle, ChevronDown, FileText, Hash, DollarSign, RefreshCw, CheckCircle2, XCircle, AlertCircle, RotateCcw, BarChart3 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -822,80 +822,61 @@ export default function HomePage() {
           barra compacta nas etapas internas
           ══════════════════════════════════════════════ */}
       {showDashboard ? (
-        /* Hero gradient — sempre visível no dashboard */
-        <div style={{ background: "linear-gradient(135deg, #1a2f6b 0%, #2a4db5 100%)", position: "relative", overflow: "hidden" }}>
-          {/* Dot pattern */}
-          <div
-            style={{
-              position: "absolute", inset: 0, opacity: 0.05,
-              backgroundImage: "radial-gradient(circle, #ffffff 1px, transparent 1px)",
-              backgroundSize: "28px 28px",
-            }}
-          />
-          {/* Decorative circles */}
-          <div style={{ position: "absolute", top: "-80px", right: "-80px", width: "260px", height: "260px", borderRadius: "50%", background: "rgba(255,255,255,0.1)", pointerEvents: "none" }} />
-          <div style={{ position: "absolute", bottom: "-64px", left: "-64px", width: "200px", height: "200px", borderRadius: "50%", background: "rgba(255,255,255,0.1)", pointerEvents: "none" }} />
+        /* Hero compacto — dashboard */
+        <div style={{ background: "linear-gradient(135deg, #060d24 0%, #0f1f5c 45%, #162d6e 100%)", position: "relative", overflow: "hidden" }}>
+          {/* grade decorativa */}
+          <div style={{
+            position: "absolute", inset: 0, opacity: 0.04,
+            backgroundImage: "linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px)",
+            backgroundSize: "40px 40px",
+            pointerEvents: "none",
+          }} />
+          {/* brilho verde canto direito */}
+          <div style={{ position: "absolute", top: "-60px", right: "-40px", width: 280, height: 280, borderRadius: "50%", background: "radial-gradient(circle, rgba(115,184,21,0.18) 0%, transparent 70%)", pointerEvents: "none" }} />
+          {/* brilho azul canto esquerdo */}
+          <div style={{ position: "absolute", bottom: "-80px", left: "10%", width: 240, height: 240, borderRadius: "50%", background: "radial-gradient(circle, rgba(42,77,181,0.35) 0%, transparent 70%)", pointerEvents: "none" }} />
 
-          <div className="relative max-w-6xl mx-auto px-5 sm:px-8" style={{ paddingTop: "48px", paddingBottom: "64px", textAlign: "center" }}>
-            {/* Badge */}
-            <div style={{ display: "inline-flex", alignItems: "center", gap: "7px", background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: "999px", padding: "6px 14px", marginBottom: "16px" }}>
-              <Shield size={13} style={{ color: "#73b815", flexShrink: 0 }} />
-              <span style={{ fontSize: "12px", fontWeight: 500, color: "#ffffff" }}>FIDC REGULADO PELA CVM</span>
+          <div style={{ position: "relative", maxWidth: 1152, margin: "0 auto", padding: "40px 32px 48px", textAlign: "center" }}>
+            {/* Badge CVM */}
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(115,184,21,0.15)", border: "1px solid rgba(115,184,21,0.4)", borderRadius: 999, padding: "5px 14px", marginBottom: 20 }}>
+              <Shield size={12} style={{ color: "#a3d96b", flexShrink: 0 }} />
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#a3d96b", letterSpacing: "0.08em", textTransform: "uppercase" }}>FIDC Regulado pela CVM</span>
             </div>
 
             {/* Título */}
-            <h1 style={{ fontSize: "36px", fontWeight: 700, color: "#ffffff", margin: "0 0 12px", lineHeight: 1.2, textShadow: "0 2px 8px rgba(0,0,0,0.15)" }}>
-              Plataforma de Análise de Crédito
+            <h1 style={{ fontSize: 40, fontWeight: 900, color: "#ffffff", margin: "0 0 14px", lineHeight: 1.15, letterSpacing: "-0.5px" }}>
+              Plataforma de{" "}
+              <span style={{ background: "linear-gradient(90deg, #73b815, #a8d96b)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+                Análise de Crédito
+              </span>
             </h1>
 
             {/* Subtítulo */}
-            <p style={{ fontSize: "16px", color: "rgba(255,255,255,0.75)", lineHeight: 1.6, margin: "0 auto 28px", maxWidth: "520px" }}>
-              Transforme documentos cadastrais e fiscais em pareceres<br />
-              de crédito completos, com dados consolidados em minutos.
+            <p style={{ fontSize: 15, color: "rgba(255,255,255,0.55)", lineHeight: 1.7, margin: "0 auto 32px", maxWidth: 480, fontWeight: 400 }}>
+              Transforme documentos cadastrais e fiscais em pareceres de crédito completos, com dados consolidados em minutos.
             </p>
 
-            {/* Stepper */}
-            <div style={{ display: "inline-flex", alignItems: "center", gap: "0", background: "rgba(255,255,255,0.1)", borderRadius: "12px", padding: "16px 32px" }}>
-              {(["upload", "review", "generate"] as AppStep[]).map((s, i) => {
-                const stepIdx = ["upload", "review", "generate"].indexOf(step);
-                const done = i < stepIdx;
-                const active = i === stepIdx;
-                const labels = ["Upload", "Revisão", "Relatório"];
-                return (
-                  <div key={s} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    {i > 0 && (
-                      <div style={{ width: "40px", height: "1px", borderTop: "1.5px dashed rgba(255,255,255,0.3)", margin: "0 8px" }} />
-                    )}
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      <div style={{
-                        width: "28px", height: "28px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: "12px", fontWeight: 700, flexShrink: 0, transition: "all 0.2s",
-                        background: done ? "#73b815" : active ? "#1a2f6b" : "transparent",
-                        border: done ? "2px solid #73b815" : active ? "2px solid #ffffff" : "2px solid rgba(255,255,255,0.3)",
-                        color: done ? "#ffffff" : active ? "#ffffff" : "rgba(255,255,255,0.5)",
-                      }}>
-                        {done ? "✓" : i + 1}
-                      </div>
-                      <span style={{
-                        fontSize: "13px", fontWeight: active ? 700 : 400,
-                        color: active ? "#ffffff" : done ? "#a8d96b" : "rgba(255,255,255,0.5)",
-                        transition: "all 0.2s",
-                      }} className="hidden sm:block">
-                        {labels[i]}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
+            {/* 3 feature pills */}
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+              {[
+                { icon: <FileText size={12} />, label: "Extração automática com IA" },
+                { icon: <BarChart3 size={12} />, label: "Score de crédito V2" },
+                { icon: <Shield size={12} />, label: "Política de fundo configurável" },
+              ].map(f => (
+                <div key={f.label} style={{
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.14)",
+                  borderRadius: 999, padding: "7px 16px",
+                }}>
+                  <span style={{ color: "#a3d96b" }}>{f.icon}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.8)" }}>{f.label}</span>
+                </div>
+              ))}
             </div>
           </div>
 
-          {/* Wave */}
-          <div style={{ position: "relative", height: "40px", marginBottom: "-1px" }}>
-            <svg viewBox="0 0 1440 40" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ position: "absolute", bottom: 0, width: "100%" }} preserveAspectRatio="none">
-              <path d="M0,20 C240,40 480,0 720,20 C960,40 1200,0 1440,20 L1440,40 L0,40 Z" fill="#f5f7fb" />
-            </svg>
-          </div>
+          {/* transição suave para o fundo da página */}
+          <div style={{ height: 32, background: "linear-gradient(to bottom, transparent, #f5f7fb)", marginBottom: "-1px" }} />
         </div>
       ) : (
         /* Barra compacta — etapas upload/review/generate */
