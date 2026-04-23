@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Loader2, ChevronDown, ChevronUp, BarChart3, Settings, PenLine } from "lucide-react";
+import { Loader2, ChevronDown, ChevronUp, BarChart3, Settings, PenLine, AlertCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { ConfiguracaoPolitica, RespostaCriterio, ScoreResult } from "@/types/politica-credito";
-import { DEFAULT_POLITICA_V2 } from "@/lib/politica-credito/defaults";
+import { DEFAULT_POLITICA_V2, mergeComDefaults } from "@/lib/politica-credito/defaults";
 import { ScoreForm } from "./ScoreForm";
 import { ScoreSummaryCard } from "./ScoreSummaryCard";
-import { PolicyVersionBanner } from "@/components/politica/PolicyVersionBanner";
+// import { PolicyVersionBanner } from "@/components/politica/PolicyVersionBanner";
 
 interface Props {
   collectionId: string;
@@ -53,17 +53,7 @@ export function ScoreSection({ collectionId }: Props) {
           .maybeSingle();
 
         if (policyData) {
-          setPolicy({
-            id: policyData.id,
-            user_id: policyData.user_id,
-            versao: policyData.versao ?? "V2",
-            status: policyData.status ?? "rascunho",
-            parametros_elegibilidade: policyData.parametros_elegibilidade ?? DEFAULT_POLITICA_V2.parametros_elegibilidade,
-            pesos_pilares: policyData.pesos_pilares ?? DEFAULT_POLITICA_V2.pesos_pilares,
-            pilares: policyData.pilares ?? DEFAULT_POLITICA_V2.pilares,
-            faixas_rating: policyData.faixas_rating ?? DEFAULT_POLITICA_V2.faixas_rating,
-            alertas: policyData.alertas ?? DEFAULT_POLITICA_V2.alertas,
-          });
+          setPolicy(mergeComDefaults(policyData as Record<string, unknown>));
         } else {
           // Sem configuração salva — usa defaults V2 como preview
           setPolicy(DEFAULT_POLITICA_V2);
@@ -209,6 +199,24 @@ export function ScoreSection({ collectionId }: Props) {
             </div>
           ) : !policy ? null : (
             <>
+              {scoreResult && policy && scoreResult.versao_politica !== policy.versao && (
+                <div style={{
+                  display: "flex", alignItems: "flex-start", gap: 12,
+                  background: "#fffbeb", border: "1px solid #fcd34d",
+                  borderRadius: 10, padding: "12px 16px", marginBottom: 16,
+                }}>
+                  <AlertCircle size={15} style={{ color: "#d97706", marginTop: 1, flexShrink: 0 }} />
+                  <div>
+                    <p style={{ fontSize: 13, fontWeight: 700, color: "#92400e", margin: "0 0 2px" }}>
+                      Score desatualizado
+                    </p>
+                    <p style={{ fontSize: 11, color: "#b45309", margin: 0 }}>
+                      Calculado com a política <strong>{scoreResult.versao_politica}</strong>, mas a vigente é <strong>{policy.versao}</strong>. Recalcule para refletir os critérios atuais.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {noPolicy && (
                 <div style={{
                   display: "flex", alignItems: "flex-start", gap: 12,

@@ -7,7 +7,7 @@ interface Props {
   onChange: (faixas: FaixaRating[]) => void;
 }
 
-const RATING_LABELS = { A: "A", B: "B", C: "C", D: "D", E: "E", F: "F" };
+const _RATING_LABELS = { A: "A", B: "B", C: "C", D: "D", E: "E", F: "F" }; void _RATING_LABELS;
 
 export function RatingTab({ faixas, onChange }: Props) {
   const sorted = [...faixas].sort((a, b) => b.score_minimo - a.score_minimo);

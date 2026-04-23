@@ -3,7 +3,7 @@ export const maxDuration = 60;
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { createServerSupabase } from "@/lib/supabase/server";
-import type { CNPJData, ContratoSocialData, SCRData, QSAData, FaturamentoData, ProtestosData, ProcessosData, GrupoEconomicoData, CurvaABCData, DREData, BalancoData, IRSocioData, RelatorioVisitaData } from "@/types";
+import type { CNPJData, ContratoSocialData, SCRData, QSAData, FaturamentoData, FaturamentoMensal, ProtestosData, ProcessosData, GrupoEconomicoData, CurvaABCData, DREData, BalancoData, IRSocioData, RelatorioVisitaData, SCRModalidade, Socio, Filial, SocioRetirante, DREAno, BalancoAno, ClienteCurvaABC, SociedadeIR } from "@/types";
 import { sanitizeDescricaoDebitos, sanitizeStr, sanitizeEnum, sanitizeMoney } from "@/lib/extract/sanitize";
 import {
   CNPJDataSchema, QSADataSchema, ContratoSocialDataSchema, FaturamentoDataSchema, SCRDataSchema,
@@ -21,7 +21,9 @@ const GEMINI_API_KEYS = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_K
   .map(k => k.trim())
   .filter(Boolean);
 
-const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"];
+// 3.1 Pro como primário — modelo mais capaz para extração de documentos complexos.
+// 2.5 Pro como segundo fallback, Flash como terceiro em caso de rate limit ou timeout.
+const GEMINI_MODELS = ["gemini-3.1-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
 
 const OPENROUTER_API_KEYS = (process.env.OPENROUTER_API_KEYS || process.env.OPENROUTER_API_KEY || "")
   .split(",").map(k => k.trim()).filter(Boolean);
@@ -49,45 +51,6 @@ function getFileExt(fileName: string): string {
 
 
 
-function hasReadableContent(text: string): boolean {
-  const sample = text.substring(2000, Math.min(text.length, 8000));
-  if (sample.length < 100) return text.trim().length >= 20;
-
-  // Check 1: ratio de caracteres estranhos (fora ASCII 32-126 + acentuados PT-BR)
-  const validChars = /[\x20-\x7EÀ-ÿçÇãÃõÕáéíóúâêîôûàèìòùäëïöü\n\r\t]/;
-  let strangeCount = 0;
-  for (let i = 0; i < sample.length; i++) {
-    if (!validChars.test(sample[i])) strangeCount++;
-  }
-  if (strangeCount / sample.length > 0.3) {
-    console.log(`[hasReadableContent] Failed: ${(strangeCount / sample.length * 100).toFixed(1)}% strange chars`);
-    return false;
-  }
-
-  // Check 2: sequências longas sem espaço (encoding quebrado)
-  const longSequences = sample.match(/\S{50,}/g);
-  if (longSequences && longSequences.length >= 3) {
-    console.log(`[hasReadableContent] Failed: ${longSequences.length} sequences with 50+ chars without spaces`);
-    return false;
-  }
-
-  // Check 3: ratio de palavras reconhecíveis (PT-BR)
-  const words = sample.split(/\s+/).filter(w => w.length >= 2);
-  if (words.length > 0) {
-    const recognizable = /^[a-zA-ZÀ-ÿçÇ0-9.,;:!?()\-/]+$/;
-    const recognizedCount = words.filter(w => recognizable.test(w)).length;
-    const ratio = recognizedCount / words.length;
-    if (ratio < 0.4) {
-      console.log(`[hasReadableContent] Failed: only ${(ratio * 100).toFixed(1)}% recognizable words (${recognizedCount}/${words.length})`);
-      return false;
-    }
-  }
-
-  // Check 4: palavras comuns em português (check original)
-  const commonWords = /\b(de|do|da|dos|das|que|para|com|por|uma|não|são|será|social|capital|sócio|contrato|empresa|sociedade|cnpj|cpf|quotas|artigo|cláusula|objeto|prazo|foro|comarca|administra|faturamento|receita|valor|total|mês|janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/gi;
-  const matches = sample.match(commonWords);
-  return (matches?.length || 0) >= 5;
-}
 
 // ─────────────────────────────────────────
 // Extração de texto (PDF e DOCX)
@@ -105,6 +68,25 @@ async function extractText(buffer: Buffer, ext: string): Promise<string> {
       const mammoth = require("mammoth");
       const result = await mammoth.extractRawText({ buffer });
       return result.value ?? "";
+    }
+    if (ext === "xlsx" || ext === "xls") {
+      // Converte planilha em texto tabular para envio ao Gemini quando o
+      // parser dedicado de faturamento não conseguiu extrair os dados.
+      const ExcelJS = await import("exceljs");
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
+      const lines: string[] = [];
+      for (const sheet of workbook.worksheets.slice(0, 3)) {
+        lines.push(`=== Planilha: ${sheet.name} ===`);
+        sheet.eachRow(row => {
+          const cells = (row.values as unknown[])
+            .slice(1)
+            .map(c => (c == null ? "" : String(c).trim()))
+            .join("\t");
+          if (cells.replace(/\t/g, "").trim()) lines.push(cells);
+        });
+      }
+      return lines.join("\n");
     }
     return "";
   } catch (err) {
@@ -241,589 +223,548 @@ async function extractExcel(buffer: Buffer): Promise<FaturamentoData> {
 }
 
 // ─────────────────────────────────────────
+// Layer 3 — Detecção de subformato (determinística, sem chamada IA)
+// ─────────────────────────────────────────
+type Subformat =
+  | "SCR_BACEN_SEM_DADOS"
+  | "SCR_BUREAU"
+  | "FAT_DAS"
+  | "FAT_BANCARIO"
+  | "IR_RECIBO"
+  | "DEFAULT";
+
+function detectSubformat(docType: string, text: string): Subformat {
+  const t = text.toUpperCase();
+
+  if (docType === "scr") {
+    if (
+      t.includes("NAO POSSUI DADOS NO SCR") || t.includes("NÃO POSSUI DADOS NO SCR") ||
+      t.includes("SEM OPERACOES REGISTRADAS") || t.includes("SEM OPERAÇÕES REGISTRADAS") ||
+      (t.includes("CLIENTE") && t.includes("NAO POSSUI") && t.includes("SCR"))
+    ) return "SCR_BACEN_SEM_DADOS";
+    if (
+      t.includes("CREDIT HUB") || t.includes("CONSULTA SIMPLES") ||
+      t.includes("BOA VISTA SCPC") || t.includes("QUOD") ||
+      (t.includes("PEFIN") && t.includes("REFIN")) ||
+      (t.includes("NEGATIVAC") && !t.includes("CARTEIRA A VENCER"))
+    ) return "SCR_BUREAU";
+  }
+
+  if (docType === "faturamento") {
+    if (t.includes("PGDAS") || (t.includes("SIMPLES NACIONAL") && t.includes("RECEITA BRUTA"))) return "FAT_DAS";
+    if (
+      t.includes("SALDO ANTERIOR") &&
+      (t.includes("CRÉDITO") || t.includes("CREDITO")) &&
+      (t.includes("DÉBITO") || t.includes("DEBITO"))
+    ) return "FAT_BANCARIO";
+  }
+
+  if (docType === "ir_socio") {
+    if (
+      (t.includes("RECIBO DE ENTREGA") || t.includes("RECIBO DA DECLARACAO")) &&
+      !t.includes("BENS E DIREITOS") && !t.includes("RENDIMENTOS TRIBUTAVEIS")
+    ) return "IR_RECIBO";
+  }
+
+  return "DEFAULT";
+}
+
+// ─────────────────────────────────────────
 // Prompts
 // ─────────────────────────────────────────
 
-const PROMPT_CNPJ = `Você receberá um Cartão CNPJ emitido pela Receita Federal do Brasil (PDF, imagem ou texto extraído). Extraia os dados e retorne APENAS JSON válido, sem markdown, sem texto adicional.
+const PROMPT_CNPJ = `Você receberá um PDF de Comprovante de Inscrição e Situação Cadastral (Cartão CNPJ) emitido pela Receita Federal do Brasil. Extraia todos os campos presentes e retorne SOMENTE um JSON válido, sem texto adicional, sem markdown, sem explicações.
 
-Schema:
-{"razaoSocial":"","nomeFantasia":"","cnpj":"","dataAbertura":"","situacaoCadastral":"","dataSituacaoCadastral":"","motivoSituacao":"","naturezaJuridica":"","cnaePrincipal":"","cnaeSecundarios":"","porte":"","capitalSocialCNPJ":"","endereco":"","telefone":"","email":"","tipoEmpresa":"","funcionarios":"","qsaDetectado":[{"nome":"","cpfCnpj":"","qualificacao":"","dataEntrada":""}]}
-
-IMPORTANTE: se o Cartão CNPJ tiver seção "QUADRO DE SÓCIOS E ADMINISTRADORES" (QSA), extraia TAMBÉM todos os sócios em "qsaDetectado[]" preservando:
-- nome completo como aparece
-- cpfCnpj (mesmo se mascarado: "***.456.789-**")
-- qualificacao com código (ex: "49-Sócio-Administrador")
-- dataEntrada em DD/MM/YYYY se houver
-Esse é um BONUS — mesmo sem QSA, preencha os outros campos. Se não encontrar QSA, qsaDetectado=[].
-
-Regras de extração:
-- razaoSocial e nomeFantasia: PRESERVE acentos, cedilha e pontuação exatamente como no documento (ex: "Alimentação & Cia Ltda")
-- cnpj: formato XX.XXX.XXX/XXXX-XX obrigatório (com pontos, barra e hífen)
-- dataAbertura e dataSituacaoCadastral: formato DD/MM/YYYY
-- situacaoCadastral: exatamente como consta — valores possíveis: "ATIVA" | "BAIXADA" | "INAPTA" | "SUSPENSA" | "NULA"
-- motivoSituacao: SOMENTE se houver motivo explícito após o status (ex: "Omissa no período", "Extinção por encerramento"). Para ATIVA, deixe "".
-- naturezaJuridica: código + descrição (ex: "206-2 - Sociedade Empresária Limitada")
-- cnaePrincipal: código + descrição (ex: "46.59-4-99 - Comércio atacadista de outros equipamentos")
-- cnaeSecundarios: separe por " ; " — inclua código e descrição de cada um. Se vazio, "".
-- porte: valores possíveis — "MICRO EMPRESA" | "EMPRESA DE PEQUENO PORTE" | "DEMAIS" | "MEI"
-- capitalSocialCNPJ: em reais com formato brasileiro COM prefixo "R$" (ex: "R$ 220.000,00"). Separador de milhar ponto, decimal vírgula.
-- endereco: concatene em UMA linha — logradouro + número + complemento + bairro + município + UF + CEP (ex: "Av. Paulista, 1578, Sala 12, Bela Vista, São Paulo/SP, CEP 01310-200")
-- telefone: incluir DDD (ex: "(11) 3333-4444"). Múltiplos: separe por " / "
-- email: apenas o endereço, sem "mailto:" (ex: "contato@empresa.com.br")
-- tipoEmpresa: derive da natureza jurídica — "LTDA" | "S/A" | "MEI" | "EIRELI" | "SLU" | "SS" | "COOPERATIVA"
-- funcionarios: número como string se constar, senão ""
-- Campos ausentes: ""
-- NÃO invente dados. NÃO preencha campos com "N/A" ou "Não informado" — use "" direto.`;
-
-const PROMPT_QSA = `Você receberá um documento com o Quadro de Sócios e Administradores (QSA). O documento pode ser:
-(A) Cartão CNPJ da Receita Federal — contém seção "QUADRO DE SÓCIOS E ADMINISTRADORES" no final
-(B) Contrato Social — contém cláusulas de sócios com participação em cotas
-(C) Relatório CreditHub/Serasa — tabela de sócios
-(D) Quadro Societário extraído de bureau de crédito
-(E) Ata de reunião ou alteração contratual
-
-Retorne APENAS JSON válido, sem markdown.
-
-Schema OBRIGATÓRIO (preencha TODOS os campos que encontrar):
-{"capitalSocial":"","quadroSocietario":[{"nome":"","cpfCnpj":"","qualificacao":"","participacao":"","dataEntrada":""}]}
-
-═══ COMO ENCONTRAR OS SÓCIOS ═══
-
-No CARTÃO CNPJ da Receita Federal, procure por:
-- "QUADRO DE SÓCIOS E ADMINISTRADORES"
-- "QSA"
-- "Nome/Nome Empresarial" seguido de "Qualificação"
-- Tabela com colunas: Nome | Qualificação | [CPF parcial]
-- Os CPFs aparecem MASCARADOS no cartão CNPJ (ex: "***.456.789-**")
-
-No CONTRATO SOCIAL, procure por:
-- Cláusulas "Dos Sócios" / "Do Capital Social" / "Da Administração"
-- Nome completo + CPF + quantidade de cotas + %
-- "JOÃO DA SILVA, brasileiro, [...], CPF 123.456.789-00, titular de 500.000 cotas, representando 50% do capital"
-
-No QSA de BUREAU, procure por tabelas com colunas:
-- Sócio | CPF/CNPJ | Qualificação | Participação | Data de Entrada
-
-═══ REGRAS DE EXTRAÇÃO (OBRIGATÓRIO) ═══
-
-1. EXTRAIA TODOS os sócios encontrados, SEM EXCEÇÃO. Mesmo que faltem alguns campos.
-2. Se o documento tem 2 sócios, retorne 2 objetos em quadroSocietario[]. Se tem 5, retorne 5.
-3. NUNCA retorne quadroSocietario: [] se há QUALQUER menção a sócios no documento.
-4. Se encontrar apenas o nome do sócio sem CPF, AINDA ASSIM inclua com cpfCnpj="".
-5. Se encontrar "***.456.789-**", retorne como está (CPF mascarado é válido).
-
-═══ CAMPOS ═══
-
-nome: Nome completo EXATAMENTE como no documento, preservando acentos, cedilhas, maiúsculas/minúsculas.
-  - CORRETO: "João da Silva Júnior" ou "JOAO DA SILVA JUNIOR" (copie o original)
-  - Se o nome for empresa, use a razão social (ex: "Empresa Holding Ltda")
-
-cpfCnpj: Documento do sócio.
-  - CPF completo: "XXX.XXX.XXX-XX" (11 dígitos)
-  - CNPJ completo: "XX.XXX.XXX/XXXX-XX" (14 dígitos)
-  - CPF mascarado (cartão CNPJ): mantenha como "***.456.789-**" ou "***.XXX.XXX-**"
-  - Se não encontrar, "" (vazio)
-
-qualificacao: Função/tipo de participação
-  - Formatos comuns: "49 - Sócio-Administrador", "22 - Sócio", "05 - Administrador", "10 - Diretor", "Sócio", "Sócio-Administrador", "Administrador"
-  - Copie EXATAMENTE como aparece no documento (com código numérico se houver)
-
-participacao: Percentual de participação no capital social
-  - Formato: "50,00%" ou "33,33%" (com vírgula decimal e símbolo %)
-  - Se o documento mostrar em cotas (ex: "500.000 cotas de R$1,00"), calcule o % sobre o capital total
-  - Se não houver informação de participação, ""
-
-dataEntrada: Data de entrada na sociedade
-  - Formato DD/MM/AAAA
-  - No cartão CNPJ aparece na coluna "Data de Entrada na Sociedade"
-  - Se não houver, ""
-
-capitalSocial: Valor total do capital social da empresa
-  - Formato brasileiro com prefixo: "R$ 500.000,00"
-  - Procure por "Capital Social", "Capital Integralizado"
-  - Se não encontrar, ""
-
-═══ EXCLUSÕES (NÃO inclua no QSA) ═══
-- Testemunhas no contrato
-- Advogados, contadores, despachantes
-- Procuradores sem participação societária
-- Cônjuges sem cotas
-- Funcionários ou administradores contratados sem participação
-
-═══ DEDUPLICAÇÃO ═══
-Se o mesmo CPF aparecer mais de uma vez (ex: "Sócio" e também "Administrador"), inclua APENAS UMA VEZ usando a qualificação mais completa (prefira "Sócio-Administrador" a apenas "Sócio" ou "Administrador").
-
-═══ VALIDAÇÃO ANTES DE RETORNAR ═══
-Antes de produzir o JSON, confira CADA ITEM desta checklist:
-1. Soma das participações ≈ 100% (tolerancia 1%). Se ultrapassar, revise duplicacao ou socio PJ estrangeiro.
-2. Cada socio tem pelo menos NOME OU CPF/CNPJ (nunca ambos vazios).
-3. CPF formato XXX.XXX.XXX-XX (11 digitos). CNPJ formato XX.XXX.XXX/XXXX-XX (14 digitos).
-4. Qualificacoes usam os codigos RFB quando possivel (22, 49, 05, etc.) OU texto descritivo.
-5. NUNCA retorne quadroSocietario=[] se o documento menciona socios — prefira entrada parcial.
-- NÃO invente dados — campos ausentes = "" (string vazia)
-
-═══ EXEMPLO DE SAÍDA ═══
 {
-  "capitalSocial": "R$ 500.000,00",
-  "quadroSocietario": [
-    {"nome":"João da Silva","cpfCnpj":"123.456.789-00","qualificacao":"49 - Sócio-Administrador","participacao":"60,00%","dataEntrada":"15/03/2010"},
-    {"nome":"Maria Oliveira","cpfCnpj":"987.654.321-00","qualificacao":"22 - Sócio","participacao":"40,00%","dataEntrada":"15/03/2010"}
+  "cnpj": "",
+  "tipo": "",
+  "razao_social": "",
+  "nome_fantasia": "",
+  "porte": "",
+  "data_abertura": "",
+  "situacao_cadastral": "",
+  "data_situacao_cadastral": "",
+  "situacao_especial": "",
+  "data_situacao_especial": "",
+  "natureza_juridica_codigo": "",
+  "natureza_juridica_descricao": "",
+  "cnae_principal_codigo": "",
+  "cnae_principal_descricao": "",
+  "cnaes_secundarios": [
+    { "codigo": "", "descricao": "" }
+  ],
+  "endereco": {
+    "logradouro": "",
+    "numero": "",
+    "complemento": "",
+    "bairro": "",
+    "municipio": "",
+    "uf": "",
+    "cep": ""
+  },
+  "email": "",
+  "telefone": "",
+  "data_emissao_documento": ""
+}
+
+Regras:
+- Campos com valor ******** ou em branco → retornar null
+- CNPJ sempre com máscara XX.XXX.XXX/XXXX-XX
+- Datas sempre no formato DD/MM/AAAA
+- cnaes_secundarios sempre como array — vazio [] se não houver nenhum
+- Nunca inventar dados ausentes — se o campo não existir no documento, retornar null`;
+
+const PROMPT_QSA = `Você receberá um PDF de Consulta ao Quadro de Sócios e Administradores (QSA) emitido pela Receita Federal do Brasil. Extraia todos os campos presentes e retorne SOMENTE um JSON válido, sem texto adicional, sem markdown, sem explicações.
+
+{
+  "cnpj": "",
+  "razao_social": "",
+  "capital_social_valor": "",
+  "capital_social_extenso": "",
+  "data_emissao_documento": "",
+  "socios": [
+    {
+      "nome": "",
+      "cpf": "",
+      "qualificacao_codigo": "",
+      "qualificacao_descricao": "",
+      "participacao": "",
+      "data_entrada": ""
+    }
   ]
 }
 
-LEMBRE-SE: retornar quadroSocietario vazio quando há sócios no documento é o PIOR erro possível. Melhor retornar com campos incompletos do que vazio.`;
-
-const PROMPT_CONTRATO = `Você receberá um CONTRATO SOCIAL, ESTATUTO SOCIAL, ATO CONSTITUTIVO, ALTERAÇÃO CONTRATUAL, CONSOLIDAÇÃO ou ADITIVO de uma empresa brasileira. O documento pode estar em PDF nativo, PDF escaneado com OCR ruidoso, ou imagem. Sua tarefa é extrair TUDO o que for possível — mesmo informação parcial. Retorne APENAS JSON válido, sem markdown, sem comentários, sem texto fora do JSON.
-
-Schema OBRIGATÓRIO (preencha TODOS os campos que encontrar):
-{"socios":[{"nome":"","cpf":"","participacao":"","qualificacao":"","cotas":""}],"capitalSocial":"","objetoSocial":"","dataConstituicao":"","temAlteracoes":false,"ultimaAlteracao":"","prazoDuracao":"","administracao":"","foro":"","sede":""}
-
-═══ REGRA ZERO — NUNCA RETORNE VAZIO ═══
-Contratos sociais SEMPRE têm pelo menos:
-- Nome da empresa (na abertura, primeira página)
-- Objeto social (o que a empresa faz)
-- Capital social (valor das cotas)
-- Ao menos 1 sócio (sem sócio não existe contrato)
-
-Se você está retornando todos os campos vazios, VOLTE e olhe de novo — a informação ESTÁ no documento. Releia o cabeçalho, as cláusulas, o rodapé, as assinaturas. Se o OCR está ruidoso, extraia o que conseguir inferir com alta confiança — é MELHOR retornar campos parciais do que tudo vazio.
-
-═══ ONDE ENCONTRAR CADA INFORMAÇÃO ═══
-
-SÓCIOS — procure em QUALQUER destas seções:
-1. Cláusula "Dos Sócios" / "Do Capital Social" / "Da Administração" / "Cláusula Primeira" / "CLÁUSULA 1ª"
-2. Abertura do contrato (primeira página): "Fulano de Tal, brasileiro, [...], CPF 123.456.789-00, residente em [...]"
-3. Tabela de distribuição de cotas
-4. Página de assinaturas (finais): cada assinatura é normalmente de um sócio
-5. Alterações/consolidações: olhe o quadro societário FINAL, não o original
-
-Formatos comuns de sócio no corpo do contrato:
-- "JOÃO DA SILVA, brasileiro, casado, empresário, portador do CPF nº 123.456.789-00, titular de 500.000 cotas, representando 50% do capital social"
-- "Maria Oliveira, RG 12.345.678, CPF 987.654.321-00, residente na Rua X, titular de 50 (cinquenta) cotas de R$ 1.000,00 cada"
-- Em tabelas: "Nome | CPF | Cotas | %"
-
-CAPITAL SOCIAL — procure por:
-- "Capital Social", "Capital Subscrito", "Capital Integralizado", "Cláusula do Capital"
-- "R$ 100.000,00 (cem mil reais) dividido em 100.000 cotas de R$ 1,00 cada"
-- Tabelas que somam o total de cotas
-- SEMPRE formato "R$ VALOR,CC" — com prefixo "R$" e separador brasileiro
-
-OBJETO SOCIAL — procure por:
-- Cláusula "Do Objeto Social" / "Objeto" / "Atividade" / "Cláusula Segunda"
-- Texto começando com "A sociedade tem por objeto..." ou "A empresa tem como atividade..."
-- Lista de CNAEs descritos
-- **É O CAMPO MAIS FÁCIL DE EXTRAIR — sempre tem, quase sempre na primeira página**
-- Reescreva em Título Case, texto corrido, atividades separadas por vírgula, máx 300 caracteres
-- Ex: "Comércio atacadista de produtos alimentícios, fabricação de alimentos congelados, transporte rodoviário de cargas"
-
-DATA DE CONSTITUIÇÃO — procure por:
-- "data da constituição", "constituída em", "fundada em"
-- Data mais antiga mencionada no documento (NÃO a data da alteração atual)
-- Cabeçalho do primeiro instrumento: "Instrumento Particular de Constituição [...] de 15/03/2010"
-- Formato de saída: DD/MM/YYYY
-
-ADMINISTRAÇÃO — procure por:
-- Cláusula "Da Administração" / "Administradores"
-- "A administração será exercida pelo sócio [nome]"
-- "fica nomeado administrador [nome]"
-- Ex de saída: "João da Silva (Administrador)" ou "João da Silva e Maria Oliveira (Administradores)"
-
-FORO — procure por:
-- Última cláusula do contrato (quase sempre a última)
-- "Fica eleito o foro da Comarca de [Cidade/UF]"
-- Ex de saída: "São Paulo/SP"
-
-SEDE — procure por:
-- Cláusula "Da Sede" / "Do Endereço" / primeira página após identificação da empresa
-- Endereço completo: rua, número, bairro, cidade, UF, CEP
-- Retorne em uma linha: "Rua das Flores, 123, Centro, São Paulo/SP, CEP 01234-567"
-
-PRAZO DE DURAÇÃO — procure por:
-- "Prazo indeterminado" (mais comum) → retorne "indeterminado"
-- "Prazo de 10 anos" → retorne "10 anos"
-
-═══ CONSOLIDAÇÕES E ALTERAÇÕES ═══
-- Se o título do documento contém "Alteração", "Aditivo", "Consolidação", "Reforma" → temAlteracoes=true
-- Extraia o QUADRO FINAL de sócios (após a alteração, não antes)
-- dataConstituicao = data ORIGINAL de fundação (1º instrumento)
-- ultimaAlteracao = data da alteração mais recente (DD/MM/YYYY)
-
-═══ CAMPOS DOS SÓCIOS ═══
-- nome: completo, preservando acentos/cedilhas, como aparece no documento
-- cpf: formato XXX.XXX.XXX-XX. Se mascarado ("***.456.789-**"), retorne como está. Se ausente, "".
-- participacao: percentual com vírgula ("50,00%") OU valor em cotas se não houver %. Se tem "500.000 cotas" de "1.000.000 cotas totais" → "50,00%".
-- cotas: número absoluto ("500000") se mencionado, senão ""
-- qualificacao: texto exato do contrato ("Sócio", "Sócio-Administrador", "Administrador", "Acionista", "Diretor")
-
-═══ EXCLUSÕES — NÃO inclua como sócios ═══
-- Testemunhas das assinaturas
-- Advogados, contadores, despachantes, procuradores sem cotas
-- Cônjuges mencionados sem participação ("casado com...")
-- Funcionários, gerentes contratados, diretores não-sócios
-- Notários, cartórios
-
-═══ REGRAS DE EXTRAÇÃO ═══
-1. EXTRAIA TODOS os sócios encontrados — mesmo que falte CPF ou %
-2. NUNCA retorne socios: [] se há MENÇÃO a sócios no documento
-3. Se encontrar só o nome sem CPF, inclua mesmo assim com cpf=""
-4. Se o capital social está em cotas mas não em reais, calcule (cotas × valor unitário)
-5. Se só uma parte é legível, retorne essa parte — nunca tudo vazio
-6. Para scans com OCR ruim: foque nos campos MAIS ROBUSTOS primeiro (objeto social, capital social, nome de sócios maiúsculos)
-
-═══ FALLBACK QUANDO O DOCUMENTO É DIFÍCIL ═══
-Se o documento está muito degradado/ilegível:
-- Prioridade 1: extraia objetoSocial (quase sempre é texto corrido legível)
-- Prioridade 2: capitalSocial (valor monetário destacado)
-- Prioridade 3: ao menos UM sócio (nome + CPF se visível)
-- Prioridade 4: dataConstituicao (cabeçalho do primeiro instrumento)
-- Deixe os outros campos vazios
-
-RETORNAR TODOS OS CAMPOS VAZIOS É ERRO CRÍTICO. Um contrato social sempre tem ao menos objeto social ou nome de sócio visível. Volte e olhe de novo se isso aconteceu.
-
-═══ VALIDAÇÃO ANTES DE RETORNAR ═══
-Antes de produzir o JSON, confira:
-1. capitalSocial NUNCA vazio em consolidacao/ato constitutivo (volte ao documento se retornou "")
-2. Pelo menos 1 socio detectado (raro haver contrato sem socios)
-3. Soma de participacoes dos socios ≈ 100% (tolerancia 2%)
-4. dataConstituicao preenchido quando e um ato constitutivo (primeira alteracao)
-5. temAlteracoes=true quando o documento e claramente uma "X Alteracao" ou "Consolidacao"
-6. Se objetoSocial ficar vazio, releia — praticamente todo contrato tem um paragrafo de objeto social
-
-Campos ausentes: "" ou false. NÃO invente dados — mas extraia tudo o que está visível.`;
-
-const PROMPT_FATURAMENTO = `Você receberá um relatório de faturamento mensal (planilha Excel/XLSX, relatório de NF-e, extrato bancário, declaração contábil ou tabela PDF). Extraia TODOS os valores mensais e retorne APENAS JSON válido, sem markdown.
-
-Schema:
-{"meses":[{"mes":"01/2024","valor":"1.234.567,89"}],"somatoriaTotal":"","totalMesesExtraidos":0,"faturamentoZerado":false,"dadosAtualizados":true,"ultimoMesComDados":"","anoMaisAntigo":"","anoMaisRecente":"","fmm12m":"","mediaAno":""}
-
-═══ REGRA CRÍTICA ANTI-CONFUSAO DE SEPARADORES ═══
-ATENÇÃO: o separador brasileiro usa PONTO para milhar e VÍRGULA para decimal.
-NUNCA confunda com formato americano (vírgula para milhar, ponto para decimal).
-
-CORRETOS (formato brasileiro):
-- R$ 3.506.158,22  (três milhões e meio)
-- R$ 850.000,00    (oitocentos e cinquenta mil)
-- R$ 42.300,50     (quarenta e dois mil trezentos)
-
-ERRADOS (interpretação americana do brasileiro):
-- 3,506,158.22 (NÃO USE — formato americano)
-- 3506158.22   (NÃO USE — sem separador de milhar)
-
-REGRA DE OURO: se você vê "3.506.158,22" em um documento brasileiro:
-- São 3 milhões 506 mil 158 reais e 22 centavos
-- NÃO é "3.506.158,22 milhões" (isso seria 3 trilhões)
-- NÃO é 3,506 (três mil e quinhentos)
-
-VALIDAÇÃO DE ORDEM DE GRANDEZA:
-- Um faturamento mensal normal de PME fica entre R$ 50.000 e R$ 50.000.000 (50K a 50M)
-- Um faturamento mensal > R$ 100.000.000 (100 milhões) é EXCEPCIONAL — confira o documento
-- Um faturamento mensal < R$ 10.000 (10 mil) pode ser um erro de parse
-- Se o valor extraído parecer 10x ou 100x maior que o razoável, REINTERPRETE o separador
-
-EXEMPLO PRÁTICO de armadilha:
-- Documento: "3.506.158,22"
-- Interpretação CERTA: 3506158.22 reais (3,5 milhões)
-- Interpretação ERRADA: 3506158220 (confundindo com "3,506,158.22")
-- Interpretação ERRADA: 350615822 (removendo tudo sem entender separador)
-
-Ao extrair, SEMPRE pergunte: "este valor faz sentido para um faturamento mensal?"
-Se você viu "FATURAMENTO: 3.506.158,22" em uma planilha mensal de PME, são 3,5M, não 3,5B.
-
-FORMATO NUMÉRICO BRASILEIRO (OBRIGATÓRIO):
-- Separador de MILHAR = ponto (.)  —  Separador DECIMAL = vírgula (,)
-- CORRETO: "1.234.567,89" | "3.506.158,22" | "850.000,00" | "42.300,50"
-- ERRADO: "1234567.89" | "1,234,567.89" | "3506158.22" | "R$ 1.234,00"
-- NUNCA use prefixo "R$"
-- Se o documento usar formato americano (ponto decimal), CONVERTA para brasileiro
-
-Regras de extração:
-- Extraia TODOS os meses presentes em TODAS as páginas — tabelas, rodapés, cabeçalhos, resumos anuais
-- Se for planilha Excel, extraia valores BRUTOS das células numéricas (não formatos de exibição) e converta para brasileiro
-- mes: formato MM/YYYY obrigatório (ex: "01/2024", "12/2023")
-- Formatos aceitos no documento (converta para MM/YYYY na saída):
-  * "Jan/25", "Janeiro 2025", "JAN/2025" → "01/2025"
-  * "01-2024", "2024-01", "01.2024" → "01/2024"
-  * "01/24" (ano curto) → "01/2024" (assuma século atual)
-- valor: formato brasileiro sem "R$"
-- DEDUPLICAÇÃO: se um mês aparecer duplicado, use o MAIOR valor (ex: se há JAN/2024 = 1.000.000 e JAN/2024 = 1.050.000, use 1.050.000)
-- NÃO inclua meses futuros (posteriores ao mês atual) sem dados reais
-- NÃO inclua meses com valor zero A MENOS QUE o zero seja o faturamento real daquele mês (não um campo vazio)
-- Se houver linha "Total Geral" / "Acumulado" / "Subtotal": use como somatoriaTotal, NÃO adicione ao array meses
-- Ordene meses cronologicamente na saída (mais antigo primeiro)
-
-Campos derivados:
-- somatoriaTotal: soma de todos os meses extraídos em formato brasileiro (ou valor da linha Total do documento)
-- totalMesesExtraidos: contagem numérica de entradas em meses[]
-- faturamentoZerado: true se TODOS os valores = 0
-- dadosAtualizados: false se o ultimoMesComDados for anterior a 6 meses da data atual
-- ultimoMesComDados: último mês com valor positivo (formato MM/YYYY)
-- anoMaisAntigo / anoMaisRecente: apenas o ano (ex: "2022", "2024")
-
-Campos derivados (IMPORTANTE — conceitos):
-- fmm12m: FATURAMENTO MÉDIO MENSAL dos últimos 12 meses
-  = soma dos últimos 12 meses / 12
-  = valor em torno de R$ 100k a R$ 10M para PME
-  Se encontrar um campo "FMM" ou "Faturamento Médio Mensal" no documento, use ESSE valor.
-  Se NÃO encontrar, deixe fmm12m="" (o backend calcula).
-
-- mediaAno: FATURAMENTO ANUAL TOTAL (soma dos 12 meses)
-  = valor em torno de R$ 1M a R$ 100M para PME
-  Se encontrar "Total Anual" ou "Soma do Exercício", use esse valor.
-  Se NÃO encontrar, deixe mediaAno="" (o backend calcula).
-
-ATENÇÃO: se o documento tem apenas meses individuais (sem totais), deixe AMBOS vazios. O backend calculará a partir do array meses[]. NÃO confunda fmm (média) com mediaAno (soma) — a diferença é 12x.
-
-NÃO invente dados. Campos ausentes = "" ou 0 ou false.`;
-
-const PROMPT_SCR = `Você receberá um documento SCR do Banco Central (Sistema de Informações de Crédito) — pode ser de PESSOA FÍSICA (sócio) ou PESSOA JURÍDICA (empresa), emitido pelo Bacen ou por bancos integrados. Documento pode estar em PDF nativo, PDF escaneado com OCR, ou imagem. Sua tarefa é extrair TUDO o que estiver visível — mesmo parcial. Retorne APENAS JSON válido, sem markdown, sem comentários.
-
-═══ REGRA ZERO — NUNCA RETORNE VAZIO ═══
-Um documento SCR SEMPRE tem:
-- Data base/período de referência (cabeçalho)
-- Identificação do titular (CPF ou CNPJ)
-- Tabela de modalidades com valores por produto de crédito
-- Totais (linha "Total", "Soma", "Consolidado")
-
-Se você está retornando tudo zerado/vazio E o documento não diz "SEM HISTÓRICO" ou "NADA CONSTA", VOLTE e releia — a informação está lá. É MELHOR retornar dados parciais do que tudo vazio.
-
-═══ LAYOUT DO DOCUMENTO SCR — COMO LER ═══
-
-Um SCR do Bacen tipicamente tem estas SEÇÕES, nesta ordem:
-1. **Cabeçalho**: identificação do titular (nome + CPF/CNPJ) + data de referência
-2. **Resumo consolidado**: totais gerais — Carteira de Crédito, Responsabilidade Total, Limite
-3. **Tabela de Modalidades**: uma linha por produto (Capital de Giro, Financiamento, Cartão, etc.) com colunas A Vencer | Vencidos | Prejuízos | Limite | Participação
-4. **Discriminação A Vencer por Faixa de Prazo**: distribuição temporal do que ainda vai vencer
-5. **Discriminação Vencidos por Faixa de Prazo**: distribuição temporal do que já venceu
-6. **Prejuízos**: operações em prejuízo (faixas até 12m e acima 12m)
-7. **Responsabilidade por Instituição**: lista de bancos credores
-8. **Comparativo 2 Períodos** (opcional): colunas lado a lado com 2 datas de referência
-
-═══ COMO ENCONTRAR O PERÍODO DE REFERÊNCIA ═══
-Procure em ORDEM:
-1. Campo explícito "Data Base:", "Data de Referência:", "Período:", "Mês de Referência:", "Posição de [MM/AAAA]"
-2. Cabeçalho da tabela de modalidades (topo de colunas)
-3. Rodapé do documento
-4. Título do PDF ou nome do arquivo embutido
-5. Como último recurso: a data mais recente mencionada no texto
-
-SEMPRE retorne em formato MM/AAAA (ex: "03/2026", "11/2024"). Se só o ano estiver claro, use "12/AAAA". NUNCA deixe vazio se há QUALQUER data visível no documento.
-
-═══ SCR DE PESSOA FÍSICA (SÓCIO) vs PESSOA JURÍDICA (EMPRESA) ═══
-DIFERENÇAS DE LAYOUT:
-
-**SCR PF (sócio)** — cabeçalho mostra:
-- "Cliente: MARIA DA SILVA"
-- "CPF: 123.456.789-00" (11 dígitos, com ou sem máscara)
-- Pode aparecer como "CPF: ***.456.789-**" (mascarado por privacidade)
-- Modalidades típicas: Cartão de Crédito, Crédito Pessoal, Financiamento Imobiliário, Cheque Especial
-
-**SCR PJ (empresa)** — cabeçalho mostra:
-- "Cliente: EMPRESA XYZ LTDA"
-- "CNPJ: 12.345.678/0001-90" (14 dígitos)
-- Modalidades típicas: Capital de Giro, Desconto de Duplicatas, Financiamento Agroindustrial, Leasing, Conta Garantida
-
-Se o documento mostra CPF no cabeçalho → tipoPessoa="PF". Se mostra CNPJ → "PJ". Se mostra AMBOS (dono + empresa), use o documento da SEÇÃO DE TITULARIDADE principal.
-
-═══ EXTRAÇÃO PARA SCR DE PF (SÓCIO) ═══
-Quando tipoPessoa="PF":
-- nomeCliente: nome completo da pessoa (maiúsculas/minúsculas como no doc)
-- cpfSCR: CPF formatado "XXX.XXX.XXX-XX", aceita mascarado
-- cnpjSCR: SEMPRE "" (pessoa física não tem CNPJ)
-- As modalidades de PF geralmente somam valores menores (R$ 5k – R$ 500k é típico)
-- Pode ter prejuízos pequenos mesmo em pessoa com bom histórico
-- Se tiver seção "Cartão de Crédito": carteiraAVencer geralmente tem a maior parte
-
-═══ EXTRAÇÃO PARA SCR DE PJ (EMPRESA) ═══
-Quando tipoPessoa="PJ":
-- nomeCliente: razão social
-- cnpjSCR: CNPJ formatado "XX.XXX.XXX/XXXX-XX"
-- cpfSCR: SEMPRE "" (empresa não tem CPF)
-- PME típica tem totalDividasAtivas entre R$ 100k e R$ 100M
-- Média e grande empresa pode ultrapassar R$ 1B
-
-
-
-Schema obrigatório:
-{"periodoReferencia":"MM/AAAA","tipoPessoa":"PJ","cnpjSCR":"","nomeCliente":"","cpfSCR":"","pctDocumentosProcessados":"","pctVolumeProcessado":"","carteiraAVencer":"","vencidos":"","prejuizos":"","limiteCredito":"","qtdeInstituicoes":"","qtdeOperacoes":"","totalDividasAtivas":"","operacoesAVencer":"","operacoesEmAtraso":"","operacoesVencidas":"","tempoAtraso":"","coobrigacoes":"","classificacaoRisco":"","carteiraCurtoPrazo":"","carteiraLongoPrazo":"","emDia":"","semHistorico":false,"numeroIfs":"","faixasAVencer":{"ate30d":"0,00","d31_60":"0,00","d61_90":"0,00","d91_180":"0,00","d181_360":"0,00","acima360d":"0,00","prazoIndeterminado":"0,00","total":"0,00"},"faixasVencidos":{"ate30d":"0,00","d31_60":"0,00","d61_90":"0,00","d91_180":"0,00","d181_360":"0,00","acima360d":"0,00","total":"0,00"},"faixasPrejuizos":{"ate12m":"0,00","acima12m":"0,00","total":"0,00"},"faixasLimite":{"ate360d":"0,00","acima360d":"0,00","total":"0,00"},"outrosValores":{"carteiraCredito":"0,00","repasses":"0,00","coobrigacoes":"0,00","responsabilidadeTotal":"0,00","creditosALiberar":"0,00","riscoTotal":"0,00"},"modalidades":[{"nome":"","total":"","aVencer":"","vencido":"","participacao":"","ehContingente":false}],"instituicoes":[{"nome":"","valor":""}],"valoresMoedaEstrangeira":"","historicoInadimplencia":"","periodoAnterior":{"periodoReferencia":"","carteiraAVencer":"","vencidos":"","prejuizos":"","limiteCredito":"","totalDividasAtivas":"","operacoesAVencer":"","operacoesEmAtraso":"","operacoesVencidas":"","carteiraCurtoPrazo":"","carteiraLongoPrazo":"","classificacaoRisco":"","qtdeInstituicoes":"","numeroIfs":"","emDia":"","semHistorico":false,"faixasAVencer":{"ate30d":"0,00","d31_60":"0,00","d61_90":"0,00","d91_180":"0,00","d181_360":"0,00","acima360d":"0,00","prazoIndeterminado":"0,00","total":"0,00"},"faixasVencidos":{"ate30d":"0,00","d31_60":"0,00","d61_90":"0,00","d91_180":"0,00","d181_360":"0,00","acima360d":"0,00","total":"0,00"}},"variacoes":{"emDia":"","carteiraCurtoPrazo":"","carteiraLongoPrazo":"","totalDividasAtivas":"","vencidos":"","prejuizos":"","limiteCredito":"","numeroIfs":""}}
-
-VALIDAÇÃO DE ORDEM DE GRANDEZA:
-- Valores do SCR devem estar em reais (formato brasileiro com ponto milhar, vírgula decimal)
-- totalDividasAtivas de PME: tipicamente entre R$ 10k e R$ 100M
-- Se um valor parecer > R$ 10 bilhões, provavelmente errou o separador
-- SEMPRE interprete "3.506.158,22" como 3,5 milhões, NÃO como 3,5 bilhões
-
-═══ REGRAS GERAIS ═══
-- periodoReferencia: OBRIGATÓRIO, formato MM/AAAA (ex: "04/2025"). Procure em "Data Base", "Mês de Referência", "Período", "Data de Referência", "Posição de", cabeçalho da tabela de modalidades, rodapé do documento, ou no título do PDF. NUNCA deixe vazio — se encontrar só ano, use "01/AAAA"; se não encontrar nada, olhe a data mais recente mencionada no documento e use como "MM/AAAA".
-- tipoPessoa: OBRIGATÓRIO — "PF" se cabeçalho mostra CPF (pessoa física); "PJ" se mostra CNPJ (empresa). Procure o cabeçalho que identifica o titular: normalmente logo após "Cliente:", "Titular:", "Documento:", "Nome:". Se há CPF (11 dígitos) → PF. Se há CNPJ (14 dígitos) → PJ. Se há ambos (dono + empresa), use o documento PRINCIPAL da seção de titularidade.
-- Valores monetários: formato brasileiro — pontos no milhar, vírgula nos decimais (ex: "23.785,80", "1.234.567,00"). SEM "R$". Campo ausente = "0,00".
-- NÃO invente dados. NÃO copie valores entre colunas (A Vencer ≠ Vencidos ≠ Prejuízos).
-- semHistorico = true SOMENTE se totalDividasAtivas="0,00" E limiteCredito="0,00" E modalidades=[].
-
-═══ IDENTIFICAÇÃO DO TITULAR ═══
-Se tipoPessoa="PF" (SCR de pessoa física):
-- nomeCliente: nome completo da pessoa física, procure em "Cliente:", "Titular:", "Nome:", "Tomador:" no cabeçalho
-- cpfSCR: CPF formatado "XXX.XXX.XXX-XX" (11 dígitos). Pode aparecer mascarado ("***.456.789-**") — retorne como está.
-- cnpjSCR: deixe vazio ""
-
-Se tipoPessoa="PJ" (SCR de empresa):
-- nomeCliente: razão social da empresa
-- cnpjSCR: CNPJ formatado "XX.XXX.XXX/XXXX-XX" (14 dígitos)
-- cpfSCR: deixe vazio ""
-
-Se você não consegue identificar o titular, ainda assim extraia os VALORES da tabela de modalidades e as faixas — deixe nomeCliente/cpfSCR/cnpjSCR vazios, mas NÃO retorne o JSON todo vazio.
-
-═══ TABELA PRINCIPAL DE MODALIDADES ═══
-Colunas típicas (podem variar em nome): Modalidade | A Vencer | Vencidos | Prejuízos | Limite | Coobrigação | Participação
-
-**ATENÇÃO — não confunda colunas semanticamente distintas:**
-- "A Vencer" / "Carteira A Vencer" / "Em Dia" / "Adimplente" → valores que AINDA VÃO VENCER (bom)
-- "Vencidos" / "Em Atraso" / "Atrasados" → valores JÁ VENCIDOS mas não prejuízo ainda
-- "Prejuízos" / "Lançado em Prejuízo" / "Baixa como Prejuízo" → operações consideradas perda
-- "Limite" / "Limite de Crédito" / "Limite Disponível" → teto contratado (não usado)
-- "Coobrigação" / "Coobrigações" / "Aval" → garantias prestadas a terceiros
-- "Participação" → percentual da modalidade no total (ex: "45,2%")
-
-NUNCA copie valor de uma coluna para outra. Se uma coluna está vazia/zerada no documento, retorne "0,00" para ela, não replique o valor de outra coluna.
-
-Para CADA linha de modalidade em modalidades[]:
-- nome: nome exato como aparece (ex: "Capital de Giro", "Financiamento Imobiliário", "Desconto de Duplicatas", "Cartão de Crédito", "Crédito Pessoal")
-- total: se houver coluna "Total", use. Senão some A Vencer + Vencidos + Prejuízos.
-- aVencer: coluna "A Vencer" desta linha (NÃO confundir com "Vencidos")
-- vencido: coluna "Vencidos" desta linha
-- participacao: % de participação se constar
-- ehContingente: true APENAS se a modalidade estiver em seção "Responsabilidades Contingentes", "Títulos Descontados" ou "Garantias Prestadas"
-
-**Campos totais do topo** — vêm da linha "Total" / "Consolidado" / "Soma Geral" da tabela de modalidades:
-- carteiraAVencer = Total da coluna "A Vencer"
-- vencidos = Total da coluna "Vencidos"
-- prejuizos = Total da coluna "Prejuízos"
-- limiteCredito = Total da coluna "Limite de Crédito"
-- emDia = Total da coluna "Em Dia" (se existir separado de A Vencer)
-- totalDividasAtivas = soma consolidada (A Vencer + Vencidos + Prejuízos) OU valor da linha "Responsabilidade Total"
-
-Se a tabela não tem linha "Total", SOME os valores das linhas individuais de modalidades para obter os totais.
-
-═══ QTDE DE INSTITUIÇÕES E OPERAÇÕES ═══
-- qtdeInstituicoes: número de bancos/financeiras com operações ativas — procure em "Qtde de IFs", "Instituições", "Nº de Instituições", "IFs"
-- qtdeOperacoes: número de contratos ativos — "Qtde de Operações", "Nº de Operações", "Contratos Ativos"
-- numeroIfs: mesmo que qtdeInstituicoes (campo legado, pode repetir)
-
-Se o documento mostra uma LISTA de instituições (tabela no final), conte as linhas únicas para qtdeInstituicoes.
-
-═══ FAIXAS A VENCER ═══
-Seção: "Discriminação A Vencer por Faixa de Prazo" ou similar.
-Preenche APENAS faixasAVencer — NÃO misture com faixasVencidos.
-
-Mapeamento:
-- "Até 30 dias" / "1 a 30 dias" → ate30d
-- "31 a 60 dias" → d31_60
-- "61 a 90 dias" → d61_90
-- "91 a 180 dias" → d91_180
-- "181 a 360 dias" → d181_360
-- "Acima de 360 dias" / "Superior a 360 dias" → acima360d
-- "Prazo Indeterminado" → prazoIndeterminado
-- "Total" → total
-
-Derivados:
-- carteiraCurtoPrazo = soma das faixas até 360d (ate30d + d31_60 + d61_90 + d91_180 + d181_360)
-- carteiraLongoPrazo = acima360d
-
-FALLBACK OBRIGATÓRIO — se a seção "Discriminação A Vencer por Faixa de Prazo" NÃO existir no documento:
-- NUNCA retorne carteiraCurtoPrazo = "0,00" quando carteiraAVencer > 0
-- Regra: se não há faixas mas há valor a vencer, assuma que TODO o carteiraAVencer é curto prazo
-  → carteiraCurtoPrazo = carteiraAVencer
-  → carteiraLongoPrazo = "0,00"
-- Se o documento mostrar "Limite acima de 360 dias" ou "Longo prazo" separadamente em outra seção, use esse valor para carteiraLongoPrazo e subtraia de carteiraCurtoPrazo.
-- Só retorne ambos como "0,00" quando carteiraAVencer também for "0,00".
-
-═══ FAIXAS VENCIDOS ═══
-Seção: "Discriminação Vencido por Faixa de Prazo" ou "Discriminação dos Vencidos".
-Preenche APENAS faixasVencidos — NÃO reutilize valores de faixasAVencer.
-NÃO tem "Prazo Indeterminado" (não existe nesta tabela).
-
-Mapeamento (idêntico a A Vencer, sem prazoIndeterminado):
-- "1 a 30 dias" / "Até 30 dias" → ate30d
-- "31 a 60 dias" → d31_60
-- ... (mesma lógica)
-
-VALIDAÇÃO: faixasVencidos.total deve ser IGUAL a vencidos (campo principal).
-Se a seção não existir (empresa sem vencidos), todos os campos de faixasVencidos = "0,00".
-
-═══ DOIS PERÍODOS (MUITO IMPORTANTE) ═══
-Muitos SCRs mostram COMPARATIVO entre 2 datas base. Os formatos mais comuns:
-
-**Formato A — Duas colunas lado a lado:**
-Tabela com colunas "03/2026 | 03/2025 | Variação" ou "Atual | Anterior | Var %" ou "Posição Atual | Posição Anterior".
-→ Coluna da ESQUERDA (data mais recente) = campos principais do JSON.
-→ Coluna da DIREITA (data mais antiga) = objeto periodoAnterior.
-
-**Formato B — Duas tabelas separadas:**
-Uma tabela de modalidades para cada data base. A tabela mais recente vem primeiro no documento OU tem data mais nova no cabeçalho.
-→ Tabela mais recente = campos principais. Tabela antiga = periodoAnterior.
-
-**Formato C — Comparativo textual:**
-"Em 03/2026 o total era R$ X, contra R$ Y em 03/2025"
-→ Extraia ambos e preencha periodoAnterior.
-
-**Como decidir qual é o MAIS RECENTE:**
-1. Compare as datas base: a maior é a mais recente
-2. Se só tem "Atual" e "Anterior" como labels, "Atual" é o mais recente
-3. Em caso de dúvida: a coluna da esquerda geralmente é a mais recente em relatórios brasileiros
-
-Se houver 2 períodos, periodoAnterior DEVE incluir:
-periodoReferencia (OBRIGATÓRIO — a data mais antiga no formato MM/AAAA), carteiraAVencer, vencidos, prejuizos, limiteCredito, totalDividasAtivas, operacoesAVencer, operacoesEmAtraso, operacoesVencidas, carteiraCurtoPrazo, carteiraLongoPrazo, classificacaoRisco, qtdeInstituicoes, numeroIfs, emDia, semHistorico, faixasAVencer (completo), faixasVencidos (completo)
-
-variacoes — calcule variação % de cada campo principal:
-Fórmula: ((atual - anterior) / |anterior|) * 100
-Formato: "+7,6%" | "-6,5%" | "0,0%" | "" (se anterior=0 ou ausente)
-- Crescimento de dívida = positivo (RUIM para risco)
-- Redução de dívida = negativo (BOM para risco)
-
-Se APENAS 1 período disponível: deixe periodoAnterior com campos vazios, NÃO duplique os valores atuais.
-
-═══ COMO DIFERENCIAR FAIXAS A VENCER DE FAIXAS VENCIDOS ═══
-O Bacen usa SEÇÕES separadas:
-
-**Seção "Discriminação A Vencer por Faixa de Prazo"** (ou "Cronograma A Vencer", "Desembolsos Futuros"):
-- Preenche APENAS faixasAVencer
-- Tem faixa "Prazo Indeterminado" (= recebíveis sem data certa, tipo rotativo de cartão)
-- A soma deve bater com carteiraAVencer
-
-**Seção "Discriminação Vencidos por Faixa de Prazo"** (ou "Atrasos por Faixa", "Vencidos por Faixa"):
-- Preenche APENAS faixasVencidos
-- NÃO tem "Prazo Indeterminado" (se está vencido, já está há X dias)
-- A soma deve bater com vencidos
-
-**ERRO COMUM**: confundir as duas tabelas. Se uma linha diz "31-60 dias: R$ 5.000", você precisa saber se é SOBRE O FUTURO (a vencer) ou SOBRE O PASSADO (vencido há 31-60 dias). A seção onde a linha aparece determina isso.
-
-Mapeamento (idêntico para ambas as tabelas, faixasVencidos não tem prazoIndeterminado):
-- "Até 30 dias" / "1 a 30 dias" / "0-30d" → ate30d
-- "31 a 60 dias" / "31-60d" → d31_60
-- "61 a 90 dias" / "61-90d" → d61_90
-- "91 a 180 dias" / "91-180d" → d91_180
-- "181 a 360 dias" / "181-360d" → d181_360
-- "Acima de 360 dias" / "Superior a 360 dias" / ">360d" → acima360d
-- "Prazo Indeterminado" (só em A Vencer) → prazoIndeterminado
-- "Total" → total
-
-═══ MOEDA ESTRANGEIRA ═══
-valoresMoedaEstrangeira: se o documento mencionar exposições em USD, EUR ou outras moedas (ex: "US$ 50.000,00 em financiamento"), descreva aqui em uma linha. Senão "".
-
-═══ REGRA DE MÚTUA EXCLUSIVIDADE (IMPORTANTE) ═══
-Um valor NUNCA pode aparecer ao mesmo tempo em faixasAVencer E em faixasVencidos.
-Se você está em dúvida sobre uma linha e não tem CERTEZA se é "a vencer" ou "vencido",
-coloque em faixasAVencer (o cenário mais comum) e deixe faixasVencidos com zeros.
-Nunca copie os mesmos números nas duas estruturas.
-
-═══ VALIDAÇÃO ANTES DE RETORNAR ═══
-Antes de produzir o JSON final, confira:
-1. totalDividasAtivas ≈ carteiraAVencer + vencidos + prejuizos (margem ~5%)
-2. faixasAVencer.total ≈ soma das faixas individuais
-3. faixasVencidos.total ≈ soma das faixas individuais
-4. Se totalDividasAtivas > "0,00" então semHistorico DEVE ser false
-5. periodoReferencia NUNCA pode ficar vazio — use a data mais recente que encontrar
-
-NÃO invente dados.`;
-
+Regras:
+- Campos ausentes ou em branco → retornar null
+- CNPJ sempre com máscara XX.XXX.XXX/XXXX-XX
+- CPF pode vir MASCARADO no cartão CNPJ (ex: "***.456.789-**") — mantenha como está
+- CPF do sócio pode NÃO constar no documento — retornar null se ausente, NUNCA inventar
+- Datas sempre no formato DD/MM/AAAA
+- capital_social_valor sempre como número float sem formatação — ex: 50000.00 (de "R$50.000,00")
+- capital_social_extenso é o valor por extenso conforme consta no documento — ex: "Cinquenta mil reais"
+- qualificacao_codigo é o número antes do hífen — ex: "49"
+- qualificacao_descricao é o texto após o hífen — ex: "Sócio-Administrador" (retornar a descrição completa, não só o código)
+- participacao como "XX,XX%" (com vírgula e símbolo %), calcule a partir das cotas quando necessário
+- socios sempre como array — pode ter um ou vários sócios
+- NUNCA retorne socios=[] se há qualquer menção a sócios no documento
+- Excluir: testemunhas, advogados, contadores, procuradores sem cotas, cônjuges sem cotas
+- Deduplicar: se o mesmo CPF aparece múltiplas vezes, manter 1x com a qualificação mais completa
+- Nunca inventar dados ausentes`;
+
+const PROMPT_CONTRATO = `Você receberá um PDF de Contrato Social, Alteração Contratual ou Consolidação registrado em Junta Comercial. O documento pode conter múltiplas seções: certidão de inteiro teor, requerimento capa, texto do contrato/alteração, protocolo de assinaturas e termo de autenticação. Extraia os dados abaixo e retorne SOMENTE um JSON válido, sem texto adicional, sem markdown, sem explicações.
+
+{
+  "cnpj": "",
+  "nire": "",
+  "razao_social": "",
+  "nome_fantasia": "",
+  "tipo_juridico": "",
+  "natureza_juridica_codigo": "",
+  "porte": "",
+  "foro": "",
+  "data_constituicao": "",
+  "data_inicio_atividades": "",
+  "prazo_duracao": "",
+  "objeto_social": "",
+  "objeto_social_itens": [""],
+  "capital_social_valor": null,
+  "capital_social_extenso": "",
+  "capital_integralizado": null,
+  "quota_valor_unitario": null,
+  "total_quotas": null,
+  "endereco_atual": {
+    "logradouro": "", "numero": "", "complemento": "",
+    "bairro": "", "municipio": "", "uf": "", "cep": ""
+  },
+  "filiais": [
+    {
+      "cnpj": "", "nire": "",
+      "logradouro": "", "numero": "", "bairro": "",
+      "municipio": "", "uf": "", "cep": ""
+    }
+  ],
+  "socios": [
+    {
+      "nome": "", "cpf": "", "rg": "", "orgao_emissor_rg": "",
+      "nacionalidade": "", "estado_civil": "", "regime_bens": "",
+      "profissao": "", "data_nascimento": "", "naturalidade": "",
+      "endereco_residencial": "",
+      "quotas": null, "valor_total_quotas": null,
+      "percentual_participacao": null,
+      "qualificacao": "", "administrador": null,
+      "retirante": false
+    }
+  ],
+  "socios_retirantes": [
+    {
+      "nome": "", "cpf": "",
+      "quotas_cedidas": null, "valor_quotas_cedidas": null,
+      "cessionario": "", "data_retirada": ""
+    }
+  ],
+  "quadro_anterior": [
+    {
+      "nome": "", "cpf": "",
+      "quotas": null, "valor_total_quotas": null, "percentual_participacao": null,
+      "qualificacao": "", "administrador": null
+    }
+  ],
+  "administracao": {
+    "administradores": [{ "nome": "", "qualificacao": "" }],
+    "forma_assinatura": ""
+  },
+  "registro_junta": {
+    "orgao": "",
+    "protocolo": "",
+    "data_protocolo": "",
+    "numero_registro": "",
+    "data_registro": "",
+    "data_efeitos": "",
+    "codigo_controle": "",
+    "data_expedicao_certidao": ""
+  },
+  "ultima_alteracao": {
+    "tipo_ato": "",
+    "numero_alteracao": "",
+    "data_assinatura": "",
+    "data_registro": ""
+  }
+}
+
+Regras:
+- Campos ausentes ou não mencionados → retornar null
+- CNPJ sempre com máscara XX.XXX.XXX/XXXX-XX
+- CPF sempre com máscara XXX.XXX.XXX-XX
+- Datas sempre no formato DD/MM/AAAA — INCLUINDO datas por extenso: "20 de janeiro de 2025" → "20/01/2025"
+- Valores monetários: retorne como float SEM formatação — ex: 500000.00
+- IMPORTANTE — formato brasileiro: "500.000,00" = 500000.00 (ponto=milhar, vírgula=decimal)
+- administrador → true se for administrador, false se não, null se não mencionado
+- retirante → true APENAS para sócios que saíram neste ato ou estão explicitamente como retirantes
+- socios → lista APENAS os sócios do quadro ATUAL (após a alteração ou na constituição)
+- socios_retirantes → sócios que saíram da sociedade neste ato, com quantas quotas cederam, para quem e por quanto
+- quadro_anterior → composição societária ANTES deste ato (se descrita no documento); campos mínimos: nome, cpf, quotas, percentual
+- filiais → todas as filiais listadas na cláusula de sede ou no corpo do contrato; cada uma com seu CNPJ e NIRE próprios
+- objeto_social_itens → cada atividade como item separado do array; não resumir
+- registro_junta.protocolo → número de protocolo de entrada na Junta; data_protocolo → data de entrada; numero_registro → número do arquivamento/registro; data_registro → data em que foi registrado; data_efeitos → data de vigência (geralmente a data de assinatura do ato)
+- administracao.forma_assinatura → ex: "assinatura isolada", "assinatura em conjunto"
+- Pró-labore sem valor definido no documento → retornar null, nunca zero
+- Ignorar páginas de protocolo de assinaturas digitais, declarações de licenciamento e termos de autenticação
+- Nunca inventar dados ausentes`;
+
+const PROMPT_FATURAMENTO = `Você receberá um documento de faturamento de uma empresa brasileira. Pode ser qualquer formato: relatório contábil assinado, DAS/PGDAS do Simples Nacional, extrato de sistema contábil (Omie, Totvs, Sankhya, Sieg, NFe.io, SPED, Domínio, Alterdata, etc.), planilha interna, resumo de Notas Fiscais, declaração de faturamento, ou qualquer documento que contenha receita mensal. Extraia todos os dados e retorne SOMENTE um JSON válido, sem texto adicional, sem markdown, sem explicações.
+
+{
+  "cnpj": "",
+  "razao_social": "",
+  "inscricao_estadual": "",
+  "endereco": "",
+  "cidade": "",
+  "cep": "",
+  "data_emissao": "",
+  "periodo_inicio": "",
+  "periodo_fim": "",
+  "meses": [
+    {
+      "mes": "",
+      "ano": null,
+      "saidas": null,
+      "servicos": null,
+      "outros": null,
+      "total": null
+    }
+  ],
+  "totais_por_ano": [
+    { "ano": null, "total": null, "media_mensal": null }
+  ],
+  "totais": { "saidas": null, "servicos": null, "outros": null, "total": null },
+  "media_mensal": { "saidas": null, "servicos": null, "outros": null, "total": null },
+  "assinaturas": [ { "nome": "", "cpf": "", "papel": "" } ],
+  "contador": { "nome": "", "cpf": "", "crc": "" }
+}
+
+Regras gerais:
+- Campos ausentes → retornar null
+- CNPJ sempre com máscara XX.XXX.XXX/XXXX-XX
+- CPF sempre com máscara XXX.XXX.XXX-XX
+- Datas sempre no formato DD/MM/AAAA
+- Valores monetários: retorne como número inteiro ou float SEM formatação — ex: 10809058 ou 1470330.13
+- IMPORTANTE — formato brasileiro: ponto (.) é separador de milhar, NÃO decimal. "10.809.058" = dez milhões = 10809058. "1.470.330,13" = 1470330.13. Remova pontos de milhar e troque vírgula decimal por ponto.
+
+Regras para o array "meses" (mais importante):
+- Extraia UMA entrada por mês com valor de faturamento/receita. Para tabelas com múltiplos anos, UMA entrada por combinação (mês + ano). Ex: Janeiro/2024 e Janeiro/2025 = duas entradas separadas.
+- "mes" deve ser o nome do mês em português — ex: "Janeiro", "Fevereiro". NUNCA usar número.
+- "ano" deve ser o ano como número inteiro — ex: 2024, 2025.
+- "total" = valor total de receita do mês (saídas + serviços + outros, ou o único valor disponível).
+- Se o documento não tiver colunas separadas de saidas/servicos/outros, preencha apenas "total" e deixe os outros null.
+- Meses com valor R$ 0,00 EXPLÍCITO no documento → retornar 0 (zero), NUNCA null. Zeros são dados válidos (empresa pode não ter faturado naquele mês).
+- Meses completamente ausentes do documento (linha não existe) → retornar null.
+- CRÍTICO: inclua TODOS os meses com qualquer valor, incluindo os que têm zero — não pule meses zerados.
+- Se o valor vier em formato "R$ 1.250.000,00" → total = 1250000.0.
+- Ordem cronológica: mais antigo primeiro.
+
+Adaptações por tipo de documento:
+- DAS / PGDAS (Simples Nacional): o "total" de cada mês é a Receita Bruta Total declarada (RBT) ou o faturamento do período. Use o campo "Receita Bruta Total do Período de Apuração" ou equivalente.
+- SPED Fiscal / ECD: usar coluna de receita bruta ou total de vendas por mês.
+- Sistema contábil (Omie, Totvs, Sankhya, etc.): usar a coluna de total ou faturamento bruto; se houver linhas de devolução/desconto, use o valor BRUTO antes das deduções.
+- Planilha interna: se houver coluna "Faturamento", "Receita", "Total" ou "Vendas" → usar essa coluna. Se houver várias colunas, somar para obter o total.
+- Resumo de NF-e: usar o campo "Valor Total das NF-e emitidas" ou soma das notas do período.
+- Se houver coluna de "Faturamento Bruto" e outra de "Faturamento Líquido" → usar Bruto.
+
+- totais_por_ano: preencha uma entrada por ano presente no documento com o total anual e a média mensal daquele ano.
+- assinaturas inclui todos os signatários listados (sócio, contador etc.) — cada um com papel identificado.
+- Nunca inventar dados ausentes`;
+
+const PROMPT_SCR = `Você receberá um PDF de Resultado de Consulta SCR emitido pelo Banco Central do Brasil. O documento pode ser de Pessoa Física ou Pessoa Jurídica. Extraia todos os dados presentes e retorne SOMENTE um JSON válido, sem texto adicional, sem markdown, sem explicações.
+
+{
+  "cpf_cnpj": "",
+  "tipo_cliente": "",
+  "periodo_referencia": "",
+  "inicio_relacionamento": "",
+  "dados_operacao": {
+    "coobrigacao_assumida": null,
+    "coobrigacao_recebida": null,
+    "percentual_doctos_processados": null,
+    "percentual_volume_processado": null,
+    "qtde_operacoes_discordancia": null,
+    "valor_operacoes_discordancia": null,
+    "qtde_operacoes_sub_judice": null,
+    "valor_operacoes_sub_judice": null,
+    "qtde_instituicoes": null,
+    "qtde_operacoes": null,
+    "risco_indireto_vendor": null
+  },
+  "carteira_a_vencer": {
+    "de_14_a_30_dias": null,
+    "de_31_a_60_dias": null,
+    "de_61_a_90_dias": null,
+    "de_91_a_180_dias": null,
+    "de_181_a_360_dias": null,
+    "acima_de_360_dias": null,
+    "prazo_indeterminado": null,
+    "total": null
+  },
+  "vencidos": {
+    "de_15_a_30_dias": null,
+    "de_31_a_60_dias": null,
+    "de_61_a_90_dias": null,
+    "de_91_a_180_dias": null,
+    "de_181_a_360_dias": null,
+    "acima_de_360_dias": null,
+    "total": null
+  },
+  "prejuizos": {
+    "ate_12_meses": null,
+    "acima_12_meses": null,
+    "total": null
+  },
+  "limite_credito": {
+    "ate_360_dias": null,
+    "acima_360_dias": null,
+    "total": null
+  },
+  "outros_valores": {
+    "carteira_credito": null,
+    "repasses": null,
+    "coobrigacoes": null,
+    "responsabilidade_total": null,
+    "creditos_a_liberar": null,
+    "risco_indireto_vendor": null,
+    "risco_total": null
+  },
+  "modalidades": [
+    {
+      "tipo": "",
+      "codigo_modalidade": "",
+      "dominio": "",
+      "subdominio": "",
+      "valor": null,
+      "situacao": ""
+    }
+  ]
+}
+
+Regras:
+- Campos ausentes → retornar null
+- CPF com máscara XXX.XXX.XXX-XX, CNPJ com máscara XX.XXX.XXX/XXXX-XX
+- periodo_referencia no formato MM/AAAA — ex: "01/2025"
+- inicio_relacionamento no formato DD/MM/AAAA
+- Todos os valores monetários como float sem formatação — ex: 112339.53
+- tipo_cliente → "PF" ou "PJ"
+- modalidades → capture TODAS as linhas de modalidades de TODAS as páginas do documento — não pare na primeira página. situacao = "A VENCER", "VENCIDO" ou "PREJUIZO" conforme consta no documento; codigo_modalidade = código numérico — ex: "0203"
+- Valores R$ 0,00 são dados VÁLIDOS — retorne 0, nunca null para eles (vencidos zerados, prejuízos zerados etc.)
+- Se o documento contiver dois períodos, retornar apenas o mais recente (o período anterior será enviado em um segundo upload)
+- carteira_a_vencer: extrair TODAS as 7 faixas do BACEN — a faixa "De 14 a 30 dias" (a primeira/menor) deve ir em "de_14_a_30_dias". NUNCA deixe essa faixa como null se houver valor na seção "A Vencer". Confira que total = soma das 7 faixas.
+- vencidos: a primeira faixa no BACEN chama "De 15 a 30 dias" (diferente de a_vencer) — vai em "de_15_a_30_dias". Confira que total = soma das 6 faixas. O "total" declarado no documento é o valor correto — não recalcule.
+- Nunca inventar dados ausentes`;
+
+// ── Subformato SCR: cliente sem operações no período ──────────────────────────
+const PROMPT_SCR_SEM_DADOS = `Este documento SCR do Banco Central do Brasil indica que o cliente não possui operações registradas no SCR para o período consultado. Extraia apenas os dados de identificação presentes e retorne SOMENTE um JSON válido.
+
+{
+  "cpf_cnpj": "",
+  "tipo_cliente": "",
+  "periodo_referencia": "",
+  "inicio_relacionamento": null,
+  "sem_dados_scr": true,
+  "dados_operacao": { "coobrigacao_assumida": 0, "coobrigacao_recebida": 0, "percentual_doctos_processados": null, "percentual_volume_processado": null, "qtde_operacoes_discordancia": 0, "valor_operacoes_discordancia": 0, "qtde_operacoes_sub_judice": 0, "valor_operacoes_sub_judice": 0, "qtde_instituicoes": 0, "qtde_operacoes": 0, "risco_indireto_vendor": 0 },
+  "carteira_a_vencer": { "de_14_a_30_dias": 0, "de_31_a_60_dias": 0, "de_61_a_90_dias": 0, "de_91_a_180_dias": 0, "de_181_a_360_dias": 0, "acima_de_360_dias": 0, "prazo_indeterminado": 0, "total": 0 },
+  "vencidos": { "de_15_a_30_dias": 0, "de_31_a_60_dias": 0, "de_61_a_90_dias": 0, "de_91_a_180_dias": 0, "de_181_a_360_dias": 0, "acima_de_360_dias": 0, "total": 0 },
+  "prejuizos": { "ate_12_meses": 0, "acima_12_meses": 0, "total": 0 },
+  "limite_credito": { "ate_360_dias": null, "acima_360_dias": null, "total": null },
+  "outros_valores": { "carteira_credito": 0, "repasses": 0, "coobrigacoes": 0, "responsabilidade_total": 0, "creditos_a_liberar": null, "risco_indireto_vendor": 0, "risco_total": 0 },
+  "modalidades": []
+}
+
+Regras:
+- cpf_cnpj: extraia o CPF ou CNPJ do cabeçalho — CPF com máscara XXX.XXX.XXX-XX, CNPJ com XX.XXX.XXX/XXXX-XX. Se aparecer como "Raiz do documento: 59061963000148" complete com zeros: "59.061.963/0001-48" (atenção: alguns têm apenas a raiz sem filial, assumir /0001-XX se 8 dígitos)
+- tipo_cliente: "PF" ou "PJ"
+- periodo_referencia: formato MM/AAAA — ex: "Mar/25" → "03/2025"; "02/2026" → "02/2026"
+- sem_dados_scr deve ser sempre true
+- Todos os valores de operações e carteiras = 0 (zero), NÃO null — significa sem dívidas no sistema
+- modalidades = [] (array vazio)
+- Nunca inventar dados`;
+
+// ── Subformato SCR: bureau (Credit Hub, Quod, Boa Vista, Serasa) ──────────────
+const PROMPT_SCR_BUREAU = `Você receberá um relatório de bureau de crédito (Credit Hub, Quod, Boa Vista SCPC, Serasa Experian ou similar). Este documento tem formato diferente do SCR BACEN — não possui faixas de vencimento, mas contém resumo de negativações e pendências. Extraia os dados disponíveis e retorne SOMENTE um JSON válido.
+
+{
+  "cpf_cnpj": "",
+  "tipo_cliente": "",
+  "periodo_referencia": "",
+  "inicio_relacionamento": null,
+  "fonte_bureau": "",
+  "dados_operacao": { "coobrigacao_assumida": null, "coobrigacao_recebida": null, "percentual_doctos_processados": null, "percentual_volume_processado": null, "qtde_operacoes_discordancia": null, "valor_operacoes_discordancia": null, "qtde_operacoes_sub_judice": null, "valor_operacoes_sub_judice": null, "qtde_instituicoes": null, "qtde_operacoes": null, "risco_indireto_vendor": null },
+  "carteira_a_vencer": { "de_14_a_30_dias": null, "de_31_a_60_dias": null, "de_61_a_90_dias": null, "de_91_a_180_dias": null, "de_181_a_360_dias": null, "acima_de_360_dias": null, "prazo_indeterminado": null, "total": null },
+  "vencidos": { "de_15_a_30_dias": null, "de_31_a_60_dias": null, "de_61_a_90_dias": null, "de_91_a_180_dias": null, "de_181_a_360_dias": null, "acima_de_360_dias": null, "total": null },
+  "prejuizos": { "ate_12_meses": null, "acima_12_meses": null, "total": null },
+  "limite_credito": { "ate_360_dias": null, "acima_360_dias": null, "total": null },
+  "outros_valores": { "carteira_credito": null, "repasses": null, "coobrigacoes": null, "responsabilidade_total": null, "creditos_a_liberar": null, "risco_indireto_vendor": null, "risco_total": null },
+  "modalidades": [
+    { "tipo": "", "codigo_modalidade": "", "dominio": "", "subdominio": "", "valor": null, "situacao": "" }
+  ]
+}
+
+Mapeamento de campos de bureau para o schema:
+- vencidos.total → soma de Pefin + Refin + negativações ativas em valor (R$). Se zero = 0.
+- prejuizos.total → perdas/write-offs mencionados. Se ausente = null.
+- outros_valores.responsabilidade_total → total de dívidas ativas (todas as pendências financeiras somadas)
+- modalidades → liste cada negativação/pendência individual como um item:
+  * tipo = "VENCIDO" se negativação ativa, "A VENCER" se compromisso futuro, "PREJUIZO" se write-off
+  * dominio = nome do credor/banco/fonte
+  * subdominio = categoria (ex: "Pefin Serasa", "Cheque sem fundos", "Protesto")
+  * valor = valor da ocorrência como float
+  * situacao = "VENCIDO", "A VENCER" ou "PREJUIZO"
+  * codigo_modalidade = "" (bureau não tem código BACEN)
+- fonte_bureau → "CREDIT HUB", "QUOD", "BOA VISTA", "SERASA" ou nome identificado no documento
+- periodo_referencia → data de geração do relatório no formato MM/AAAA
+- tipo_cliente → "PF" ou "PJ"
+- Valores R$ 0,00 = retornar 0, não null
+- Nunca inventar dados`;
+
+// ── Subformato Faturamento: DAS/PGDAS Simples Nacional ────────────────────────
+const PROMPT_FAT_DAS = `Você receberá um documento DAS/PGDAS do Simples Nacional emitido pela Receita Federal. Extraia todos os dados e retorne SOMENTE um JSON válido, sem texto adicional, sem markdown.
+
+{
+  "cnpj": "",
+  "razao_social": "",
+  "inscricao_estadual": null,
+  "endereco": null,
+  "cidade": null,
+  "cep": null,
+  "data_emissao": "",
+  "periodo_inicio": "",
+  "periodo_fim": "",
+  "meses": [
+    { "mes": "", "ano": null, "saidas": null, "servicos": null, "outros": null, "total": null }
+  ],
+  "totais_por_ano": [
+    { "ano": null, "total": null, "media_mensal": null }
+  ],
+  "totais": { "saidas": null, "servicos": null, "outros": null, "total": null },
+  "media_mensal": { "saidas": null, "servicos": null, "outros": null, "total": null },
+  "assinaturas": [],
+  "contador": { "nome": null, "cpf": null, "crc": null }
+}
+
+Regras DAS/PGDAS específicas:
+- CNPJ sempre com máscara XX.XXX.XXX/XXXX-XX
+- Para cada período de apuração (mês/ano), o "total" = campo "Receita Bruta Total do Período de Apuração" ou "RBT" ou "Receita Bruta Total". Este é o faturamento declarado ao Simples.
+- "mes" = nome do mês em português — ex: "Janeiro", "Fevereiro". NUNCA número.
+- "ano" = ano como inteiro — ex: 2024, 2025.
+- Inclua um registro para CADA mês de apuração presente no documento.
+- Meses com RBT = R$ 0,00 → retornar total = 0 (zero), NÃO null.
+- Meses ausentes do documento → não incluir no array (não forçar null).
+- Valores monetários: retorne como float sem formatação. "R$ 1.250.000,00" → 1250000.0. Ponto é milhar, vírgula é decimal.
+- totais_por_ano: uma entrada por ano com total anual = soma dos meses do ano, media_mensal = total / 12.
+- Ordem cronológica: mais antigo primeiro.
+- Nunca inventar dados ausentes`;
+
+// ── Subformato Faturamento: extrato bancário ──────────────────────────────────
+const PROMPT_FAT_BANCARIO = `Você receberá um extrato bancário de conta corrente ou conta PJ. Extraia o faturamento mensal (entradas/créditos) e retorne SOMENTE um JSON válido, sem texto adicional, sem markdown.
+
+{
+  "cnpj": "",
+  "razao_social": "",
+  "inscricao_estadual": null,
+  "endereco": null,
+  "cidade": null,
+  "cep": null,
+  "data_emissao": "",
+  "periodo_inicio": "",
+  "periodo_fim": "",
+  "meses": [
+    { "mes": "", "ano": null, "saidas": null, "servicos": null, "outros": null, "total": null }
+  ],
+  "totais_por_ano": [
+    { "ano": null, "total": null, "media_mensal": null }
+  ],
+  "totais": { "saidas": null, "servicos": null, "outros": null, "total": null },
+  "media_mensal": { "saidas": null, "servicos": null, "outros": null, "total": null },
+  "assinaturas": [],
+  "contador": { "nome": null, "cpf": null, "crc": null }
+}
+
+Regras extrato bancário:
+- CNPJ sempre com máscara XX.XXX.XXX/XXXX-XX
+- "total" de cada mês = SOMA de todas as entradas/créditos do mês (coluna C, Crédito, Entrada ou similar). NÃO incluir débitos/saídas — queremos receita, não despesa.
+- Se o extrato mostrar apenas saldo final sem discriminar créditos/débitos por mês, calcule: saldo_final - saldo_inicial + débitos_do_mês = créditos_do_mês.
+- Meses com crédito zero → retornar 0 (zero), NÃO null.
+- "mes" = nome do mês em português. "ano" = inteiro.
+- Valores: float sem formatação. Ponto é milhar, vírgula é decimal.
+- Ordem cronológica: mais antigo primeiro.
+- Nunca inventar dados ausentes`;
+
+// ── Subformato IR: apenas recibo de entrega ────────────────────────────────────
+const PROMPT_IR_RECIBO = `Você receberá um Recibo de Entrega da DIRPF — apenas o comprovante de que a declaração foi enviada à Receita Federal. Este documento NÃO contém dados financeiros completos. Extraia apenas os dados de identificação presentes e retorne SOMENTE um JSON válido.
+
+{
+  "nome": "",
+  "cpf": "",
+  "exercicio": null,
+  "ano_calendario": null,
+  "tipo_declaracao": "Recibo de Entrega",
+  "numero_recibo_ultima_declaracao": "",
+  "identificacao": { "data_nascimento": null, "possui_conjuge": null, "cpf_conjuge": null, "natureza_ocupacao_codigo": null, "natureza_ocupacao_descricao": null, "ocupacao_principal_codigo": null, "ocupacao_principal_descricao": null, "endereco": { "logradouro": null, "numero": null, "complemento": null, "bairro": null, "municipio": null, "uf": null, "cep": null }, "email": null, "telefone": null, "celular": null },
+  "dependentes": [],
+  "alimentandos": [],
+  "rendimentos_tributaveis_pj_titular": [],
+  "rendimentos_isentos_nao_tributaveis": [],
+  "rendimentos_tributacao_exclusiva": [],
+  "imposto_pago_retido": { "imposto_complementar": null, "imposto_pago_exterior": null, "imposto_retido_fonte_titular": null, "imposto_retido_fonte_dependentes": null, "carne_leao_titular": null, "carne_leao_dependentes": null, "total_imposto_pago": null },
+  "pagamentos_efetuados": [],
+  "bens_e_direitos": [],
+  "dividas_onus_reais": [],
+  "resumo": { "total_rendimentos_tributaveis": null, "total_deducoes": null, "base_calculo_imposto": null, "aliquota_efetiva_percent": null, "imposto_devido": null, "imposto_a_restituir": null, "saldo_imposto_a_pagar": null, "pensao_alimenticia_judicial": null, "rendimentos_isentos_nao_tributaveis": null, "rendimentos_tributacao_exclusiva": null },
+  "evolucao_patrimonial": { "bens_direitos_ano_anterior": null, "bens_direitos_ano_atual": null, "dividas_ano_anterior": null, "dividas_ano_atual": null }
+}
+
+Regras:
+- nome e cpf → do cabeçalho do recibo. CPF com máscara XXX.XXX.XXX-XX.
+- exercicio → ano do exercício (ex: 2025). ano_calendario → ano-calendário (ex: 2024).
+- numero_recibo_ultima_declaracao → número do recibo de entrega se presente.
+- Todos os demais campos financeiros = null ou [] — este documento não os contém.
+- Nunca inventar dados`;
 
 const PROMPT_PROTESTOS = `Você receberá uma certidão de protestos (SERASA, cartório, CRC, IEPTB ou similar). Extraia os dados e retorne APENAS JSON válido, sem markdown.
 
@@ -934,498 +875,498 @@ Se não houver grupo econômico: retorne {"empresas":[]}.
 
 NÃO invente dados.`;
 
-const PROMPT_CURVA_ABC = `Você receberá um relatório de Curva ABC de clientes (de ERP, planilha ou sistema contábil). Colunas típicas: Cliente, Peso (kg), Valor Total, Ticket Médio, % Participação, % Acumulado, Classe ABC.
-
-Retorne APENAS JSON válido, sem markdown, sem texto adicional:
-
-{"clientes":[{"posicao":1,"nome":"","cnpjCpf":"","valorFaturado":"0,00","percentualReceita":"0.00","percentualAcumulado":"0.00","classe":"A"}],"totalClientesNaBase":0,"totalClientesExtraidos":0,"periodoReferencia":"","receitaTotalBase":"0,00","concentracaoTop3":"0.00","concentracaoTop5":"0.00","concentracaoTop10":"0.00","totalClientesClasseA":0,"receitaClasseA":"0,00","maiorCliente":"","maiorClientePct":"0.00","alertaConcentracao":false}
-
-FORMATOS NUMÉRICOS (ATENÇÃO à mistura):
-- valorFaturado / receitaTotalBase / receitaClasseA: formato BRASILEIRO com vírgula decimal (ex: "4.664.989,95")
-- percentualReceita / percentualAcumulado / concentracaoTopN / maiorClientePct: número com PONTO decimal, SEM % (ex: "36.35", NÃO "36,35%")
-
-Regras de extração:
-1. Extraia TODOS os clientes em ordem decrescente de valorFaturado
-2. posicao: ranking iniciando em 1
-3. nome: nome do cliente preservando acentos
-4. cnpjCpf: se o documento separar por coluna, use o formato identificado. Se o nome vier com CPF/CNPJ no início (ex: "59.580.931 MARIA LUIZA DA SILVA"), SEPARE:
-   * cnpjCpf = "59.580.931" (apenas os dígitos/pontos)
-   * nome = "MARIA LUIZA DA SILVA"
-   Se não houver CPF/CNPJ identificável, cnpjCpf = ""
-5. classe: "A" | "B" | "C" exatamente como no documento
-6. periodoReferencia: período dos dados (ex: "Jan-Dez/2024", "2024", "Últimos 12 meses") se constar, senão ""
-
-Campos calculados:
-7. totalClientesNaBase: total de clientes na base de dados (linha "Total Geral" / "Total de Clientes" — exclui a própria linha de total)
-8. totalClientesExtraidos: contagem do array "clientes" retornado (pode ser menor que totalClientesNaBase se o doc truncar a lista)
-9. receitaTotalBase: valor da linha "Total Geral" do documento
-10. concentracaoTop3: soma dos percentualReceita dos 3 primeiros clientes (ex: "52.10")
-11. concentracaoTop5: idem para os 5 primeiros
-12. concentracaoTop10: idem para os 10 primeiros
-13. totalClientesClasseA: quantidade de clientes com classe "A"
-14. receitaClasseA: soma dos valorFaturado de clientes classe A
-15. maiorCliente: nome do cliente na posição 1
-16. maiorClientePct: percentualReceita do cliente na posição 1
-17. alertaConcentracao: true SE maiorClientePct > 30 (concentração crítica)
-
-NÃO invente dados.`;
-
-const PROMPT_DRE = `Você receberá uma Demonstração de Resultado do Exercício (DRE). Pode estar em formato SPED ECD/ECF, DRE simplificada, relatório gerencial, planilha Excel ou PDF contábil. Retorne APENAS JSON válido, sem markdown, sem texto adicional.
-
-Schema EXATO (respeite todos os campos):
-{"anos":[{"ano":"2024","receitaBruta":"0,00","deducoes":"0,00","receitaLiquida":"0,00","custoProdutosServicos":"0,00","lucroBruto":"0,00","margemBruta":"0,00","despesasOperacionais":"0,00","ebitda":"0,00","margemEbitda":"0,00","depreciacaoAmortizacao":"0,00","resultadoFinanceiro":"0,00","lucroAntesIR":"0,00","impostoRenda":"0,00","lucroLiquido":"0,00","margemLiquida":"0,00"}],"crescimentoReceita":"0,00","tendenciaLucro":"estavel","periodoMaisRecente":"","observacoes":""}
-
-═══ REGRA ABSOLUTA: LER VALORES COM ATENÇÃO ═══
-O Gemini costuma errar valores de DRE. Você DEVE:
-
-1. LER o documento número por número, sem chutar
-2. Preservar EXATAMENTE a quantidade de dígitos que aparece
-3. NUNCA mover vírgulas ou pontos
-4. Se o documento mostra "R$ 3.506.158,22", você escreve "3.506.158,22"
-5. NÃO some zeros a mais. NÃO corte zeros.
-6. Valores de PME brasileira:
-   - Receita Bruta mensal: R$ 10k a R$ 50M (raramente >100M)
-   - Receita Bruta ANUAL: R$ 100k a R$ 500M (raramente >1B)
-   - Se você extrair R$ 10 bilhões de receita, PARE e releia o documento
-
-═══ REGRA CRÍTICA ANTI-CONFUSAO DE SEPARADORES ═══
-Separador brasileiro: PONTO para milhar, VÍRGULA para decimal.
-- "3.506.158,22" = 3,5 milhões (NÃO 3,5 bilhões, NÃO 3 mil e quinhentos)
-- "850.000,00" = 850 mil
-- NUNCA use formato americano "3,506,158.22" na saída
-Se o valor extraído parecer 10x/100x maior que o razoável, REINTERPRETE o separador.
-
-REGRAS OBRIGATÓRIAS DE FORMATO:
-1. TODOS os valores monetários DEVEM estar em formato brasileiro: ponto como separador de milhar, vírgula para decimais
-   - CORRETO: "1.234.567,89", "456.789,00", "-12.345,67"
-   - ERRADO: "1234567.89", "1,234,567.89", "R$ 1.234,00"
-   - Sem prefixo "R$", sem espaços extras
-2. Valores negativos: prefixar com sinal de menos: "-45.000,00" (custos, deduções, despesas e prejuízos)
-3. Margens: número percentual SEM símbolo "%", com vírgula decimal: "12,5" ou "-3,2"
-4. Se um campo não existir no documento, use "0,00"
-5. NÃO arredonde — mantenha os centavos como aparecem no documento
-
-REGRAS DE EXTRAÇÃO:
-- Extraia dados ANUAIS consolidados. Se houver vários anos, extraia TODOS em ordem cronológica crescente (ex: 2022, 2023, 2024)
-- Se o documento contiver dados MENSAIS ou TRIMESTRAIS (sem consolidação anual), SOME todos os meses/trimestres de cada ano para obter o total anual
-- Exemplo: se Jan=100, Fev=150, ..., Dez=200, então receitaBruta do ano = soma de todos os 12 meses
-- Se houver coluna "Acumulado" ou "Total do Período", prefira esse valor em vez de somar manualmente
-
-Mapeamento de contas (SPED ECD/ECF e DRE padrão):
-- receitaBruta → "RECEITA BRUTA" / "RECEITA OPERACIONAL BRUTA" / "FATURAMENTO BRUTO" / conta 3.01 / linha que antecede deduções
-- deducoes → "DEDUÇÕES DA RECEITA" / "(-) Impostos sobre Vendas" / "(-) Devoluções e Abatimentos" / conta 3.02 — SEMPRE como valor negativo
-- receitaLiquida → "RECEITA LÍQUIDA" / "RECEITA OPERACIONAL LÍQUIDA" / conta 3.03 — se não constar, calcule: receitaBruta + deducoes (deducoes é negativo)
-- custoProdutosServicos → "CPV" / "CMV" / "CUSTO DOS PRODUTOS VENDIDOS" / "CUSTO DOS SERVIÇOS PRESTADOS" / conta 3.04 — SEMPRE como valor negativo
-- lucroBruto → "LUCRO BRUTO" / "RESULTADO BRUTO" / conta 3.05 — se não constar, calcule: receitaLiquida + custoProdutosServicos
-- despesasOperacionais → "DESPESAS OPERACIONAIS" / soma de "Despesas com Vendas" + "Despesas Administrativas" + "Despesas Gerais" — SEMPRE como valor negativo
-- ebitda → "EBITDA" / "LAJIDA" — se não constar, calcule: lucroBruto + despesasOperacionais + depreciacaoAmortizacao (despesas são negativas, depreciação é negativa, então: lucroBruto - |despesas| - |depreciação| efetivamente)
-  Alternativa simplificada quando depreciação = 0: ebitda = lucroBruto + despesasOperacionais
-- depreciacaoAmortizacao → "DEPRECIAÇÃO E AMORTIZAÇÃO" / "D&A" / conta 3.06 — como valor negativo
-- resultadoFinanceiro → "RESULTADO FINANCEIRO" / "RECEITAS FINANCEIRAS" menos "DESPESAS FINANCEIRAS" — negativo se despesa líquida
-- lucroAntesIR → "LAIR" / "LUCRO ANTES DO IRPJ E CSLL" / "RESULTADO ANTES DOS TRIBUTOS"
-- impostoRenda → "IRPJ" + "CSLL" / "PROVISÃO PARA IR E CSLL" — como valor negativo
-- lucroLiquido → "LUCRO LÍQUIDO" / "PREJUÍZO DO EXERCÍCIO" / "RESULTADO LÍQUIDO" / conta 3.99
-
-CÁLCULOS DE MARGEM (calcule SEMPRE, mesmo se o documento informar):
-- margemBruta = (lucroBruto / receitaLiquida) * 100 → ex: se lucroBruto = "500.000,00" e receitaLiquida = "1.000.000,00", margemBruta = "50,0"
-- margemEbitda = (ebitda / receitaLiquida) * 100
-- margemLiquida = (lucroLiquido / receitaLiquida) * 100
-- Se receitaLiquida = 0, todas as margens = "0,00"
-- Margens negativas mantêm sinal: "-8,5"
-
-Campos adicionais:
-- crescimentoReceita: variação % da receitaBruta entre primeiro e último ano — fórmula: ((último - primeiro) / |primeiro|) * 100 — ex: "15,3" ou "-8,2"
-- tendenciaLucro: "crescimento" se lucroLiquido aumentou nos últimos 2 anos, "queda" se diminuiu, "estavel" se variação absoluta < 5%
-- periodoMaisRecente: ano mais recente encontrado (ex: "2024")
-- observacoes: informações relevantes não capturadas (regime tributário, notas do contador, etc.)
-
-TRATAMENTO POR REGIME TRIBUTÁRIO:
-- Simples Nacional: DREs do Simples costumam ser simplificadas — lucroBruto pode não aparecer. Nesse caso calcule: lucroBruto = receitaLiquida - custoProdutosServicos. Se não há CPV/CMV separado, use "0,00" em custoProdutosServicos e lucroBruto = receitaLiquida.
-- Lucro Presumido: pode omitir deduções detalhadas. Se apenas receitaBruta aparecer, receitaLiquida = receitaBruta - estimativa_imposto (use 0 se não especificado).
-- Lucro Real: DRE completo — use o mapeamento padrão acima.
-- MEI: DRE simplificada, geralmente apenas receitaBruta e lucroLiquido. Outros campos = "0,00".
-
-VALIDAÇÕES DE COERÊNCIA (obrigatórias — marque em observacoes se alguma falhar):
-- receitaLiquida ≈ receitaBruta + deducoes (deducoes negativo)
-- lucroBruto ≈ receitaLiquida + custoProdutosServicos (custo negativo)
-- ebitda ≈ lucroBruto + despesasOperacionais (despesas negativas)
-- Se discrepância > 5%, anote em observacoes: "DRE com incoerência em X"
-
-IMPORTANTE:
-- NÃO invente dados — use APENAS valores presentes no documento
-- Se o documento estiver ilegível ou vazio em algum campo, use "0,00"
-- Preserve acentos e formatação textual em observacoes`;
-
-const PROMPT_BALANCO = `Você receberá um Balanço Patrimonial. Pode estar em formato SPED ECD (com códigos de conta como 1.01, 2.03, etc.), balanço simplificado, relatório gerencial, planilha Excel ou PDF contábil. Retorne APENAS JSON válido, sem markdown, sem texto adicional.
-
-Schema EXATO (respeite todos os campos):
-{"anos":[{"ano":"2024","ativoTotal":"0,00","ativoCirculante":"0,00","caixaEquivalentes":"0,00","contasAReceber":"0,00","estoques":"0,00","outrosAtivosCirculantes":"0,00","ativoNaoCirculante":"0,00","imobilizado":"0,00","intangivel":"0,00","outrosAtivosNaoCirculantes":"0,00","passivoTotal":"0,00","passivoCirculante":"0,00","fornecedores":"0,00","emprestimosCP":"0,00","outrosPassivosCirculantes":"0,00","passivoNaoCirculante":"0,00","emprestimosLP":"0,00","outrosPassivosNaoCirculantes":"0,00","patrimonioLiquido":"0,00","capitalSocial":"0,00","reservas":"0,00","lucrosAcumulados":"0,00","liquidezCorrente":"0,00","liquidezGeral":"0,00","endividamentoTotal":"0,00","capitalDeGiroLiquido":"0,00"}],"periodoMaisRecente":"","tendenciaPatrimonio":"estavel","observacoes":""}
-
-═══ REGRA ABSOLUTA: LER VALORES COM ATENÇÃO ═══
-O Gemini costuma errar valores de Balanço. Você DEVE:
-
-1. LER o documento número por número, sem chutar
-2. Preservar EXATAMENTE a quantidade de dígitos que aparece
-3. NUNCA mover vírgulas ou pontos
-4. Se o documento mostra "R$ 3.506.158,22", você escreve "3.506.158,22"
-5. NÃO some zeros a mais. NÃO corte zeros.
-6. Valores de PME brasileira:
-   - Ativo Total: R$ 500k a R$ 500M (raramente >1B)
-   - Patrimônio Líquido: raramente >R$ 100M em valor absoluto
-   - Se você extrair R$ 10 bilhões de ativo, PARE e releia o documento
-
-═══ CUIDADO COM DIVISÃO ENTRE AC/PC ═══
-NCG (Necessidade de Capital de Giro) = Ativo Circulante - Passivo Circulante
-Se o AC ou PC estiver 10x maior que o real, o NCG fica 10x errado.
-
-Valores de Ativo Circulante para PME: R$ 50k a R$ 100M
-Se extrair Ativo Circulante > R$ 1 bilhão para uma PME, PROVAVELMENTE errou o separador.
-
-═══ REGRA CRÍTICA ANTI-CONFUSAO DE SEPARADORES ═══
-ATENÇÃO: o separador brasileiro usa PONTO para milhar e VÍRGULA para decimal.
-NUNCA confunda com formato americano (vírgula para milhar, ponto para decimal).
-
-CORRETOS (formato brasileiro):
-- R$ 3.506.158,22  (três milhões e meio)
-- R$ 850.000,00    (oitocentos e cinquenta mil)
-- R$ 42.300,50     (quarenta e dois mil trezentos)
-
-ERRADOS (interpretação americana do brasileiro):
-- 3,506,158.22 (NÃO USE — formato americano)
-- 3506158.22   (NÃO USE — sem separador de milhar)
-
-REGRA DE OURO: se você vê "3.506.158,22" em um documento brasileiro:
-- São 3 milhões 506 mil 158 reais e 22 centavos
-- NÃO é "3.506.158,22 milhões" (isso seria 3 trilhões)
-- NÃO é 3,506 (três mil e quinhentos)
-
-VALIDAÇÃO DE ORDEM DE GRANDEZA para PME:
-- Ativo Total: tipicamente R$ 500k a R$ 500M
-- Patrimônio Líquido: pode ser negativo, mas raramente > R$ 100M
-- Capital Social: geralmente R$ 10k a R$ 10M
-Se extrair um Ativo Total > R$ 1 bilhão para uma PME, PROVAVELMENTE errou o separador.
-
-FORMATO NUMÉRICO BRASILEIRO (OBRIGATÓRIO):
-- Separador de MILHAR = ponto (.) — Separador DECIMAL = vírgula (,)
-- Exemplos corretos: "1.234.567,89", "850.000,00", "-45.320,10"
-- ERRADO: "1234567.89", "1,234,567.89"
-- NUNCA use prefixo "R$"
-- Valores negativos: prefixe com sinal de menos (ex: "-120.500,00" para patrimônio líquido negativo ou prejuízos acumulados)
-
-REGRAS DE EXTRAÇÃO:
-- O documento pode conter 2 ou 3 anos de dados lado a lado (ex: 2022, 2023, 2024). Extraia TODOS em ordem cronológica crescente no array "anos"
-- SPED ECD: use os valores da coluna "Saldo Final" (não "Saldo Inicial" ou "Movimentação"). Identifique contas pelo código (1.01, 2.03, etc.)
-- Se um campo não existir no documento, use "0,00"
-
-MAPEAMENTO DE CONTAS (SPED ECD e Balanço padrão):
-- ativoTotal → "ATIVO TOTAL" / "TOTAL DO ATIVO" / soma de ativoCirculante + ativoNaoCirculante. VALIDAÇÃO: ativoTotal deve ser aproximadamente igual a passivoCirculante + passivoNaoCirculante + patrimonioLiquido
-- ativoCirculante → grupo 1.01 / "Ativo Circulante"
-- caixaEquivalentes → "Caixa e Equivalentes de Caixa" / "Disponibilidades" / conta 1.01.01
-- contasAReceber → "Contas a Receber" / "Clientes" / "Duplicatas a Receber" / conta 1.01.03
-- estoques → "Estoques" / conta 1.01.04
-- outrosAtivosCirculantes → demais ativos circulantes não listados acima (impostos a recuperar, adiantamentos, etc.)
-- ativoNaoCirculante → grupo 1.02 / "Ativo Não Circulante" / "Ativo Realizável a Longo Prazo" + "Imobilizado" + "Intangível"
-- imobilizado → "Imobilizado" / conta 1.02.03
-- intangivel → "Intangível" / conta 1.02.04
-- outrosAtivosNaoCirculantes → demais não circulantes (realizável a longo prazo, investimentos)
-- passivoTotal → passivoCirculante + passivoNaoCirculante (NÃO inclui patrimônio líquido)
-- passivoCirculante → grupo 2.01 / "Passivo Circulante"
-- fornecedores → "Fornecedores" / conta 2.01.01
-- emprestimosCP → "Empréstimos e Financiamentos CP" / conta 2.01.03
-- outrosPassivosCirculantes → demais passivos circulantes (salários, impostos, provisões)
-- passivoNaoCirculante → grupo 2.02 / "Passivo Não Circulante" / "Exigível a Longo Prazo"
-- emprestimosLP → "Empréstimos e Financiamentos LP" / conta 2.02.01
-- outrosPassivosNaoCirculantes → demais passivos não circulantes
-- patrimonioLiquido → grupo 2.03 / "Patrimônio Líquido". ATENÇÃO: pode ser NEGATIVO se a empresa tem prejuízos acumulados maiores que o capital — nesse caso, prefixe com menos (ex: "-350.000,00")
-- capitalSocial → conta 2.03.01 / "Capital Social Realizado"
-- reservas → soma de "Reservas de Capital" + "Reservas de Lucros"
-- lucrosAcumulados → "Lucros/Prejuízos Acumulados" — negativo se prejuízo (ex: "-200.000,00")
-
-INDICADORES (CALCULE SEMPRE para cada ano):
-1. liquidezCorrente = ativoCirculante / passivoCirculante
-   - Resultado como número decimal com vírgula (ex: "1,50", "0,85", "2,30")
-   - Se passivoCirculante = 0, use "999,99"
-   - Exemplo: ativoCirculante = "500.000,00", passivoCirculante = "333.333,00" → liquidezCorrente = "1,50"
-
-2. liquidezGeral = (ativoCirculante + realizávelLP) / (passivoCirculante + passivoNaoCirculante)
-   - realizávelLP = parte do ativoNaoCirculante que é realizável a longo prazo (se não identificável, use ativoNaoCirculante - imobilizado - intangivel)
-   - Se denominador = 0, use "999,99"
-
-3. endividamentoTotal = ((passivoCirculante + passivoNaoCirculante) / ativoTotal) * 100
-   - Resultado como PERCENTUAL com vírgula (ex: "45,20", "213,52", "78,00")
-   - Exemplo: passivoCirculante = "800.000,00", passivoNaoCirculante = "200.000,00", ativoTotal = "468.350,00" → endividamentoTotal = "213,52"
-   - Pode ser maior que 100% se empresa tem PL negativo
-
-4. capitalDeGiroLiquido = ativoCirculante - passivoCirculante
-   - Resultado em formato monetário brasileiro (ex: "166.667,00", "-50.000,00")
-   - Pode ser negativo se passivo circulante > ativo circulante
-
-CAMPOS ADICIONAIS:
-- periodoMaisRecente: ano mais recente encontrado (ex: "2024")
-- tendenciaPatrimonio: "crescimento" se patrimonioLiquido aumentou nos últimos 2 anos, "queda" se diminuiu, "estavel" se variação < 5%
-- observacoes: informações relevantes (regime tributário, contador, notas explicativas relevantes)
-
-VALIDAÇÕES CRUZADAS (obrigatórias — anote em observacoes se falhar):
-1. Equação fundamental: ativoTotal ≈ passivoCirculante + passivoNaoCirculante + patrimonioLiquido (diferença < 1% é aceitável)
-2. ativoCirculante + ativoNaoCirculante ≈ ativoTotal
-3. passivoCirculante + passivoNaoCirculante ≈ passivoTotal
-4. Se endividamentoTotal > 100, o patrimonioLiquido DEVE ser negativo — valide essa relação
-5. Se alguma validação falhar, anote em observacoes: "Incoerência detectada: [descrição]"
-
-EXEMPLO DE SAÍDA (para referência):
-{"anos":[{"ano":"2023","ativoTotal":"468.350,00","ativoCirculante":"300.000,00","caixaEquivalentes":"50.000,00","contasAReceber":"150.000,00","estoques":"80.000,00","outrosAtivosCirculantes":"20.000,00","ativoNaoCirculante":"168.350,00","imobilizado":"120.000,00","intangivel":"10.000,00","outrosAtivosNaoCirculantes":"38.350,00","passivoTotal":"1.000.000,00","passivoCirculante":"800.000,00","fornecedores":"200.000,00","emprestimosCP":"400.000,00","outrosPassivosCirculantes":"200.000,00","passivoNaoCirculante":"200.000,00","emprestimosLP":"150.000,00","outrosPassivosNaoCirculantes":"50.000,00","patrimonioLiquido":"-531.650,00","capitalSocial":"100.000,00","reservas":"0,00","lucrosAcumulados":"-631.650,00","liquidezCorrente":"0,38","liquidezGeral":"0,34","endividamentoTotal":"213,52","capitalDeGiroLiquido":"-500.000,00"}],"periodoMaisRecente":"2023","tendenciaPatrimonio":"queda","observacoes":""}
-
-NÃO invente dados — use APENAS valores presentes no documento.`;
-
-const PROMPT_IR_SOCIOS = `Você receberá um documento de Imposto de Renda de sócio: pode ser apenas o Recibo de Entrega (DIRPF), uma Declaração Completa ou extrato da Receita Federal. Retorne APENAS JSON válido, sem markdown.
-
-Schema:
-{"nomeSocio":"","cpf":"","anoBase":"","tipoDocumento":"recibo","numeroRecibo":"","dataEntrega":"","situacaoMalhas":false,"debitosEmAberto":false,"descricaoDebitos":"","rendimentosTributaveis":"0,00","rendimentosIsentos":"0,00","rendimentoTotal":"0,00","impostoDefinido":"0,00","valorQuota":"0,00","bensImoveis":"0,00","bensVeiculos":"0,00","aplicacoesFinanceiras":"0,00","outrosBens":"0,00","totalBensDireitos":"0,00","dividasOnus":"0,00","patrimonioLiquido":"0,00","impostoPago":"0,00","impostoRestituir":"0,00","temSociedades":false,"sociedades":[],"coerenciaComEmpresa":true,"observacoes":""}
-
-═══ REGRA ABSOLUTA: LER VALORES COM ATENÇÃO ═══
-O Gemini costuma errar valores de DIRPF. Você DEVE:
-1. LER o documento número por número, sem chutar
-2. Preservar EXATAMENTE a quantidade de dígitos que aparece
-3. NUNCA mover vírgulas ou pontos
-4. Se o documento mostra "R$ 45.000,00", você escreve "45.000,00" (são 45 mil, NÃO 45 milhões)
-5. NÃO some zeros a mais. NÃO corte zeros.
-
-═══ REGRA CRÍTICA ANTI-CONFUSAO DE SEPARADORES ═══
-Separador brasileiro: PONTO para milhar, VÍRGULA para decimal.
-- "R$ 45.000,00" = quarenta e cinco mil reais (NÃO 45 milhões, NÃO 45)
-- "R$ 1.234.567,89" = um milhão duzentos e trinta e quatro mil
-- "850.000,00" = oitocentos e cinquenta mil
-NUNCA interprete como formato americano "1,234,567.89".
-
-Valores típicos de Pessoa Física no Brasil:
-- Rendimento tributável anual de um sócio de PME: R$ 30k a R$ 3M (raramente >R$ 5M)
-- Salário mensal registrado em DIRPF (anualizado): R$ 24k a R$ 1M
-- Patrimônio líquido declarado: R$ 50k a R$ 20M (raramente >R$ 50M)
-
-Se rendimentoTotal > R$ 10.000.000 para pessoa física, provavelmente errou o separador.
-Se bensImoveis > R$ 100.000.000 para PF, releia o documento — provavelmente errou.
-
-Campos comuns em documentos de DIRPF (nomes típicos que você verá):
-- "Total de Rendimentos Tributáveis Recebidos de PJ" → rendimentosTributaveis
-- "Rendimentos Isentos e Não Tributáveis" → rendimentosIsentos
-- "Total Geral dos Rendimentos" / "Rendimento Bruto" → rendimentoTotal
-- "Imposto Devido" / "Total do Imposto Apurado" → impostoDefinido
-- "Imposto Pago/Retido" / "IRRF" → impostoPago
-- "Imposto a Restituir" / "Restituição" → impostoRestituir
-- "Total de Bens e Direitos" → totalBensDireitos (use o valor total resumido, não some manualmente)
-- "Dívidas e Ônus Reais" / "Total de Dívidas e Ônus Reais" → dividasOnus
-
-═══ BENS E DIREITOS — COMO EXTRAIR CORRETAMENTE ═══
-
-⚠️ FORMATO ATUAL DA DIRPF (2020+): A "Declaração de Bens e Direitos" lista cada item em uma tabela
-com DUAS colunas numéricas iniciais: **GRUPO** (2 dígitos) e **CÓDIGO** (2 dígitos), seguidas de
-DISCRIMINAÇÃO, SITUAÇÃO EM 31/12 do ano anterior e SITUAÇÃO EM 31/12 do ano-calendário.
-
-Exemplo real que você verá:
-  GRUPO  CÓDIGO  DISCRIMINAÇÃO                          31/12/2023      31/12/2024
-  01     12      CASA ...                               640.000,00      640.000,00
-  02     01      VEICULO VW FOX ...                      34.615,00       34.615,00
-  02     01      VEICULO RAM RAMPAGE ...                      0,00      220.972,00
-  02     01      VEICULO VOLVO CX90 ...                 199.847,00      199.847,00
-  03     02      QUOTAS DE CAPITAL ...                  100.000,00      100.000,00
-  04     01      SALDO POUPANÇA ...                          0,00          401,14
-  06     01      CONTA CORRENTE ...                         10,00           10,00
-
-⚠️ REGRA DE OURO: **USE SEMPRE A COLUNA MAIS RECENTE (31/12 do ano-calendário)**, NUNCA a do ano
-anterior. Ignore completamente a penúltima coluna.
-
-═══ MAPEAMENTO DOS GRUPOS ═══
-
-→ **bensImoveis**: some TODOS os itens cujo **GRUPO = 01** (casa, apartamento, sala, terreno,
-  imóvel rural, benfeitoria, imóvel no exterior — qualquer imóvel).
-
-→ **bensVeiculos**: some TODOS os itens cujo **GRUPO = 02** (veículo terrestre, aeronave,
-  embarcação, outros bens móveis registráveis — carros, motos, caminhões, jet-skis, barcos,
-  aviões). **Se aparecem múltiplos carros, some TODOS, não pegue só o primeiro.**
-
-→ **aplicacoesFinanceiras**: some TODOS os itens cujo **GRUPO = 03, 04, 05, 06 ou 07**
-  (participações societárias, contas bancárias, aplicações, fundos, poupança, CDB, Tesouro,
-  previdência, conta corrente). Inclui contas correntes e saldos em conta-poupança.
-
-→ **outrosBens**: some os itens cujo **GRUPO = 08, 09, 10 ou superior** (créditos de empréstimo,
-  joias, obras de arte, direitos autorais, bens intangíveis).
-
-═══ FORMATO LEGADO (DIRPF antiga, pré-2019) ═══
-Se o documento NÃO tiver colunas GRUPO/CÓDIGO separadas e usar código único de 2 dígitos
-(ex: "12 - CASA"), use o mapeamento abaixo:
-  - 11-19 → bensImoveis
-  - 21-29 → bensVeiculos
-  - 31-49 → aplicacoesFinanceiras
-  - 51-99 → outrosBens
-
-═══ COMO PREENCHER totalBensDireitos ═══
-
-1º) PROCURE PRIMEIRO a seção "EVOLUÇÃO PATRIMONIAL" (geralmente na última página do PDF).
-    Ela traz linhas como "Bens e direitos em 31/12/2024 — 1.202.758,23". ESSE é o total
-    autoritativo. Use-o.
-
-2º) Se não achar Evolução Patrimonial, use a linha "TOTAL" que aparece no fim da tabela
-    de Bens e Direitos (última linha, após todos os itens).
-
-3º) Se nem isso houver, SOME bensImoveis + bensVeiculos + aplicacoesFinanceiras + outrosBens.
-
-❌ NUNCA pegue o valor do PRIMEIRO item da tabela como se fosse o total — isso é um erro
-   recorrente. O total é SEMPRE uma linha separada, identificada como "TOTAL" ou
-   "Bens e direitos em 31/12/YYYY".
-
-═══ VERIFICAÇÃO DE CONSISTÊNCIA (auto-checagem obrigatória) ═══
-Antes de devolver o JSON, CONFIRME:
-  bensImoveis + bensVeiculos + aplicacoesFinanceiras + outrosBens ≈ totalBensDireitos
-Se a diferença for > 5%, você ERROU alguma categoria. Releia a tabela item por item e
-refaça as somas. Diferença grande geralmente significa que você esqueceu um grupo inteiro.
-
-Regras críticas:
-- nomeSocio e anoBase são OBRIGATÓRIOS — não retorne JSON sem eles
-- anoBase: use o ANO-CALENDÁRIO, NÃO o ano do exercício
-  Ex: "EXERCÍCIO 2025 — ANO-CALENDÁRIO 2024" → anoBase="2024"
-  Ex: "DECLARAÇÃO 2024 (ano-base 2023)" → anoBase="2023"
-- cpf: formato XXX.XXX.XXX-XX
-- tipoDocumento: "recibo" se for apenas o recibo de entrega; "declaracao" se for declaração completa; "extrato" se for extrato da Receita
-- numeroRecibo: número do recibo de transmissão (ex: "1234567890123456")
-- dataEntrega: data de envio/transmissão em DD/MM/AAAA
-
-Situação fiscal:
-- situacaoMalhas: true se mencionar "retida em malha", "pendências", "intimação" ou similar
-- debitosEmAberto: true se mencionar débitos, parcelamentos ativos ou pendências financeiras
-- descricaoDebitos: descrição resumida dos débitos se debitosEmAberto=true, senão ""
-
-RECIBO DE ENTREGA (DIRPF) — documento simples, geralmente 1 página:
-- tipoDocumento = "recibo"
-- Extraia APENAS: nomeSocio, cpf, anoBase, numeroRecibo, dataEntrega
-- TODOS os valores monetários = "0,00" (o recibo não contém valores detalhados)
-- temSociedades = false, sociedades = [] (não aparecem no recibo)
-- situacaoMalhas e debitosEmAberto = false (não constam no recibo)
-
-DECLARAÇÃO COMPLETA — extraia valores em formato brasileiro:
-- rendimentosTributaveis: total de rendimentos tributáveis (salário, pró-labore, aluguéis, etc.)
-- rendimentosIsentos: rendimentos isentos e não tributáveis (FGTS, lucros e dividendos, poupança, etc.)
-- rendimentoTotal: soma dos dois anteriores
-- impostoDefinido: imposto apurado/devido total (buscar "Imposto Devido", "Total do Imposto Apurado")
-- valorQuota: valor de cada parcela se houver parcelamento, senão "0,00"
-- impostoPago: total já recolhido (IRRF + carnê-leão + quotas pagas)
-- impostoRestituir: valor a restituir se positivo, senão "0,00"
-
-Patrimônio (declaração completa):
-- bensImoveis, bensVeiculos, aplicacoesFinanceiras, outrosBens: valores de bens e direitos por categoria
-- totalBensDireitos: total de bens e direitos
-- dividasOnus: total de dívidas e ônus reais
-- patrimonioLiquido: totalBensDireitos - dividasOnus
-
-Sociedades:
-- temSociedades: true se o sócio declarou participação em sociedades
-- sociedades: lista de empresas onde o sócio tem participação [{"razaoSocial":"","cnpj":"","participacao":""}]
-- coerenciaComEmpresa: true se as sociedades declaradas incluem a empresa que está sendo analisada
-
-- observacoes: informações relevantes não capturadas acima
-- NÃO invente dados`;
-
-const PROMPT_RELATORIO_VISITA = `Você receberá um Relatório de Visita OU uma Ficha de Referência Comercial (texto livre, formulário estruturado, template, ata ou PDF). Extraia os dados e retorne APENAS JSON válido, sem markdown, sem texto adicional.
-
-Schema:
-{"dataVisita":"","responsavelVisita":"","localVisita":"","duracaoVisita":"","estruturaFisicaConfirmada":true,"funcionariosObservados":0,"estoqueVisivel":false,"estimativaEstoque":"","operacaoCompativelFaturamento":true,"maquinasEquipamentos":false,"descricaoEstrutura":"","pontosPositivos":[],"pontosAtencao":[],"recomendacaoVisitante":"aprovado","nivelConfiancaVisita":"alto","presencaSocios":false,"sociosPresentes":[],"documentosVerificados":[],"observacoesLivres":"","pleito":"","modalidade":"","taxaConvencional":"","taxaComissaria":"","limiteTotal":"","limiteConvencional":"","limiteComissaria":"","limitePorSacado":"","limitePrincipaisSacados":"","ticketMedio":"","valorCobrancaBoleto":"","prazoRecompraCedente":"","prazoEnvioCartorio":"","prazoMaximoOp":"","cobrancaTAC":"","tranche":"","trancheChecagem":"","prazoTranche":"","folhaPagamento":"","endividamentoBanco":"","endividamentoFactoring":"","vendasCheque":"","vendasDuplicata":"","vendasOutras":"","prazoMedioFaturamento":"","prazoMedioEntrega":"","referenciasFornecedores":"","referenciasComerciais":[]}
-
-ATENÇÃO: o campo de referências comerciais DEVE ser chamado "referenciasFornecedores" (NÃO "referenciaComercial" ou "referencias"). Use exatamente esse nome.
-
-Regras gerais:
-- dataVisita: formato DD/MM/YYYY
-- recomendacaoVisitante: "aprovado" | "condicional" | "reprovado"
-- nivelConfiancaVisita: "alto" | "medio" | "baixo"
-- Campos ausentes: "" para strings, false para booleans, 0 para números, [] para arrays
-- NÃO invente dados — se não há informação explícita, deixe vazio
-- pontosPositivos e pontosAtencao: listas de strings curtas (1 frase cada)
-- sociosPresentes: lista de nomes dos sócios presentes na visita
-- documentosVerificados: lista de docs confirmados fisicamente ("Contrato Social", "Alvará", "Notas fiscais", etc.)
-- observacoesLivres: bloco de texto com observações gerais do visitante (máximo 500 caracteres)
-- descricaoEstrutura: descrição física do local (área, organização, condições — máximo 300 caracteres)
-
-═══ REGRA CRÍTICA ANTI-CONFUSAO DE SEPARADORES (valores operacionais: taxas, limites, pleito, ticket) ═══
-ATENÇÃO: o separador brasileiro usa PONTO para milhar e VÍRGULA para decimal.
-NUNCA confunda com formato americano (vírgula para milhar, ponto para decimal).
-
-CORRETOS (formato brasileiro):
-- R$ 3.506.158,22  (três milhões e meio)
-- R$ 850.000,00    (oitocentos e cinquenta mil)
-- R$ 42.300,50     (quarenta e dois mil trezentos)
-
-ERRADOS (interpretação americana do brasileiro):
-- 3,506,158.22 (NÃO USE — formato americano)
-- 3506158.22   (NÃO USE — sem separador de milhar)
-
-REGRA DE OURO: se você vê "3.506.158,22" em um documento brasileiro:
-- São 3 milhões 506 mil 158 reais e 22 centavos
-- NÃO é "3.506.158,22 milhões" (isso seria 3 trilhões)
-
-Se um limite ou pleito extraído parecer 10x ou 100x maior que o razoável, REINTERPRETE o separador.
-
-Pleito e modalidade:
-- pleito: valor em R$ sugerido pelo cedente (ex: "150000,00"). Buscar por "pleito", "valor solicitado", "limite sugerido", "crédito pleiteado"
-
-═══ MODALIDADE — ATENÇÃO CRÍTICA ═══
-A modalidade descreve COMO o FIDC opera com o cedente:
-
-- "convencional": FIDC assume o risco total. Cedente cede os recebíveis e NÃO faz cobrança.
-  Palavras-chave: "cessão plena", "risco do FIDC", "sem recompra", "convencional"
-
-- "comissaria": Cedente mantém o relacionamento, faz a cobrança. FIDC desconta os títulos.
-  Palavras-chave: "comissária", "cobrança pelo cedente", "recompra obrigatória", "mandato"
-
-- "hibrida": O cedente opera em AMBAS as modalidades (algumas operações convencional, outras comissária).
-  Palavras-chave: "híbrida", "mista", "ambas", "os dois formatos"
-  Sinal decisivo: se o documento tem TANTO taxaConvencional QUANTO taxaComissaria, é hibrida.
-
-REGRAS DE DEDUÇÃO:
-- Se documento menciona APENAS "convencional" OU só taxaConvencional → "convencional"
-- Se documento menciona APENAS "comissária" OU só taxaComissaria → "comissaria"
-- Se documento menciona AMBAS ou "híbrida" → "hibrida"
-- Se não há menção clara → "" (vazio, NUNCA invente)
-
-Parâmetros operacionais (buscar em tabelas, campos rotulados ou seção de "parâmetros/condições"):
-- taxaConvencional: taxa % para modalidade convencional (ex: "2,5%")
-- taxaComissaria: taxa % para modalidade comissária (ex: "1,8%")
-- limiteTotal: limite total aprovado em R$ (ex: "500000,00")
-- limiteConvencional / limiteComissaria: limites por modalidade
-- limitePorSacado: limite máximo por sacado em R$ (geralmente 20 a 30% do limite total — "Limite por Sacado", "Limite Máximo por Sacado")
-- limitePrincipaisSacados: limite concentrado para principais sacados em R$ (geralmente 30 a 40% — "Limite Principais Sacados", "Concentração Top Sacados")
-- ticketMedio: valor médio por duplicata/título em R$
-- valorCobrancaBoleto: valor cobrado por emissão/cobrança de boleto
-- prazoRecompraCedente: prazo em dias para recompra pelo cedente
-- prazoEnvioCartorio: dias até envio para cartório
-- prazoMaximoOp: prazo máximo da operação em dias
-- cobrancaTAC: valor ou "Sim"/"Não" para cobrança de TAC
-- tranche: valor da tranche principal em R$ (operação principal)
-- trancheChecagem: valor da tranche de checagem em R$ ("Tranche Checagem", "Checagem Lastro", "Tranche de Verificação") — é DIFERENTE da tranche principal
-- prazoTranche: prazo da tranche em dias
-
-Dados da empresa (coletados na visita):
-- folhaPagamento: folha de pagamento mensal em R$
-- endividamentoBanco: endividamento bancário total em R$ (use "—" se não há endividamento declarado)
-- endividamentoFactoring: endividamento com factoring/FIDC em R$
-- vendasCheque / vendasDuplicata / vendasOutras: % de vendas por forma de recebimento
-- prazoMedioFaturamento: prazo médio em dias
-- prazoMedioEntrega: prazo médio de entrega em dias
-- referenciasFornecedores: lista resumida de referências (texto livre, separadas por vírgula — legado)
-- referenciasComerciais: array de objetos com as referências comerciais estruturadas. Para cada referência extraia:
-  { "empresa": "Nome da empresa", "cnpj": "XX.XXX.XXX/XXXX-XX", "contato": "Nome/Telefone/Email", "tipoRelacionamento": "Fornecedor|Cliente|Banco|Parceiro", "tempoRelacionamento": "X anos/meses", "avaliacaoPagamento": "boa|regular|ruim", "limiteConcelidado": "R$ XXX", "observacoes": "texto livre" }
-  Se o documento FOR uma Ficha de Referência Comercial, extraia todas as empresas listadas como referência. Campos ausentes deixe "" ou omita.`;
+const PROMPT_CURVA_ABC = `Você receberá um PDF de Curva ABC ou relatório de faturamento por cliente, que pode conter gráficos, tabelas e mapas. Extraia todos os dados tabulares e numéricos presentes e retorne SOMENTE um JSON válido, sem texto adicional, sem markdown, sem explicações.
+
+{
+  "razao_social": "",
+  "periodo_referencia": "",
+  "anos_filtro": [],
+  "total_faturado": null,
+  "faturamento_por_mes": [
+    { "mes": "", "ano": null, "valor": null }
+  ],
+  "faturamento_por_vendedor": [
+    { "vendedor": "", "valor": null }
+  ],
+  "faturamento_por_empresa_grupo": [
+    { "empresa": "", "valor": null, "percentual": null }
+  ],
+  "faturamento_por_regiao": [
+    { "regiao": "", "valor": null }
+  ],
+  "curva_abc_clientes": [
+    {
+      "posicao": null,
+      "cliente": "",
+      "valor": null,
+      "percentual": null,
+      "classificacao": ""
+    }
+  ],
+  "assinatura": {
+    "nome": "",
+    "data": ""
+  }
+}
+
+Regras:
+- Campos ausentes ou não visíveis no documento → retornar null
+- Datas sempre no formato DD/MM/AAAA
+- Valores monetários como float sem formatação — ex: 817336.00
+- Percentuais como float — ex: 15.02
+- faturamento_por_mes → extrair todos os meses visíveis com seus valores
+- curva_abc_clientes → extrair TODOS os clientes da tabela. ATENÇÃO — leia linha a linha com máxima precisão: cada linha tem um cliente e um valor; NÃO misture clientes com valores de linhas diferentes. Se o documento tiver posição numérica (1, 2, 3…) ao lado de cada cliente, use-a como referência para conferir a ordem. Após extrair, ordene do maior para o menor valor (decrescente); posicao sequencial a partir de 1.
+- classificacao → classificar cada cliente como "A", "B" ou "C" com base no percentual acumulado: A = até 80%, B = 80–95%, C = acima de 95%. Se o próprio documento já trouxer a classificação, use-a para validar.
+- CRÍTICO — TOP 5: os 5 primeiros clientes por valor são os mais importantes. Confira duas vezes: o cliente com o MAIOR valor monetário (R$) deve aparecer em posicao=1. Se o valor do 1º for menor que o do 2º, você errou — revise.
+- Se o documento mostrar apenas percentuais sem valor absoluto e o total_faturado estiver disponível, calcule: valor = (percentual/100) * total_faturado.
+- faturamento_por_empresa_grupo → extrair a divisão de faturamento entre empresas do grupo quando disponível
+- anos_filtro → array com os anos selecionados no filtro do dashboard — ex: [2023, 2024, 2025]
+- Nomes de clientes devem ser transcritos exatamente como aparecem no documento, mesmo que truncados
+- Nunca inventar dados ausentes`;
+
+const PROMPT_DRE = `Você receberá um PDF de Demonstração do Resultado do Exercício (DRE). O documento pode conter colunas para dois anos (ano atual e ano anterior). Extraia todos os dados presentes e retorne SOMENTE um JSON válido, sem texto adicional, sem markdown, sem explicações.
+
+{
+  "cnpj": "",
+  "razao_social": "",
+  "data_referencia": "",
+  "data_assinatura": "",
+  "anos": [
+    {
+      "ano": null,
+      "receita_bruta": null,
+      "receita_bruta_vendas_mercadorias": null,
+      "receita_prestacao_servicos": null,
+      "deducoes_receita_bruta": null,
+      "cancelamentos_devolucoes": null,
+      "impostos_sobre_vendas": null,
+      "custos_total": null,
+      "custos_detalhes": {},
+      "receita_liquida": null,
+      "lucro_bruto": null,
+      "despesas_operacionais_total": null,
+      "despesas_vendas": null,
+      "despesas_entrega": null,
+      "despesas_viagens_representacoes": null,
+      "despesas_administrativas": null,
+      "despesas_pessoal": null,
+      "impostos_taxas_contribuicoes": null,
+      "despesas_gerais": null,
+      "despesas_financeiras": null,
+      "receitas_financeiras": null,
+      "juros_descontos": null,
+      "resultado_operacional": null,
+      "resultado_antes_ir_csl": null,
+      "provisao_irpj_csll": null,
+      "lucro_liquido_exercicio": null,
+      "margem_bruta_percent": null,
+      "margem_liquida_percent": null,
+      "margem_operacional_percent": null
+    }
+  ],
+  "assinaturas": [
+    { "nome": "", "cpf": "", "papel": "" }
+  ]
+}
+
+Regras:
+- Campos ausentes → retornar null
+- CNPJ sempre com máscara XX.XXX.XXX/XXXX-XX
+- CPF sempre com máscara XXX.XXX.XXX-XX
+- Datas sempre no formato DD/MM/AAAA
+- Valores monetários como float sem formatação — ex: 3395034.70
+- Valores negativos (despesas, deduções) devem ser retornados como negativos — ex: -420977.38
+- anos sempre como array — se o documento tiver duas colunas (ano atual + ano anterior), retornar dois objetos no array, ordenados do mais antigo para o mais recente
+- custos_detalhes → objeto livre com todas as linhas de custo discriminadas no documento — ex: {"material_aplicado": -14180.00, "custos_mercadorias_vendidas": -2634994.52}
+- Margens calculadas pelo modelo: margem_bruta = lucro_bruto / receita_bruta, margem_liquida = lucro_liquido / receita_bruta, margem_operacional = resultado_operacional / receita_bruta — sempre como percentual float — ex: 45.2
+- assinaturas inclui todos os signatários (sócio, contador etc.)
+- Nunca inventar dados ausentes`;
+
+const PROMPT_BALANCO = `Você receberá um PDF de Balanço Patrimonial. O documento pode conter colunas para dois anos. Extraia todos os dados e retorne SOMENTE um JSON válido, sem texto adicional, sem markdown, sem explicações.
+
+{
+  "cnpj": "",
+  "razao_social": "",
+  "data_encerramento": "",
+  "data_assinatura": "",
+  "anos": [
+    {
+      "ano": null,
+      "ativo_total": null,
+      "ativo_circulante": {
+        "total": null,
+        "disponivel": null,
+        "clientes": null,
+        "estoques": null,
+        "outros_creditos": null,
+        "detalhes": {}
+      },
+      "ativo_nao_circulante": {
+        "total": null,
+        "realizavel_longo_prazo": null,
+        "outros_creditos": null,
+        "imobilizado_bruto": null,
+        "depreciacoes_acumuladas": null,
+        "imobilizado_liquido": null,
+        "detalhes": {}
+      },
+      "passivo_total": null,
+      "passivo_circulante": {
+        "total": null,
+        "emprestimos_financiamentos": null,
+        "fornecedores": null,
+        "obrigacoes_tributarias": null,
+        "obrigacoes_trabalhistas_previdenciarias": null,
+        "outras_obrigacoes": null,
+        "detalhes": {}
+      },
+      "passivo_nao_circulante": {
+        "total": null,
+        "detalhes": {}
+      },
+      "patrimonio_liquido": {
+        "total": null,
+        "capital_social": null,
+        "lucros_prejuizos_acumulados": null,
+        "distribuicao_lucros": null,
+        "detalhes": {}
+      },
+      "indicadores": {
+        "liquidez_corrente": null,
+        "liquidez_geral": null,
+        "endividamento_total_percent": null,
+        "capital_de_giro": null,
+        "imobilizacao_pl_percent": null
+      }
+    }
+  ],
+  "assinaturas": [
+    { "nome": "", "cpf": "", "papel": "" }
+  ]
+}
+
+Regras:
+- Campos ausentes → retornar null
+- CNPJ sempre com máscara XX.XXX.XXX/XXXX-XX
+- CPF sempre com máscara XXX.XXX.XXX-XX
+- Datas sempre no formato DD/MM/AAAA
+- Valores monetários como float sem formatação
+- anos sempre como array ordenado do mais antigo para o mais recente
+- detalhes → objeto livre com todas as subcontas discriminadas no documento para aquele grupo
+- Indicadores calculados pelo modelo:
+  - liquidez_corrente = ativo_circulante / passivo_circulante
+  - liquidez_geral = (ativo_circulante + realizavel_longo_prazo) / (passivo_circulante + passivo_nao_circulante)
+  - endividamento_total_percent = (passivo_circulante + passivo_nao_circulante) / ativo_total × 100
+  - capital_de_giro = ativo_circulante - passivo_circulante
+  - imobilizacao_pl_percent = imobilizado_liquido / patrimonio_liquido × 100
+- Todos os indicadores como float arredondado com 2 casas decimais
+- Nunca inventar dados ausentes`;
+
+const PROMPT_IR_SOCIOS = `Você receberá um PDF de Declaração de Ajuste Anual do Imposto de Renda Pessoa Física (DIRPF). Extraia todos os dados presentes e retorne SOMENTE um JSON válido, sem texto adicional, sem markdown, sem explicações.
+
+{
+  "nome": "",
+  "cpf": "",
+  "exercicio": null,
+  "ano_calendario": null,
+  "tipo_declaracao": "",
+  "numero_recibo_ultima_declaracao": "",
+  "situacao_declaracao": "",
+  "debitos_receita_federal": null,
+  "identificacao": {
+    "data_nascimento": "",
+    "possui_conjuge": null,
+    "cpf_conjuge": "",
+    "natureza_ocupacao_codigo": "",
+    "natureza_ocupacao_descricao": "",
+    "ocupacao_principal_codigo": "",
+    "ocupacao_principal_descricao": "",
+    "endereco": {
+      "logradouro": "", "numero": "", "complemento": "", "bairro": "",
+      "municipio": "", "uf": "", "cep": ""
+    },
+    "email": "", "telefone": "", "celular": ""
+  },
+  "dependentes": [
+    { "nome": "", "cpf": "", "data_nascimento": "", "residente": "" }
+  ],
+  "alimentandos": [
+    { "nome": "", "cpf": "", "data_nascimento": "", "data_decisao_judicial": "" }
+  ],
+  "rendimentos_tributaveis_pj_titular": [
+    {
+      "fonte_pagadora": "", "cnpj": "", "rendimentos_recebidos": null,
+      "contribuicao_previdencia_oficial": null, "imposto_retido_fonte": null,
+      "decimo_terceiro": null, "irrf_decimo_terceiro": null
+    }
+  ],
+  "rendimentos_isentos_nao_tributaveis": [
+    {
+      "codigo": "", "descricao": "", "beneficiario": "", "cpf_beneficiario": "",
+      "cnpj_fonte": "", "nome_fonte": "", "valor": null
+    }
+  ],
+  "rendimentos_tributacao_exclusiva": [
+    {
+      "codigo": "", "descricao": "", "beneficiario": "", "cpf_beneficiario": "",
+      "cnpj_fonte": "", "nome_fonte": "", "valor": null
+    }
+  ],
+  "imposto_pago_retido": {
+    "imposto_complementar": null, "imposto_pago_exterior": null,
+    "imposto_retido_fonte_titular": null, "imposto_retido_fonte_dependentes": null,
+    "carne_leao_titular": null, "carne_leao_dependentes": null,
+    "total_imposto_pago": null
+  },
+  "pagamentos_efetuados": [
+    {
+      "codigo": "", "nome_beneficiario": "", "cpf_cnpj_beneficiario": "",
+      "valor_pago": null, "parcela_nao_dedutivel": null, "descricao": ""
+    }
+  ],
+  "bens_e_direitos": [
+    {
+      "grupo": "", "codigo": "", "discriminacao": "",
+      "cnpj_empresa": "",
+      "valor_anterior": null, "valor_atual": null,
+      "renavam": "", "matricula": "", "logradouro": "",
+      "municipio": "", "uf": "", "cep": "", "area_m2": null
+    }
+  ],
+  "dividas_onus_reais": [
+    {
+      "codigo": "", "discriminacao": "",
+      "situacao_anterior": null, "situacao_atual": null, "valor_pago": null
+    }
+  ],
+  "resumo": {
+    "total_rendimentos_tributaveis": null, "total_deducoes": null,
+    "base_calculo_imposto": null, "aliquota_efetiva_percent": null,
+    "imposto_devido": null, "imposto_a_restituir": null,
+    "saldo_imposto_a_pagar": null, "pensao_alimenticia_judicial": null,
+    "rendimentos_isentos_nao_tributaveis": null,
+    "rendimentos_tributacao_exclusiva": null
+  },
+  "evolucao_patrimonial": {
+    "bens_direitos_ano_anterior": null, "bens_direitos_ano_atual": null,
+    "dividas_ano_anterior": null, "dividas_ano_atual": null
+  }
+}
+
+Regras:
+- Campos ausentes ou "Sem Informações" → retornar null (nunca string vazia para campos numéricos)
+- CPF sempre com máscara XXX.XXX.XXX-XX
+- CNPJ sempre com máscara XX.XXX.XXX/XXXX-XX
+- Datas sempre no formato DD/MM/AAAA
+- Valores monetários: retorne como número float SEM formatação — ex: 93432.24 ou 25324.06
+- IMPORTANTE — formato brasileiro: ponto (.) é separador de milhar, vírgula (,) é decimal. "25.324,06" = 25324.06. Remova pontos de milhar e troque vírgula por ponto antes de retornar.
+- exercicio e ano_calendario como inteiros — ex: 2025, 2024 (são campos DISTINTOS: exercicio é o ano de entrega, ano_calendario é o ano dos rendimentos)
+- possui_conjuge → true ou false; cpf_conjuge → CPF do cônjuge com máscara se declaração conjunta, senão null
+- dependentes e alimentandos → arrays vazios [] se não houver
+- bens_e_direitos → um objeto por bem. ATENÇÃO: a tabela de bens tem DUAS colunas de valor com datas diferentes — ex: "31/12/2023" e "31/12/2024". valor_anterior = coluna do ano mais antigo (ex: 31/12/2023); valor_atual = coluna do ano mais recente (ex: 31/12/2024). Nunca inverta as colunas.
+- bens_e_direitos.cnpj_empresa → CNPJ da empresa para participações societárias (grupo 03), banco para depósitos (grupo 06), fundo para fundos (grupo 07); null para imóveis e veículos
+- grupo → mapear por GRUPO (01=imóveis, 02=bens móveis, 03=participações societárias, 04=aplicações/investimentos, 05=créditos, 06=depósitos, 07=fundos), não por código 2-dígitos
+- evolucao_patrimonial → bens_direitos_ano_anterior e bens_direitos_ano_atual são os TOTAIS de bens em 31/12 de cada ano (coluna esquerda e coluna direita na tabela de bens); dividas são os totais de dívidas nos mesmos dois anos
+- Seções marcadas como "Sem Informações" → retornar array vazio [] ou null conforme o campo
+- situacao_declaracao → situação da declaração exatamente como consta no documento; ex: "Processada sem pendências", "Em malha fiscal", "Em processamento"; buscar no cabeçalho ou rodapé do DIRPF
+- debitos_receita_federal → true se há débitos em aberto, pendências ou malha fiscal; false se "Processada sem pendências" ou sem pendências; null se não informado
+- Nunca inventar dados`;
+
+const PROMPT_RELATORIO_VISITA = `Você receberá um PDF de Relatório de Visita elaborado por um analista/gerente de uma instituição financeira. Extraia todos os dados presentes e retorne SOMENTE um JSON válido, sem texto adicional, sem markdown, sem explicações.
+
+{
+  "cnpj": "",
+  "razao_social": "",
+  "data_visita": "",
+  "gerente_responsavel": "",
+  "endereco_visitado": {
+    "logradouro": "", "numero": "", "complemento": "", "bairro": "",
+    "municipio": "", "uf": "", "cep": ""
+  },
+  "contatos": {
+    "telefone_empresa": "",
+    "tomadores_decisao": [ { "nome": "", "celular": "", "telefone": "", "email": "" } ],
+    "responsavel_financeiro": { "nome": "", "telefone": "", "email": "" },
+    "responsavel_operacoes": "",
+    "email_tomador_decisao": "",
+    "email_financeiro": "",
+    "email_responsavel_operacoes": ""
+  },
+  "socios": [
+    { "nome": "", "cpf": "", "celular": "", "tipo": "" }
+  ],
+  "conjuges_responsaveis_solidarios": [
+    { "nome": "", "cpf": "", "vinculo": "", "nome_socio_ref": "" }
+  ],
+  "dados_operacionais": {
+    "origem_prospeccao": "",
+    "ano_fundacao": null,
+    "area_atuacao": "",
+    "ponto_equilibrio": null,
+    "funcionarios": null,
+    "folha_pagamento": null,
+    "possui_filiais": null,
+    "prazo_entrega_dias": "",
+    "valor_minimo_recebivel": null,
+    "valor_maximo_recebivel": null,
+    "prazo_medio_recebimento_dias": "",
+    "prazo_medio_pagamento_dias": "",
+    "percentual_duplicatas": null,
+    "percentual_cheques": null,
+    "percentual_outros": null,
+    "mix_recebiveis": "",
+    "principal_produto": "",
+    "valor_maquinario": null,
+    "idade_media_maquinas_anos": "",
+    "possui_frota_propria": null,
+    "ciclo_producao_dias": "",
+    "vantagem_competitiva": "",
+    "possui_estrutura_sucessoria": null,
+    "motivo_antecipacao_recebiveis": "",
+    "sazonalidade": null,
+    "faturamento_gerencial": null,
+    "area_barracao_m2": null,
+    "aluguel_mensal": null,
+    "valor_estoque_min": null,
+    "valor_estoque_max": null
+  },
+  "operacao_atual_outros_parceiros": {
+    "prazo_venda_dias": "",
+    "prazo_pagamento_fornecedores": "",
+    "ticket_minimo_nf": null,
+    "ticket_maximo_nf": null,
+    "ticket_medio_nf": null,
+    "volume_boletos_mes_min": null,
+    "volume_boletos_mes_max": null,
+    "mix_recebiveis_descricao": "",
+    "possui_concentracao_sacado": null,
+    "percentual_sacado_paga_confirma": null,
+    "percentual_sacado_paga_nao_confirma": null,
+    "frequencia_operacao_semanal": "",
+    "emissao_boleto": "",
+    "endividamento_banco": null,
+    "endividamento_factoring": null
+  },
+  "parametros_sugeridos": {
+    "modalidade_operacao": "",
+    "opera_cheque_terceiros": null,
+    "comissaria": null,
+    "desagio_proposto_percent": null,
+    "valor_boleto": null,
+    "limite_global": null,
+    "limite_convencional": null,
+    "limite_comissaria": null,
+    "limite_por_sacado": null,
+    "limite_principais_sacados": null,
+    "limite_duplicatas_pj": null,
+    "limite_cheques_pj": null,
+    "concentracao_percent": null,
+    "tranche_limite_global": null,
+    "tranche_checagem": null,
+    "prazo_maximo_titulo_dias": null,
+    "prazo_tranche_limite_global_dias": null,
+    "taxa_duplicata_percent": null,
+    "taxa_cheque_percent": null,
+    "taxa_comissaria_percent": null,
+    "prazo_recompra_cedente_dias": null,
+    "prazo_cartorio_dias": null,
+    "tac_valor": null,
+    "politica_cartorio": "",
+    "canhoto": null,
+    "canhoto_detalhes": ""
+  },
+  "percepcao_gerente": "",
+  "defesa_credito": "",
+  "recomendacao": ""
+}
+
+Regras:
+- Campos ausentes ou não mencionados → retornar null
+- CNPJ sempre com máscara XX.XXX.XXX/XXXX-XX
+- CPF sempre com máscara XXX.XXX.XXX-XX
+- Datas sempre no formato DD/MM/AAAA
+- Valores monetários: retorne como float SEM formatação — ex: 750000.00
+- IMPORTANTE — formato brasileiro: ponto (.) é separador de milhar, vírgula (,) é decimal. "750.000,00" = 750000.00. Remova pontos de milhar e troque vírgula por ponto.
+- ABREVIAÇÕES MONETÁRIAS: "1M" = 1000000, "1,5M" = 1500000, "500k" ou "500K" = 500000, "100k" = 100000, "50k" = 50000. Converter SEMPRE para float.
+- VALOR ZERO: se o documento mostrar "0", "R$ 0", "R$0,00" ou "zero" → retornar 0.0 (NUNCA null). Zero é informação válida e DEVE ser preservada.
+- Percentuais como float — ex: 2.20 (não "2,20%")
+- Campos com múltiplos valores (ex: prazo 30/60/90, fornecedores à vista ou 28/35/42/60) → salvar como string completa mantendo a barra ou texto original — NÃO truncar no primeiro valor
+- Campos com faixa (ex: "R$ 150.000 a R$ 300.000") → valor_min e valor_max como floats separados
+- parametros_sugeridos → varrer TODAS as seções do documento: "Parâmetros sugeridos para negócio", "Proposta final do gerente", "item 27", ou seção equivalente; priorizar valores mais específicos quando houver duplicidade
+- limite_global → limite total da operação (soma de todos os sub-limites); buscar em "Limite global", "Limite total", "LG"
+- limite_convencional → limite para operações convencionais/duplicatas; buscar em "Limite convencional", "LC"; se for 0 → retornar 0.0
+- limite_comissaria → limite para operações em comissária; buscar em "Limite comissária", "Limite comissaria", "LCom"; se for 0 → retornar 0.0
+- limite_por_sacado → limite máximo por sacado individual; buscar em "Limite por sacado", "Concentração por sacado"
+- limite_principais_sacados → limite para os principais sacados em conjunto; buscar em "Limite principais sacados", "Limite principais sacados (30 a 40%)", "Top sacados"
+- tranche_limite_global → valor monetário da TRANCHE DO LIMITE GLOBAL (liberação parcial do limite total por tranche). Buscar em: "Tranche limite global", "Tranche LG", "Tranche", "Valor da tranche". ATENÇÃO: este campo é DIFERENTE de tranche_checagem — NÃO coloque aqui o valor da tranche de checagem/comissária. Exemplo: se o documento diz "Tranche: R$ 300.000,00" e "Tranche checagem: R$ 100.000,00" → tranche_limite_global = 300000.0 e tranche_checagem = 100000.0.
+- tranche_checagem → tranche aplicada à verificação comissária. Pode ser valor monetário (ex: 500000.0) OU texto descritivo (ex: "Sem checagem comissária", "Não se aplica"). Se for texto, retornar a string descritiva; se for valor, retornar float. Buscar em: "Tranche checagem", "Tranche de checagem", "Checagem comissária".
+- prazo_maximo_titulo_dias → prazo máximo do título/recebível; buscar em "Prazo máximo", "Prazo máx", "Prazo máximo de título", "Prazo max. título"; retornar APENAS o número inteiro de dias (ex: 180)
+- prazo_tranche_limite_global_dias → prazo em dias da tranche do limite global; buscar em "Prazo tranche", "Prazo da tranche", "Prazo tranche LG", "Prazo de tranche"; retornar APENAS o número inteiro de dias (ex: 5, 30). ATENÇÃO: NÃO confundir com prazo máximo do título ou prazo de recompra.
+- prazo_cartorio_dias → prazo em dias para envio ao cartório de protesto; buscar em "Prazo cartório", "Prazo de cartório", "Prazo cartório protesto", "Envio cartório", "Protesto cartório"; retornar APENAS o número inteiro (ex: 10, 15, 20). Se o documento disser "até X dias" → retornar X.
+- prazo_recompra_cedente_dias → prazo em dias para recompra pelo cedente; buscar em "Prazo de recompra", "Recompra cedente", "Prazo recompra"; retornar APENAS o número inteiro (ex: 10)
+- tac_valor → valor monetário da TAC (Taxa de Abertura de Crédito); buscar EXATAMENTE nos campos "TAC", "T.A.C.", "Taxa de abertura", "Taxa de abertura de crédito"; interpretar abreviações (ex: "R$100k" = 100000, "R$5.000,00" = 5000.0); se for percentual (ex: "0,5%"), deixar null; se for "isento", "0" ou "sem TAC" → retornar 0.0
+- valor_boleto → valor cobrado por boleto emitido; buscar em "Boleto", "Emissão boleto", "Custo boleto"; interpretar "R$5,00" = 5.0
+- taxa_duplicata_percent → taxa percentual para duplicatas/convencionais; buscar em "Taxa convencional", "Taxa duplicata"; se for 0 → retornar 0.0
+- taxa_comissaria_percent → taxa percentual para comissária; buscar em "Taxa comissária", "Taxa comissaria"
+- socios → lista os sócios/administradores do cabeçalho do documento
+- conjuges_responsaveis_solidarios → lista cônjuges dos sócios (geralmente no item 21 ou seção "Cônjuge") com nome_socio_ref indicando a qual sócio pertence
+- gerente_responsavel → NOME PRÓPRIO do gerente/analista (ex: "João Silva"), EXATAMENTE como consta na assinatura. NUNCA retornar cargo genérico — se não houver nome próprio, retornar null
+- recomendacao → conclusão final do gerente sobre o crédito
+- possui_filiais, possui_frota_propria, sazonalidade, faturamento_gerencial, possui_estrutura_sucessoria, possui_concentracao_sacado, canhoto, opera_cheque_terceiros, comissaria → sempre true ou false, nunca string
+- endividamento_banco → saldo devedor total da empresa com bancos no momento da visita (R$); buscar em "Endividamento banco", "Dívida bancária", "Bancos"
+- endividamento_factoring → saldo devedor total com factoring/FIDC (R$); buscar em "Endividamento factoring", "Dívida factoring", "FIDC"
+- Nunca inventar dados ausentes`;
 
 // ─────────────────────────────────────────
 // PROVEDOR 1: Gemini (primário — melhor qualidade)
 // ─────────────────────────────────────────
-async function callGemini(prompt: string, content: string | { mimeType: string; base64: string }, maxOutputTokens = 2048): Promise<string> {
+// ─────────────────────────────────────────
+// Gemini Files API — upload para fileUri (evita inline base64 para PDFs grandes)
+// ─────────────────────────────────────────
+async function uploadToGeminiFiles(buffer: Buffer, mimeType: string, displayName: string, apiKey: string): Promise<string> {
+  const boundary = "cap_gemini_boundary_x7z";
+  const metaJson = JSON.stringify({ file: { display_name: displayName } });
+  const body = Buffer.concat([
+    Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=utf-8\r\n\r\n`),
+    Buffer.from(metaJson),
+    Buffer.from(`\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`),
+    buffer,
+    Buffer.from(`\r\n--${boundary}--`),
+  ]);
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": `multipart/related; boundary=${boundary}`,
+        "Content-Length": body.length.toString(),
+      },
+      body,
+    }
+  );
+  if (!response.ok) {
+    const txt = await response.text();
+    throw new Error(`Gemini Files API ${response.status}: ${txt.substring(0, 200)}`);
+  }
+  const result = await response.json();
+  const fileUri = result?.file?.uri;
+  if (!fileUri) throw new Error("Gemini Files API não retornou fileUri");
+  return fileUri as string;
+}
+
+async function callGemini(prompt: string, content: string | { mimeType: string; base64: string } | { mimeType: string; fileUri: string }, maxOutputTokens = 2048, thinkingBudget = 0): Promise<string> {
   // Estrutura otimizada para o caching implicito do Gemini 2.5:
   // o PROMPT (estatico, ~400 linhas no CONTRATO) vai PRIMEIRO em uma part isolada,
   // e o conteudo dinamico vai depois. Quando a mesma extracao se repete (mesmo
   // prompt = mesmo prefixo), o Gemini aplica desconto de ~70-90% em input tokens
   // automaticamente, sem precisar de cached content endpoint.
-  const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
+  type GeminiPart = { text?: string; inlineData?: { mimeType: string; data: string }; fileData?: { mimeType: string; fileUri: string } };
+  const parts: Array<GeminiPart> = [];
   parts.push({ text: prompt });
   if (typeof content === "string") {
     parts.push({ text: "\n\n--- DOCUMENTO ---\n\n" + content });
+  } else if ("fileUri" in content) {
+    parts.push({ fileData: { mimeType: content.mimeType, fileUri: content.fileUri } });
   } else {
     parts.push({ inlineData: { mimeType: content.mimeType, data: content.base64 } });
   }
@@ -1440,7 +1381,8 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
         try {
           console.log(`[Gemini] key=${apiKey.substring(0, 8)}... model=${model} attempt=${attempt + 1}/${MAX_ATTEMPTS}`);
           const controller = new AbortController();
-          const fetchTimeout = setTimeout(() => controller.abort(), 25000);
+          // 20s por tentativa: se um modelo travar, o próximo ainda tem chance dentro dos 52s totais
+          const fetchTimeout = setTimeout(() => controller.abort(), 20000);
           const response = await fetch(geminiUrl(model, apiKey), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1448,10 +1390,10 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
             body: JSON.stringify({
               contents: [{ parts }],
               generationConfig: {
-                temperature: 0.1,
+                temperature: 0,
                 maxOutputTokens,
                 responseMimeType: "application/json",
-                ...(model.includes("2.5") ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
+                ...((model.includes("2.5") || model.includes("3.")) ? { thinkingConfig: { thinkingBudget } } : {}),
               },
             }),
           });
@@ -1554,17 +1496,36 @@ async function callAI(
   textContent: string,
   imageContent?: { mimeType: string; base64: string },
   maxOutputTokens = 2048,
+  fileBuffer?: Buffer,
+  thinkingBudget = 0,
 ): Promise<string> {
-  const content: string | { mimeType: string; base64: string } = imageContent ?? textContent;
+  // Para PDFs com imagem (> 100KB): usa Gemini Files API (fileUri) em vez de inline base64.
+  // Files API é mais estável para PDFs com tabelas complexas — suporte universal entre modelos.
+  const FILES_API_THRESHOLD = 100 * 1024;
+  let resolvedContent: string | { mimeType: string; base64: string } | { mimeType: string; fileUri: string };
 
-  // Timeout global de 45s — evita que a função fique pendurada
+  if (imageContent && fileBuffer && fileBuffer.length > FILES_API_THRESHOLD && GEMINI_API_KEYS.length > 0) {
+    try {
+      console.log(`[extract] Arquivo grande (${(fileBuffer.length / 1024 / 1024).toFixed(1)}MB) — usando Gemini Files API`);
+      const fileUri = await uploadToGeminiFiles(fileBuffer, imageContent.mimeType, "document.pdf", GEMINI_API_KEYS[0]);
+      console.log(`[extract] Gemini Files API upload OK: ${fileUri}`);
+      resolvedContent = { mimeType: imageContent.mimeType, fileUri };
+    } catch (uploadErr) {
+      console.warn(`[extract] Gemini Files API upload falhou, caindo pro inline base64:`, uploadErr instanceof Error ? uploadErr.message : uploadErr);
+      resolvedContent = imageContent;
+    }
+  } else {
+    resolvedContent = imageContent ?? textContent;
+  }
+
+  // Hobby plan: 60s max total — 52s deixa margem para overhead do Vercel
   const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error("AI_TIMEOUT_55s")), 55000)
+    setTimeout(() => reject(new Error("AI_TIMEOUT_52s")), 52000)
   );
 
   const aiCall = async (): Promise<string> => {
     try {
-      return await callGemini(prompt, content, maxOutputTokens);
+      return await callGemini(prompt, resolvedContent, maxOutputTokens, thinkingBudget);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (imageContent || OPENROUTER_API_KEYS.length === 0) throw err;
@@ -1590,6 +1551,12 @@ function parseJSON<T>(raw: string): T {
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (match) cleaned = match[0];
   }
+  // Números no formato brasileiro (ex: 9.498.394) com 2+ grupos de 3 dígitos são
+  // separadores de milhar e jamais decimais JSON válidos. Se o Gemini os retornar
+  // sem aspas, o JSON.parse falha. Removemos os pontos antes de parsear.
+  cleaned = cleaned.replace(/\b(\d{1,3}(?:\.\d{3}){2,})\b/g, (m) => m.replace(/\./g, ""));
+  // Remove "$" espúrio após dígitos — OCR do SCR/BACEN às vezes gera "R$ 200.419,62$"
+  cleaned = cleaned.replace(/(\d)\$/g, "$1");
   try {
     return JSON.parse(cleaned);
   } catch (err) {
@@ -1602,6 +1569,842 @@ function parseJSON<T>(raw: string): T {
 // ─────────────────────────────────────────
 // Defaults
 // ─────────────────────────────────────────
+/**
+ * Adapter: converte o JSON snake_case do novo prompt de Cartão CNPJ
+ * para o formato camelCase esperado pelo resto do pipeline (CNPJData).
+ * Também aceita camelCase de fallback para o caso do Gemini responder no formato antigo.
+ */
+function adaptCNPJNew(raw: Record<string, unknown>): Partial<CNPJData> {
+  const r = raw ?? {};
+  const s = (v: unknown): string => (v == null ? "" : String(v));
+
+  // Endereço: o novo prompt retorna objeto; o antigo retornava string.
+  let enderecoStr = "";
+  if (typeof r.endereco === "string") {
+    enderecoStr = r.endereco;
+  } else if (r.endereco && typeof r.endereco === "object") {
+    const e = r.endereco as Record<string, unknown>;
+    const linha1 = [s(e.logradouro), s(e.numero)].filter(Boolean).join(", ");
+    const cidadeUf = [s(e.municipio), s(e.uf)].filter(Boolean).join("/");
+    const parts = [linha1, s(e.complemento), s(e.bairro), cidadeUf, s(e.cep) ? `CEP ${s(e.cep)}` : ""].filter(Boolean);
+    enderecoStr = parts.join(", ");
+  }
+
+  // Natureza jurídica: código + descrição (ou só descrição se código ausente).
+  const natCod = s(r.natureza_juridica_codigo);
+  const natDesc = s(r.natureza_juridica_descricao);
+  const natJur = [natCod, natDesc].filter(Boolean).join(" - ") || s(r.naturezaJuridica);
+
+  // CNAE principal: código + descrição.
+  const cnaePCod = s(r.cnae_principal_codigo);
+  const cnaePDesc = s(r.cnae_principal_descricao);
+  const cnaePrinc = [cnaePCod, cnaePDesc].filter(Boolean).join(" - ") || s(r.cnaePrincipal);
+
+  // CNAEs secundários: array de {codigo, descricao} → string separada por " ; ".
+  let cnaeSecStr = "";
+  if (Array.isArray(r.cnaes_secundarios)) {
+    cnaeSecStr = (r.cnaes_secundarios as Array<Record<string, unknown>>)
+      .map(c => [s(c.codigo), s(c.descricao)].filter(Boolean).join(" - "))
+      .filter(Boolean)
+      .join(" ; ");
+  } else if (typeof r.cnaeSecundarios === "string") {
+    cnaeSecStr = r.cnaeSecundarios;
+  }
+
+  // motivoSituacao: no Cartão CNPJ vem como "situacao_especial" (ex: "Omissa no período").
+  const motivo = s(r.situacao_especial) || s(r.motivoSituacao);
+
+  // tipoEmpresa: derivado da descrição da natureza jurídica (mantém feature parity).
+  const deriveTipo = (natJurDesc: string): string => {
+    const txt = natJurDesc.toLowerCase();
+    if (/microempreendedor|mei/.test(txt)) return "MEI";
+    if (/sociedade an[oô]nima|\bs\/?a\b/.test(txt)) return "S/A";
+    if (/empres[aá]ria limitada|\bltda\b|limitada/.test(txt)) return "LTDA";
+    if (/eireli/.test(txt)) return "EIRELI";
+    if (/unipessoal|\bslu\b/.test(txt)) return "SLU";
+    if (/sociedade simples/.test(txt)) return "SS";
+    if (/cooperativa/.test(txt)) return "COOPERATIVA";
+    return "";
+  };
+
+  return {
+    razaoSocial:            s(r.razao_social)  || s(r.razaoSocial),
+    nomeFantasia:           s(r.nome_fantasia) || s(r.nomeFantasia),
+    cnpj:                   s(r.cnpj),
+    dataAbertura:           s(r.data_abertura) || s(r.dataAbertura),
+    situacaoCadastral:      s(r.situacao_cadastral) || s(r.situacaoCadastral),
+    dataSituacaoCadastral:  s(r.data_situacao_cadastral) || s(r.dataSituacaoCadastral),
+    motivoSituacao:         motivo,
+    naturezaJuridica:       natJur,
+    cnaePrincipal:          cnaePrinc,
+    cnaeSecundarios:        cnaeSecStr,
+    porte:                  s(r.porte),
+    capitalSocialCNPJ:      s(r.capitalSocialCNPJ), // não existe no novo prompt — fica vazio (capital social vem do QSA/Contrato)
+    endereco:               enderecoStr,
+    telefone:               s(r.telefone),
+    email:                  s(r.email),
+    tipoEmpresa:            s(r.tipoEmpresa) || deriveTipo(natDesc),
+  };
+}
+
+// ─── Helpers de adapter (novo prompt → formato camelCase legado) ────────────
+
+/** Converte qualquer valor (number, string com formato BR ou EN, null) em string "R$ 1.234,56". */
+function _fmtMoneyBR(v: unknown): string {
+  if (v == null || v === "") return "";
+  let n: number;
+  if (typeof v === "number") n = v;
+  else {
+    const s = String(v).trim().replace(/[R$\s]/g, "");
+    // Detecta formato: se tem vírgula depois do último ponto, é BR ("1.234,56"); senão EN ("1234.56")
+    const hasBRFormat = /,\d{1,2}$/.test(s);
+    n = parseFloat(hasBRFormat ? s.replace(/\./g, "").replace(",", ".") : s.replace(/,/g, ""));
+  }
+  if (!isFinite(n)) return typeof v === "string" ? v : "";
+  return `R$ ${n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function _s(v: unknown): string { return v == null ? "" : String(v); }
+
+function _sumNums(vals: unknown[]): number {
+  return vals.reduce<number>((acc, v) => {
+    if (v == null || v === "") return acc;
+    const n = typeof v === "number" ? v : parseFloat(String(v).replace(/[R$\s.]/g, "").replace(",", "."));
+    return acc + (isFinite(n) ? n : 0);
+  }, 0);
+}
+
+// ─── Adapters por doc (snake_case novo prompt → camelCase legado) ───────────
+
+/** Converte para string "1.234,56" (formato BR SEM prefixo "R$"). Usado pelo parseBR do hydrator. */
+function _fmtMoneyBRNoPrefix(v: unknown): string {
+  if (v == null || v === "") return "";
+  let n: number;
+  if (typeof v === "number") n = v;
+  else {
+    const s = String(v).trim().replace(/[R$\s]/g, "");
+    const hasBRFormat = /,\d{1,2}$/.test(s);          // "1.234,56"
+    const hasMultipleDots = (s.match(/\./g) ?? []).length > 1; // "10.809.058"
+    if (hasBRFormat) {
+      // Formato BR com decimal: "1.234.567,89" → remove pontos, troca vírgula por ponto
+      n = parseFloat(s.replace(/\./g, "").replace(",", "."));
+    } else if (hasMultipleDots) {
+      // Inteiro BR com milhar: "10.809.058" → remove pontos → 10809058
+      // parseFloat pararia no segundo ponto, por isso usamos replace primeiro
+      n = parseFloat(s.replace(/\./g, ""));
+    } else {
+      n = parseFloat(s.replace(/,/g, ""));
+    }
+  }
+  if (!isFinite(n)) return typeof v === "string" ? v : "";
+  return n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** "Fevereiro" → 2. Aceita nome PT, abreviação ("fev"), número como string ou number. */
+function _mesToNum(v: unknown): number {
+  if (v == null) return 0;
+  if (typeof v === "number") return v;
+  const s = String(v).trim().toLowerCase();
+  if (/^\d+$/.test(s)) return parseInt(s, 10);
+  const map: Record<string, number> = {
+    jan:1, janeiro:1, fev:2, fevereiro:2, mar:3, marco:3, "março":3,
+    abr:4, abril:4, mai:5, maio:5, jun:6, junho:6, jul:7, julho:7,
+    ago:8, agosto:8, set:9, setembro:9, out:10, outubro:10,
+    nov:11, novembro:11, dez:12, dezembro:12,
+  };
+  return map[s.slice(0, 3)] || map[s] || 0;
+}
+
+function adaptFaturamentoNew(raw: Record<string, unknown>): Partial<FaturamentoData> {
+  const r = raw ?? {};
+  const mesesRaw = Array.isArray(r.meses) ? r.meses as Array<Record<string, unknown>> : [];
+
+  const meses: FaturamentoMensal[] = mesesRaw.map(m => {
+    const mesN = _mesToNum(m.mes);
+    const anoRaw = m.ano ?? "";
+    const ano = String(anoRaw).trim();
+    const mesKey = mesN && ano
+      ? `${String(mesN).padStart(2, "0")}/${ano.length === 2 ? "20" + ano : ano}`
+      : _s(m.mes); // fallback se já vier no formato MM/YYYY
+    const valor = _fmtMoneyBRNoPrefix(m.total ?? m.valor);
+    return { mes: mesKey, valor };
+  }).filter(m => m.mes && m.valor !== ""); // meses sem valor são excluídos (null no documento)
+
+  const totais = r.totais as Record<string, unknown> | undefined;
+  const media = r.media_mensal as Record<string, unknown> | undefined;
+
+  // Totais e médias por ano (tabelas multi-ano)
+  const totaisPorAnoRaw = Array.isArray(r.totais_por_ano)
+    ? r.totais_por_ano as Array<Record<string, unknown>>
+    : [];
+  const fmmAnual: Record<string, string> = {};
+  const totalAnual: Record<string, string> = {};
+  for (const t of totaisPorAnoRaw) {
+    const ano = String(t.ano ?? "").trim();
+    if (!ano) continue;
+    const media_val = _fmtMoneyBRNoPrefix(t.media_mensal);
+    const total_val = _fmtMoneyBRNoPrefix(t.total);
+    if (media_val) fmmAnual[ano] = media_val;
+    if (total_val) totalAnual[ano] = total_val;
+  }
+
+  return {
+    meses,
+    somatoriaAno: _fmtMoneyBRNoPrefix(totais?.total) || _s((r as Record<string, unknown>).somatoriaAno),
+    mediaAno: _fmtMoneyBRNoPrefix(media?.total) || _s((r as Record<string, unknown>).mediaAno),
+    ...(Object.keys(fmmAnual).length > 0 ? { fmmAnual } : {}),
+    // Passa razao_social e cnpj como campos extras (preservados pelo schema passthrough)
+    ...(_s(r.razao_social) ? { razaoSocial: _s(r.razao_social) } : {}),
+    ...(_s(r.cnpj) ? { cnpj: _s(r.cnpj) } : {}),
+    // totalAnual: totais brutos por ano para validação
+    ...(Object.keys(totalAnual).length > 0 ? { totalAnual } : {}),
+  } as Partial<FaturamentoData>;
+}
+
+function adaptSCRNew(raw: Record<string, unknown>): Partial<SCRData> {
+  const r = raw ?? {};
+  const dados = (r.dados_operacao ?? {}) as Record<string, unknown>;
+  const aVen  = (r.carteira_a_vencer ?? {}) as Record<string, unknown>;
+  const venc  = (r.vencidos ?? {}) as Record<string, unknown>;
+  const prej  = (r.prejuizos ?? {}) as Record<string, unknown>;
+  const limi  = (r.limite_credito ?? {}) as Record<string, unknown>;
+  const outr  = (r.outros_valores ?? {}) as Record<string, unknown>;
+  const mods  = Array.isArray(r.modalidades) ? r.modalidades as Array<Record<string, unknown>> : [];
+
+  const cpfCnpj = _s(r.cpf_cnpj) || _s((r as Record<string,unknown>).cpfCnpj);
+  const tipoRaw = _s(r.tipo_cliente).toUpperCase();
+  const tipoPessoa: "PF" | "PJ" | undefined = tipoRaw === "PF" ? "PF" : tipoRaw === "PJ" ? "PJ" : undefined;
+
+  // Faixa "De 14 a 30 dias" (primeira faixa BACEN). Aceita nome novo ou antigo pra ser leniente.
+  const aVen_ate30 = aVen.de_14_a_30_dias ?? aVen.ate_30_dias;
+  // Curto prazo = até 360 dias. Longo prazo = acima de 360 dias.
+  const curtoN = _sumNums([aVen_ate30, aVen.de_31_a_60_dias, aVen.de_61_a_90_dias, aVen.de_91_a_180_dias, aVen.de_181_a_360_dias]);
+  const longoN = _sumNums([aVen.acima_de_360_dias]);
+
+  // Para carteira_a_vencer: recalcula pelas faixas porque Gemini omite "De 14 a 30 dias" no total.
+  // Para vencidos/prejuizos: prefere o total declarado no documento — mais confiável que a soma
+  // de faixas, pois Gemini às vezes misplaces valores entre faixas mas acerta o total.
+  const vencN = _sumNums([venc.de_15_a_30_dias, venc.de_31_a_60_dias, venc.de_61_a_90_dias, venc.de_91_a_180_dias, venc.de_181_a_360_dias, venc.acima_de_360_dias]);
+  const prejN = _sumNums([prej.ate_12_meses, prej.acima_12_meses]);
+  const vencDocTotal = venc.total != null ? Number(venc.total) : 0;
+  const prejDocTotal = prej.total != null ? Number(prej.total) : 0;
+  // Effective = total do documento se disponível; suma das faixas como fallback
+  const vencEffective = vencDocTotal > 0 ? vencDocTotal : vencN;
+  const prejEffective = prejDocTotal > 0 ? prejDocTotal : prejN;
+  const totalFromFaixas = curtoN + longoN + vencEffective + prejEffective;
+  const totalN = totalFromFaixas > 0
+    ? totalFromFaixas
+    : _sumNums([outr.responsabilidade_total ?? aVen.total, venc.total, prej.total]);
+
+  const classifyModSituacao = (s: string): string => {
+    const u = s.toUpperCase().trim();
+    // "VENCID" cobre tanto "VENCIDO" (masc.) quanto "VENCIDA" (fem.)
+    if (u.includes("VENCID")) return "VENCIDO";
+    // qualquer outro "VENC" = A VENCER (ex: "A VENCER", "VENCIMENTO")
+    if (u.includes("VENC")) return "A VENCER";
+    if (u.includes("PREJUIZO") || u.includes("PREJU")) return "PREJUIZO";
+    return u;
+  };
+
+  return {
+    tipoPessoa,
+    nomeCliente: _s((r as Record<string,unknown>).nomeCliente),
+    cpfSCR:  tipoPessoa === "PF" ? cpfCnpj : "",
+    cnpjSCR: tipoPessoa === "PJ" ? cpfCnpj : (tipoPessoa ? "" : cpfCnpj),
+    periodoReferencia: _s(r.periodo_referencia) || _s((r as Record<string,unknown>).periodoReferencia),
+    qtdeInstituicoes: _s(dados.qtde_instituicoes ?? (r as Record<string,unknown>).qtdeInstituicoes),
+    qtdeOperacoes:    _s(dados.qtde_operacoes    ?? (r as Record<string,unknown>).qtdeOperacoes),
+    pctDocumentosProcessados: _s(dados.percentual_doctos_processados),
+    pctVolumeProcessado:      _s(dados.percentual_volume_processado),
+    // carteiraAVencer: recalculada pelas faixas (Gemini omite a faixa 14-30d no total)
+    // vencidos/prejuizos: total declarado no documento tem prioridade sobre soma de faixas
+    carteiraAVencer:     _fmtMoneyBR((curtoN + longoN) > 0 ? (curtoN + longoN) : aVen.total),
+    vencidos:            _fmtMoneyBR(vencEffective > 0 ? vencEffective : null),
+    prejuizos:           _fmtMoneyBR(prejEffective > 0 ? prejEffective : null),
+    limiteCredito:       _fmtMoneyBR(limi.total),
+    carteiraCurtoPrazo:  curtoN > 0 ? _fmtMoneyBR(curtoN) : "",
+    carteiraLongoPrazo:  longoN > 0 ? _fmtMoneyBR(longoN) : "",
+    totalDividasAtivas:  totalN > 0 ? _fmtMoneyBR(totalN) : "",
+    coobrigacoes:        _fmtMoneyBR(outr.coobrigacoes ?? dados.coobrigacao_assumida),
+    faixasAVencer: {
+      ate30d:   _fmtMoneyBR(aVen_ate30),
+      d31_60:   _fmtMoneyBR(aVen.de_31_a_60_dias),
+      d61_90:   _fmtMoneyBR(aVen.de_61_a_90_dias),
+      d91_180:  _fmtMoneyBR(aVen.de_91_a_180_dias),
+      d181_360: _fmtMoneyBR(aVen.de_181_a_360_dias),
+      acima360d: _fmtMoneyBR(aVen.acima_de_360_dias),
+      prazoIndeterminado: _fmtMoneyBR(aVen.prazo_indeterminado),
+      total: _fmtMoneyBR(aVen.total),
+    },
+    faixasVencidos: {
+      ate30d:   _fmtMoneyBR(venc.de_15_a_30_dias),
+      d31_60:   _fmtMoneyBR(venc.de_31_a_60_dias),
+      d61_90:   _fmtMoneyBR(venc.de_61_a_90_dias),
+      d91_180:  _fmtMoneyBR(venc.de_91_a_180_dias),
+      d181_360: _fmtMoneyBR(venc.de_181_a_360_dias),
+      acima360d: _fmtMoneyBR(venc.acima_de_360_dias),
+      total: _fmtMoneyBR(venc.total),
+    },
+    faixasPrejuizos: {
+      ate12m:   _fmtMoneyBR(prej.ate_12_meses),
+      acima12m: _fmtMoneyBR(prej.acima_12_meses),
+      total:    _fmtMoneyBR(prej.total),
+    },
+    faixasLimite: {
+      ate360d:   _fmtMoneyBR(limi.ate_360_dias),
+      acima360d: _fmtMoneyBR(limi.acima_360_dias),
+      total:     _fmtMoneyBR(limi.total),
+    },
+    outrosValores: {
+      carteiraCredito:       _fmtMoneyBR(outr.carteira_credito),
+      responsabilidadeTotal: _fmtMoneyBR(outr.responsabilidade_total),
+      riscoTotal:            _fmtMoneyBR(outr.risco_total),
+      coobrigacaoAssumida:   _fmtMoneyBR(dados.coobrigacao_assumida),
+      coobrigacaoRecebida:   _fmtMoneyBR(dados.coobrigacao_recebida),
+      creditosALiberar:      _fmtMoneyBR(outr.creditos_a_liberar),
+    },
+    modalidades: mods.map<SCRModalidade>(m => {
+      const sit = classifyModSituacao(_s(m.situacao));
+      const valor = _fmtMoneyBR(m.valor);
+      return {
+        nome: _s(m.subdominio) || _s(m.tipo) || _s(m.dominio) || _s(m.codigo_modalidade),
+        total:     valor,
+        aVencer:   sit === "A VENCER" ? valor : "",
+        vencido:   sit === "VENCIDO"  ? valor : "",
+        participacao: "",
+      };
+    }),
+    instituicoes: [],
+    valoresMoedaEstrangeira: "",
+    historicoInadimplencia: "",
+    operacoesAVencer: "",
+    operacoesEmAtraso: "",
+    operacoesVencidas: "",
+    tempoAtraso: "",
+    classificacaoRisco: "",
+    semDados: r.sem_dados_scr === true ? true : undefined,
+    fonteBureau: _s(r.fonte_bureau) || undefined,
+  };
+}
+
+function adaptContratoNew(raw: Record<string, unknown>): Partial<ContratoSocialData> {
+  const r = raw ?? {};
+  const ultAlt   = (r.ultima_alteracao ?? {}) as Record<string, unknown>;
+  const regJunta = (r.registro_junta ?? {}) as Record<string, unknown>;
+  const admObj   = (r.administracao ?? {}) as Record<string, unknown>;
+  const sociosArr = Array.isArray(r.socios) ? r.socios as Array<Record<string, unknown>> : [];
+  const retirArr  = Array.isArray(r.socios_retirantes) ? r.socios_retirantes as Array<Record<string, unknown>> : [];
+  const anterArr  = Array.isArray(r.quadro_anterior) ? r.quadro_anterior as Array<Record<string, unknown>> : [];
+  const filiaisArr = Array.isArray(r.filiais) ? r.filiais as Array<Record<string, unknown>> : [];
+  const objItems  = Array.isArray(r.objeto_social_itens) ? (r.objeto_social_itens as unknown[]).map(x => String(x)).filter(Boolean) : [];
+
+  const numOr = (v: unknown): number => {
+    if (typeof v === "number") return v;
+    const s = String(v ?? "").trim().replace(/[R$\s]/g, "");
+    if (!s) return 0;
+    const hasBR = /,\d{1,2}$/.test(s);
+    const multiDot = (s.match(/\./g) ?? []).length > 1;
+    if (hasBR) return parseFloat(s.replace(/\./g, "").replace(",", ".")) || 0;
+    if (multiDot) return parseFloat(s.replace(/\./g, "")) || 0;
+    return parseFloat(s.replace(/,/g, "")) || 0;
+  };
+
+  const totalQuotasN = numOr(r.total_quotas);
+
+  const mapSocio = (s: Record<string, unknown>): Socio => {
+    const qts = numOr(s.quotas);
+    let participacao = "";
+    if (s.percentual_participacao != null) {
+      const pct = numOr(s.percentual_participacao);
+      participacao = pct > 0 ? pct.toFixed(0) + "%" : "";
+    } else if (qts > 0 && totalQuotasN > 0) {
+      participacao = ((qts / totalQuotasN) * 100).toFixed(2).replace(".", ",") + "%";
+    } else if (_s(s.participacao)) {
+      participacao = _s(s.participacao);
+    }
+    const qualBase = _s(s.qualificacao);
+    const qualFull = s.administrador === true && !/administrador/i.test(qualBase)
+      ? (qualBase ? `${qualBase} (Administrador)` : "Administrador")
+      : qualBase;
+    return {
+      nome: _s(s.nome),
+      cpf: _s(s.cpf),
+      participacao,
+      qualificacao: qualFull,
+      ...(s.rg ? { rg: _s(s.rg) } : {}),
+      ...(s.orgao_emissor_rg ? { orgaoEmissorRg: _s(s.orgao_emissor_rg) } : {}),
+      ...(s.data_nascimento ? { dataNascimento: _s(s.data_nascimento) } : {}),
+      ...(s.estado_civil ? { estadoCivil: _s(s.estado_civil) } : {}),
+      ...(s.regime_bens ? { regimeBens: _s(s.regime_bens) } : {}),
+      ...(s.endereco_residencial ? { enderecoResidencial: _s(s.endereco_residencial) } : {}),
+      ...(s.administrador != null ? { administrador: s.administrador === true } : {}),
+      ...(qts > 0 ? { quotas: qts } : {}),
+      ...(s.valor_total_quotas ? { valorTotalQuotas: _fmtMoneyBR(s.valor_total_quotas) } : {}),
+    };
+  };
+
+  // Administradores: prioriza objeto administracao, fallback sócios com administrador=true
+  const admArr = Array.isArray(admObj.administradores) ? (admObj.administradores as Array<Record<string,unknown>>).map(a => _s(a.nome)).filter(Boolean) : [];
+  const admFallback = sociosArr.filter(s => s.administrador === true).map(s => _s(s.nome)).filter(Boolean);
+  const administracao = (admArr.length > 0 ? admArr : admFallback).join(", ");
+
+  const hasAlteracao = !!(_s(ultAlt.tipo_ato) || _s(ultAlt.data_registro) || _s(ultAlt.data_assinatura));
+
+  const filiais: Filial[] = filiaisArr.map(f => ({
+    cnpj: _s(f.cnpj),
+    nire: _s(f.nire) || undefined,
+    logradouro: _s(f.logradouro) || undefined,
+    numero: _s(f.numero) || undefined,
+    bairro: _s(f.bairro) || undefined,
+    municipio: _s(f.municipio),
+    uf: _s(f.uf),
+    cep: _s(f.cep) || undefined,
+  })).filter(f => f.cnpj || f.municipio);
+
+  const sociosRetirantes: SocioRetirante[] = retirArr.map(s => ({
+    nome: _s(s.nome),
+    cpf: _s(s.cpf),
+    quotasCedidas: numOr(s.quotas_cedidas),
+    valorQuotasCedidas: _fmtMoneyBR(s.valor_quotas_cedidas),
+    ...(s.cessionario ? { cessionario: _s(s.cessionario) } : {}),
+    ...(s.data_retirada ? { dataRetirada: _s(s.data_retirada) } : {}),
+  })).filter(s => s.nome);
+
+  const registro = (_s(regJunta.protocolo) || _s(regJunta.numero_registro) || _s(regJunta.data_registro))
+    ? {
+        protocolo:      _s(regJunta.protocolo) || undefined,
+        dataProtocolo:  _s(regJunta.data_protocolo) || undefined,
+        numeroRegistro: _s(regJunta.numero_registro) || _s(regJunta.numero_arquivamento) || undefined,
+        dataRegistro:   _s(regJunta.data_registro) || _s(regJunta.data_arquivamento) || undefined,
+        dataEfeitos:    _s(regJunta.data_efeitos) || _s(ultAlt.data_assinatura) || undefined,
+        orgao:          _s(regJunta.orgao) || undefined,
+      }
+    : undefined;
+
+  return {
+    socios: sociosArr.map(mapSocio),
+    capitalSocial: _fmtMoneyBR(r.capital_social_valor),
+    objetoSocial: _s(r.objeto_social),
+    ...(objItems.length > 0 ? { objetoSocialItems: objItems } : {}),
+    dataConstituicao: _s(r.data_constituicao),
+    temAlteracoes: hasAlteracao,
+    prazoDuracao: _s(r.prazo_duracao),
+    administracao,
+    foro: _s(r.foro),
+    // Campos enriquecidos
+    ...(r.cnpj ? { cnpj: _s(r.cnpj) } : {}),
+    ...(r.nire ? { nire: _s(r.nire) } : {}),
+    ...(r.nome_fantasia ? { nomeFantasia: _s(r.nome_fantasia) } : {}),
+    ...(filiais.length > 0 ? { filiais } : {}),
+    ...(sociosRetirantes.length > 0 ? { sociosRetirantes } : {}),
+    ...(anterArr.length > 0 ? { quadroAnterior: anterArr.map(mapSocio) } : {}),
+    ...(totalQuotasN > 0 ? { totalQuotas: totalQuotasN } : {}),
+    ...(r.quota_valor_unitario ? { quotaValorUnitario: _fmtMoneyBR(r.quota_valor_unitario) } : {}),
+    ...(r.capital_integralizado != null ? { capitalIntegralizado: r.capital_integralizado === true } : {}),
+    ...(registro ? { registro } : {}),
+  };
+}
+
+function adaptCurvaABCNew(raw: Record<string, unknown>): Partial<CurvaABCData> {
+  const r = raw ?? {};
+  const clientesRaw = Array.isArray(r.curva_abc_clientes) ? r.curva_abc_clientes as Array<Record<string, unknown>> : [];
+  const totalFatN = typeof r.total_faturado === "number" ? r.total_faturado : parseFloat(_s(r.total_faturado)) || 0;
+
+  // Parse valores primeiro para poder ordenar
+  const clientesParsed = clientesRaw.map(c => ({
+    raw: c,
+    valor: typeof c.valor === "number" ? c.valor : parseFloat(_s(c.valor)) || 0,
+    pct: typeof c.percentual === "number" ? c.percentual : parseFloat(_s(c.percentual)) || 0,
+  }));
+  // Garantir ordem decrescente por valor independente de como o doc apresenta
+  clientesParsed.sort((a, b) => b.valor - a.valor);
+
+  let acc = 0;
+  const clientes: ClienteCurvaABC[] = clientesParsed.map(({ raw: c, valor, pct }, idx) => {
+    acc += pct;
+    const classe = _s(c.classificacao) || (acc <= 80 ? "A" : acc <= 95 ? "B" : "C");
+    return {
+      posicao: idx + 1,
+      nome: _s(c.cliente),
+      cnpjCpf: "",
+      valorFaturado: _fmtMoneyBR(valor),
+      percentualReceita: pct.toFixed(2),
+      percentualAcumulado: Math.min(acc, 100).toFixed(2),
+      classe,
+    };
+  });
+
+  const top3Pct = clientes.slice(0, 3).reduce((s, c) => s + parseFloat(c.percentualReceita), 0);
+  const top5Pct = clientes.slice(0, 5).reduce((s, c) => s + parseFloat(c.percentualReceita), 0);
+  const top10Pct = clientes.slice(0, 10).reduce((s, c) => s + parseFloat(c.percentualReceita), 0);
+  const classeA = clientes.filter(c => c.classe === "A");
+  const receitaClasseA = classeA.reduce((s, c) => {
+    const n = parseFloat(c.valorFaturado.replace(/[R$\s.]/g, "").replace(",", ".")) || 0;
+    return s + n;
+  }, 0);
+
+  return {
+    clientes,
+    totalClientesExtraidos: clientes.length,
+    totalClientesNaBase: clientes.length,
+    periodoReferencia: _s(r.periodo_referencia),
+    receitaTotalBase: _fmtMoneyBRNoPrefix(totalFatN),
+    concentracaoTop3: top3Pct.toFixed(2),
+    concentracaoTop5: top5Pct.toFixed(2),
+    concentracaoTop10: top10Pct.toFixed(2),
+    totalClientesClasseA: classeA.length,
+    receitaClasseA: _fmtMoneyBRNoPrefix(receitaClasseA),
+    maiorCliente: clientes[0]?.nome || "",
+    maiorClientePct: clientes[0]?.percentualReceita || "0.00",
+    alertaConcentracao: top3Pct > 50,
+  };
+}
+
+function adaptDRENew(raw: Record<string, unknown>): Partial<DREData> {
+  const r = raw ?? {};
+  const anosRaw = Array.isArray(r.anos) ? r.anos as Array<Record<string, unknown>> : [];
+  const numOr = (v: unknown): number => typeof v === "number" ? v : parseFloat(_s(v)) || 0;
+
+  const anos: DREAno[] = anosRaw.map(a => {
+    const recFin = numOr(a.receitas_financeiras);
+    const despFin = Math.abs(numOr(a.despesas_financeiras));
+    return {
+      ano: _s(a.ano),
+      receitaBruta: _fmtMoneyBR(a.receita_bruta),
+      deducoes: _fmtMoneyBR(a.deducoes_receita_bruta),
+      receitaLiquida: _fmtMoneyBR(a.receita_liquida),
+      custoProdutosServicos: _fmtMoneyBR(a.custos_total),
+      lucroBruto: _fmtMoneyBR(a.lucro_bruto),
+      margemBruta: _s(a.margem_bruta_percent),
+      despesasOperacionais: _fmtMoneyBR(a.despesas_operacionais_total),
+      ebitda: _fmtMoneyBR(a.resultado_operacional),
+      margemEbitda: _s(a.margem_operacional_percent),
+      depreciacaoAmortizacao: "",
+      resultadoFinanceiro: _fmtMoneyBR(recFin - despFin),
+      lucroAntesIR: _fmtMoneyBR(a.resultado_antes_ir_csl),
+      impostoRenda: _fmtMoneyBR(a.provisao_irpj_csll),
+      lucroLiquido: _fmtMoneyBR(a.lucro_liquido_exercicio),
+      margemLiquida: _s(a.margem_liquida_percent),
+    };
+  });
+
+  let tendencia: "crescimento" | "estavel" | "queda" = "estavel";
+  if (anosRaw.length >= 2) {
+    const l0 = numOr(anosRaw[0].lucro_liquido_exercicio);
+    const l1 = numOr(anosRaw[anosRaw.length - 1].lucro_liquido_exercicio);
+    if (l0 && l1) {
+      if (l1 > l0 * 1.05) tendencia = "crescimento";
+      else if (l1 < l0 * 0.95) tendencia = "queda";
+    }
+  }
+
+  return {
+    anos,
+    crescimentoReceita: "0,00",
+    tendenciaLucro: tendencia,
+    periodoMaisRecente: anos.length > 0 ? anos[anos.length - 1].ano : "",
+    observacoes: "",
+  };
+}
+
+function adaptBalancoNew(raw: Record<string, unknown>): Partial<BalancoData> {
+  const r = raw ?? {};
+  const anosRaw = Array.isArray(r.anos) ? r.anos as Array<Record<string, unknown>> : [];
+
+  const anos: BalancoAno[] = anosRaw.map(a => {
+    const ac  = (a.ativo_circulante ?? {}) as Record<string, unknown>;
+    const anc = (a.ativo_nao_circulante ?? {}) as Record<string, unknown>;
+    const pc  = (a.passivo_circulante ?? {}) as Record<string, unknown>;
+    const pnc = (a.passivo_nao_circulante ?? {}) as Record<string, unknown>;
+    const pl  = (a.patrimonio_liquido ?? {}) as Record<string, unknown>;
+    const ind = (a.indicadores ?? {}) as Record<string, unknown>;
+
+    return {
+      ano: _s(a.ano),
+      ativoTotal: _fmtMoneyBR(a.ativo_total),
+      ativoCirculante: _fmtMoneyBR(ac.total),
+      caixaEquivalentes: _fmtMoneyBR(ac.disponivel),
+      contasAReceber: _fmtMoneyBR(ac.clientes),
+      estoques: _fmtMoneyBR(ac.estoques),
+      outrosAtivosCirculantes: _fmtMoneyBR(ac.outros_creditos),
+      ativoNaoCirculante: _fmtMoneyBR(anc.total),
+      imobilizado: _fmtMoneyBR(anc.imobilizado_liquido ?? anc.imobilizado_bruto),
+      intangivel: "",
+      outrosAtivosNaoCirculantes: _fmtMoneyBR(anc.outros_creditos),
+      passivoTotal: _fmtMoneyBR(a.passivo_total),
+      passivoCirculante: _fmtMoneyBR(pc.total),
+      fornecedores: _fmtMoneyBR(pc.fornecedores),
+      emprestimosCP: _fmtMoneyBR(pc.emprestimos_financiamentos),
+      outrosPassivosCirculantes: _fmtMoneyBR(pc.outras_obrigacoes),
+      passivoNaoCirculante: _fmtMoneyBR(pnc.total),
+      emprestimosLP: "",
+      outrosPassivosNaoCirculantes: "",
+      patrimonioLiquido: _fmtMoneyBR(pl.total),
+      capitalSocial: _fmtMoneyBR(pl.capital_social),
+      reservas: "",
+      lucrosAcumulados: _fmtMoneyBR(pl.lucros_prejuizos_acumulados),
+      liquidezCorrente: _s(ind.liquidez_corrente),
+      liquidezGeral: _s(ind.liquidez_geral),
+      endividamentoTotal: _s(ind.endividamento_total_percent),
+      capitalDeGiroLiquido: _fmtMoneyBR(ind.capital_de_giro),
+    };
+  });
+
+  return {
+    anos,
+    periodoMaisRecente: anos.length > 0 ? anos[anos.length - 1].ano : "",
+    tendenciaPatrimonio: "estavel",
+    observacoes: "",
+  };
+}
+
+function adaptIRNew(raw: Record<string, unknown>): Partial<IRSocioData> {
+  const r = raw ?? {};
+  const ident = (r.identificacao ?? {}) as Record<string, unknown>;
+  const evo = (r.evolucao_patrimonial ?? {}) as Record<string, unknown>;
+  const bens = Array.isArray(r.bens_e_direitos) ? r.bens_e_direitos as Array<Record<string, unknown>> : [];
+  const rendTrib = Array.isArray(r.rendimentos_tributaveis_pj_titular) ? r.rendimentos_tributaveis_pj_titular as Array<Record<string, unknown>> : [];
+  const rendIsen = Array.isArray(r.rendimentos_isentos_nao_tributaveis) ? r.rendimentos_isentos_nao_tributaveis as Array<Record<string, unknown>> : [];
+  const rendExcl = Array.isArray(r.rendimentos_tributacao_exclusiva) ? r.rendimentos_tributacao_exclusiva as Array<Record<string, unknown>> : [];
+  const impPago = (r.imposto_pago_retido ?? {}) as Record<string, unknown>;
+  const resumo = (r.resumo ?? {}) as Record<string, unknown>;
+
+  // Parsing robusto de valor numérico — suporta float puro (93432.24),
+  // BR com decimal (25.324,06) e inteiro BR com milhar (10.809.058)
+  const numOr = (v: unknown): number => {
+    if (typeof v === "number") return v;
+    const s = String(v ?? "").trim().replace(/[R$\s]/g, "");
+    if (!s) return 0;
+    const hasBR = /,\d{1,2}$/.test(s);
+    const multiDot = (s.match(/\./g) ?? []).length > 1;
+    if (hasBR)       return parseFloat(s.replace(/\./g, "").replace(",", ".")) || 0;
+    if (multiDot)    return parseFloat(s.replace(/\./g, "")) || 0;
+    return parseFloat(s.replace(/,/g, "")) || 0;
+  };
+
+  // Grupos DIRPF: 01=imóveis, 02=bens móveis, 03=participações societárias,
+  // 04-07=aplicações/investimentos/créditos/depósitos/fundos.
+  const sumByGrupo = (grupos: string[]) => bens
+    .filter(b => grupos.includes(_s(b.grupo).padStart(2, "0")))
+    .reduce((sum, b) => sum + numOr(b.valor_atual), 0);
+
+  const bensImoveisN   = sumByGrupo(["01"]);
+  const bensVeiculosN  = sumByGrupo(["02"]);
+  const aplicacoesN    = sumByGrupo(["04", "05", "06", "07"]);
+  const outrosBensN    = sumByGrupo(["03"]);
+
+  const totalBensN = numOr(evo.bens_direitos_ano_atual);
+  const dividasN   = numOr(evo.dividas_ano_atual);
+
+  const rendTribTotal = rendTrib.reduce((s, x) => s + numOr(x.rendimentos_recebidos), 0);
+  const rendIsenTotal = rendIsen.reduce((s, x) => s + numOr(x.valor), 0);
+  // Total exclusiva: prioriza campo do resumo (mais preciso), fallback soma da array
+  const rendExclTotal = numOr(resumo.rendimentos_tributacao_exclusiva)
+    || rendExcl.reduce((s, x) => s + numOr(x.valor), 0);
+
+  const tipoDecRaw = _s(r.tipo_declaracao).toLowerCase();
+  const tipoDoc: "recibo" | "declaracao" | "extrato" = /recibo/.test(tipoDecRaw)
+    ? "recibo"
+    : /extrato/.test(tipoDecRaw) ? "extrato" : "declaracao";
+
+  // Participações societárias: usa cnpj_empresa se disponível, senão extrai da discriminacao via regex
+  const sociedades: SociedadeIR[] = bens
+    .filter(b => _s(b.grupo).padStart(2, "0") === "03")
+    .map(p => {
+      const discr = _s(p.discriminacao);
+      const cnpjFromDiscr = discr.match(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/)?.[0] ?? "";
+      return {
+        razaoSocial: discr,
+        cnpj: _s(p.cnpj_empresa) || cnpjFromDiscr,
+        participacao: "",
+      };
+    });
+
+  const cpfConjuge = _s(ident.cpf_conjuge);
+
+  return {
+    nomeSocio: _s(r.nome),
+    cpf: _s(r.cpf),
+    ...(cpfConjuge ? { cpfConjuge } : {}),
+    anoBase: _s(r.ano_calendario),
+    ...(r.exercicio != null ? { exercicio: _s(r.exercicio) } : {}),
+    tipoDocumento: tipoDoc,
+    numeroRecibo: _s(r.numero_recibo_ultima_declaracao),
+    dataEntrega: "",
+    rendimentosTributaveis: _fmtMoneyBRNoPrefix(rendTribTotal),
+    rendimentosIsentos: _fmtMoneyBRNoPrefix(rendIsenTotal),
+    ...(rendExclTotal > 0 ? { rendimentosTributacaoExclusiva: _fmtMoneyBRNoPrefix(rendExclTotal) } : {}),
+    rendimentoTotal: _fmtMoneyBRNoPrefix(rendTribTotal + rendIsenTotal + rendExclTotal),
+    bensImoveis: _fmtMoneyBRNoPrefix(bensImoveisN),
+    bensVeiculos: _fmtMoneyBRNoPrefix(bensVeiculosN),
+    aplicacoesFinanceiras: _fmtMoneyBRNoPrefix(aplicacoesN),
+    outrosBens: _fmtMoneyBRNoPrefix(outrosBensN),
+    totalBensDireitos: _fmtMoneyBRNoPrefix(totalBensN),
+    dividasOnus: _fmtMoneyBRNoPrefix(dividasN),
+    patrimonioLiquido: _fmtMoneyBRNoPrefix(totalBensN - dividasN),
+    impostoPago: _fmtMoneyBRNoPrefix(impPago.total_imposto_pago),
+    impostoRestituir: _fmtMoneyBRNoPrefix(resumo.imposto_a_restituir),
+    temSociedades: sociedades.length > 0,
+    sociedades,
+    coerenciaComEmpresa: true,
+    observacoes: "",
+    // Situação da declaração e débitos
+    situacaoMalhas: r.debitos_receita_federal === true || _s(r.situacao_declaracao).toLowerCase().includes("malha"),
+    debitosEmAberto: r.debitos_receita_federal === true,
+    descricaoDebitos: r.debitos_receita_federal === true ? (_s(r.situacao_declaracao) || "Débitos identificados") : "",
+  };
+}
+
+function adaptVisitaNew(raw: Record<string, unknown>): Partial<RelatorioVisitaData> {
+  const r      = raw ?? {};
+  const ops    = (r.dados_operacionais ?? {}) as Record<string, unknown>;
+  const params = (r.parametros_sugeridos ?? {}) as Record<string, unknown>;
+  const end    = (r.endereco_visitado ?? {}) as Record<string, unknown>;
+  const cont   = (r.contatos ?? {}) as Record<string, unknown>;
+  const opAt   = (r.operacao_atual_outros_parceiros ?? {}) as Record<string, unknown>;
+  const socios = Array.isArray(r.socios) ? r.socios as Array<Record<string, unknown>> : [];
+  const conj   = Array.isArray(r.conjuges_responsaveis_solidarios) ? r.conjuges_responsaveis_solidarios as Array<Record<string, unknown>> : [];
+
+  const localParts = [_s(end.logradouro), _s(end.numero), _s(end.complemento), _s(end.bairro), _s(end.municipio), _s(end.uf)].filter(Boolean);
+  const cepPart = _s(end.cep) ? `CEP ${_s(end.cep)}` : "";
+  const localVisita = [...localParts, cepPart].filter(Boolean).join(" – ");
+
+  const funcN = typeof ops.funcionarios === "number" ? ops.funcionarios : parseInt(_s(ops.funcionarios)) || 0;
+  const valorMaq = typeof ops.valor_maquinario === "number" ? ops.valor_maquinario : parseFloat(_s(ops.valor_maquinario)) || 0;
+
+  const recRaw = _s(r.recomendacao).toLowerCase();
+  const recVisitante: "aprovado" | "condicional" | "reprovado" =
+    /reprov/.test(recRaw) ? "reprovado" : /condic/.test(recRaw) ? "condicional" : "aprovado";
+
+  const gerenteRaw = _s(r.gerente_responsavel).trim();
+  const isGenericRole = /^(gerente|analista|gerente de neg[óo]cios|analista de cr[ée]dito|respons[áa]vel|gerente comercial)\s*\.?$/i.test(gerenteRaw);
+  const gerenteNome = isGenericRole ? "" : gerenteRaw;
+
+  // Modalidade
+  const modRaw = _s(params.modalidade_operacao).toLowerCase();
+  const modalidade: RelatorioVisitaData["modalidade"] =
+    /comiss/.test(modRaw) ? "comissaria" : /conv/.test(modRaw) ? "convencional" : /hibr/.test(modRaw) ? "hibrida" : undefined;
+
+  // Primeiro sócio e cônjuge principal
+  const socPrincipal = socios[0];
+  const conjPrincipal = conj[0];
+
+  // Percentuais como string formatada
+  const fmtPct = (v: unknown): string => {
+    if (v == null || v === "") return "";
+    const n = typeof v === "number" ? v : parseFloat(String(v).replace(",", "."));
+    return isFinite(n) ? String(n) : _s(v);
+  };
+
+  return {
+    dataVisita: _s(r.data_visita),
+    responsavelVisita: gerenteNome,
+    localVisita,
+    duracaoVisita: "",
+    estruturaFisicaConfirmada: true,
+    funcionariosObservados: funcN,
+    estoqueVisivel: false,
+    estimativaEstoque: _fmtMoneyBR(ops.valor_estoque_max ?? ops.valor_estoque_min),
+    operacaoCompativelFaturamento: true,
+    maquinasEquipamentos: valorMaq > 0,
+    descricaoEstrutura: _s(ops.vantagem_competitiva),
+    pontosPositivos: [],
+    pontosAtencao: [],
+    recomendacaoVisitante: recVisitante,
+    nivelConfiancaVisita: "alto",
+    presencaSocios: socios.length > 0,
+    sociosPresentes: socios.map(s => _s(s.nome)).filter(Boolean),
+    documentosVerificados: [],
+    observacoesLivres: _s(r.percepcao_gerente),
+    pleito: _s(r.defesa_credito),
+
+    // Contatos
+    ...(cont.email_financeiro ? { emailFinanceiro: _s(cont.email_financeiro) } : {}),
+    ...(socPrincipal ? { nomeSocio: _s(socPrincipal.nome), celularSocio: _s(socPrincipal.celular) } : {}),
+    ...(conjPrincipal ? { nomeConjuge: _s(conjPrincipal.nome), cpfConjuge: _s(conjPrincipal.cpf) } : {}),
+
+    // Modalidade
+    ...(modalidade ? { modalidade } : {}),
+    ...(typeof params.opera_cheque_terceiros === "boolean" ? { operaCheque: params.opera_cheque_terceiros } : {}),
+
+    // Parâmetros do pleito (item 27 / Proposta final do gerente)
+    limiteTotal: _fmtMoneyBR(params.limite_global),
+    limiteConvencional: _fmtMoneyBR(params.limite_convencional),
+    limiteComissaria: _fmtMoneyBR(params.limite_comissaria),
+    limitePorSacado: _fmtMoneyBR(params.limite_por_sacado),
+    limitePrincipaisSacados: _fmtMoneyBR(params.limite_principais_sacados),
+    limiteDuplicatasPJ: _fmtMoneyBR(params.limite_duplicatas_pj),
+    limiteChequesPJ: _fmtMoneyBR(params.limite_cheques_pj),
+    concentracaoPercent: fmtPct(params.concentracao_percent),
+    prazoMaximoOp: _s(params.prazo_maximo_titulo_dias),
+    tranche: _fmtMoneyBR(params.tranche_limite_global),
+    // tranche_checagem pode ser número (R$) ou texto descritivo ("Sem checagem comissária")
+    trancheChecagem: (() => {
+      const tc = params.tranche_checagem;
+      if (tc == null || tc === "") return "";
+      const n = typeof tc === "number" ? tc : parseFloat(String(tc).replace(/\./g, "").replace(",", "."));
+      return isFinite(n) ? _fmtMoneyBR(tc) : String(tc).trim();
+    })(),
+    prazoTranche: _s(params.prazo_tranche_limite_global_dias),
+    prazoEnvioCartorio: _s(params.prazo_cartorio_dias),
+    cobrancaTAC: _fmtMoneyBR(params.tac_valor),
+    taxaConvencional: fmtPct(params.taxa_duplicata_percent),
+    taxaCheque: fmtPct(params.taxa_cheque_percent),
+    taxaComissaria: fmtPct(params.taxa_comissaria_percent),
+    valorCobrancaBoleto: _fmtMoneyBR(params.valor_boleto),
+    desagioPropostoPercent: fmtPct(params.desagio_proposto_percent),
+    prazoRecompraCedente: _s(params.prazo_recompra_cedente_dias),
+
+    // Tickets e operação
+    ticketMinimo: _fmtMoneyBR(opAt.ticket_minimo_nf),
+    ticketMaximo: _fmtMoneyBR(opAt.ticket_maximo_nf),
+    ticketMedio: _fmtMoneyBR(opAt.ticket_medio_nf),
+    prazoVenda: _s(opAt.prazo_venda_dias),
+    prazoFornecedores: _s(opAt.prazo_pagamento_fornecedores),
+    mixRecebiveis: _s(opAt.mix_recebiveis_descricao) || _s(ops.mix_recebiveis),
+    frequenciaOperacao: _s(opAt.frequencia_operacao_semanal),
+
+    // Dados da empresa
+    folhaPagamento: _fmtMoneyBR(ops.folha_pagamento),
+    prazoMedioFaturamento: _s(ops.prazo_medio_recebimento_dias),
+    prazoMedioEntrega: _s(ops.prazo_entrega_dias),
+    endividamentoBanco: _fmtMoneyBR(opAt.endividamento_banco),
+    endividamentoFactoring: _fmtMoneyBR(opAt.endividamento_factoring),
+    // Percentual de vendas por tipo
+    vendasDuplicata: ops.percentual_duplicatas != null ? `${ops.percentual_duplicatas}%` : "",
+    vendasOutras: ops.percentual_outros != null ? `${ops.percentual_outros}%` : "",
+  };
+}
+
+function adaptQSANew(raw: Record<string, unknown>): Partial<QSAData> {
+  const r = raw ?? {};
+  const capitalStr = _s(r.capital_social_valor) || _s((r as Record<string,unknown>).capitalSocial);
+  const capitalFmt = _fmtMoneyBR(capitalStr);
+
+  const sociosArr = Array.isArray(r.socios) ? r.socios as Array<Record<string, unknown>>
+                  : Array.isArray(r.quadroSocietario) ? r.quadroSocietario as Array<Record<string, unknown>>
+                  : [];
+
+  return {
+    capitalSocial: capitalFmt,
+    quadroSocietario: sociosArr.map(x => {
+      const codigo = _s(x.qualificacao_codigo);
+      const desc = _s(x.qualificacao_descricao);
+      // Mantém formato "CODIGO - DESCRIÇÃO" que a UI já sabe processar (rendering strippa o prefixo numérico).
+      const qualFull = codigo && desc ? `${codigo} - ${desc}`
+                    : desc ? desc
+                    : _s(x.qualificacao);
+      return {
+        nome: _s(x.nome),
+        cpfCnpj: _s(x.cpf) || _s(x.cpfCnpj),
+        qualificacao: qualFull,
+        participacao: _s(x.participacao),
+        dataEntrada: _s(x.data_entrada) || _s(x.dataEntrada),
+      };
+    }),
+  };
+}
+
 function fillCNPJDefaults(data: Partial<CNPJData>): CNPJData {
   return {
     razaoSocial: data.razaoSocial || "", nomeFantasia: data.nomeFantasia || "",
@@ -2012,6 +2815,8 @@ function fillRelatorioVisitaDefaults(data: Partial<RelatorioVisitaData>): Relato
     limiteConvencional: data.limiteConvencional || "",
     limiteComissaria: data.limiteComissaria || "",
     limitePorSacado: data.limitePorSacado || "",
+    limiteDuplicatasPJ: data.limiteDuplicatasPJ || "",
+    limiteChequesPJ: data.limiteChequesPJ || "",
     limitePrincipaisSacados: data.limitePrincipaisSacados || "",
     ticketMedio: data.ticketMedio || "",
     valorCobrancaBoleto: data.valorCobrancaBoleto || "",
@@ -2051,11 +2856,48 @@ function countFilledFields(data: AnyExtracted): number {
 // ─────────────────────────────────────────
 export async function POST(request: NextRequest) {
   try {
-    // Validar Content-Type antes de tentar parsear FormData
     const contentType = request.headers.get("content-type") || "";
+
+    // ── Caminho 2: arquivo via Vercel Blob URL (JSON body) ──────────────────
+    // Usado para arquivos grandes que não cabem no corpo de uma função serverless.
+    // O cliente faz upload direto para o Blob e nos envia só a URL.
+    if (contentType.includes("application/json")) {
+      let body: { blobUrl?: string; type?: string; slot?: string; fileName?: string };
+      try {
+        body = await request.json();
+      } catch {
+        return NextResponse.json({ error: "Body JSON inválido." }, { status: 400 });
+      }
+      const { blobUrl, type: docTypeJson, slot: slotJson, fileName, bypass_cache: bypassCacheJson } = body as { blobUrl?: string; type?: string; slot?: string; fileName?: string; bypass_cache?: boolean };
+      if (!blobUrl || !docTypeJson) {
+        return NextResponse.json({ error: "blobUrl e type são obrigatórios." }, { status: 400 });
+      }
+      if (GEMINI_API_KEYS.length === 0) {
+        return NextResponse.json({ error: "Nenhuma GEMINI_API_KEY configurada." }, { status: 500 });
+      }
+      // Fetch do blob (URL pública temporária do Vercel Blob)
+      const blobResp = await fetch(blobUrl);
+      if (!blobResp.ok) {
+        return NextResponse.json({ error: "Não foi possível baixar o arquivo do blob." }, { status: 400 });
+      }
+      const blobBuffer = Buffer.from(await blobResp.arrayBuffer());
+      const blobFileName = fileName ?? blobUrl.split("/").pop() ?? "document.pdf";
+      const blobExt = getFileExt(blobFileName);
+      const blobMime = EXT_TO_MIME[blobExt];
+      if (!blobMime) {
+        return NextResponse.json({ error: `Formato .${blobExt} não suportado.` }, { status: 400 });
+      }
+      // Caminho Blob: variáveis já prontas, pula o bloco FormData
+      if (GEMINI_API_KEYS.length === 0) {
+        return NextResponse.json({ error: "Nenhuma GEMINI_API_KEY configurada." }, { status: 500 });
+      }
+      return processExtract(request, blobBuffer, blobFileName, blobMime, docTypeJson, slotJson ?? null, bypassCacheJson === true);
+    }
+
+    // ── Caminho 1: arquivo via multipart/form-data (upload direto) ──────────
     if (!contentType.includes("multipart/form-data") && !contentType.includes("application/x-www-form-urlencoded")) {
       return NextResponse.json(
-        { error: "Request deve ser multipart/form-data com o arquivo anexado.", success: false },
+        { error: "Request deve ser multipart/form-data ou JSON com blobUrl.", success: false },
         { status: 400 },
       );
     }
@@ -2074,6 +2916,7 @@ export async function POST(request: NextRequest) {
     const file = formData.get("file") as File | null;
     const docType = formData.get("type") as string | null;
     const slot = formData.get("slot") as string | null;
+    const bypassCache = formData.get("bypass_cache") === "true";
 
     if (!file || !docType) {
       return NextResponse.json({ error: "Arquivo ou tipo não informado." }, { status: 400 });
@@ -2083,9 +2926,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Nenhuma GEMINI_API_KEY configurada." }, { status: 500 });
     }
 
-    const MAX_SIZE = 20 * 1024 * 1024;
+    const MAX_SIZE = 30 * 1024 * 1024;
     if (file.size > MAX_SIZE) {
-      return NextResponse.json({ error: "Arquivo excede o limite de 20MB." }, { status: 413 });
+      return NextResponse.json({ error: "Arquivo excede o limite de 30MB. Comprima o PDF antes de enviar." }, { status: 413 });
     }
 
     const ext = getFileExt(file.name);
@@ -2096,33 +2939,63 @@ export async function POST(request: NextRequest) {
 
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
+    return processExtract(request, buffer, file.name, mimeType, docType, slot, bypassCache);
+  } catch (err) {
+    console.error("[extract] Error:", err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: "Erro interno ao processar o documento." }, { status: 500 });
+  }
+}
 
+// ─────────────────────────────────────────
+// Lógica de extração compartilhada (FormData e Blob)
+// ─────────────────────────────────────────
+// Cache version — bump aqui ao atualizar prompts para invalidar extrações antigas.
+// v3 = Layer 3 (subformatos especializados, SCR texto, IR/FAT/SCR novos prompts).
+const CACHE_VERSION = "v4";
+// TTL do cache: extrações mais antigas que N dias são ignoradas e refeitas.
+const CACHE_TTL_DAYS = 30;
+
+async function processExtract(
+  request: NextRequest,
+  buffer: Buffer,
+  fileName: string,
+  mimeType: string,
+  docType: string,
+  slot: string | null,
+  bypassCache = false,
+): Promise<Response> {
+  const ext = getFileExt(fileName);
+  try {
     // ──── Cache de extracao por hash (sha256 do arquivo) ────
-    // Se o mesmo PDF ja foi extraido antes pelo mesmo usuario e doc_type,
-    // retorna o resultado cacheado instantaneamente (zero tokens Gemini).
-    // Gracioso: se a tabela ainda nao existe ou o query falha, segue fluxo normal.
+    // Versão = CACHE_VERSION, TTL = CACHE_TTL_DAYS dias.
+    // bypassCache=true pula a leitura (mas ainda escreve após extração bem-sucedida).
     const fileHash = createHash("sha256").update(buffer).digest("hex");
+    const cacheDocType = `${docType}_${CACHE_VERSION}`;
+    const cacheTTLDate = new Date(Date.now() - CACHE_TTL_DAYS * 24 * 3600 * 1000).toISOString();
     let cachedUserId: string | null = null;
     try {
       const supaCache = createServerSupabase();
       const { data: userData } = await supaCache.auth.getUser();
       cachedUserId = userData.user?.id || null;
-      if (cachedUserId) {
+      if (cachedUserId && !bypassCache) {
         const { data: cached } = await supaCache
           .from("extraction_cache")
           .select("extracted_data, filled_fields")
           .eq("user_id", cachedUserId)
           .eq("file_hash", fileHash)
-          .eq("doc_type", docType)
+          .eq("doc_type", cacheDocType)
+          .gte("created_at", cacheTTLDate)
           .maybeSingle();
         if (cached?.extracted_data) {
-          console.log(`[extract][cache] HIT ${docType} hash=${fileHash.substring(0, 12)} (${cached.filled_fields ?? "?"} campos)`);
+          console.log(`[extract][cache] HIT ${cacheDocType} hash=${fileHash.substring(0, 12)} (${cached.filled_fields ?? "?"} campos)`);
           return NextResponse.json({
             success: true,
             data: cached.extracted_data,
             meta: { rawTextLength: 0, filledFields: cached.filled_fields ?? 0, isScanned: false, aiPowered: false, cached: true },
           });
         }
+      } else if (bypassCache) {
+        console.log(`[extract][cache] BYPASS ${cacheDocType} hash=${fileHash.substring(0, 12)}`);
       }
     } catch (cacheErr) {
       console.warn(`[extract][cache] lookup falhou (seguindo sem cache):`, cacheErr instanceof Error ? cacheErr.message : cacheErr);
@@ -2133,7 +3006,7 @@ export async function POST(request: NextRequest) {
     // (evita que analista veja "faturamento vazio" sem aviso quando o XLSX foge do formato).
     if (ext === "xlsx" && docType === "faturamento") {
       try {
-        console.log(`[extract] Processing Excel: ${file.name}`);
+        console.log(`[extract] Processing Excel: ${fileName}`);
         const faturamento = await extractExcel(buffer);
         const filled = countFilledFields(faturamento);
         const hasMeses = Array.isArray(faturamento.meses) && faturamento.meses.length > 0;
@@ -2153,77 +3026,104 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ──── Selecionar prompt ────
+    // ──── Layer 3: extrair texto para detecção de subformato ────
+    // PDFs textuais têm extração rápida (pdf-parse). O texto extraído aqui é reutilizado
+    // no modo texto para Gemini, evitando dupla extração.
+    const isImage = ["jpg", "jpeg", "png"].includes(ext);
+    let rawPdfText = "";
+    if (ext === "pdf") {
+      rawPdfText = await extractText(buffer, "pdf");
+    }
+    const subformat = detectSubformat(docType, rawPdfText);
+    if (subformat !== "DEFAULT") {
+      console.log(`[extract] subformat detected: ${subformat}`);
+    }
+
+    // ──── Selecionar prompt (Layer 3: especializado por subformato) ────
     let prompt: string;
     switch (docType) {
       case "cnpj":       prompt = PROMPT_CNPJ; break;
       case "qsa":        prompt = PROMPT_QSA; break;
       case "contrato":   prompt = PROMPT_CONTRATO; break;
-      case "faturamento": prompt = PROMPT_FATURAMENTO; break;
-      case "scr":            prompt = PROMPT_SCR; break;
+      case "faturamento":
+        if (subformat === "FAT_DAS")      prompt = PROMPT_FAT_DAS;
+        else if (subformat === "FAT_BANCARIO") prompt = PROMPT_FAT_BANCARIO;
+        else                               prompt = PROMPT_FATURAMENTO;
+        break;
+      case "scr":
+        if (subformat === "SCR_BACEN_SEM_DADOS") prompt = PROMPT_SCR_SEM_DADOS;
+        else if (subformat === "SCR_BUREAU")     prompt = PROMPT_SCR_BUREAU;
+        else                                      prompt = PROMPT_SCR;
+        break;
       case "protestos":      prompt = PROMPT_PROTESTOS; break;
       case "processos":      prompt = PROMPT_PROCESSOS; break;
       case "grupoEconomico": prompt = PROMPT_GRUPO_ECONOMICO; break;
       case "curva_abc":      prompt = PROMPT_CURVA_ABC; break;
       case "dre":            prompt = PROMPT_DRE; break;
       case "balanco":        prompt = PROMPT_BALANCO; break;
-      case "ir_socio":       prompt = PROMPT_IR_SOCIOS; break;
+      case "ir_socio":
+        prompt = subformat === "IR_RECIBO" ? PROMPT_IR_RECIBO : PROMPT_IR_SOCIOS;
+        break;
       case "relatorio_visita": prompt = PROMPT_RELATORIO_VISITA; break;
       default:
         return NextResponse.json({ error: "Tipo de documento inválido." }, { status: 400 });
     }
 
     // ──── Preparar conteúdo ────
-    const isImage = ["jpg", "jpeg", "png"].includes(ext);
     let textContent = "";
     let imageContent: { mimeType: string; base64: string } | undefined;
 
+    // Documentos textuais usam modo texto (3-5x mais rápido, sem timeout).
+    // SCR BACEN e bureau também têm PDF digital — estende modo texto para eles.
+    const TEXT_MODE_TYPES = ["faturamento", "ir_socio", "scr", "curva_abc"];
+
     if (isImage) {
       imageContent = { mimeType, base64: buffer.toString("base64") };
-    } else {
-      // Sempre tenta extrair texto primeiro (muito mais barato em tokens)
-      textContent = await extractText(buffer, ext);
-      // Mínimos por tipo de doc — quando pdf-parse falha em layouts com tabelas/colunas,
-      // o texto sai suspeitosamente curto. Abaixo do limiar, cai pro Gemini multimodal
-      // (que lê o PDF nativo e ignora o text extractor).
-      const minTextByDoc: Record<string, number> = {
-        cnpj: 500, qsa: 500, contrato: 5000, faturamento: 800,
-        scr: 800, protestos: 500, processos: 1000, grupoEconomico: 800,
-        dre: 1500, balanco: 1500, curva_abc: 800, ir_socio: 1500,
-        relatorio_visita: 800,
-      };
-      const minRequired = minTextByDoc[docType] ?? 500;
-      const trimmedLen = textContent.trim().length;
-      const hasContent = hasReadableContent(textContent);
-      const isUsableText = trimmedLen >= minRequired && hasContent;
-
-      if (!isUsableText && ext === "pdf") {
-        console.log(`[extract] PDF text insuficiente (${trimmedLen} < ${minRequired} para ${docType}), enviando como binario`);
+    } else if (ext === "pdf") {
+      if (TEXT_MODE_TYPES.includes(docType)) {
+        const hasUsefulText = rawPdfText.trim().length > 200 && /\d/.test(rawPdfText);
+        if (hasUsefulText) {
+          textContent = rawPdfText;
+          console.log(`[extract] ${docType}/${subformat} — modo texto (${rawPdfText.length} chars)`);
+        } else {
+          imageContent = { mimeType: "application/pdf", base64: buffer.toString("base64") };
+          console.log(`[extract] ${docType}/${subformat} — modo visual (texto insuficiente: ${rawPdfText.trim().length} chars)`);
+        }
+      } else {
+        console.log(`[extract] ${docType} — modo visual (PDF binário)`);
         imageContent = { mimeType: "application/pdf", base64: buffer.toString("base64") };
         textContent = "";
-      } else if (!isUsableText) {
-        return NextResponse.json({
-          error: "Não foi possível extrair texto do documento. Tente enviar em outro formato.",
-        }, { status: 422 });
+      }
+    } else {
+      // Formatos não-PDF (xlsx, docx, txt…): extrai texto normalmente
+      textContent = await extractText(buffer, ext);
+      if (!textContent.trim()) {
+        if (docType !== "faturamento") {
+          return NextResponse.json({
+            error: "Não foi possível extrair texto do documento. Tente enviar em formato PDF.",
+          }, { status: 422 });
+        }
+        console.warn(`[extract] faturamento: texto vazio para ext=${ext} — tentando Gemini sem conteúdo textual`);
       }
     }
 
     // Injeta hint do nome do arquivo no prompt para SCR — quando periodoReferencia
     // nao aparece no documento, Gemini pode usar o filename como pista de ultimo recurso.
-    if (docType === "scr" && file.name) {
-      prompt = `${prompt}\n\n═══ HINT DO NOME DO ARQUIVO ═══\nO arquivo foi enviado com o nome: "${file.name}"\nSe o documento nao declarar periodoReferencia claramente mas o nome do arquivo contem uma data (ex: "scr-11-2025.pdf", "bacen-2024-12.pdf"), use essa data como periodoReferencia (formato MM/AAAA). NUNCA retorne periodoReferencia vazio.`;
+    if (docType === "scr" && fileName) {
+      prompt = `${prompt}\n\n═══ HINT DO NOME DO ARQUIVO ═══\nO arquivo foi enviado com o nome: "${fileName}"\nSe o documento nao declarar periodoReferencia claramente mas o nome do arquivo contem uma data (ex: "scr-11-2025.pdf", "bacen-2024-12.pdf"), use essa data como periodoReferencia (formato MM/AAAA). NUNCA retorne periodoReferencia vazio.`;
     }
 
     if (textContent) {
       const maxChars: Record<string, number> = {
-        cnpj: 4000, qsa: 6000, contrato: 12000, faturamento: 10000, scr: 15000,
+        cnpj: 4000, qsa: 6000, faturamento: 20000, scr: 15000,
         protestos: 8000, processos: 12000, grupoEconomico: 8000,
-        curva_abc: 6000, dre: 12000, balanco: 12000, ir_socio: 5000, relatorio_visita: 8000,
+        dre: 12000, balanco: 12000, ir_socio: 25000,
+        // relatorio_visita / contrato / curva_abc → modo visual, não chegam aqui
       };
       textContent = textContent.substring(0, maxChars[docType] || 10000);
     }
 
-    console.log(`[extract] ${file.name} | type=${docType} | ext=${ext} | textLen=${textContent.length} | hasImage=${!!imageContent}`);
+    console.log(`[extract] ${fileName} | type=${docType} | ext=${ext} | textLen=${textContent.length} | hasImage=${!!imageContent}`);
 
     // ──── SSE stream — mantém conexão viva enquanto Gemini processa ────
     const enc = new TextEncoder();
@@ -2231,17 +3131,45 @@ export async function POST(request: NextRequest) {
       try { ctrl.enqueue(enc.encode(`event: ${ev}\ndata: ${JSON.stringify(d)}\n\n`)); } catch { /* ignore if closed */ }
     };
 
+    // Para documentos enviados como binário (vision), injeta instrução de leitura completa.
+    // Sem isso, modelos multimodais podem processar só as primeiras páginas de PDFs longos.
+    if (imageContent) {
+      prompt = `INSTRUÇÃO CRÍTICA: Leia TODAS as páginas deste documento do início ao fim antes de extrair qualquer dado. Não pare nas primeiras páginas. Seções importantes como parâmetros, quadro societário, bens e direitos e conclusões geralmente estão nas últimas páginas.\n\n${prompt}`;
+    }
+
     const _prompt = prompt;
     const _textContent = textContent;
     const _imageContent = imageContent;
     const _docType = docType;
+    const _cacheDocType = cacheDocType;
     const _isImage = isImage;
+    const _buffer = buffer;
     const maxOutputTokensMap: Record<string, number> = {
-      cnpj: 4096, qsa: 4096, contrato: 4096, faturamento: 8192, scr: 8192,
-      protestos: 8192, processos: 8192, grupoEconomico: 4096,
-      curva_abc: 8192, dre: 8192, balanco: 8192, ir_socio: 4096, relatorio_visita: 4096,
+      cnpj: 4096, qsa: 4096, grupoEconomico: 4096, protestos: 4096,
+      faturamento: 8192, scr: 8192, processos: 8192,
+      dre: 8192, balanco: 8192,
+      contrato: 8192, curva_abc: 8192, ir_socio: 8192, relatorio_visita: 8192,
     };
     const _maxOutputTokens = maxOutputTokensMap[docType] ?? 2048;
+
+    // Thinking budget calibrado para Hobby plan (60s max total).
+    // 2.5 Pro com 1024 tokens completa em ~15-35s; 512 em ~10-20s; 0 em ~5-15s.
+    const thinkingBudgetMap: Record<string, number> = {
+      relatorio_visita:  512,  // reduzido de 1024 — Files API + 3.1 Pro cascade pode exceder 52s
+      contrato:          512,
+      ir_socio:          256,  // DIRPF pode ser grande (500KB+) — budget menor evita timeout
+      curva_abc:         256,
+      faturamento:         0,  // extração de tabela simples — thinking adiciona latência sem ganho
+      scr:               256,
+      dre:               256,
+      balanco:           256,
+      processos:         256,
+      protestos:         128,
+      qsa:               128,
+      grupoEconomico:    128,
+      cnpj:                0,
+    };
+    const _thinkingBudget = thinkingBudgetMap[docType] ?? 256;
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -2255,7 +3183,7 @@ export async function POST(request: NextRequest) {
           _send(controller, "status", { message: "Processando documento...", inputMode, textLen: _textContent.length, docType: _docType });
 
           try {
-            const aiResponse = await callAI(_prompt, _textContent, _imageContent, _maxOutputTokens);
+            const aiResponse = await callAI(_prompt, _textContent, _imageContent, _maxOutputTokens, _imageContent ? _buffer : undefined, _thinkingBudget);
             console.log(`[extract] AI response length: ${aiResponse.length}`);
             console.log(`[extract] AI raw response (first 1000 chars):`, aiResponse.substring(0, 1000));
             const rawParsed = parseJSON<Record<string, unknown>>(aiResponse);
@@ -2266,26 +3194,39 @@ export async function POST(request: NextRequest) {
             let parsed: Record<string, unknown> = rawParsed;
             try {
               if (_docType === "cnpj") {
-                const r = safeParseExtracted(CNPJDataSchema, rawParsed, "cnpj");
+                // Adapter: novo prompt do Cartão CNPJ retorna snake_case + estrutura aninhada.
+                // Converte para camelCase flat esperado pelo CNPJDataSchema antes da validação.
+                const adapted = adaptCNPJNew(rawParsed);
+                const r = safeParseExtracted(CNPJDataSchema, adapted as Record<string, unknown>, "cnpj");
                 parsed = r.data as unknown as Record<string, unknown>;
                 zodWarnings.push(...r.warnings);
               } else if (_docType === "qsa") {
-                const r = safeParseExtracted(QSADataSchema, rawParsed, "qsa");
+                const adapted = adaptQSANew(rawParsed);
+                const r = safeParseExtracted(QSADataSchema, adapted as Record<string, unknown>, "qsa");
                 parsed = r.data as unknown as Record<string, unknown>;
                 zodWarnings.push(...r.warnings);
               } else if (_docType === "contrato") {
-                const r = safeParseExtracted(ContratoSocialDataSchema, rawParsed, "contrato");
+                const adapted = adaptContratoNew(rawParsed);
+                const r = safeParseExtracted(ContratoSocialDataSchema, adapted as Record<string, unknown>, "contrato");
                 parsed = r.data as unknown as Record<string, unknown>;
                 zodWarnings.push(...r.warnings);
               } else if (_docType === "faturamento") {
-                const r = safeParseExtracted(FaturamentoDataSchema, rawParsed, "faturamento");
+                const adapted = adaptFaturamentoNew(rawParsed);
+                const r = safeParseExtracted(FaturamentoDataSchema, adapted as Record<string, unknown>, "faturamento");
                 parsed = r.data as unknown as Record<string, unknown>;
                 zodWarnings.push(...r.warnings);
               } else if (_docType === "scr") {
-                const r = safeParseExtracted(SCRDataSchema, rawParsed, "scr");
+                const adapted = adaptSCRNew(rawParsed);
+                const r = safeParseExtracted(SCRDataSchema, adapted as Record<string, unknown>, "scr");
                 parsed = r.data as unknown as Record<string, unknown>;
                 zodWarnings.push(...r.warnings);
               }
+              // Docs sem schema Zod: roda o adapter direto (hydrator cuida dos defaults)
+              if (_docType === "curva_abc")        parsed = adaptCurvaABCNew(rawParsed) as Record<string, unknown>;
+              else if (_docType === "dre")         parsed = adaptDRENew(rawParsed)      as Record<string, unknown>;
+              else if (_docType === "balanco")     parsed = adaptBalancoNew(rawParsed)  as Record<string, unknown>;
+              else if (_docType === "ir_socio")    parsed = adaptIRNew(rawParsed)       as Record<string, unknown>;
+              else if (_docType === "relatorio_visita") parsed = adaptVisitaNew(rawParsed) as Record<string, unknown>;
               // Audit de regras de negocio (range, coerencia, formato)
               const businessWarnings = auditBusinessRules(_docType, parsed);
               zodWarnings.push(...businessWarnings);
@@ -2413,6 +3354,8 @@ export async function POST(request: NextRequest) {
             let errorType: "quota" | "parse" | "empty" | "unknown" = "unknown";
             if (errMsg.includes("429") || errMsg.includes("EXHAUSTED") || errMsg.includes("quota") || errMsg.includes("rate")) {
               errorType = "quota";
+            } else if (errMsg.includes("TIMEOUT") || errMsg.includes("timed out") || errMsg.includes("AbortError")) {
+              errorType = "quota"; // timeout → "API indisponível" é mais útil que "formato inválido"
             } else if (errMsg.includes("JSON") || errMsg.includes("parse") || errMsg.includes("SyntaxError")) {
               errorType = "parse";
             } else if (errMsg.includes("empty") || errMsg.includes("length: 0") || errMsg.includes("Empty")) {
@@ -2465,11 +3408,11 @@ export async function POST(request: NextRequest) {
                 await supaCacheWrite.from("extraction_cache").upsert({
                   user_id: cachedUserId,
                   file_hash: fileHash,
-                  doc_type: _docType,
+                  doc_type: cacheDocType,
                   extracted_data: data as unknown as Record<string, unknown>,
                   filled_fields: filled,
                 }, { onConflict: "user_id,file_hash,doc_type" });
-                console.log(`[extract][cache] gravado ${_docType} hash=${fileHash.substring(0, 12)} filled=${filled}`);
+                console.log(`[extract][cache] gravado ${_cacheDocType} hash=${fileHash.substring(0, 12)} filled=${filled}`);
               } catch (e) {
                 console.warn(`[extract][cache] falha ao gravar (ignorado):`, e instanceof Error ? e.message : e);
               }

@@ -1,6 +1,7 @@
 import type { PDFReportParams } from "@/lib/generators/pdf";
 import type { FundCriterion } from "@/types";
 import { CAPITAL_LOGO_B64 } from "@/lib/assets/capital-logo-b64";
+import { recomputeSCRTotals } from "@/lib/hydrateFromCollection";
 
 // ─── Logo base64 ─────────────────────────────────────────────────────────────
 // Reaproveita a constante compartilhada em lib/assets/capital-logo-b64.ts —
@@ -106,12 +107,12 @@ function page(content: string, pageNum: number, date: string): string {
   return `
 <div class="page">
   <div class="hdr">
-    <div><img src="data:image/png;base64,${LOGO_B64}" alt="Capital Finanças" style="height:28px;object-fit:contain;display:block;filter:brightness(0) invert(1)" /></div>
+    <div><img src="data:image/png;base64,${LOGO_B64}" alt="Capital Finanças" style="height:18px;object-fit:contain;display:block;filter:brightness(0) invert(1)" /></div>
     <div style="display:flex;align-items:center"><div class="meta">Relatório de Due Diligence · ${date}</div><div class="pg">${pageNum}</div></div>
   </div>
   <div class="ct">${content}</div>
   <div class="ftr">
-    <img src="data:image/png;base64,${LOGO_B64}" alt="Capital Finanças" style="height:20px;object-fit:contain;display:block;opacity:0.5" />
+    <img src="data:image/png;base64,${LOGO_B64}" alt="Capital Finanças" style="height:13px;object-fit:contain;display:block;opacity:0.5" />
     <span>Capital Finanças · Relatório de Due Diligence · Documento Confidencial</span>
     <span>Pág. ${pageNum}</span>
   </div>
@@ -643,15 +644,34 @@ function pageCapa(params: PDFReportParams, date: string): string {
     ${cnpj?.nomeFantasia ? `<div style="font-size:13px;color:rgba(255,255,255,0.45);margin-top:6px">${esc(cnpj.nomeFantasia)}</div>` : ""}
     <div style="font-size:12px;font-family:'JetBrains Mono',monospace;color:rgba(255,255,255,0.4);margin-top:10px">CNPJ: ${fmtCnpj(cnpj?.cnpj)}</div>
 
-    <!-- Score circular -->
-    <div style="margin-top:36px;display:flex;flex-direction:column;align-items:center;gap:10px">
+    <!-- Score principal -->
+    ${params.scoreV2 ? (() => {
+      const v2 = params.scoreV2!;
+      const ratingCores: Record<string, string> = { A:"#16a34a", B:"#65a30d", C:"#d97706", D:"#ea580c", E:"#dc2626", F:"#991b1b" };
+      const v2cor = ratingCores[v2.rating] ?? "#6b7280";
+      const confiancaLabel = v2.confianca_score === "alta" ? "Alta confiança" : v2.confianca_score === "parcial" ? "Confiança parcial" : "Confiança baixa";
+      return `<div style="margin-top:36px;display:flex;flex-direction:column;align-items:center;gap:10px">
+        <div style="display:flex;align-items:center;gap:16px">
+          <div style="width:100px;height:100px;border-radius:50%;border:4px solid ${v2cor};display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(255,255,255,0.05)">
+            <div style="font-size:40px;font-weight:900;color:${v2cor};line-height:1">${v2.rating}</div>
+          </div>
+          <div style="text-align:left">
+            <div style="font-size:11px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:4px">Score V2</div>
+            <div style="font-size:28px;font-weight:800;color:${v2cor};line-height:1">${v2.score_final.toFixed(0)}<span style="font-size:14px;font-weight:500;color:rgba(255,255,255,0.35)">&nbsp;/ 100 pts</span></div>
+            <div style="font-size:10px;color:rgba(255,255,255,0.35);margin-top:4px">${confiancaLabel}</div>
+          </div>
+        </div>
+        <div style="padding:6px 22px;border-radius:5px;font-size:12px;font-weight:700;background:${decBg};color:#fff;letter-spacing:0.03em;white-space:nowrap">${fmtDecision(params.decision)}</div>
+        ${score > 0 ? `<div style="font-size:10px;color:rgba(255,255,255,0.3)">Opinião IA: ${score.toFixed(1)}/10</div>` : ""}
+      </div>`;
+    })() : `<div style="margin-top:36px;display:flex;flex-direction:column;align-items:center;gap:10px">
       <div style="width:100px;height:100px;border-radius:50%;border:4px solid ${sb};display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(255,255,255,0.05)">
         <div style="font-size:36px;font-weight:700;color:${sc};line-height:1">${score.toFixed(1)}</div>
         <div style="font-size:10px;color:rgba(255,255,255,0.35)">/10</div>
       </div>
       <div style="font-size:12px;font-weight:700;color:${sc}">${esc(ratingLabel)}</div>
       <div style="padding:6px 22px;border-radius:5px;font-size:12px;font-weight:700;background:${decBg};color:#fff;letter-spacing:0.03em;white-space:nowrap">${fmtDecision(params.decision)}</div>
-    </div>
+    </div>`}
 
     <!-- Comitê -->
     ${params.committeMembers ? `<div style="margin-top:24px;font-size:10px;color:rgba(255,255,255,0.3)">Comitê: ${esc(params.committeMembers)}</div>` : ""}
@@ -673,6 +693,10 @@ function pageCapa(params: PDFReportParams, date: string): string {
 
 // ─── Page 2: Síntese Preliminar ───────────────────────────────────────────────
 function pageSintese(params: PDFReportParams, date: string): string {
+  // Recalcula CP/LP/Total a partir das faixas. Protege contra dados antigos no banco
+  // com carteiraCurtoPrazo gravado errado (versão pre-fix do adapter SCR).
+  if (params.data?.scr) params.data.scr = recomputeSCRTotals(params.data.scr);
+  if (params.data?.scrAnterior) params.data.scrAnterior = recomputeSCRTotals(params.data.scrAnterior);
   const d = params.data;
   const cnpj = d.cnpj;
   const score = params.finalRating ?? 0;
@@ -719,21 +743,40 @@ function pageSintese(params: PDFReportParams, date: string): string {
     if (soc?.participacao) irPartMap[cpfK] = soc.participacao;
   });
 
-  const socRows = socios.map(s => {
+  // Deduplicate by normalized name — merges two rows for the same person (e.g. one with CPF, one with participation)
+  const seenSocios = new Map<string, typeof socios[0]>();
+  socios.forEach(s => {
+    const k = normNome(s.nome);
+    if (!k) return;
+    const ex = seenSocios.get(k);
+    if (!ex) {
+      seenSocios.set(k, s);
+    } else {
+      const mergedCpf = normCpf(ex.cpfCnpj ?? "").length >= 11 ? ex.cpfCnpj : (s.cpfCnpj || ex.cpfCnpj);
+      const mergedPart = ex.participacao || s.participacao;
+      const rawQual = ex.qualificacao || s.qualificacao || "";
+      seenSocios.set(k, { ...ex, cpfCnpj: mergedCpf, participacao: mergedPart, qualificacao: rawQual });
+    }
+  });
+
+  const socRows = Array.from(seenSocios.values()).map(s => {
     const nomeKey = normNome(s.nome);
     const contratoEntry = contratoMap[nomeKey];
 
     // CPF/CNPJ: QSA → Contrato Social (fallback)
-    const cpfRaw = normCpf(s.cpfCnpj).length >= 11
+    const cpfRaw = normCpf(s.cpfCnpj ?? "").length >= 11
       ? s.cpfCnpj
       : (contratoEntry?.cpf ? contratoEntry.cpf : s.cpfCnpj);
-    const cpfK = normCpf(cpfRaw);
+    const cpfK = normCpf(cpfRaw ?? "");
 
     // Participação: QSA → Contrato Social → IR sociedades (fallback)
     const part = s.participacao || contratoEntry?.participacao || irPartMap[cpfK] || "—";
 
+    // Strip leading QSA numeric code prefix (e.g. "49-Sócio-Administrador" → "Sócio-Administrador")
+    const cleanQual = (s.qualificacao ?? "").replace(/^\d{1,3}[-\s]+/, "").trim();
+
     const pl = irMap[cpfK] ? fmtMoneyAbr(irMap[cpfK]) : "—";
-    return `<tr><td><b>${esc(s.nome)}</b></td><td style="font-family:'JetBrains Mono',monospace;font-size:11px">${fmtCpf(cpfRaw)}</td><td>${esc(s.qualificacao)}</td><td style="color:var(--x4)">${fmt(part)}</td><td><b>${pl}</b></td></tr>`;
+    return `<tr><td><b>${esc(s.nome)}</b></td><td style="font-family:'JetBrains Mono',monospace;font-size:11px">${fmtCpf(cpfRaw)}</td><td>${esc(cleanQual)}</td><td style="color:var(--x4)">${fmt(part)}</td><td><b>${pl}</b></td></tr>`;
   }).join("");
 
   // SCR cards
@@ -744,7 +787,9 @@ function pageSintese(params: PDFReportParams, date: string): string {
   const totalNum = numVal(totalDivida);
   const pctVencido = totalNum > 0 && vencNum >= 0 ? ((vencNum / totalNum) * 100).toFixed(1) + "%" : "0,0%";
   const nIfs = scr?.qtdeInstituicoes ?? "—";
-  const alavStr = params.alavancagem != null ? params.alavancagem.toFixed(1) + "x" : "—";
+  const alavStr = params.alavancagem != null ? params.alavancagem.toFixed(2) + "x" : "—";
+  const fmmNumVal = numVal(d.faturamento?.fmm12m ?? d.faturamento?.mediaAno ?? "0");
+  const alavAtual = params.alavancagem ?? (fmmNumVal > 0 ? totalNum / fmmNumVal : 0);
 
   // Protestos
   const prot = d.protestos;
@@ -821,43 +866,67 @@ function pageSintese(params: PDFReportParams, date: string): string {
   const scrAnt = d.scrAnterior;
   let scrTable = "";
   if (scr && scrAnt) {
+    // Sort by period: scrCur = more recent (Atual), scrPrv = older (Anterior)
+    const parseScrPrd = (s: string) => { const p = (s ?? "").split("/"); return p.length === 2 ? parseInt(p[1], 10) * 100 + parseInt(p[0], 10) : 0; };
+    const scrCur = parseScrPrd(scr.periodoReferencia ?? "") >= parseScrPrd(scrAnt.periodoReferencia ?? "") ? scr : scrAnt;
+    const scrPrv = parseScrPrd(scr.periodoReferencia ?? "") >= parseScrPrd(scrAnt.periodoReferencia ?? "") ? scrAnt : scr;
+    // Compute totals from components (BACEN Responsabilidade Total = A Vencer + Vencidos + Prejuízos)
+    const calcScrTotal = (s: typeof scr) => numVal(s.carteiraCurtoPrazo || s.carteiraAVencer || "0") + numVal(s.carteiraLongoPrazo || "0") + numVal(s.vencidos || "0") + numVal(s.prejuizos || "0");
     type SCRRow = {label:string;curr:string;prev:string;varCls:string;varVal:string};
     const mkRow = (label:string, currV:string|null|undefined, prevV:string|null|undefined, fmt2:(v:string|number|null|undefined)=>string, higherIsBad:boolean): SCRRow => {
       const v = scrVar(currV, prevV, higherIsBad);
       return {label, curr:fmt2(currV), prev:fmt2(prevV), varCls:v.cls, varVal:v.val};
     };
     const rows: SCRRow[] = [
-      mkRow("Curto Prazo",  scr.carteiraCurtoPrazo,  scrAnt.carteiraCurtoPrazo,  fmtMoneyAbr, true),
-      mkRow("Longo Prazo",  scr.carteiraLongoPrazo,  scrAnt.carteiraLongoPrazo,  fmtMoneyAbr, true),
-      mkRow("Vencidos",     scr.vencidos,             scrAnt.vencidos,             fmtMoneyAbr, true),
-      mkRow("Prejuízos",    scr.prejuizos,            scrAnt.prejuizos,            fmtMoneyAbr, true),
-      mkRow("Limite Créd.", scr.limiteCredito,        scrAnt.limiteCredito,        fmtMoneyAbr, false),
+      mkRow("Curto Prazo",  scrCur.carteiraCurtoPrazo,  scrPrv.carteiraCurtoPrazo,  fmtMoneyAbr, true),
+      mkRow("Longo Prazo",  scrCur.carteiraLongoPrazo,  scrPrv.carteiraLongoPrazo,  fmtMoneyAbr, true),
+      mkRow("Vencidos",     scrCur.vencidos,             scrPrv.vencidos,             fmtMoneyAbr, true),
+      mkRow("Prejuízos",    scrCur.prejuizos,            scrPrv.prejuizos,            fmtMoneyAbr, true),
+      mkRow("Limite Créd.", scrCur.limiteCredito,        scrPrv.limiteCredito,        fmtMoneyAbr, false),
     ];
-    const vTotal = scrVar(scr.totalDividasAtivas, scrAnt.totalDividasAtivas, true);
-    const totalRows = `<tr class="total"><td>Total Dívidas</td><td>${fmtMoneyAbr(scr.totalDividasAtivas)}</td><td>${fmtMoneyAbr(scrAnt.totalDividasAtivas)}</td><td class="var-cell ${vTotal.cls}">${esc(vTotal.val)}</td></tr>`;
-    const periodoAtual = scr.periodoReferencia ?? "";
-    const periodoAnt   = scrAnt.periodoReferencia ?? "";
+    const totalCurN = calcScrTotal(scrCur);
+    const totalPrvN = calcScrTotal(scrPrv);
+    const vTotal = scrVar(String(totalCurN), String(totalPrvN), true);
+    const totalRows = `<tr class="total"><td>Total Dívidas</td><td>${fmtMoneyAbr(totalPrvN)}</td><td>${fmtMoneyAbr(totalCurN)}</td><td class="var-cell ${vTotal.cls}">${esc(vTotal.val)}</td></tr>`;
+    const alavCurN = fmmNumVal > 0 ? totalCurN / fmmNumVal : 0;
+    const alavPrvN = fmmNumVal > 0 ? totalPrvN / fmmNumVal : 0;
+    const alavVarR = alavPrvN > 0 ? ((alavCurN - alavPrvN) / Math.abs(alavPrvN)) * 100 : 0;
+    const alavVarCls = Math.abs(alavVarR) < 0.5 ? "neutral" : alavVarR > 0 ? "up" : "down";
+    const alavVarStr = Math.abs(alavVarR) < 0.5 ? "—" : alavVarR > 0 ? `+${Math.abs(alavVarR).toFixed(1)}%` : `-${Math.abs(alavVarR).toFixed(1)}%`;
+    const alavCurrS = alavCurN > 0 ? alavCurN.toFixed(2) + "x" : "—";
+    const alavPrevS = alavPrvN > 0 ? alavPrvN.toFixed(2) + "x" : "—";
+    const alavRow = `<tr><td>Alavancagem</td><td>${alavPrevS}</td><td>${alavCurrS}</td><td class="var-cell ${alavVarCls}">${alavVarStr}</td></tr>`;
+    const periodoAtual = scrCur.periodoReferencia ?? "";
+    const periodoAnt   = scrPrv.periodoReferencia ?? "";
     const hAtual   = periodoAtual ? `Atual (${esc(periodoAtual)})`   : "Atual";
     const hAnterior = periodoAnt  ? `Anterior (${esc(periodoAnt)})`  : "Anterior";
     scrTable = `<table class="scr-tbl">
       <thead><tr><th>Métrica</th><th>${hAnterior}</th><th>${hAtual}</th><th>Var.</th></tr></thead>
-      <tbody>${rows.map(r=>`<tr><td>${esc(r.label)}</td><td>${r.prev}</td><td>${r.curr}</td><td class="var-cell ${r.varCls}">${r.varVal}</td></tr>`).join("")}${totalRows}</tbody>
+      <tbody>${rows.map(r=>`<tr><td>${esc(r.label)}</td><td>${r.prev}</td><td>${r.curr}</td><td class="var-cell ${r.varCls}">${r.varVal}</td></tr>`).join("")}${alavRow}${totalRows}</tbody>
     </table>
-    <div class="ifs-note">Instituições financeiras: ${fmt(scr.qtdeInstituicoes)} · Operações: ${fmt(scr.qtdeOperacoes)}</div>`;
+    <div class="ifs-note">Instituições financeiras: ${fmt(scrCur.qtdeInstituicoes)} · Operações: ${fmt(scrCur.qtdeOperacoes)}</div>`;
   } else if (scr) {
-    const curtoPrazo = scr.carteiraCurtoPrazo ?? scr.carteiraAVencer;
-    scrTable = `<table class="scr-tbl">
-      <thead><tr><th>Métrica</th><th>Valor</th></tr></thead>
-      <tbody>
-        <tr><td>Curto Prazo</td><td>${fmtMoneyAbr(curtoPrazo)}</td></tr>
-        <tr><td>Longo Prazo</td><td>${fmtMoneyAbr(scr.carteiraLongoPrazo)}</td></tr>
-        <tr><td>Vencidos</td><td>${fmtMoneyAbr(scr.vencidos)}</td></tr>
-        <tr><td>Prejuízos</td><td>${fmtMoneyAbr(scr.prejuizos)}</td></tr>
-        <tr><td>Limite de Crédito</td><td>${fmtMoneyAbr(scr.limiteCredito)}</td></tr>
-        <tr class="total"><td>Total Dívidas</td><td>${fmtMoneyAbr(scr.totalDividasAtivas)}</td></tr>
-      </tbody>
-    </table>
-    <div class="ifs-note">Instituições financeiras: ${fmt(scr.qtdeInstituicoes)} · Operações: ${fmt(scr.qtdeOperacoes)}</div>`;
+    if (scr.semDados) {
+      const bureau = scr.fonteBureau ? ` — fonte: ${esc(scr.fonteBureau)}` : "";
+      scrTable = `<div style="padding:14px;background:var(--x0);border:1px solid var(--x2);border-radius:8px;color:var(--x5);font-size:var(--fs-body);text-align:center">
+        SCR sem dados disponíveis${bureau}. Verifique o relatório original.
+      </div>`;
+    } else {
+      const curtoPrazo = scr.carteiraCurtoPrazo ?? scr.carteiraAVencer;
+      scrTable = `<table class="scr-tbl">
+        <thead><tr><th>Métrica</th><th>Valor</th></tr></thead>
+        <tbody>
+          <tr><td>Curto Prazo</td><td>${fmtMoneyAbr(curtoPrazo)}</td></tr>
+          <tr><td>Longo Prazo</td><td>${fmtMoneyAbr(scr.carteiraLongoPrazo)}</td></tr>
+          <tr><td>Vencidos</td><td>${fmtMoneyAbr(scr.vencidos)}</td></tr>
+          <tr><td>Prejuízos</td><td>${fmtMoneyAbr(scr.prejuizos)}</td></tr>
+          <tr><td>Limite de Crédito</td><td>${fmtMoneyAbr(scr.limiteCredito)}</td></tr>
+          <tr><td>Alavancagem</td><td>${alavAtual > 0 ? alavAtual.toFixed(2) + "x" : "—"}</td></tr>
+          <tr class="total"><td>Total Dívidas</td><td>${fmtMoneyAbr(scr.totalDividasAtivas)}</td></tr>
+        </tbody>
+      </table>
+      <div class="ifs-note">Instituições financeiras: ${fmt(scr.qtdeInstituicoes)} · Operações: ${fmt(scr.qtdeOperacoes)}</div>`;
+    }
   }
 
   // Curva ABC (inline in page 2)
@@ -908,7 +977,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
     ["TAC",                              v_(rv?.cobrancaTAC)],
     ["Prazo de Recompra",                vDias(rv?.prazoRecompraCedente)],
     ["Prazo de Cartório",                vDias(rv?.prazoEnvioCartorio)],
-    ["Tranche Checagem R$",              vMoney(rv?.trancheChecagem)],
+    ["Tranche Checagem",                 v_(rv?.trancheChecagem)],
     ["Prazo Tranche",                    vDias(rv?.prazoTranche)],
   ];
   const half = Math.ceil(pleitoRows.length / 2);
@@ -1429,8 +1498,14 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
     </tr>`;
   }).join("");
 
-  // Top 10 mais recentes protestos
-  const top10ProtRecentes = [...(prot?.detalhes ?? [])].filter(p => !p.regularizado).sort((a,b) => b.data.localeCompare(a.data)).slice(0,10);
+  // Top 10 mais recentes protestos — ordena por data ISO-comparável para suportar formato BR "DD/MM/AAAA"
+  const dateKey = (d: string): string => {
+    if (!d) return "";
+    const br = d.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+    if (br) return `${br[3]}-${br[2]}-${br[1]}`;
+    return d; // já ISO ou outro formato — fica como está
+  };
+  const top10ProtRecentes = [...(prot?.detalhes ?? [])].filter(p => !p.regularizado).sort((a,b) => dateKey(b.data).localeCompare(dateKey(a.data))).slice(0,10);
   const top10ProtRecentesRows = top10ProtRecentes.map(p =>
     `<tr><td>${fmtDate(p.data)}</td><td class="b">${esc(p.credor)}</td><td class="r red">${fmtMoney(p.valor)}</td><td>${p.regularizado ? '<span style="color:var(--g6)">Reg.</span>' : '<span style="color:var(--r6)">Vigente</span>'}</td></tr>`
   ).join("");
@@ -1549,8 +1624,20 @@ function scrVar(currV: string | undefined | null, prevV: string | undefined | nu
 
 // ─── Page 9: SCR ─────────────────────────────────────────────────────────────
 function pageSCRDRE(params: PDFReportParams, date: string): string {
-  const scr = params.data.scr;
-  const scrAnt = params.data.scrAnterior;
+  // Recalcula CP/LP/Total a partir das faixas (idempotente; protege dados antigos)
+  if (params.data?.scr) params.data.scr = recomputeSCRTotals(params.data.scr);
+  if (params.data?.scrAnterior) params.data.scrAnterior = recomputeSCRTotals(params.data.scrAnterior);
+  const scrRawDRE = params.data.scr;
+  const scrAntRawDRE = params.data.scrAnterior;
+  // Sort by period: scr = more recent (Atual), scrAnt = older (Anterior)
+  const parseScrPrdDRE = (s: string) => { const p = (s ?? "").split("/"); return p.length === 2 ? parseInt(p[1], 10) * 100 + parseInt(p[0], 10) : 0; };
+  const shouldSwapDRE = scrRawDRE && scrAntRawDRE && parseScrPrdDRE(scrRawDRE.periodoReferencia) < parseScrPrdDRE(scrAntRawDRE.periodoReferencia);
+  const scr = shouldSwapDRE ? scrAntRawDRE : scrRawDRE;
+  const scrAnt = shouldSwapDRE ? scrRawDRE : scrAntRawDRE;
+  // Compute totals from components (BACEN Responsabilidade Total = A Vencer + Vencidos + Prejuízos)
+  const calcScrTotalDRE = (s: typeof scr) => !s ? 0 : numVal(s.carteiraCurtoPrazo || s.carteiraAVencer || "0") + numVal(s.carteiraLongoPrazo || "0") + numVal(s.vencidos || "0") + numVal(s.prejuizos || "0");
+  const totalCurDRE = calcScrTotalDRE(scr);
+  const totalPrvDRE = scrAnt ? calcScrTotalDRE(scrAnt) : null;
 
   // SCR comparative table with real variation
   let scrRows = "";
@@ -1576,8 +1663,8 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
       strRow("IFs","Capacidade","qtdeInstituicoes",false),
       strRow("Operações","Capacidade","qtdeOperacoes",false),
     ].join("");
-    const vTotal = scrVar(scr.totalDividasAtivas, scrAnt?.totalDividasAtivas, true);
-    scrRows += `<tr class="total"><td class="b">Total Dívidas</td><td>Resumo</td><td class="r">${fmtMoneyAbr(scrAnt?.totalDividasAtivas)}</td><td class="r">${fmtMoneyAbr(scr.totalDividasAtivas)}</td><td class="r var-cell ${vTotal.cls}">${esc(vTotal.val)}</td></tr>`;
+    const vTotal = scrVar(String(totalCurDRE), totalPrvDRE !== null ? String(totalPrvDRE) : undefined, true);
+    scrRows += `<tr class="total"><td class="b">Total Dívidas</td><td>Resumo</td><td class="r">${fmtMoneyAbr(totalPrvDRE)}</td><td class="r">${fmtMoneyAbr(totalCurDRE)}</td><td class="r var-cell ${vTotal.cls}">${esc(vTotal.val)}</td></tr>`;
   }
 
   // SCR Modalidades
@@ -1626,16 +1713,15 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
   let scrSection = "";
   if (scr) {
     const vencNum2 = numVal(scr.vencidos ?? "0");
-    const totalNum2 = numVal(scr.totalDividasAtivas ?? "0");
-    const pctVenc2 = totalNum2 > 0 ? ((vencNum2/totalNum2)*100).toFixed(1)+"%" : "0,0%";
+    const pctVenc2 = totalCurDRE > 0 ? ((vencNum2/totalCurDRE)*100).toFixed(1)+"%" : "0,0%";
     const vKPIVenc = scrVar(scr.vencidos, scrAnt?.vencidos, true);
-    const vKPITotal = scrVar(scr.totalDividasAtivas, scrAnt?.totalDividasAtivas, true);
+    const vKPITotal = scrVar(String(totalCurDRE), totalPrvDRE !== null ? String(totalPrvDRE) : undefined, true);
     scrSection = `
     ${stitle("06 · Comparativo SCR — Empresa (PJ)")}
     <div class="kpi-snap c4" style="margin-bottom:14px">
-      <div class="icell ${totalNum2 > 0 ? "navy" : ""}">
+      <div class="icell ${totalCurDRE > 0 ? "navy" : ""}">
         <div class="l">Total Dívidas Ativas</div>
-        <div class="v sm mono">${fmtMoneyAbr(scr.totalDividasAtivas)}</div>
+        <div class="v sm mono">${fmtMoneyAbr(totalCurDRE)}</div>
         ${vKPITotal.val !== "—" ? `<div class="sub var-cell ${vKPITotal.cls}">${esc(vKPITotal.val)} vs anterior</div>` : ""}
       </div>
       <div class="icell ${vencNum2 > 0 ? "danger" : "success"}">
@@ -1990,7 +2076,11 @@ function pageChecklist(params: PDFReportParams, date: string): string {
     { tipo:"grupoEconomico",label:"Grupo Econômico",          presente: !!(params.data.grupoEconomico?.empresas?.length), obrigatorio:false },
   ];
 
-  const lista = docs.length > 0 ? docs : fallback;
+  // When using AI coberturaAnalise, override CCF presence with extractor data.
+  // The AI evaluates "company has CCF records", but the checklist asks "was the document provided".
+  const lista = (docs.length > 0 ? docs : fallback).map(item =>
+    item.tipo === "ccf" ? { ...item, presente: params.data.ccf != null } : item
+  );
   const presentes = lista.filter(d => d.presente).length;
   const obrigTotal = lista.filter(d => d.obrigatorio).length;
   const obrigPres = lista.filter(d => d.obrigatorio && d.presente).length;
@@ -2074,11 +2164,115 @@ function pageChecklist(params: PDFReportParams, date: string): string {
   return page(content, 2, date);
 }
 
+// ─── Page: Score de Crédito V2 ────────────────────────────────────────────────
+function pageScoreV2(params: PDFReportParams, date: string): string {
+  const s = params.scoreV2;
+  if (!s) return "";
+
+  const PILAR_NOMES: Record<string, string> = {
+    perfil_empresa: "Perfil da Empresa",
+    saude_financeira: "Saúde Financeira",
+    risco_compliance: "Risco e Compliance",
+    socios_governanca: "Sócios e Governança",
+    estrutura_operacao: "Estrutura da Operação",
+  };
+  const PILAR_PESOS: Record<string, number> = {
+    perfil_empresa: 15,
+    saude_financeira: 15,
+    risco_compliance: 25,
+    socios_governanca: 10,
+    estrutura_operacao: 35,
+  };
+
+  const RATING_CORES: Record<string, string> = {
+    A: "#22c55e", B: "#86efac", C: "#fde047", D: "#fb923c", E: "#f97316", F: "#ef4444",
+  };
+  const ratingCor = RATING_CORES[s.rating] ?? "#64748b";
+
+  const confiancaLabel = s.confianca_score === "alta" ? "Alta — todos os pilares preenchidos"
+    : s.confianca_score === "parcial" ? "Parcial — alguns pilares pendentes"
+    : "Baixa — múltiplos pilares sem preenchimento";
+  const confiancaCor = s.confianca_score === "alta" ? "#16a34a"
+    : s.confianca_score === "parcial" ? "#d97706" : "#dc2626";
+
+  const pilaresOrdem = ["estrutura_operacao", "risco_compliance", "perfil_empresa", "saude_financeira", "socios_governanca"];
+  const pilaresRows = pilaresOrdem.map(pid => {
+    const nome = PILAR_NOMES[pid] ?? pid;
+    const peso = PILAR_PESOS[pid] ?? 0;
+    const bruto = s.pontos_brutos[pid] ?? 0;
+    const ponderado = s.pontuacao_ponderada[pid] ?? 0;
+    const isPendente = s.pilares_pendentes.includes(pid);
+    const barW = Math.round(ponderado / peso * 100);
+    return `
+    <tr>
+      <td style="padding:8px 10px;font-size:11px;font-weight:600;color:#0f172a">${esc(nome)}</td>
+      <td style="padding:8px 10px;font-size:11px;color:#64748b;text-align:center">${peso}%</td>
+      <td style="padding:8px 10px;font-size:11px;color:#374151;text-align:center">${isPendente ? "—" : bruto.toFixed(1) + " pts"}</td>
+      <td style="padding:8px 10px;font-size:11px;font-weight:700;color:#0f172a;text-align:center">${isPendente ? "—" : ponderado.toFixed(1)}</td>
+      <td style="padding:8px 10px;width:120px">
+        ${isPendente
+          ? `<span style="font-size:10px;color:#d97706;background:#fef3c7;border:1px solid #fbbf24;border-radius:4px;padding:2px 7px">Pendente</span>`
+          : `<div style="background:#e2e8f0;border-radius:4px;height:8px;width:100%"><div style="background:${ratingCor};height:8px;border-radius:4px;width:${barW}%"></div></div>`
+        }
+      </td>
+    </tr>`;
+  }).join("");
+
+  const content = `
+    ${stitle("Score de Crédito V2 — Capital Finanças")}
+    <div style="display:flex;align-items:flex-start;gap:24px;margin-bottom:20px">
+      <div style="text-align:center;flex-shrink:0">
+        <div style="width:90px;height:90px;border-radius:50%;border:4px solid ${ratingCor};display:flex;flex-direction:column;align-items:center;justify-content:center;margin:0 auto 8px">
+          <div style="font-size:32px;font-weight:800;color:${ratingCor};line-height:1">${s.score_final.toFixed(0)}</div>
+          <div style="font-size:10px;color:#94a3b8">/100</div>
+        </div>
+        <div style="display:inline-block;padding:4px 16px;border-radius:6px;font-size:14px;font-weight:900;background:${ratingCor};color:#fff;margin-bottom:4px">
+          Rating ${esc(s.rating)}
+        </div>
+        <div style="font-size:10px;color:#64748b">Versão ${esc(s.versao_politica)}</div>
+      </div>
+      <div style="flex:1">
+        <table style="width:100%;border-collapse:collapse">
+          <thead>
+            <tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">
+              <th style="padding:8px 10px;font-size:10px;font-weight:700;color:#64748b;text-align:left;text-transform:uppercase;letter-spacing:0.05em">Pilar</th>
+              <th style="padding:8px 10px;font-size:10px;font-weight:700;color:#64748b;text-align:center;text-transform:uppercase;letter-spacing:0.05em">Peso</th>
+              <th style="padding:8px 10px;font-size:10px;font-weight:700;color:#64748b;text-align:center;text-transform:uppercase;letter-spacing:0.05em">Pontos</th>
+              <th style="padding:8px 10px;font-size:10px;font-weight:700;color:#64748b;text-align:center;text-transform:uppercase;letter-spacing:0.05em">Contribuição</th>
+              <th style="padding:8px 10px;font-size:10px;font-weight:700;color:#64748b;text-align:left;text-transform:uppercase;letter-spacing:0.05em">Aproveitamento</th>
+            </tr>
+          </thead>
+          <tbody style="border:1px solid #e2e8f0">
+            ${pilaresRows}
+            <tr style="background:#f0f4ff;border-top:2px solid #c7d2fe">
+              <td style="padding:10px;font-size:12px;font-weight:800;color:#1e3a8a">Score Final</td>
+              <td style="padding:10px;font-size:12px;font-weight:700;color:#374151;text-align:center">100%</td>
+              <td style="padding:10px;text-align:center">—</td>
+              <td style="padding:10px;font-size:14px;font-weight:900;color:${ratingCor};text-align:center">${s.score_final.toFixed(1)}</td>
+              <td style="padding:10px"></td>
+            </tr>
+          </tbody>
+        </table>
+        <div style="margin-top:10px;display:flex;align-items:center;gap:8px">
+          <div style="font-size:10px;font-weight:700;color:#374151">Confiança:</div>
+          <div style="font-size:10px;font-weight:600;color:${confiancaCor}">${esc(confiancaLabel)}</div>
+        </div>
+        ${s.pilares_pendentes.length > 0 ? `
+        <div style="margin-top:6px;font-size:10px;color:#d97706">
+          Pilares pendentes de preenchimento: ${s.pilares_pendentes.map(p => PILAR_NOMES[p] ?? p).join(", ")}
+        </div>` : ""}
+      </div>
+    </div>`;
+
+  return page(content, 11, date);
+}
+
 // ─── Main export ──────────────────────────────────────────────────────────────
 export function gerarHtmlRelatorio(params: PDFReportParams): { html: string; headerTemplate: string; footerTemplate: string } {
   const now = new Date();
   const date = now.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
 
+  const scorePageHtml = pageScoreV2(params, date);
   const pages = [
     pageCapa(params, date),
     pageChecklist(params, date),
@@ -2089,6 +2283,7 @@ export function gerarHtmlRelatorio(params: PDFReportParams): { html: string; hea
     pageSCRDRE(params, date),
     pageBalancoABC(params, date),
     pageIRVisita(params, date),
+    ...(scorePageHtml ? [scorePageHtml] : []),
     pageParecer(params, date),
   ].join("\n");
 

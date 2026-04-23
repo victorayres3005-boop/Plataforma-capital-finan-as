@@ -38,7 +38,7 @@ export function CriteriosTab({ pilares, onChange }: Props) {
   const toggleExpanded = (id: string) =>
     setExpandedCriterios(prev => {
       const n = new Set(prev);
-      n.has(id) ? n.delete(id) : n.add(id);
+      if (n.has(id)) n.delete(id); else n.add(id);
       return n;
     });
 

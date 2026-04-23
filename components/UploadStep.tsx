@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, Info, GitCompareArrows, Receipt, Scale, PieChart, FileKey, ClipboardList, Loader2 } from "lucide-react";
 import UploadArea from "./UploadArea";
 import { CNPJData, QSAData, ContratoSocialData, FaturamentoData, SCRData, SCRSocioData, ProtestosData, ProcessosData, GrupoEconomicoData, ExtractedData, IRSocioData, CollectionDocument } from "@/types";
+import { upload } from "@vercel/blob/client";
 
 // ─── Types ───
 
@@ -18,20 +19,31 @@ interface SectionState {
   errorMessage?: string;
   retrying?: boolean;
   lastFailedFile?: File;
+  lastSuccessFile?: File;
+  fromCache?: boolean;
   resumedFilenames?: string[]; // filenames from a resumed collection
 }
 
 // ─── Fila global de extração — evita estouro de quota (RPM) no Gemini ───
-const EXTRACT_DELAY_MS = 8000; // 8s entre cada chamada — evita estouro de RPM no Gemini free tier
+// Gemini 2.5 Pro free tier: 5 RPM → mínimo 12s entre chamadas.
+// Primeira chamada da fila é imediata; as demais esperam EXTRACT_DELAY_MS.
+const EXTRACT_DELAY_MS = 15000;
 let extractQueue: Promise<unknown> = Promise.resolve();
+let extractPending = 0;
 
 function enqueueExtract(fn: () => Promise<unknown>): Promise<unknown> {
+  const needsDelay = extractPending > 0;
+  extractPending++;
   const prev = extractQueue;
   const next = prev.then(async () => {
-    await new Promise(r => setTimeout(r, EXTRACT_DELAY_MS));
-    return fn();
+    if (needsDelay) await new Promise(r => setTimeout(r, EXTRACT_DELAY_MS));
+    try {
+      return await fn();
+    } finally {
+      extractPending = Math.max(0, extractPending - 1);
+    }
   });
-  extractQueue = next.catch(() => {}); // evita rejeição não tratada propagar
+  extractQueue = next.catch(() => {});
   return next;
 }
 
@@ -452,18 +464,46 @@ export default function UploadStep({
 
     const apiType = type === 'scrAnterior' || type === 'scr_socio' || type === 'scr_socio_anterior' ? 'scr' : type;
 
-    for (const file of newFiles) {
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("type", apiType);
-      // Hint de slot — servidor usa pra forcar tipoPessoa='PF' em SCR de socio
-      fd.append("slot", type);
+    const BLOB_THRESHOLD = 4 * 1024 * 1024; // 4 MB
+    // Vercel Blob rejeita pathnames com caracteres fora de a-z/0-9/-/_/./.
+    // Contratos sociais frequentemente têm nomes como "Contrato Social - 3ª Alteração.pdf".
+    const sanitizeBlobName = (name: string): string => {
+      const ext = name.includes(".") ? name.slice(name.lastIndexOf(".")) : "";
+      const base = name.slice(0, name.length - ext.length)
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")  // remove acentos
+        .replace(/[^a-zA-Z0-9._-]+/g, "_")                  // substitui especiais por _
+        .replace(/_+/g, "_").replace(/^_|_$/g, "");         // limpa underscores extras
+      const safeBase = base || "file";
+      // Prefixo com timestamp para evitar colisões
+      return `${Date.now()}-${safeBase}${ext.toLowerCase()}`;
+    };
 
+    for (const file of newFiles) {
       try {
         const json = await enqueueExtract(async () => {
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 120000);
-          const res = await fetch("/api/extract", { method: "POST", body: fd, signal: controller.signal });
+
+          let res: Response;
+          if (file.size > BLOB_THRESHOLD) {
+            const blob = await upload(sanitizeBlobName(file.name), file, {
+              access: "public",
+              handleUploadUrl: "/api/upload-blob",
+            });
+            res = await fetch("/api/extract", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ blobUrl: blob.url, type: apiType, slot: type, fileName: file.name }),
+              signal: controller.signal,
+            });
+          } else {
+            const fd = new FormData();
+            fd.append("file", file);
+            fd.append("type", apiType);
+            // Hint de slot — servidor usa pra forcar tipoPessoa='PF' em SCR de socio
+            fd.append("slot", type);
+            res = await fetch("/api/extract", { method: "POST", body: fd, signal: controller.signal });
+          }
           clearTimeout(timeout);
           const isSSE = res.headers.get("content-type")?.includes("text/event-stream");
           const result = isSSE ? await readExtractSSE(res) : await res.json();
@@ -594,7 +634,12 @@ export default function UploadStep({
 
         setSections(prev => ({
           ...prev,
-          [type]: { ...prev[type], processedCount: prev[type].processedCount + 1 },
+          [type]: {
+            ...prev[type],
+            processedCount: prev[type].processedCount + 1,
+            lastSuccessFile: file,
+            fromCache: meta?.cached === true,
+          },
         }));
       } catch (catchErr) {
         const catchMsg = catchErr instanceof Error ? catchErr.message : String(catchErr);
@@ -663,16 +708,40 @@ export default function UploadStep({
     }));
 
     const apiType = type === "scrAnterior" || type === "scr_socio" || type === "scr_socio_anterior" ? "scr" : type;
-    const fd = new FormData();
-    fd.append("file", section.lastFailedFile);
-    fd.append("type", apiType);
-    fd.append("slot", type);
+    const retryFile = section.lastFailedFile;
 
     try {
       const json = await enqueueExtract(async () => {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 120000);
-        const res = await fetch("/api/extract", { method: "POST", body: fd, signal: controller.signal });
+
+        let res: Response;
+        const sanitizeBlob = (name: string): string => {
+          const ext = name.includes(".") ? name.slice(name.lastIndexOf(".")) : "";
+          const base = name.slice(0, name.length - ext.length)
+            .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+            .replace(/[^a-zA-Z0-9._-]+/g, "_")
+            .replace(/_+/g, "_").replace(/^_|_$/g, "");
+          return `${Date.now()}-${base || "file"}${ext.toLowerCase()}`;
+        };
+        if (retryFile.size > 4 * 1024 * 1024) {
+          const blob = await upload(sanitizeBlob(retryFile.name), retryFile, {
+            access: "public",
+            handleUploadUrl: "/api/upload-blob",
+          });
+          res = await fetch("/api/extract", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ blobUrl: blob.url, type: apiType, slot: type, fileName: retryFile.name }),
+            signal: controller.signal,
+          });
+        } else {
+          const fd = new FormData();
+          fd.append("file", retryFile);
+          fd.append("type", apiType);
+          fd.append("slot", type);
+          res = await fetch("/api/extract", { method: "POST", body: fd, signal: controller.signal });
+        }
         clearTimeout(timeout);
         const isSSE = res.headers.get("content-type")?.includes("text/event-stream");
         const result = isSSE ? await readExtractSSE(res) : await res.json();
@@ -774,6 +843,83 @@ export default function UploadStep({
         [type]: { ...prev[type], retrying: false, errorCount: 1, errorType: "unknown", errorMessage: retryMsg },
       }));
     }
+  }, [sections]);
+
+  // Força nova extração ignorando o cache — útil quando prompt foi atualizado
+  // ou quando a extração cacheada está incorreta.
+  const handleForceReextract = useCallback(async (type: DocKey) => {
+    const section = sections[type];
+    const file = section.lastSuccessFile;
+    if (!file) return;
+
+    setSections(prev => ({
+      ...prev,
+      [type]: { ...prev[type], processing: true, fromCache: false, errorCount: 0, errorType: undefined },
+    }));
+
+    const apiType = type === "scrAnterior" || type === "scr_socio" || type === "scr_socio_anterior" ? "scr" : type;
+
+    try {
+      const json = await enqueueExtract(async () => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 120000);
+        let res: Response;
+        if (file.size > 4 * 1024 * 1024) {
+          const sanitize = (name: string) => {
+            const ext = name.includes(".") ? name.slice(name.lastIndexOf(".")) : "";
+            const base = name.slice(0, name.length - ext.length)
+              .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+              .replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
+            return `${Date.now()}-${base || "file"}${ext.toLowerCase()}`;
+          };
+          const blob = await upload(sanitize(file.name), file, { access: "public", handleUploadUrl: "/api/upload-blob" });
+          res = await fetch("/api/extract", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ blobUrl: blob.url, type: apiType, slot: type, fileName: file.name, bypass_cache: true }),
+            signal: controller.signal,
+          });
+        } else {
+          const fd = new FormData();
+          fd.append("file", file);
+          fd.append("type", apiType);
+          fd.append("slot", type);
+          fd.append("bypass_cache", "true");
+          res = await fetch("/api/extract", { method: "POST", body: fd, signal: controller.signal });
+        }
+        clearTimeout(timeout);
+        const isSSE = res.headers.get("content-type")?.includes("text/event-stream");
+        const result = isSSE ? await readExtractSSE(res) : await res.json();
+        (result as Record<string, unknown>).__resOk = res.ok;
+        return result;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any;
+
+      if (!json.__resOk || !json.success) {
+        setSections(prev => ({
+          ...prev,
+          [type]: { ...prev[type], processing: false, errorCount: 1, errorType: "unknown", errorMessage: json.error || "Falha na reextração." },
+        }));
+        return;
+      }
+
+      setExtracted(prev => {
+        const fieldMap: Partial<Record<DocKey, keyof ExtractedData>> = { curva_abc: "curvaABC", relatorio_visita: "relatorioVisita" };
+        const field = (fieldMap[type] ?? type) as keyof ExtractedData;
+        return { ...prev, [field]: json.data };
+      });
+
+      setSections(prev => ({
+        ...prev,
+        [type]: { ...prev[type], processing: false, fromCache: false, lastSuccessFile: file },
+      }));
+    } catch (e) {
+      setSections(prev => ({
+        ...prev,
+        [type]: { ...prev[type], processing: false, errorCount: 1, errorType: "unknown", errorMessage: e instanceof Error ? e.message : "Erro" },
+      }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sections]);
 
   const handleAddFiles = useCallback((type: DocKey) => (files: File[]) => {
@@ -937,6 +1083,8 @@ export default function UploadStep({
                 onReprocess={() => handleReprocess(section.key)}
                 reprocessing={sections[section.key].processing && sections[section.key].processedCount === 0 && sections[section.key].files.length > 0 && sections[section.key].errorCount === 0}
                 resumedFilenames={sections[section.key].resumedFilenames}
+                fromCache={sections[section.key].fromCache}
+                onForceReextract={sections[section.key].lastSuccessFile ? () => handleForceReextract(section.key) : undefined}
               />
             ))}
           </div>
@@ -964,6 +1112,8 @@ export default function UploadStep({
                 onReprocess={() => handleReprocess(section.key)}
                 reprocessing={sections[section.key].processing && sections[section.key].processedCount === 0 && sections[section.key].files.length > 0 && sections[section.key].errorCount === 0}
                 resumedFilenames={sections[section.key].resumedFilenames}
+                fromCache={sections[section.key].fromCache}
+                onForceReextract={sections[section.key].lastSuccessFile ? () => handleForceReextract(section.key) : undefined}
               />
             ))}
           </div>

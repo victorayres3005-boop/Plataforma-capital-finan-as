@@ -17,7 +17,7 @@ import { buildCollectionDocs } from "@/lib/buildCollectionDocs";
 import { DRAFT_KEY } from "@/components/ReviewStep";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import Link from "next/link";
-import { LogOut, User, Menu, X, Clock, Shield, Plus, Building2, ArrowRight, ArrowLeft, Calendar, Home, Bell, Search, Loader2, Settings, HelpCircle, TrendingUp, TrendingDown, Minus, ChevronDown, FileText, Hash, DollarSign, RefreshCw, CheckCircle2, XCircle, AlertCircle, RotateCcw } from "lucide-react";
+import { LogOut, User, Menu, X, Clock, Shield, Plus, Building2, ArrowRight, ArrowLeft, Calendar, Home, Bell, Search, Loader2, Settings, HelpCircle, ChevronDown, FileText, Hash, DollarSign, RefreshCw, CheckCircle2, XCircle, AlertCircle, RotateCcw } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -283,8 +283,58 @@ export default function HomePage() {
   const autoSaveCollection = useCallback((data: ExtractedData) => {
     dirtyData.current = data;
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    autoSaveTimer.current = setTimeout(() => { performSave(); }, 800);
+    // UPDATE path (collection already exists): salva rápido para não perder ao navegar
+    // INSERT path (sem collectionId ainda): debounce maior para acumular docs suficientes
+    const delay = collectionIdRef.current ? 100 : 800;
+    autoSaveTimer.current = setTimeout(() => { performSave(); }, delay);
   }, [performSave]);
+
+  // Salva rascunho emergencial no localStorage ao fechar/recarregar a aba.
+  // Na próxima visita, se o collectionId ainda bater, aplica o UPDATE via Supabase.
+  const EMERGENCY_DRAFT_KEY = "cf_emergency_draft_v1";
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (!dirtyData.current || !collectionIdRef.current) return;
+      try {
+        const docs = buildCollectionDocs(dirtyData.current);
+        if (docs.length === 0) return;
+        localStorage.setItem(EMERGENCY_DRAFT_KEY, JSON.stringify({
+          collectionId: collectionIdRef.current,
+          documents: docs,
+          label: dirtyData.current.cnpj?.razaoSocial || null,
+          savedAt: new Date().toISOString(),
+        }));
+      } catch { /* storage full */ }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Aplica rascunho emergencial se encontrado e dentro de 48h
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = localStorage.getItem(EMERGENCY_DRAFT_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw) as { collectionId: string; documents: unknown[]; label: string | null; savedAt: string };
+        if (!parsed?.collectionId || !parsed?.documents?.length) { localStorage.removeItem(EMERGENCY_DRAFT_KEY); return; }
+        const age = Date.now() - new Date(parsed.savedAt).getTime();
+        if (age > 48 * 3600 * 1000) { localStorage.removeItem(EMERGENCY_DRAFT_KEY); return; }
+        localStorage.removeItem(EMERGENCY_DRAFT_KEY);
+        const supabase = createClient();
+        const { data: session } = await supabase.auth.getUser();
+        if (!session.user) return;
+        await supabase.from("document_collections")
+          .update({ documents: parsed.documents, label: parsed.label })
+          .eq("id", parsed.collectionId)
+          .eq("user_id", session.user.id);
+        console.log(`[emergencyDraft] Rascunho aplicado à coleta ${parsed.collectionId}`);
+      } catch { /* ignore */ }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const { user, loading: authLoading, signOut } = useAuth();
   const { welcomeSeen, firstCollectionDone, loaded: onboardingLoaded, markWelcomeSeen, markTooltipSeen, markFirstCollectionDone, isTooltipSeen } = useOnboarding(user?.id);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -999,138 +1049,137 @@ export default function HomePage() {
               </div>
             )}
 
-            {/* Header + Filtro de data */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
-              <div>
-                <h2 className="text-[28px] font-bold text-[#0f172a]">
-                  {user ? `Olá, ${(user.user_metadata?.full_name || user.email?.split("@")[0] || "").split(" ")[0]}` : "Bem-vindo"}
-                </h2>
-                <p className="text-sm text-cf-text-3 mt-1">Painel do Consolidador de Documentos</p>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <div className="flex items-center gap-1 bg-white border border-cf-border rounded-xl p-1">
-                  {([
-                    { key: "hoje", label: "Hoje" },
-                    { key: "7dias", label: "7 dias" },
-                    { key: "30dias", label: "30 dias" },
-                    { key: "custom", label: "" },
-                  ] as { key: typeof dateFilter; label: string }[]).map(f => (
-                    f.key === "custom" ? (
-                      <button key="custom" onClick={() => setDateFilter("custom")}
-                        className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${dateFilter === "custom" ? "bg-cf-navy text-white" : "text-cf-text-3 hover:bg-cf-bg"}`}
-                        style={{ minHeight: "auto" }}>
-                        <Calendar size={12} />
-                      </button>
-                    ) : (
-                      <button key={f.key} onClick={() => setDateFilter(f.key)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${dateFilter === f.key ? "bg-cf-navy text-white" : "text-cf-text-3 hover:bg-cf-bg"}`}
-                        style={{ minHeight: "auto" }}>
-                        {f.label}
-                      </button>
-                    )
-                  ))}
-                </div>
-                {dateFilter === "custom" && (
-                  <input type="date" value={customDate} onChange={e => setCustomDate(e.target.value)}
-                    className="input-field py-1.5 px-3 text-xs w-[140px]" />
-                )}
-                <div className="relative">
-                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-cf-text-4" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={e => { setSearchQuery(e.target.value); setListaLimit(10); }}
-                    placeholder="Buscar empresa ou CNPJ..."
-                    className="input-field py-1.5 pl-8 pr-3 text-xs w-[200px]"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* ── KPI Cards ── */}
+            {/* ── Hero Banner ── */}
             {(() => {
-              const totalColetas = filtered.length;
-              const finalizadasFilt = filtered.filter(c => c.status === "finished").length;
-              const emAndamento = filtered.filter(c => c.status === "in_progress").length;
-              const empresas = new Set(filtered.map(c => c.company_name || c.label).filter(Boolean)).size;
-              // eslint-disable-next-line @typescript-eslint/no-unused-vars
-              const fmmTotalFilt = filtered.filter(c => c.fmm_12m && c.fmm_12m > 0 && (c.decisao === "APROVADO" || c.decisao === "APROVACAO_CONDICIONAL")).reduce((s, c) => s + (c.fmm_12m || 0), 0);
-              // eslint-disable-next-line @typescript-eslint/no-unused-vars
-              const fmtFmm = (v: number) => v >= 1_000_000 ? `R$ ${(v / 1_000_000).toFixed(1).replace(".", ",")} mi` : v >= 1000 ? `R$ ${(v / 1000).toFixed(0)}K` : `R$ ${v.toLocaleString("pt-BR")}`;
-              const deltaLabel = (delta: number | null) => {
-                if (delta === null) return null;
-                if (delta > 0) return { icon: <TrendingUp size={11} />, text: `+${delta} vs período ant.`, cls: "text-green-600" };
-                if (delta < 0) return { icon: <TrendingDown size={11} />, text: `${delta} vs período ant.`, cls: "text-red-500" };
-                return { icon: <Minus size={11} />, text: "igual ao período ant.", cls: "text-cf-text-4" };
-              };
-              const ratingClr = metricas.ratingMedio >= 7 ? "#22c55e" : metricas.ratingMedio >= 5 ? "#f59e0b" : "#ef4444";
-              const kpis = [
-                { label: "Total de Coletas",  value: totalColetas,           sub: `${empresas} empresa(s) únicas`,                                                                             delta: metricas.deltaColetas, accent: "#203b88", fmt: (v: number) => String(v),                                                                                             emptyLabel: null,                                                 bar: undefined },
-                { label: "Finalizadas",       value: finalizadasFilt,        sub: finalizadasFilt === 0 ? "Nenhuma análise concluída" : `${emAndamento} em andamento`,                         delta: null,                  accent: "#73b815", fmt: (v: number) => String(v),                                                                                             emptyLabel: finalizadasFilt === 0 ? "Nenhuma análise concluída" : null, bar: undefined },
-                { label: "Taxa de Aprovação", value: metricas.taxaAprovacao, sub: metricas.totalFinalizadas === 0 ? "Sem dados suficientes" : `de ${metricas.totalFinalizadas} finalizadas`,  delta: metricas.deltaTaxa,    accent: "#0ea5e9", fmt: (v: number) => metricas.totalFinalizadas === 0 ? "—" : `${v}%`,                                                           emptyLabel: metricas.totalFinalizadas === 0 ? "Sem dados suficientes" : null, bar: undefined },
-                { label: "Rating Médio",      value: metricas.ratingMedio,   sub: metricas.totalComRating === 0 ? "Sem análises com rating" : `de ${metricas.totalComRating} análise(s)`,     delta: metricas.deltaRating,  accent: ratingClr, fmt: (v: number) => metricas.totalComRating === 0 ? "—" : v.toFixed(1).replace(".", ",") + "/10",                             emptyLabel: metricas.totalComRating === 0 ? "Sem análises com rating" : null, bar: metricas.totalComRating > 0 ? (metricas.ratingMedio / 10) * 100 : undefined },
+              const heroName = user ? (user.user_metadata?.full_name || user.email?.split("@")[0] || "").split(" ")[0] : "Bem-vindo";
+              const totalColetas2 = filtered.length;
+              const finalizadasFilt2 = filtered.filter(c => c.status === "finished").length;
+              const empresas2 = new Set(filtered.map(c => c.company_name || c.label).filter(Boolean)).size;
+              const heroStats = [
+                { label: "Coletas no período", value: String(totalColetas2), sub: `${empresas2} empresa${empresas2 !== 1 ? "s" : ""}`, color: "white" },
+                { label: "Análises concluídas", value: String(finalizadasFilt2), sub: metricas.totalFinalizadas === 0 ? "sem finalizadas" : `${metricas.porDecisao.aprovado} aprovadas`, color: "#a3d96b" },
+                { label: "Taxa de aprovação", value: metricas.totalFinalizadas === 0 ? "—" : `${metricas.taxaAprovacao}%`, sub: metricas.totalFinalizadas === 0 ? "sem dados ainda" : `${metricas.porDecisao.reprovado} recusadas`, color: metricas.taxaAprovacao >= 60 ? "#a3d96b" : metricas.taxaAprovacao >= 30 ? "#fbbf24" : "#f87171" },
+                ...(metricas.totalComRating > 0 ? [{ label: "Rating médio", value: `${metricas.ratingMedio.toFixed(1).replace(".", ",")}/10`, sub: `${metricas.totalComRating} com score`, color: metricas.ratingMedio >= 7 ? "#a3d96b" : metricas.ratingMedio >= 5 ? "#fbbf24" : "#f87171" }] : []),
               ];
+              const handleNovaColeta = () => { setShowDashboard(false); setStep("upload"); setExtractedData(defaultData); setResumedDocs(undefined); setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] }); setLocalDraft(null); try { localStorage.removeItem(DRAFT_KEY); } catch {/**/} setCollectionId(null); try { const url = new URL(window.location.href); url.searchParams.delete("resume"); url.searchParams.delete("step"); window.history.replaceState({}, "", url.toString()); } catch {/**/} };
               return (
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
-                  {kpis.map((k, i) => {
-                    const dl = deltaLabel(k.delta ?? null);
-                    return (
-                      <div key={k.label} className={`bg-white border border-cf-border rounded-2xl px-5 py-4 animate-stagger-${i + 1} relative overflow-hidden`}>
-                        <div className="absolute top-0 left-0 w-1 h-full rounded-l-2xl" style={{ backgroundColor: k.accent }} />
-                        <p className="text-[10px] font-bold text-cf-text-4 uppercase tracking-widest mb-2 pl-2">{k.label}</p>
-                        {loadingCollections ? (
-                          <div className="pl-2 space-y-1.5 mt-1">
-                            <div className="skeleton h-7 w-20 rounded" />
-                            <div className="skeleton h-3 w-28 rounded" />
-                          </div>
-                        ) : (
-                          <>
-                            <p className="text-2xl sm:text-3xl font-bold pl-2" style={{ color: k.bar !== undefined ? k.accent : undefined }}>{k.fmt(k.value)}</p>
-                            <p className={`text-[11px] mt-1 pl-2 ${k.emptyLabel ? "text-orange-500 font-semibold" : "text-cf-text-4"}`}>{k.sub}</p>
-                            {k.bar !== undefined && (
-                              <div className="pl-2 pr-1 mt-2">
-                                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                                  <div className="h-full rounded-full transition-all duration-700" style={{ width: `${k.bar}%`, backgroundColor: k.accent }} />
-                                </div>
-                              </div>
-                            )}
-                          </>
-                        )}
-                        {dl && (
-                          <div className={`flex items-center gap-1 mt-2 pl-2 text-[10px] font-semibold ${dl.cls}`}>
-                            {dl.icon}{dl.text}
-                          </div>
+                <div style={{
+                  background: "linear-gradient(135deg, #080f2e 0%, #122149 40%, #1a3068 100%)",
+                  borderRadius: 22, padding: "28px 32px 26px", marginBottom: 24,
+                  position: "relative", overflow: "hidden",
+                  boxShadow: "0 12px 40px rgba(8,15,46,0.4)",
+                }}>
+                  {/* decoração de fundo */}
+                  <div style={{ position: "absolute", right: -60, top: -60, width: 280, height: 280, borderRadius: "50%", background: "rgba(115,184,21,0.06)", pointerEvents: "none" }} />
+                  <div style={{ position: "absolute", left: "40%", bottom: -100, width: 250, height: 250, borderRadius: "50%", background: "rgba(32,59,136,0.25)", pointerEvents: "none" }} />
+                  <div style={{ position: "absolute", right: 80, top: 20, width: 6, height: 6, borderRadius: "50%", background: "rgba(115,184,21,0.5)", pointerEvents: "none" }} />
+                  <div style={{ position: "absolute", right: 160, top: 50, width: 4, height: 4, borderRadius: "50%", background: "rgba(255,255,255,0.2)", pointerEvents: "none" }} />
+
+                  {/* linha superior: saudação + controles + CTA */}
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+                    <div>
+                      <p style={{ fontSize: 24, fontWeight: 900, color: "white", margin: 0, lineHeight: 1.15, letterSpacing: "-0.3px" }}>
+                        Olá, {heroName} 👋
+                      </p>
+                      <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginTop: 6, fontWeight: 500, letterSpacing: "0.02em" }}>
+                        Capital Finanças · Central de análise de crédito
+                      </p>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      {/* filtro de data */}
+                      <div style={{ display: "flex", gap: 2, background: "rgba(255,255,255,0.07)", borderRadius: 10, padding: 3 }}>
+                        {([
+                          { key: "hoje", label: "Hoje" },
+                          { key: "7dias", label: "7d" },
+                          { key: "30dias", label: "30d" },
+                          { key: "custom", label: "" },
+                        ] as { key: typeof dateFilter; label: string }[]).map(f =>
+                          f.key === "custom" ? (
+                            <button key="custom" onClick={() => setDateFilter("custom")} style={{
+                              display: "flex", alignItems: "center", padding: "5px 10px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, transition: "all 0.15s",
+                              background: dateFilter === "custom" ? "rgba(255,255,255,0.16)" : "transparent",
+                              color: dateFilter === "custom" ? "white" : "rgba(255,255,255,0.45)", minHeight: "auto",
+                            }}><Calendar size={11} /></button>
+                          ) : (
+                            <button key={f.key} onClick={() => setDateFilter(f.key)} style={{
+                              padding: "5px 13px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700, transition: "all 0.15s",
+                              background: dateFilter === f.key ? "rgba(255,255,255,0.16)" : "transparent",
+                              color: dateFilter === f.key ? "white" : "rgba(255,255,255,0.45)", minHeight: "auto",
+                            }}>{f.label}</button>
+                          )
                         )}
                       </div>
-                    );
-                  })}
+                      {dateFilter === "custom" && (
+                        <input type="date" value={customDate} onChange={e => setCustomDate(e.target.value)}
+                          style={{ padding: "5px 10px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.08)", color: "white", fontSize: 11 }} />
+                      )}
+                      {/* busca */}
+                      <div style={{ position: "relative" }}>
+                        <Search size={12} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "rgba(255,255,255,0.35)" }} />
+                        <input
+                          type="text" value={searchQuery}
+                          onChange={e => { setSearchQuery(e.target.value); setListaLimit(10); }}
+                          placeholder="Buscar empresa..."
+                          style={{ paddingLeft: 30, paddingRight: 12, paddingTop: 7, paddingBottom: 7, borderRadius: 9, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.07)", color: "white", fontSize: 11, width: 155, outline: "none" }}
+                        />
+                      </div>
+                      {/* CTA Nova Coleta */}
+                      <button onClick={handleNovaColeta} style={{
+                        display: "inline-flex", alignItems: "center", gap: 6,
+                        padding: "7px 16px", borderRadius: 10, border: "none", cursor: "pointer",
+                        background: "linear-gradient(135deg, #73b815, #5a9110)",
+                        color: "white", fontSize: 12, fontWeight: 800,
+                        boxShadow: "0 3px 12px rgba(115,184,21,0.4)", minHeight: "auto",
+                        letterSpacing: "0.01em",
+                      }}>
+                        <Plus size={14} /> Nova Coleta
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* stats row com separadores */}
+                  <div style={{ display: "flex", gap: 0, marginTop: 26, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 22 }}>
+                    {heroStats.map((s, idx) => (
+                      <div key={s.label} style={{
+                        flex: 1, paddingRight: 24,
+                        borderRight: idx < heroStats.length - 1 ? "1px solid rgba(255,255,255,0.08)" : "none",
+                        marginRight: idx < heroStats.length - 1 ? 24 : 0,
+                      }}>
+                        {loadingCollections
+                          ? <div style={{ width: 56, height: 36, background: "rgba(255,255,255,0.1)", borderRadius: 8, marginBottom: 8 }} />
+                          : <p style={{ fontSize: 36, fontWeight: 900, color: s.color, margin: 0, lineHeight: 1, letterSpacing: "-0.5px" }}>{s.value}</p>
+                        }
+                        <p style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 6, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em" }}>{s.label}</p>
+                        {!loadingCollections && <p style={{ fontSize: 11, color: "rgba(255,255,255,0.28)", marginTop: 2 }}>{s.sub}</p>}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               );
             })()}
 
-            {/* ── Breakdown de Decisões ── */}
+            {/* ── Decisões em cards coloridos ── */}
             {metricas.totalFinalizadas > 0 && (
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 28 }}>
                 {[
-                  { label: "Aprovadas",    value: metricas.porDecisao.aprovado,                       sub: "sem restrições",       accent: "#16a34a" },
-                  { label: "Condicionais", value: metricas.porDecisao.condicional,                    sub: "aprovação condicional", accent: "#7c3aed" },
-                  { label: "Em Análise",   value: metricas.porDecisao.pendente + metricas.emAnalise,  sub: "aguardando parecer",    accent: "#d97706" },
-                  { label: "Recusadas",    value: metricas.porDecisao.reprovado,                      sub: "não aprovadas",         accent: "#dc2626" },
-                ].map((item, i) => (
-                  <div key={i} className={`bg-white border border-cf-border rounded-2xl px-5 py-4 animate-stagger-${i + 1} relative overflow-hidden`}>
-                    <div className="absolute top-0 left-0 w-1 h-full rounded-l-2xl" style={{ backgroundColor: item.accent }} />
-                    <p className="text-[10px] font-bold text-cf-text-4 uppercase tracking-widest mb-2 pl-2">{item.label}</p>
-                    {loadingCollections ? (
-                      <div className="pl-2 space-y-1.5 mt-1">
-                        <div className="skeleton h-7 w-20 rounded" />
-                        <div className="skeleton h-3 w-28 rounded" />
-                      </div>
-                    ) : (
-                      <>
-                        <p className="text-2xl sm:text-3xl font-bold pl-2">{item.value}</p>
-                        <p className="text-[11px] mt-1 pl-2 text-cf-text-4">{item.sub}</p>
-                      </>
-                    )}
+                  { label: "Aprovadas",    value: metricas.porDecisao.aprovado,                      icon: <CheckCircle2 size={18} />, bg: "linear-gradient(135deg, #16a34a, #22c55e)", shadow: "rgba(22,163,74,0.3)" },
+                  { label: "Condicionais", value: metricas.porDecisao.condicional,                   icon: <AlertCircle size={18} />,  bg: "linear-gradient(135deg, #7c3aed, #8b5cf6)", shadow: "rgba(124,58,237,0.3)" },
+                  { label: "Em Análise",   value: metricas.porDecisao.pendente + metricas.emAnalise, icon: <Clock size={18} />,        bg: "linear-gradient(135deg, #d97706, #f59e0b)", shadow: "rgba(217,119,6,0.3)" },
+                  { label: "Recusadas",    value: metricas.porDecisao.reprovado,                     icon: <XCircle size={18} />,      bg: "linear-gradient(135deg, #dc2626, #ef4444)", shadow: "rgba(220,38,38,0.3)" },
+                ].map(d => (
+                  <div key={d.label} style={{
+                    background: d.bg, borderRadius: 16, padding: "18px 20px",
+                    boxShadow: `0 4px 20px ${d.shadow}`, color: "white",
+                    display: "flex", flexDirection: "column", gap: 4,
+                  }}>
+                    {loadingCollections
+                      ? <div style={{ width: 40, height: 32, background: "rgba(255,255,255,0.2)", borderRadius: 6 }} />
+                      : <p style={{ fontSize: 32, fontWeight: 900, margin: 0, lineHeight: 1 }}>{d.value}</p>
+                    }
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, color: "rgba(255,255,255,0.8)" }}>
+                      {d.icon}
+                      <span style={{ fontSize: 12, fontWeight: 600 }}>{d.label}</span>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1138,15 +1187,24 @@ export default function HomePage() {
 
             {/* Dashboard de gráficos */}
             {collections.length > 0 && (
-              <div className="mb-8">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-bold text-cf-text-1">Visão Geral</h3>
-                  <div className="flex gap-1 bg-white border border-cf-border rounded-xl p-1">
+              <div style={{ marginBottom: 32, background: "#f8fafc", borderRadius: 20, padding: "20px 20px", border: "1px solid #e8edf5" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ width: 4, height: 20, background: "linear-gradient(180deg, #192f5d, #73b815)", borderRadius: 2 }} />
+                    <div>
+                      <h3 style={{ fontSize: 15, fontWeight: 800, color: "#0f172a", margin: 0 }}>Performance & Gráficos</h3>
+                      <p style={{ fontSize: 11, color: "#94a3b8", margin: 0 }}>Análise do período selecionado</p>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 3, background: "#f1f5f9", borderRadius: 10, padding: 3 }}>
                     {(["7d", "30d", "90d"] as const).map(pp => (
-                      <button key={pp} onClick={() => setDashPeriodo(pp)}
-                        className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${dashPeriodo === pp ? "bg-cf-navy text-white" : "text-cf-text-3 hover:bg-cf-bg"}`}
-                        style={{ minHeight: "auto" }}>
-                        {pp === "7d" ? "7 dias" : pp === "30d" ? "30 dias" : "90 dias"}
+                      <button key={pp} onClick={() => setDashPeriodo(pp)} style={{
+                        padding: "5px 12px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700, transition: "all 0.15s", minHeight: "auto",
+                        background: dashPeriodo === pp ? "#192f5d" : "transparent",
+                        color: dashPeriodo === pp ? "white" : "#6b7280",
+                        boxShadow: dashPeriodo === pp ? "0 1px 4px rgba(25,47,93,0.3)" : "none",
+                      }}>
+                        {pp === "7d" ? "7d" : pp === "30d" ? "30d" : "90d"}
                       </button>
                     ))}
                   </div>
@@ -1154,13 +1212,18 @@ export default function HomePage() {
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
                   {/* Área: evolução de coletas */}
-                  <div className="lg:col-span-2 bg-white rounded-2xl border border-[#e5e7eb] p-5">
-                    <p className="text-[11px] text-cf-text-4 uppercase tracking-wider font-bold mb-4">Evolução de Coletas — últimos 30 dias</p>
-                    <ResponsiveContainer width="100%" height={160}>
+                  <div className="lg:col-span-2 bg-white rounded-2xl border border-[#e5e7eb] p-5" style={{ boxShadow: "0 1px 8px rgba(0,0,0,0.04)" }}>
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <p className="text-[12px] font-bold text-[#0f172a]">Evolução de Coletas</p>
+                        <p className="text-[10px] text-cf-text-4">Últimos 30 dias</p>
+                      </div>
+                    </div>
+                    <ResponsiveContainer width="100%" height={190}>
                       <AreaChart data={metricas.serieTemporal} margin={{ top: 5, right: 8, left: -28, bottom: 0 }}>
                         <defs>
                           <linearGradient id="gradColetas" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#203b88" stopOpacity={0.15} />
+                            <stop offset="5%" stopColor="#203b88" stopOpacity={0.18} />
                             <stop offset="95%" stopColor="#203b88" stopOpacity={0} />
                           </linearGradient>
                         </defs>
@@ -1170,14 +1233,15 @@ export default function HomePage() {
                           contentStyle={{ fontSize: 11, border: "1px solid #e2e8f0", borderRadius: 8, boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}
                           formatter={(v) => [v, "Coletas"]}
                         />
-                        <Area type="monotone" dataKey="coletas" stroke="#203b88" strokeWidth={2} fill="url(#gradColetas)" dot={false} activeDot={{ r: 4, fill: "#203b88" }} />
+                        <Area type="monotone" dataKey="coletas" stroke="#203b88" strokeWidth={2.5} fill="url(#gradColetas)" dot={false} activeDot={{ r: 4, fill: "#203b88", strokeWidth: 2, stroke: "#fff" }} />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
 
                   {/* Donut: distribuição de decisões */}
-                  <div className="bg-white rounded-2xl border border-[#e5e7eb] p-5">
-                    <p className="text-[11px] text-cf-text-4 uppercase tracking-wider font-bold mb-2">Distribuição de Decisões</p>
+                  <div className="bg-white rounded-2xl border border-[#e5e7eb] p-5" style={{ boxShadow: "0 1px 8px rgba(0,0,0,0.04)" }}>
+                    <p className="text-[12px] font-bold text-[#0f172a] mb-0.5">Decisões</p>
+                    <p className="text-[10px] text-cf-text-4 mb-2">Distribuição das finalizadas</p>
                     {metricas.totalFinalizadas > 0 ? (() => {
                       const pieData = [
                         { name: "Aprovado", value: metricas.porDecisao.aprovado, color: "#22c55e" },
@@ -1234,36 +1298,43 @@ export default function HomePage() {
                 </div>
 
                 {/* Bar chart: coletas por semana (aprovadas vs total) */}
-                <div className="bg-white rounded-2xl border border-[#e5e7eb] p-5">
+                <div className="bg-white rounded-2xl border border-[#e5e7eb] p-5" style={{ boxShadow: "0 1px 8px rgba(0,0,0,0.04)" }}>
                   <div className="flex items-center justify-between mb-4">
-                    <p className="text-[11px] text-cf-text-4 uppercase tracking-wider font-bold">Coletas por Semana — Total vs Aprovadas</p>
-                    <div className="flex items-center gap-4 text-[10px] text-cf-text-4">
-                      <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-[#203b88]" />Total</div>
-                      <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-[#73b815]" />Aprovadas</div>
+                    <div>
+                      <p className="text-[12px] font-bold text-[#0f172a]">Coletas por Semana</p>
+                      <p className="text-[10px] text-cf-text-4">Total vs aprovadas</p>
+                    </div>
+                    <div className="flex items-center gap-4 text-[10px] font-semibold text-cf-text-4">
+                      <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-sm bg-[#203b88]" />Total</div>
+                      <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-sm bg-[#73b815]" />Aprovadas</div>
                     </div>
                   </div>
-                  <ResponsiveContainer width="100%" height={140}>
-                    <BarChart data={metricas.semanas} margin={{ top: 5, right: 8, left: -28, bottom: 0 }} barCategoryGap="30%">
+                  <ResponsiveContainer width="100%" height={160}>
+                    <BarChart data={metricas.semanas} margin={{ top: 5, right: 8, left: -28, bottom: 0 }} barCategoryGap="32%">
                       <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#94a3b8" }} tickLine={false} axisLine={false} />
                       <YAxis tick={{ fontSize: 9, fill: "#94a3b8" }} tickLine={false} axisLine={false} allowDecimals={false} />
                       <Tooltip
                         contentStyle={{ fontSize: 11, border: "1px solid #e2e8f0", borderRadius: 8, boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}
                         cursor={{ fill: "rgba(32,59,136,0.04)" }}
                       />
-                      <Bar dataKey="total" name="Total" fill="#203b88" radius={[4, 4, 0, 0]} maxBarSize={32} />
-                      <Bar dataKey="aprovadas" name="Aprovadas" fill="#73b815" radius={[4, 4, 0, 0]} maxBarSize={32} />
+                      <Bar dataKey="total" name="Total" fill="#203b88" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                      <Bar dataKey="aprovadas" name="Aprovadas" fill="#73b815" radius={[4, 4, 0, 0]} maxBarSize={28} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
 
                 {/* Distribuição de Rating */}
                 {metricas.totalComRating > 0 && (
-                  <div className="bg-white rounded-2xl border border-[#e5e7eb] p-5">
-                    <div className="flex items-center justify-between mb-4">
-                      <p className="text-[11px] text-cf-text-4 uppercase tracking-wider font-bold">Distribuição de Rating</p>
-                      <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg" style={{
+                  <div className="bg-white rounded-2xl border border-[#e5e7eb] p-5" style={{ boxShadow: "0 1px 8px rgba(0,0,0,0.04)" }}>
+                    <div className="flex items-center justify-between mb-5">
+                      <div>
+                        <p className="text-[12px] font-bold text-[#0f172a]">Distribuição de Rating</p>
+                        <p className="text-[10px] text-cf-text-4">{metricas.totalComRating} análise{metricas.totalComRating !== 1 ? "s" : ""} com rating</p>
+                      </div>
+                      <span className="text-[12px] font-bold px-3 py-1.5 rounded-xl" style={{
                         color: metricas.ratingMedio >= 7 ? "#166534" : metricas.ratingMedio >= 5 ? "#92400e" : "#991b1b",
                         background: metricas.ratingMedio >= 7 ? "#dcfce7" : metricas.ratingMedio >= 5 ? "#fef3c7" : "#fee2e2",
+                        border: `1px solid ${metricas.ratingMedio >= 7 ? "#bbf7d0" : metricas.ratingMedio >= 5 ? "#fde68a" : "#fecaca"}`,
                       }}>
                         Média {metricas.ratingMedio.toFixed(1).replace(".", ",")}/10
                       </span>
@@ -1271,21 +1342,21 @@ export default function HomePage() {
                     <div className="space-y-3">
                       {metricas.ratingDistribuicao.map(f => (
                         <div key={f.label} className="flex items-center gap-3">
-                          <div className="w-16 flex-shrink-0">
-                            <span className="text-[11px] font-bold text-cf-text-2">{f.label}</span>
+                          <div className="flex-shrink-0 w-5 h-5 rounded-md flex items-center justify-center" style={{ backgroundColor: f.color }}>
+                            <span className="text-[9px] font-black text-white">{f.label}</span>
                           </div>
-                          <div className="w-12 flex-shrink-0">
-                            <span className="text-[10px] text-cf-text-4">{f.faixa}</span>
+                          <div className="w-14 flex-shrink-0">
+                            <span className="text-[9px] text-cf-text-4">{f.faixa} pts</span>
                           </div>
-                          <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden">
                             <div
                               className="h-full rounded-full transition-all duration-700"
                               style={{ width: `${Math.round((f.count / metricas.totalComRating) * 100)}%`, backgroundColor: f.color }}
                             />
                           </div>
-                          <div className="flex items-center gap-1.5 flex-shrink-0 w-14 justify-end">
-                            <span className="text-[11px] font-bold" style={{ color: f.color }}>{f.count}</span>
-                            <span className="text-[10px] text-cf-text-4">({Math.round((f.count / metricas.totalComRating) * 100)}%)</span>
+                          <div className="flex items-center gap-1.5 flex-shrink-0 w-16 justify-end">
+                            <span className="text-[12px] font-bold" style={{ color: f.color }}>{f.count}</span>
+                            <span className="text-[10px] text-cf-text-4">{Math.round((f.count / metricas.totalComRating) * 100)}%</span>
                           </div>
                         </div>
                       ))}
@@ -1392,7 +1463,7 @@ export default function HomePage() {
 
             {/* ── Barra de filtros unificada ── */}
             <div className="mb-6">
-              <div className="flex items-center gap-1 flex-wrap bg-[#F8FAFC] border border-[#E5E7EB] rounded-xl px-3 py-2">
+              <div className="flex items-center gap-1 flex-wrap bg-white border border-[#E5E7EB] rounded-xl px-3 py-2" style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
                 {/* Status */}
                 {([
                   { key: "all", label: "Todos" },
@@ -1496,10 +1567,15 @@ export default function HomePage() {
             {!loadingCollections && filtered.length > 0 && (
               <div>
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-bold text-cf-text-1">
-                    {dateFilter === "hoje" ? "Coletas de Hoje" : dateFilter === "7dias" ? "Últimos 7 dias" : dateFilter === "custom" ? "Data selecionada" : "Últimas Coletas"}
-                    <span className="ml-2 text-xs font-normal text-cf-text-3">({groups.length}{filtered.length !== groups.length ? ` empresa${groups.length !== 1 ? "s" : ""}, ${filtered.length} coleta${filtered.length !== 1 ? "s" : ""}` : ""})</span>
-                  </h3>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ width: 4, height: 20, background: "linear-gradient(180deg, #192f5d, #73b815)", borderRadius: 2 }} />
+                    <div>
+                      <h3 style={{ fontSize: 15, fontWeight: 800, color: "#0f172a", margin: 0 }}>
+                        {dateFilter === "hoje" ? "Coletas de Hoje" : dateFilter === "7dias" ? "Últimos 7 dias" : dateFilter === "custom" ? "Data selecionada" : "Últimas Coletas"}
+                      </h3>
+                      <p style={{ fontSize: 11, color: "#94a3b8", margin: 0 }}>{groups.length} empresa{groups.length !== 1 ? "s" : ""}{filtered.length !== groups.length ? `, ${filtered.length} coleta${filtered.length !== 1 ? "s" : ""}` : ""}</p>
+                    </div>
+                  </div>
                   <div className="flex items-center gap-3">
                     <a href="/historico" className="text-xs font-semibold text-cf-navy hover:underline">Ver histórico</a>
                     <OnboardingTooltip id="nova-coleta" message="Clique aqui para iniciar a analise de um novo cedente." position="bottom" isSeen={isTooltipSeen("nova-coleta")} onSeen={() => markTooltipSeen("nova-coleta")}>
@@ -1512,7 +1588,7 @@ export default function HomePage() {
                     </OnboardingTooltip>
                   </div>
                 </div>
-                <div className="bg-white rounded-2xl border border-[#e2e8f0] overflow-hidden divide-y divide-[#f1f5f9]" style={{ animationDelay: "0.4s", animationFillMode: "both" }}>
+                <div style={{ borderRadius: 16, overflow: "hidden", border: "1px solid #e8edf5", boxShadow: "0 2px 12px rgba(0,0,0,0.05)" }}>
                   {visibleGroups.map((group, i) => {
                     const col = group.best;
                     const isMulti = group.items.length > 1;
@@ -1522,22 +1598,47 @@ export default function HomePage() {
                       if (next.has(group.key)) next.delete(group.key); else next.add(group.key);
                       return next;
                     });
+                    const decisaoColor = col.decisao === "APROVADO" ? "#16a34a"
+                      : col.decisao === "REPROVADO" ? "#dc2626"
+                      : col.decisao === "APROVACAO_CONDICIONAL" ? "#7c3aed"
+                      : col.status === "in_progress" ? "#d97706" : "#94a3b8";
+                    const decisaoBg = col.decisao === "APROVADO" ? "#f0fdf4"
+                      : col.decisao === "REPROVADO" ? "#fff1f2"
+                      : col.decisao === "APROVACAO_CONDICIONAL" ? "#f5f3ff"
+                      : col.status === "in_progress" ? "#fffbeb" : "#f8fafc";
+                    const decisaoLabel = col.decisao === "APROVACAO_CONDICIONAL" ? "Condicional"
+                      : col.decisao === "APROVADO" ? "Aprovado"
+                      : col.decisao === "REPROVADO" ? "Recusado"
+                      : "Em andamento";
+                    const decisaoIcon = col.decisao === "APROVADO" ? <CheckCircle2 size={11} />
+                      : col.decisao === "REPROVADO" ? <XCircle size={11} />
+                      : col.decisao === "APROVACAO_CONDICIONAL" ? <AlertCircle size={11} />
+                      : <Clock size={11} />;
+                    const companyInitial = (col.company_name || col.label || "?").charAt(0).toUpperCase();
                     return (
-                      <div key={group.key} className={`animate-stagger-${Math.min(i + 1, 8)}`}>
+                      <div key={group.key} style={{ borderBottom: i < visibleGroups.length - 1 ? "1px solid #f1f5f9" : "none", background: "white" }}>
                         {/* Main row */}
-                        <div className="px-5 py-4 flex items-center gap-3 hover:bg-[#f8fafc] transition-colors duration-150 group">
-                          {/* Ícone empresa */}
-                          <div className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "#f1f5f9" }}>
-                            <Building2 size={16} style={{ color: "#203b88" }} />
+                        <div style={{ padding: "14px 20px", display: "flex", alignItems: "center", gap: 14, cursor: "pointer", transition: "background 0.15s" }}
+                          onMouseEnter={e => (e.currentTarget.style.background = "#fafbff")}
+                          onMouseLeave={e => (e.currentTarget.style.background = "white")}
+                        >
+                          {/* inicial da empresa */}
+                          <div style={{
+                            flexShrink: 0, width: 40, height: 40, borderRadius: 12,
+                            background: `linear-gradient(135deg, ${decisaoColor}22, ${decisaoColor}44)`,
+                            border: `1.5px solid ${decisaoColor}33`,
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                          }}>
+                            <span style={{ fontSize: 15, fontWeight: 900, color: decisaoColor }}>{companyInitial}</span>
                           </div>
 
-                          {/* Info principal */}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <p className="text-sm font-semibold text-[#0f172a] truncate">{col.company_name || col.label || "Sem identificação"}</p>
+                          {/* info principal */}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              <p style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 280 }}>{col.company_name || col.label || "Sem identificação"}</p>
                               {isMulti && (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-600 px-2 py-0.5 rounded-full bg-[#f1f5f9] text-[#64748b] flex-shrink-0">
-                                  <RotateCcw size={9} /> {group.items.length} tentativas
+                                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: "#f1f5f9", color: "#64748b", flexShrink: 0 }}>
+                                  <RotateCcw size={9} /> {group.items.length}x
                                 </span>
                               )}
                               {col.fund_status && (() => {
@@ -1549,77 +1650,56 @@ export default function HomePage() {
                                 const fsLabel = fs.status === "ok" ? `${fs.pass_count}/${fs.total} ok` : fs.status === "warning" ? `${fs.warn_count} atenção` : `${fs.fail_count} reprov.`;
                                 return (
                                   <span title={`Política do Fundo${fs.preset_name ? ` (${fs.preset_name})` : ""}: ${fs.pass_count} aprovados, ${fs.warn_count} atenção, ${fs.fail_count} reprovados`}
-                                    style={{ display: "inline-flex", alignItems: "center", gap: "3px", fontSize: "10px", fontWeight: 700, padding: "2px 7px", borderRadius: "99px", background: fsBg, color: fsColor, border: `1px solid ${fsBorder}`, flexShrink: 0, whiteSpace: "nowrap", cursor: "default" }}>
+                                    style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 99, background: fsBg, color: fsColor, border: `1px solid ${fsBorder}`, flexShrink: 0, whiteSpace: "nowrap", cursor: "default" }}>
                                     <FsIcon size={9} /> {fsLabel}
                                   </span>
                                 );
                               })()}
                             </div>
-
-                            {/* Metadados com ícones */}
-                            <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                              {col.cnpj && (
-                                <span className="inline-flex items-center gap-1 text-[11px] text-[#94a3b8]">
-                                  <Hash size={10} /> <span className="font-mono">{col.cnpj}</span>
-                                </span>
-                              )}
-                              <span className="inline-flex items-center gap-1 text-[11px] text-[#94a3b8]">
-                                <Calendar size={10} /> {group.date}
-                              </span>
-                              <span className="inline-flex items-center gap-1 text-[11px] text-[#94a3b8]">
-                                <FileText size={10} /> {col.documents?.length || 0} docs
-                              </span>
-                              {col.fmm_12m && (
-                                <span className="inline-flex items-center gap-1 text-[11px] text-[#94a3b8]">
-                                  <DollarSign size={10} /> FMM R$ {Number(col.fmm_12m).toLocaleString("pt-BR", { minimumFractionDigits: 0 })}/mês
-                                </span>
-                              )}
+                            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 5, flexWrap: "wrap" }}>
+                              {col.cnpj && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "#94a3b8", fontFamily: "monospace" }}><Hash size={9} />{col.cnpj}</span>}
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "#94a3b8" }}><Calendar size={9} />{group.date}</span>
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "#94a3b8" }}><FileText size={9} />{col.documents?.length || 0} docs</span>
+                              {col.fmm_12m && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "#94a3b8" }}><DollarSign size={9} />FMM R$ {Number(col.fmm_12m).toLocaleString("pt-BR", { minimumFractionDigits: 0 })}/mês</span>}
                             </div>
-
-                            {col.observacoes && (
-                              <p className="text-[11px] text-[#94a3b8] mt-1 italic line-clamp-1">&ldquo;{col.observacoes}&rdquo;</p>
-                            )}
+                            {col.observacoes && <p style={{ fontSize: 11, color: "#94a3b8", marginTop: 3, fontStyle: "italic", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>&ldquo;{col.observacoes}&rdquo;</p>}
                           </div>
 
-                          {/* Status + decisão */}
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            {col.decisao ? (
-                              <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full border ${
-                                col.decisao === "APROVADO" ? "text-green-700 bg-green-50 border-green-200"
-                                : col.decisao === "REPROVADO" ? "text-red-600 bg-red-50 border-red-200"
-                                : "text-amber-600 bg-amber-50 border-amber-200"
-                              }`}>
-                                {col.decisao === "APROVADO" ? <CheckCircle2 size={9} /> : col.decisao === "REPROVADO" ? <XCircle size={9} /> : <AlertCircle size={9} />}
-                                {col.decisao === "APROVACAO_CONDICIONAL" ? "CONDICIONAL" : col.decisao}
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#f59e0b]">
-                                <Clock size={10} /> Em andamento
-                              </span>
-                            )}
+                          {/* Badge decisão */}
+                          <div style={{ flexShrink: 0 }}>
+                            <span style={{
+                              display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700,
+                              padding: "5px 12px", borderRadius: 99,
+                              background: decisaoBg, color: decisaoColor,
+                              border: `1px solid ${decisaoColor}33`,
+                            }}>
+                              {decisaoIcon} {decisaoLabel}
+                            </span>
                           </div>
 
-                          {/* Ações */}
-                          <div className="flex items-center gap-1 flex-shrink-0">
+                          {/* ações */}
+                          <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
                             {col.status === "in_progress" && (
-                              <button
-                                onClick={() => handleResumeCollection(col.id)}
-                                className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-lg text-white transition-colors"
-                                style={{ backgroundColor: "#203b88", minHeight: "auto" }}
-                              >
+                              <button onClick={() => handleResumeCollection(col.id)} style={{
+                                display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700,
+                                padding: "5px 12px", borderRadius: 8, border: "none", cursor: "pointer",
+                                background: "#192f5d", color: "white", minHeight: "auto",
+                              }}>
                                 <RefreshCw size={10} /> Retomar
                               </button>
                             )}
-                            <a href={`/historico?highlight=${col.id}`}
-                              className="w-7 h-7 rounded-lg flex items-center justify-center text-[#94a3b8] hover:text-[#203b88] hover:bg-[#eff6ff] transition-colors"
-                              style={{ minHeight: "auto" }}>
-                              <ArrowRight size={14} />
+                            <a href={`/historico?highlight=${col.id}`} style={{
+                              width: 30, height: 30, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center",
+                              color: "#94a3b8", textDecoration: "none", background: "#f8fafc", border: "1px solid #e8edf5",
+                            }}>
+                              <ArrowRight size={13} />
                             </a>
                             {isMulti && (
-                              <button onClick={toggleGroup}
-                                className="w-7 h-7 rounded-lg flex items-center justify-center text-[#94a3b8] hover:text-[#203b88] hover:bg-[#eff6ff] transition-colors"
-                                style={{ minHeight: "auto" }}>
-                                <ChevronDown size={14} className={`transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
+                              <button onClick={toggleGroup} style={{
+                                width: 30, height: 30, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center",
+                                color: "#94a3b8", background: "#f8fafc", border: "1px solid #e8edf5", cursor: "pointer", minHeight: "auto",
+                              }}>
+                                <ChevronDown size={13} style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
                               </button>
                             )}
                           </div>
@@ -1751,20 +1831,19 @@ export default function HomePage() {
       {/* ══════════════════════════════════════════════
           FOOTER — Brand footer
           ══════════════════════════════════════════════ */}
-      <footer className="mt-12" style={{ background: "linear-gradient(180deg, #162d6e 0%, #0f1f5c 100%)" }}>
-        {/* Green accent line */}
-        <div className="h-1 bg-gradient-to-r from-[#73b815] via-[#73b815] to-[#a8d96b]" />
-
-        <div className="max-w-6xl mx-auto px-5 sm:px-8 py-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <Logo light height={24} />
-          <div className="text-center sm:text-right">
-            <p className="text-xs text-white/40">
-              © {new Date().getFullYear()} Capital Finanças. Todos os direitos reservados.
-            </p>
-            <p className="text-xs text-white/25 mt-0.5">
-              Documentos processados localmente com segurança
-            </p>
-          </div>
+      <footer style={{ background: "#f1f5f9", borderTop: "1px solid #e2e8f0", marginTop: 40 }}>
+        <div style={{ height: 3, background: "linear-gradient(90deg, #73b815, #a8d96b 60%, transparent)" }} />
+        <div style={{ maxWidth: 960, margin: "0 auto", padding: "22px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+          <svg width="150" height="22" viewBox="0 0 451 58" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="31" cy="27" r="22" stroke="#203b88" strokeWidth="4.5" fill="none" />
+            <circle cx="31" cy="49" r="4.5" fill="#203b88" />
+            <text x="66" y="46" fontFamily="'Open Sans', Arial, sans-serif" fontWeight="700" fontSize="38" letterSpacing="-0.5">
+              <tspan fill="#203b88">capital</tspan><tspan fill="#73b815">finanças</tspan>
+            </text>
+          </svg>
+          <p style={{ fontSize: 12, color: "#94a3b8", margin: 0, letterSpacing: "0.01em" }}>
+            © {new Date().getFullYear()} Capital Finanças · Uso interno e confidencial
+          </p>
         </div>
       </footer>
 
