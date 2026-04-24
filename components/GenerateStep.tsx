@@ -1768,6 +1768,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         committeMembers: committeMembers.trim() || undefined,
         scoreV2: scoreV2 ?? undefined,
         scoreV2Respostas: scoreV2Respostas.length ? scoreV2Respostas : undefined,
+        settings: activeValidationSettings,
       };
 
       // Adiciona mapEmbedUrl para preview interativo (usado no HTML, ignorado no PDF)
@@ -1844,6 +1845,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           committeMembers: committeMembers.trim() || undefined,
           scoreV2: scoreV2 ?? undefined,
           scoreV2Respostas: scoreV2Respostas.length ? scoreV2Respostas : undefined,
+          settings: activeValidationSettings,
         });
         triggerDownload(blob, `capital-financas-${safeName}-${dateStr}.pdf`);
         setGeneratedFormats(p => new Set(p).add("pdf"));
@@ -1998,6 +2000,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         committeMembers: committeMembers.trim() || undefined,
         scoreV2: scoreV2 ?? undefined,
         scoreV2Respostas: scoreV2Respostas.length ? scoreV2Respostas : undefined,
+        settings: activeValidationSettings,
       };
       const html = await generateHTMLPreview(payload);
 
@@ -2051,6 +2054,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         committeMembers: committeMembers.trim() || undefined,
         scoreV2: scoreV2 ?? undefined,
         scoreV2Respostas: scoreV2Respostas.length ? scoreV2Respostas : undefined,
+        settings: activeValidationSettings,
       };
       const html = await generateHTMLPreview(payload);
       // Substitui __BASE_URL__ pelo domínio real antes de salvar
@@ -2634,7 +2638,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         {/* ════════════════════════════════════════
             SEÇÃO FS — PARÂMETROS DO FUNDO
             ════════════════════════════════════════ */}
-        <SectionCard
+        {activeValidationSettings.exibir_conformidade && <SectionCard
           id="sec-fs"
           badge="FS"
           badgeVariant="navy"
@@ -2725,7 +2729,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
               </a>
             </div>
           </div>
-        </SectionCard>
+        </SectionCard>}
 
         {/* ════════════════════════════════════════
             SEÇÃO 05 — SCR / BACEN

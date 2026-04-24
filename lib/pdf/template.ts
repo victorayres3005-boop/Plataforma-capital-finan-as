@@ -2220,6 +2220,7 @@ function pageChecklist(params: PDFReportParams, date: string): string {
     ${(() => {
       const fv = params.fundValidation;
       if (!fv?.criteria?.length) return "";
+      if (!params.settings?.exibir_conformidade) return "";
       const criteriaRows = fv.criteria.map((c: FundCriterion) => {
         const isPass = c.status === "ok";
         const isWarn = c.status === "warning";

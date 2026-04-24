@@ -1,5 +1,5 @@
 import type { jsPDF } from "jspdf";
-import type { ExtractedData, AIAnalysis, FundValidationResult, CreditLimitResult, Operacao } from "@/types";
+import type { ExtractedData, AIAnalysis, FundValidationResult, CreditLimitResult, Operacao, FundSettings } from "@/types";
 import type { DS } from "./design-system";
 import type { ScoreResult, RespostaCriterio } from "@/types/politica-credito";
 
@@ -51,6 +51,7 @@ export interface PDFReportParams {
   capitalLogoB64?: string;
   scoreV2?: ScoreResult;
   scoreV2Respostas?: RespostaCriterio[];
+  settings?: FundSettings;
 }
 
 export type AutoCell = string | { content: string; styles?: Record<string, unknown> };

@@ -26,6 +26,8 @@ interface OperacionalData {
   permite_excecao_eliminatorio: boolean;
   // Garantias por rating
   garantia_obrigatoria_rating: string[];
+  // Visibilidade de seções
+  exibir_conformidade: boolean;
 }
 
 const DEFAULTS: OperacionalData = {
@@ -45,6 +47,7 @@ const DEFAULTS: OperacionalData = {
   tolerancia_atraso_dias: 0,
   permite_excecao_eliminatorio: false,
   garantia_obrigatoria_rating: ["D", "E", "F"],
+  exibir_conformidade: false,
 };
 
 const RATINGS = ["A", "B", "C", "D", "E", "F"] as const;
@@ -90,6 +93,7 @@ export function OperacionalTab({ userId }: Props) {
             flexibilizacao_prazo_dias: row.flexibilizacao_prazo_dias ?? DEFAULTS.flexibilizacao_prazo_dias,
             tolerancia_atraso_dias:    row.tolerancia_atraso_dias    ?? DEFAULTS.tolerancia_atraso_dias,
             permite_excecao_eliminatorio: row.permite_excecao_eliminatorio ?? DEFAULTS.permite_excecao_eliminatorio,
+            exibir_conformidade:          row.exibir_conformidade          ?? DEFAULTS.exibir_conformidade,
             garantia_obrigatoria_rating:  Array.isArray(row.garantia_obrigatoria_rating)
               ? row.garantia_obrigatoria_rating
               : DEFAULTS.garantia_obrigatoria_rating,
@@ -130,6 +134,7 @@ export function OperacionalTab({ userId }: Props) {
       flexibilizacao_prazo_dias:    d.flexibilizacao_prazo_dias,
       tolerancia_atraso_dias:       d.tolerancia_atraso_dias,
       permite_excecao_eliminatorio: d.permite_excecao_eliminatorio,
+      exibir_conformidade:          d.exibir_conformidade,
       garantia_obrigatoria_rating:  d.garantia_obrigatoria_rating,
     };
 
@@ -307,6 +312,15 @@ export function OperacionalTab({ userId }: Props) {
             value={data.permite_excecao_eliminatorio}
             onChange={v => set("permite_excecao_eliminatorio", v)}
           />
+          <div style={{ marginTop: 10 }}>
+            <ToggleField
+              label="Exibir seção de Conformidade no relatório"
+              description="Quando desligado, a seção de conformidade com o fundo é ocultada no PDF, HTML e tela"
+              value={data.exibir_conformidade}
+              onChange={v => set("exibir_conformidade", v)}
+              variant="positive"
+            />
+          </div>
         </div>
       </div>
 
@@ -425,23 +439,27 @@ function NumField({
 }
 
 function ToggleField({
-  label, description, value, onChange,
+  label, description, value, onChange, variant = "danger",
 }: {
   label: string; description: string; value: boolean; onChange: (v: boolean) => void;
+  variant?: "danger" | "positive";
 }) {
+  const activeColor  = variant === "positive" ? "#16a34a" : "#ef4444";
+  const activeBg     = variant === "positive" ? "#f0fdf4" : "#fef2f2";
+  const activeBorder = variant === "positive" ? "#86efac" : "#fca5a5";
   return (
     <div
       onClick={() => onChange(!value)}
       style={{
         display: "flex", alignItems: "flex-start", gap: 14, padding: "12px 14px",
-        background: value ? "#fef2f2" : "#fafafa",
-        border: `1px solid ${value ? "#fca5a5" : "#e5e7eb"}`,
+        background: value ? activeBg : "#fafafa",
+        border: `1px solid ${value ? activeBorder : "#e5e7eb"}`,
         borderRadius: 10, cursor: "pointer", transition: "all 0.15s",
       }}
     >
       <div style={{
         position: "relative", width: 40, height: 22, borderRadius: 11,
-        background: value ? "#ef4444" : "#d1d5db",
+        background: value ? activeColor : "#d1d5db",
         flexShrink: 0, marginTop: 1, transition: "background 0.2s",
       }}>
         <div style={{

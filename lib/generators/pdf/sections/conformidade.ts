@@ -32,6 +32,7 @@ const P = {
 };
 
 export function renderConformidade(ctx: PdfCtx): void {
+  if (!ctx.params.settings?.exibir_conformidade) return;
   const { doc, pos, params, data, margin: ML, contentW: CW } = ctx;
   const rv = data.relatorioVisita;
   const fv = params.fundValidation;

@@ -971,6 +971,8 @@ export interface FundSettings {
   permite_excecao_eliminatorio?: boolean;
   // Garantias por rating (ex: ['D', 'E', 'F'])
   garantia_obrigatoria_rating?: string[];
+  // Visibilidade de seções no relatório
+  exibir_conformidade?: boolean;
 }
 
 export const DEFAULT_FUND_SETTINGS: FundSettings = {
