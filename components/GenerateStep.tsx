@@ -260,11 +260,10 @@ function validarContraParametros(data: ExtractedData, settings: FundSettings): F
   criteria.push({
     id: "rj",
     label: "Recuperação Judicial",
-    threshold: "Não detectada",
-    actual: temRJ ? "ATIVA" : "Não detectada",
+    threshold: "Não homologada",
+    actual: temRJ ? `ATIVA — Detectada via ${rjFonte}` : "Não detectada",
     status: temRJ ? "error" : "ok",
     eliminatoria: true,
-    detail: temRJ && rjFonte ? `Detectada via ${rjFonte}` : undefined,
   });
 
   const passCount   = criteria.filter(c => c.status === "ok").length;
