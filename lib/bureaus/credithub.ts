@@ -1119,6 +1119,9 @@ async function enriquecerEmpresasGrupoEconomico(
         const proc = parseProcessos(d);
         const procQtd = Number(proc.passivosTotal ?? 0);
         emp.processos = procQtd > 0 ? String(procQtd) : "0";
+        if (proc.valorTotalEstimado && proc.valorTotalEstimado !== "R$ 0,00") {
+          emp.valorProcessos = proc.valorTotalEstimado;
+        }
 
         // Situação via Receita Federal (se vier no retorno)
         const sit = String(d?.situacaoCadastral ?? d?.situacao ?? "").toUpperCase();

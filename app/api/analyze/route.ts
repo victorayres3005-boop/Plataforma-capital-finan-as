@@ -148,8 +148,8 @@ const GEMINI_API_KEYS = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_K
 // Fase 3: modelo fine-tunado tem prioridade se configurado e ativo
 const FINETUNED_MODEL = process.env.GEMINI_FINETUNED_MODEL?.trim() || null;
 const GEMINI_MODELS = FINETUNED_MODEL
-  ? [FINETUNED_MODEL, "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"]
-  : ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"];
+  ? [FINETUNED_MODEL, "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"]
+  : ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"];
 
 function geminiUrl(model: string, key: string) {
   // tunedModels/ usam endpoint diferente de models/
@@ -198,9 +198,7 @@ async function callGemini(prompt: string, data: string): Promise<string> {
                   temperature: 0,
                   maxOutputTokens: 16384,
                   responseMimeType: "application/json",
-                  // Budget de 2048 tokens de raciocínio: suficiente para calibrar
-                  // rating com o Score V2 sem impacto significativo de latência.
-                  ...(model.includes("2.5") ? { thinkingConfig: { thinkingBudget: 2048 } } : {}),
+                  ...(model.includes("2.5") ? { thinkingConfig: { thinkingBudget: 1024 } } : {}),
                 },
               }),
               signal: controller.signal,
@@ -407,25 +405,32 @@ Critérios para [INFO] — severidade "INFO":
 
 === SCORE E DECISÃO ===
 
-IMPORTANTE — MUDANÇA DE ARQUITETURA:
-O score de crédito NÃO é mais calculado por você.
-O Score V2 da Política do Fundo já foi calculado pelo sistema
-e está no bloco "SCORE V2" acima.
+A plataforma adota EXCLUSIVAMENTE a Política de Crédito V2 com 5 pilares:
+  1. Estrutura da Operação (peso 35%)
+  2. Risco e Compliance (peso 25%)
+  3. Perfil da Empresa (peso 15%)
+  4. Saúde Financeira (peso 15%)
+  5. Sócios e Governança (peso 10%)
 
-Seu papel agora é:
-1. Gerar o texto narrativo do parecer com base nos dados e no Score V2
-2. Identificar e listar alertas relevantes
-3. Confirmar ou ajustar a decisão (APROVADO/CONDICIONAL/PENDENTE/REPROVADO)
-   com base nos dados — mas SEMPRE respeitando:
-   - Score V2 A/B → máximo APROVADO
-   - Score V2 C/D → máximo APROVACAO_CONDICIONAL
-   - Score V2 E   → máximo PENDENTE
-   - Score V2 F   → REPROVADO (não negociar)
-   - Eliminatório detectado → REPROVADO obrigatório
+SE o bloco "--- SCORE V2 ---" foi fornecido acima pelo analista:
+→ O rating oficial já foi calculado. Retorne "rating": {{SCORE_V2_SCALED}} (score V2 ÷ 10).
+→ NÃO recalcule o score. Use exatamente o valor fornecido.
+→ Decisão obrigatória pelas faixas V2:
+   Rating A ou B (Score V2 ≥ 80) → APROVADO
+   Rating C ou D (Score V2 60–79) → APROVACAO_CONDICIONAL
+   Rating E (Score V2 50–59) → PENDENTE
+   Rating F (Score V2 < 50) → REPROVADO
+→ Eliminatório absoluto prevalece sobre o score: se CCF, SCR vencido/prejuízo, RJ ou alavancagem acima do máximo forem detectados, aplique REPROVADO mesmo que o Score V2 seja alto.
 
-NÃO retornar campo "rating" com valor calculado por você.
-Retornar "rating": {{SCORE_V2_SCALED}} (convertido do Score V2)
-Retornar "decisao" conforme as regras acima.
+SE NÃO há Score V2 disponível ({{SCORE_V2_SCALED}} = —, sem bloco acima):
+→ Estime um score 0–10 avaliando os dados segundo os 5 pilares V2 acima.
+→ Retorne "rating" com o valor calculado por você.
+→ Use as faixas: ≥8.0 → APROVADO | 6.0–7.9 → APROVACAO_CONDICIONAL | 5.0–5.9 → PENDENTE | <5.0 → REPROVADO
+
+Seu papel em ambos os casos:
+1. Gerar o texto narrativo do parecer comentando os 5 pilares com dados concretos
+2. Identificar e listar todos os alertas cabíveis
+3. Confirmar ou ajustar a decisão seguindo as regras acima
 
 === ANÁLISE COMPLEMENTAR FIDC ===
 
@@ -441,11 +446,11 @@ TIPO DE RECEBÍVEL: Com base no CNAE e objeto social, identifique o tipo predomi
 
 PRAZO MÉDIO DOS RECEBÍVEIS: Se o cedente opera em setor de prazo curto (varejo, distribuição: 30–45 dias) vs. longo (construção, agro, governo: 90–180 dias), ajuste o prazoMaximo nos parâmetros operacionais de acordo.
 
-Faixas de decisão por score:
-— score >= 7,5: APROVADO
-— score 6,0–7,4: APROVACAO_CONDICIONAL
-— score 4,0–5,9: PENDENTE
-— score < 4,0: REPROVADO
+Decisão baseada exclusivamente no Rating V2 da Política do Fundo:
+— Rating A ou B (Score V2 ≥ 80 pts) → APROVADO (salvo eliminatório absoluto)
+— Rating C ou D (Score V2 60–79 pts) → APROVACAO_CONDICIONAL
+— Rating E (Score V2 50–59 pts) → PENDENTE
+— Rating F (Score V2 < 50 pts) → REPROVADO
 
 === DECISÃO ===
 
@@ -463,6 +468,7 @@ A decisão TAMBÉM deve obedecer regras absolutas independentes do score:
 — Variações: com + ou -. Ex: +7,6% / -21,5%
 — Datas: MM/AAAA ou DD/MM/AAAA
 — Dados ausentes: sempre "—", nunca "N/A", "null" ou vazio
+— Indicadores pré-calculados: os campos comprometimentoFaturamento, endividamento, liquidezCorrente e margemLiquida já foram calculados deterministicamente e estão nos CALCULOS PRE-PROCESSADOS. Use exatamente esses valores no JSON — NÃO recalcule nem invente valores diferentes.
 
 === INSTRUÇÕES DO PARECER ===
 
@@ -934,19 +940,36 @@ function calcularPreRequisitos(data: Record<string, unknown>, settings: FundSett
     : parseBRL(fat.mediaAno) || parseBRL(fat.mediaMensal) || 0;
 
   const cnpj = (data.cnpj ?? {}) as Record<string, unknown>;
-  const dataAbertura = String(cnpj.dataAbertura ?? "");
-  let idadeAnos = 0;
-  if (/\d{2}\/\d{2}\/\d{4}/.test(dataAbertura)) {
-    const [d, m, a] = dataAbertura.split("/").map(Number);
-    const abertura = new Date(a, m - 1, d);
-    idadeAnos = (Date.now() - abertura.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+  const dataAbertura = String(cnpj?.dataAbertura ?? "")
+  let idadeAnos = 0
+
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(dataAbertura)) {
+    // formato DD/MM/YYYY
+    const [d, m, a] = dataAbertura.split("/").map(Number)
+    idadeAnos = (Date.now() - new Date(a, m - 1, d).getTime())
+                / (1000 * 60 * 60 * 24 * 365.25)
+  } else if (/^\d{2}\/\d{4}$/.test(dataAbertura)) {
+    // formato MM/YYYY — usar dia 1 do mês
+    const [m, a] = dataAbertura.split("/").map(Number)
+    idadeAnos = (Date.now() - new Date(a, m - 1, 1).getTime())
+                / (1000 * 60 * 60 * 24 * 365.25)
+  } else if (/^\d{4}$/.test(dataAbertura)) {
+    // formato YYYY — usar 1º de janeiro
+    const a = parseInt(dataAbertura)
+    idadeAnos = (Date.now() - new Date(a, 0, 1).getTime())
+                / (1000 * 60 * 60 * 24 * 365.25)
   }
 
   const motivoReprovacao: string[] = [];
   if (fmm > 0 && fmm < settings.fmm_minimo) {
     motivoReprovacao.push(`FMM de R$ ${fmm.toLocaleString("pt-BR", { minimumFractionDigits: 2 })} abaixo do minimo de R$ ${settings.fmm_minimo.toLocaleString("pt-BR")}/mes`);
   }
-  if (idadeAnos > 0 && idadeAnos < settings.idade_minima_anos) {
+  if (idadeAnos === 0) {
+    motivoReprovacao.push(
+      "Data de abertura ausente ou formato inválido — " +
+      "não foi possível verificar critério de idade mínima"
+    )
+  } else if (idadeAnos < settings.idade_minima_anos) {
     motivoReprovacao.push(`Empresa com ${idadeAnos.toFixed(1)} anos abaixo do minimo de ${settings.idade_minima_anos} anos`);
   }
 
@@ -972,13 +995,33 @@ function calcularPreRequisitos(data: Record<string, unknown>, settings: FundSett
   }
 
   // ── Recuperação Judicial / Falência — eliminatório fixo ──
-  const temRJ = String(processos.temRecuperacaoJudicial ?? "").toLowerCase();
-  const temRJExt = String(processos.temRecuperacaoExtrajudicial ?? "").toLowerCase();
-  if (temRJ === "sim" || temRJ === "true") {
-    motivoReprovacao.push("Recuperacao Judicial ativa — criterio eliminatorio");
+  const temRJ =
+    String(processos.temRecuperacaoJudicial ?? processos.temRJ ?? "")
+    .toLowerCase()
+  const rjNaDistribuicao = Array.isArray(processos.distribuicao) &&
+    processos.distribuicao.some((d: { tipo?: string }) =>
+      String(d.tipo ?? "").toUpperCase().includes("RECUPERA") &&
+      String(d.tipo ?? "").toUpperCase().includes("JUDICIAL")
+    )
+  if (temRJ === "sim" || temRJ === "true" || rjNaDistribuicao) {
+    motivoReprovacao.push("Recuperação Judicial ativa — critério eliminatório")
   }
+  const temRJExt = String(processos.temRecuperacaoExtrajudicial ?? "").toLowerCase();
   if (temRJExt === "sim" || temRJExt === "true") {
     motivoReprovacao.push("Recuperacao Extrajudicial ativa — criterio eliminatorio");
+  }
+
+  // ── Razão social — fallback RJ ──
+  const razaoSocial = String(cnpj?.razaoSocial ?? "").toUpperCase()
+  if (
+    razaoSocial.includes("RECUPERACAO JUDICIAL") ||
+    razaoSocial.includes("RECUPERAÇÃO JUDICIAL") ||
+    razaoSocial.includes("EM RECUPERACAO") ||
+    razaoSocial.includes("EM RECUPERAÇÃO")
+  ) {
+    motivoReprovacao.push(
+      "Razão social indica Recuperação Judicial ativa — critério eliminatório"
+    )
   }
 
   // ── Protestos vigentes — eliminatório configurável ──
@@ -1009,6 +1052,27 @@ function calcularPreRequisitos(data: Record<string, unknown>, settings: FundSett
     const pctVencidos = (vencidosSCR / totalDividas) * 100;
     if (pctVencidos > scrMaxPct) {
       motivoReprovacao.push(`SCR vencidos em ${pctVencidos.toFixed(1)}% do total (limite: ${scrMaxPct}%)`);
+    }
+  }
+  // Vencidos sem carteira ativa — dado inconsistente, reprova por segurança
+  if (vencidosSCR > 0 && totalDividas === 0) {
+    motivoReprovacao.push(`SCR vencidos declarados sem carteira ativa registrada — dado inconsistente, criterio eliminatorio por seguranca`);
+  }
+
+  // ── SCR prejuízos — eliminatório absoluto ──
+  const prejuizosSCR = parseBRL(scr.prejuizos) || 0;
+  if (prejuizosSCR > 0) {
+    const prejFmt = prejuizosSCR.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    motivoReprovacao.push(`SCR prejuizos registrados: R$ ${prejFmt} — criterio eliminatorio`);
+  }
+
+  // ── Alavancagem > máxima — eliminatório da Política V2 ──
+  const alavMax = settings.alavancagem_maxima ?? DEFAULT_FUND_SETTINGS.alavancagem_maxima;
+  const totalDividasAlav = parseBRL(scr.totalDividasAtivas) || parseBRL(scr.carteiraAVencer) || 0;
+  if (fmm > 0 && totalDividasAlav > 0) {
+    const alavCalc = totalDividasAlav / fmm;
+    if (alavCalc > alavMax) {
+      motivoReprovacao.push(`Alavancagem ${alavCalc.toFixed(2)}x acima do limite maximo V2 de ${alavMax}x — criterio eliminatorio`);
     }
   }
 
@@ -1286,11 +1350,11 @@ Detalhamento por pilar (com critérios respondidos pelo analista):
 ${pilares}
 
 INSTRUÇÕES PARA USO DO SCORE V2:
-1. O Score V2 foi preenchido pelo analista humano com base nos documentos. Use-o como âncora da sua avaliação — calibre o seu rating (0–10) de forma coerente com o rating V2 (A–F).
-2. Correspondência de referência: Rating A → score IA 8,0–10,0 | B → 6,5–8,0 | C → 5,0–6,5 | D → 3,5–5,0 | E → 2,0–3,5 | F → 0–2,0
-3. Se houver discrepância entre o score V2 e os dados brutos, mencione no textoCompleto e justifique sua posição.
-4. Pilares marcados como PENDENTE não foram avaliados pelo analista — não presuma a nota; trate como ausência de informação para aquela dimensão.
-5. NÃO use o score V2 para substituir sua análise — use-o para calibração. A decisão final de aprovação ainda deve seguir as regras absolutas do prompt.
+1. O Score V2 (escala 0–100, rating A–F) É O RATING OFICIAL DA OPERAÇÃO. Retorne "rating": {{SCORE_V2_SCALED}} no JSON — não invente nem recalcule um score próprio.
+2. A decisão (APROVADO / APROVACAO_CONDICIONAL / PENDENTE / REPROVADO) deve seguir obrigatoriamente as faixas do Rating V2, exceto quando um critério eliminatório absoluto force REPROVADO ou PENDENTE.
+3. Os 5 pilares da política são: Estrutura da Operação (35%), Risco e Compliance (25%), Perfil da Empresa (15%), Saúde Financeira (15%), Sócios e Governança (10%). Seu parecer deve comentar cada pilar com dados concretos.
+4. Se houver discrepância relevante entre o Score V2 e os dados brutos (ex: analista deu nota alta mas dados mostram vencidos no SCR), mencione no textoCompleto e aplique o critério eliminatório cabível.
+5. Pilares marcados como PENDENTE não foram avaliados — não presuma a nota; trate como ausência de informação para aquela dimensão e registre no textoCompleto.
 --- FIM SCORE V2 ---\n`;
 }
 
@@ -1562,21 +1626,19 @@ export async function POST(request: NextRequest) {
             !temABC && "Curva ABC",
           ].filter(Boolean) as string[];
 
-          // Tabela de notas neutras para componentes ausentes
-          const notasNeutras = [
-            !temSCR     && "SCR (peso 25%): usar nota neutra 3,0 — ausência é sinal de alerta",
-            !temFat     && "Faturamento (peso 20%): usar nota neutra 3,0 — sem dados de receita",
-            !temBureau  && "CCF (peso 15%): usar nota neutra 7,0 — benefício da dúvida moderado",
-            !temBureau  && "Protestos (peso 15%): usar nota neutra 5,0",
-            !temBureau  && "Processos (peso 10%): usar nota neutra 5,0",
-            !temDRE && !temBal && "Balanço/DRE (peso 10%): usar nota neutra 5,0",
-            !temIR      && "Sócios/Governança (peso 5%): usar nota neutra 4,0",
+          // Impacto de docs ausentes nos pilares V2
+          const pilaresSemDados = [
+            !temSCR     && "Pilar Saúde Financeira (critério Alavancagem) e Risco e Compliance (critério SCR): SCR ausente — marcar como pendente",
+            !temFat     && "Pilar Saúde Financeira (critério Faturamento): dados de receita ausentes — marcar como pendente",
+            !temBureau  && "Pilar Risco e Compliance (critérios Protestos, Processos, Negativações): bureaus não consultados — benefício da dúvida, sem penalizar além do previsto",
+            !temDRE && !temBal && "Pilar Saúde Financeira (critério Análise Financeira): DRE e Balanço ausentes — usar FMM como proxy",
+            !temIR      && "Pilar Sócios e Governança (critério Patrimônio dos Sócios): IR ausente — sem dados patrimoniais",
           ].filter(Boolean).join("\n  ");
 
           let extras = `\nCOBERTURA DA ANÁLISE — ANÁLISE ${ausentes.length === 0 ? "COMPLETA" : "PARCIAL"}:
 Documentos ausentes: ${ausentes.length === 0 ? "nenhum" : ausentes.join(", ")}
-${notasNeutras ? `Notas neutras a aplicar nos componentes ausentes:\n  ${notasNeutras}` : ""}
-IMPORTANTE: Para componentes ausentes, aplique EXATAMENTE as notas neutras acima e inclua alerta DADOS_PARCIAIS. Não invente dados. Não penalize além do previsto.`;
+${pilaresSemDados ? `Impacto nos pilares V2 por docs ausentes:\n  ${pilaresSemDados}` : ""}
+IMPORTANTE: Para documentos ausentes, gere alerta DADOS_PARCIAIS. Não invente dados. Não penalize além do indicado acima.`;
           if (dre?.anos && dre.anos.length > 0) {
             const a = dre.anos[dre.anos.length - 1];
             extras += `\nDRE (${a.ano ?? ""}): Receita R$ ${a.receitaBruta ?? "—"}, Lucro R$ ${a.lucroLiquido ?? "—"}, Margem ${a.margemLiquida ?? "—"}, EBITDA R$ ${a.ebitda ?? "—"}. Tendência: ${dre.tendenciaLucro ?? "—"}. Crescimento: ${dre.crescimentoReceita ?? "—"}.`;
@@ -1589,12 +1651,22 @@ IMPORTANTE: Para componentes ausentes, aplique EXATAMENTE as notas neutras acima
             extras += `\nCurva ABC: Top3 ${curvaABC.concentracaoTop3 ?? "—"}, Top5 ${curvaABC.concentracaoTop5 ?? "—"}, Maior cliente ${curvaABC.maiorClientePct ?? "—"}. Clientes: ${curvaABC.totalClientesNaBase ?? "—"}. Alerta: ${curvaABC.alertaConcentracao ? "SIM" : "NÃO"}.`;
           }
 
+          // ── Indicadores determinísticos — sobrescreve o que o Gemini inventaria ──
+          const comprometimentoFat = _preReq.fmm > 0 && _alav.totalDivida > 0
+            ? ((_alav.totalDivida / _preReq.fmm) * 100).toFixed(1)
+            : null;
+          const lastBalanco = balanco?.anos?.length ? balanco.anos[balanco.anos.length - 1] : null;
+          const lastDre     = dre?.anos?.length     ? dre.anos[dre.anos.length - 1]         : null;
+          const endividamentoCalc    = lastBalanco?.endividamentoTotal || null;
+          const liquidezCorrenteCalc = lastBalanco?.liquidezCorrente   || null;
+          const margemLiquidaCalc    = lastDre?.margemLiquida          || null;
+
           const calculosInjetados = `
 --- CALCULOS PRE-PROCESSADOS ---
 FMM: R$ ${_preReq.fmm.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
 Idade: ${_preReq.idadeAnos} anos
 Alavancagem: ${_alav.label}
-Dívida total SCR: R$ ${_alav.totalDivida.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}${extras}
+Dívida total SCR: R$ ${_alav.totalDivida.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}${comprometimentoFat ? `\nComprometimento do faturamento: ${comprometimentoFat}% (dívida SCR / FMM)` : ""}${endividamentoCalc ? `\nEndividamento (balanço): ${endividamentoCalc}%` : ""}${liquidezCorrenteCalc ? `\nLiquidez corrente: ${liquidezCorrenteCalc}` : ""}${margemLiquidaCalc ? `\nMargem líquida: ${margemLiquidaCalc}%` : ""}${extras}
 `;
 
           console.log(`[analyze] Payload: ${dataStr.length} chars (payload compacto) → Gemini`);
@@ -1745,9 +1817,14 @@ Dívida total SCR: R$ ${_alav.totalDivida.toLocaleString("pt-BR", { minimumFract
           analysis.pontosFracos = analysis.parecer.pontosNegativosOuFracos;
           analysis.perguntasVisita = analysis.parecer.perguntasVisita;
           analysis.indicadores = analysis.indicadores ?? {};
-          analysis.indicadores.alavancagem = _alav.label;
+          analysis.indicadores.alavancagem  = _alav.label;
           analysis.indicadores.idadeEmpresa = `${_preReq.idadeAnos} anos`;
-          analysis.indicadores.fmm = `R$ ${_preReq.fmm.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
+          analysis.indicadores.fmm          = `R$ ${_preReq.fmm.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
+          // Sobrescrever com valores determinísticos — Gemini não inventa esses campos
+          if (comprometimentoFat)    analysis.indicadores.comprometimentoFaturamento = `${comprometimentoFat}%`;
+          if (endividamentoCalc)     analysis.indicadores.endividamento    = `${endividamentoCalc}%`;
+          if (liquidezCorrenteCalc)  analysis.indicadores.liquidezCorrente = liquidezCorrenteCalc;
+          if (margemLiquidaCalc)     analysis.indicadores.margemLiquida    = `${margemLiquidaCalc}%`;
           analysis.sinteseExecutiva = sinteseExecutiva;
 
           // Salvar no cache servidor

@@ -755,11 +755,118 @@ export function autoPreencherScore(
   }
 
   // ─── Critérios genuinamente manuais ───────────────────────────────────────
+  // patrimonio_socios — Assertiva (bens declarados) → BDC TotalAssetsRange → manual
+  if (!manuaisIdx.has('patrimonio_socios')) {
+    const socios = (data?.scrSocios ?? []) as any[]
+    const temDadosAssertiva = socios.some(s =>
+      (s.bensVeiculos?.length > 0) || (s.bensImoveis?.length > 0)
+    )
+    const qsaSociosForPatr = (data?.qsa?.quadroSocietario ?? []) as any[]
+    const temBDCAssets = qsaSociosForPatr.some(s => s.totalAssetsRange)
+
+    if (temDadosAssertiva && fmm > 0) {
+      const totalPatrimonio = socios.reduce((acc: number, s: any) => {
+        const veiculos = (s.bensVeiculos ?? []).reduce(
+          (a: number, v: any) => a + parseBRL(v.valorFipe), 0
+        )
+        const imoveis = (s.bensImoveis ?? []).reduce(
+          (a: number, i: any) => a + parseBRL(i.valorEstimado), 0
+        )
+        return acc + veiculos + imoveis
+      }, 0)
+
+      let opcao_label: string
+      let pontos: number
+
+      if (totalPatrimonio >= fmm * 2) {
+        opcao_label = 'Patrimônio robusto (≥ 2× FMM)'
+        pontos = 5
+      } else if (totalPatrimonio >= fmm) {
+        opcao_label = 'Patrimônio compatível (≥ 1× FMM)'
+        pontos = 4
+      } else if (totalPatrimonio >= fmm * 0.5) {
+        opcao_label = 'Patrimônio moderado (≥ 0,5× FMM)'
+        pontos = 2
+      } else {
+        opcao_label = 'Patrimônio baixo (< 0,5× FMM)'
+        pontos = 1
+      }
+
+      registrar({
+        criterio_id:  'patrimonio_socios',
+        pilar_id:     'socios_governanca',
+        opcao_label,
+        pontos_base:  pontos,
+        pontos_final: pontos,
+        observacao:   `Patrimônio total (Assertiva): R$ ${totalPatrimonio.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} | ${(totalPatrimonio / fmm).toFixed(2)}× FMM`,
+      }, 'auto')
+    } else if (temBDCAssets) {
+      // Fallback: BDC TotalAssetsRange — converte range textual em estimativa numérica
+      const RANGE_MIDPOINT: Record<string, number> = {
+        'ABAIXO DE 100K': 50_000,
+        'DE 100K A 500K': 300_000,
+        'DE 500K A 1MM':  750_000,
+        'DE 1MM A 5MM':   3_000_000,
+        'ACIMA DE 5MM':   7_500_000,
+      }
+      const totalBDC = qsaSociosForPatr.reduce((acc: number, s: any) => {
+        if (!s.totalAssetsRange) return acc
+        const rangeUp = String(s.totalAssetsRange).toUpperCase()
+        const key = Object.keys(RANGE_MIDPOINT).find(k => rangeUp.includes(k)) ?? rangeUp
+        return acc + (RANGE_MIDPOINT[key] ?? 0)
+      }, 0)
+
+      let opcao_label: string
+      let pontos: number
+
+      if (fmm > 0 && totalBDC >= fmm * 2) {
+        opcao_label = 'Patrimônio robusto (≥ 2× FMM) — estimado via BDC'
+        pontos = 4
+      } else if (fmm > 0 && totalBDC >= fmm) {
+        opcao_label = 'Patrimônio compatível (≥ 1× FMM) — estimado via BDC'
+        pontos = 3
+      } else if (fmm > 0 && totalBDC >= fmm * 0.5) {
+        opcao_label = 'Patrimônio moderado (≥ 0,5× FMM) — estimado via BDC'
+        pontos = 2
+      } else {
+        opcao_label = 'Patrimônio limitado — estimado via BDC'
+        pontos = 1
+      }
+
+      avisos.push('Patrimônio estimado via BDC (TotalAssetsRange) — confirmar com Assertiva ou documentos')
+      registrar({
+        criterio_id:  'patrimonio_socios',
+        pilar_id:     'socios_governanca',
+        opcao_label,
+        pontos_base:  pontos,
+        pontos_final: pontos,
+        observacao:   `Patrimônio estimado (BDC): R$ ${totalBDC.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}`,
+      }, 'auto')
+    } else {
+      criterios_manuais.push('patrimonio_socios')
+      avisos.push('Dados Assertiva/BDC não disponíveis — patrimônio de sócios aguarda análise manual')
+    }
+  } else {
+    respostas.push(manuaisIdx.get('patrimonio_socios')!)
+  }
+
+  // Alertas informativos BDC (não afetam pontuação, mas constam nos avisos do relatório)
+  const qsaSociosAlertas = (data?.qsa?.quadroSocietario ?? []) as any[]
+  const sociosComCobranca = qsaSociosAlertas.filter(s => s.isCurrentlyOnCollection)
+  if (sociosComCobranca.length > 0) {
+    avisos.push(`BDC: ${sociosComCobranca.length} sócio(s) com negativação ativa — ${sociosComCobranca.map((s: any) => s.nome || 'n/i').join(', ')}`)
+  }
+  const sociosPEP  = qsaSociosAlertas.filter(s => s.isPEP)
+  const sociosSanc = qsaSociosAlertas.filter(s => s.isSanctioned)
+  if (sociosPEP.length > 0)  avisos.push(`ALERTA: ${sociosPEP.length} sócio(s) classificado(s) como PEP (BDC) — ${sociosPEP.map((s: any) => s.nome || 'n/i').join(', ')}`)
+  if (sociosSanc.length > 0) avisos.push(`ALERTA: ${sociosSanc.length} sócio(s) sancionado(s) internacionalmente (BDC) — ${sociosSanc.map((s: any) => s.nome || 'n/i').join(', ')}`)
+  const sociosComPGFN = qsaSociosAlertas.filter(s => (s.pgfnTotalDebts ?? 0) > 0)
+  if (sociosComPGFN.length > 0) avisos.push(`PGFN: ${sociosComPGFN.length} sócio(s) com dívidas com a União — verificar impacto no crédito`)
+
   const MANUAIS_OBRIGATORIOS = [
     'segmento',
     'estrutura_fisica',
     'garantias',
-    'patrimonio_socios',
     'risco_sucessao',
   ]
 

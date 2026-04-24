@@ -454,10 +454,10 @@ export default function ParecerPage() {
                     <div style={{ textAlign: "center", flexShrink: 0 }}>
                       <div style={{
                         width: 38, height: 38, borderRadius: "50%",
-                        border: `2px solid ${p.rating_ia >= 7 ? "#16a34a" : p.rating_ia >= 4 ? "#d97706" : "#dc2626"}`,
+                        border: `2px solid ${p.rating_ia >= 8 ? "#16a34a" : p.rating_ia >= 5 ? "#d97706" : "#dc2626"}`,
                         display: "flex", alignItems: "center", justifyContent: "center",
                         fontSize: 12, fontWeight: 700,
-                        color: p.rating_ia >= 7 ? "#16a34a" : p.rating_ia >= 4 ? "#d97706" : "#dc2626",
+                        color: p.rating_ia >= 8 ? "#16a34a" : p.rating_ia >= 5 ? "#d97706" : "#dc2626",
                       }}>
                         {p.rating_ia.toFixed(1)}
                       </div>

@@ -127,6 +127,29 @@ export const SCRDataSchema = z.object({
   semHistorico: boolLoose.default(false),
 }).passthrough();
 
+// ─── RelatorioVisita ──────────────────────────────────────────────────────
+
+export const RelatorioVisitaSchema = z.object({
+  parametros_sugeridos: z.object({
+    limite_global:                    z.number().nullable().optional(),
+    limite_convencional:              z.number().nullable().optional(),
+    limite_comissaria:                z.number().nullable().optional(),
+    limite_por_sacado:                z.number().nullable().optional(),
+    tranche_limite_global:            z.number().nullable().optional(),
+    tranche_checagem:                 z.union([z.number(), z.string()]).nullable().optional(),
+    prazo_maximo_titulo_dias:         z.number().nullable().optional(),
+    prazo_tranche_limite_global_dias: z.number().nullable().optional(),
+    taxa_duplicata_percent:           z.number().nullable().optional(),
+    taxa_cheque_percent:              z.number().nullable().optional(),
+    taxa_comissaria_percent:          z.number().nullable().optional(),
+    prazo_recompra_cedente_dias:      z.number().nullable().optional(),
+    prazo_cartorio_dias:              z.number().nullable().optional(),
+    tac_valor:                        z.number().nullable().optional(),
+    valor_boleto:                     z.number().nullable().optional(),
+    desagio_proposto_percent:         z.number().nullable().optional(),
+  }).optional(),
+}).passthrough();
+
 // ─── Wrapper: safeParse com warnings estruturados ─────────────────────────
 
 export interface ParseWarning {

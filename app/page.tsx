@@ -8,6 +8,7 @@ import WelcomeModal from "@/components/WelcomeModal";
 import OnboardingTooltip from "@/components/OnboardingTooltip";
 import FirstCollectionChecklist from "@/components/FirstCollectionChecklist";
 import GenerateStep from "@/components/GenerateStep";
+import { ScoreSection } from "@/components/score/ScoreSection";
 import { useAuth } from "@/lib/useAuth";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
@@ -1044,7 +1045,7 @@ export default function HomePage() {
                 { label: "Coletas no período", value: String(totalColetas2), sub: `${empresas2} empresa${empresas2 !== 1 ? "s" : ""}`, color: "white" },
                 { label: "Análises concluídas", value: String(finalizadasFilt2), sub: metricas.totalFinalizadas === 0 ? "sem finalizadas" : `${metricas.porDecisao.aprovado} aprovadas`, color: "#a3d96b" },
                 { label: "Taxa de aprovação", value: metricas.totalFinalizadas === 0 ? "—" : `${metricas.taxaAprovacao}%`, sub: metricas.totalFinalizadas === 0 ? "sem dados ainda" : `${metricas.porDecisao.reprovado} recusadas`, color: metricas.taxaAprovacao >= 60 ? "#a3d96b" : metricas.taxaAprovacao >= 30 ? "#fbbf24" : "#f87171" },
-                ...(metricas.totalComRating > 0 ? [{ label: "Rating médio", value: `${metricas.ratingMedio.toFixed(1).replace(".", ",")}/10`, sub: `${metricas.totalComRating} com score`, color: metricas.ratingMedio >= 7 ? "#a3d96b" : metricas.ratingMedio >= 5 ? "#fbbf24" : "#f87171" }] : []),
+                ...(metricas.totalComRating > 0 ? [{ label: "Rating médio", value: `${metricas.ratingMedio.toFixed(1).replace(".", ",")}/10`, sub: `${metricas.totalComRating} com score`, color: metricas.ratingMedio >= 8 ? "#a3d96b" : metricas.ratingMedio >= 5 ? "#fbbf24" : "#f87171" }] : []),
               ];
               const handleNovaColeta = () => { setShowDashboard(false); setStep("upload"); setExtractedData(defaultData); setResumedDocs(undefined); setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] }); setLocalDraft(null); try { localStorage.removeItem(DRAFT_KEY); } catch {/**/} setCollectionId(null); try { const url = new URL(window.location.href); url.searchParams.delete("resume"); url.searchParams.delete("step"); window.history.replaceState({}, "", url.toString()); } catch {/**/} };
               return (
@@ -1317,9 +1318,9 @@ export default function HomePage() {
                         <p className="text-[10px] text-cf-text-4">{metricas.totalComRating} análise{metricas.totalComRating !== 1 ? "s" : ""} com rating</p>
                       </div>
                       <span className="text-[12px] font-bold px-3 py-1.5 rounded-xl" style={{
-                        color: metricas.ratingMedio >= 7 ? "#166534" : metricas.ratingMedio >= 5 ? "#92400e" : "#991b1b",
-                        background: metricas.ratingMedio >= 7 ? "#dcfce7" : metricas.ratingMedio >= 5 ? "#fef3c7" : "#fee2e2",
-                        border: `1px solid ${metricas.ratingMedio >= 7 ? "#bbf7d0" : metricas.ratingMedio >= 5 ? "#fde68a" : "#fecaca"}`,
+                        color: metricas.ratingMedio >= 8 ? "#166534" : metricas.ratingMedio >= 5 ? "#92400e" : "#991b1b",
+                        background: metricas.ratingMedio >= 8 ? "#dcfce7" : metricas.ratingMedio >= 5 ? "#fef3c7" : "#fee2e2",
+                        border: `1px solid ${metricas.ratingMedio >= 8 ? "#bbf7d0" : metricas.ratingMedio >= 5 ? "#fde68a" : "#fecaca"}`,
                       }}>
                         Média {metricas.ratingMedio.toFixed(1).replace(".", ",")}/10
                       </span>
@@ -1573,8 +1574,8 @@ export default function HomePage() {
                     </OnboardingTooltip>
                   </div>
                 </div>
-                <div style={{ borderRadius: 16, overflow: "hidden", border: "1px solid #e8edf5", boxShadow: "0 2px 12px rgba(0,0,0,0.05)" }}>
-                  {visibleGroups.map((group, i) => {
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {visibleGroups.map((group) => {
                     const col = group.best;
                     const isMulti = group.items.length > 1;
                     const isExpanded = expandedGroups.has(group.key);
@@ -1601,28 +1602,27 @@ export default function HomePage() {
                       : <Clock size={11} />;
                     const companyInitial = (col.company_name || col.label || "?").charAt(0).toUpperCase();
                     return (
-                      <div key={group.key} style={{ borderBottom: i < visibleGroups.length - 1 ? "1px solid #f1f5f9" : "none", background: "white" }}>
+                      <div key={group.key} style={{ borderRadius: 12, border: "1px solid #e8edf5", background: "white", overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
                         {/* Main row */}
-                        <div style={{ padding: "14px 20px", display: "flex", alignItems: "center", gap: 14, cursor: "pointer", transition: "background 0.15s" }}
+                        <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, cursor: "default", transition: "background 0.15s", borderLeft: `3px solid ${decisaoColor}` }}
                           onMouseEnter={e => (e.currentTarget.style.background = "#fafbff")}
                           onMouseLeave={e => (e.currentTarget.style.background = "white")}
                         >
-                          {/* inicial da empresa */}
+                          {/* Avatar */}
                           <div style={{
-                            flexShrink: 0, width: 40, height: 40, borderRadius: 12,
-                            background: `linear-gradient(135deg, ${decisaoColor}22, ${decisaoColor}44)`,
-                            border: `1.5px solid ${decisaoColor}33`,
+                            flexShrink: 0, width: 38, height: 38, borderRadius: 10,
+                            background: "linear-gradient(135deg, #192f5d, #203b88)",
                             display: "flex", alignItems: "center", justifyContent: "center",
                           }}>
-                            <span style={{ fontSize: 15, fontWeight: 900, color: decisaoColor }}>{companyInitial}</span>
+                            <span style={{ fontSize: 14, fontWeight: 900, color: "white", letterSpacing: "-0.5px" }}>{companyInitial}</span>
                           </div>
 
                           {/* info principal */}
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                              <p style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 280 }}>{col.company_name || col.label || "Sem identificação"}</p>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                              <p style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 300 }}>{col.company_name || col.label || "Sem identificação"}</p>
                               {isMulti && (
-                                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: "#f1f5f9", color: "#64748b", flexShrink: 0 }}>
+                                <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 600, padding: "1px 7px", borderRadius: 99, background: "#f1f5f9", color: "#64748b", flexShrink: 0, border: "1px solid #e2e8f0" }}>
                                   <RotateCcw size={9} /> {group.items.length}x
                                 </span>
                               )}
@@ -1635,32 +1635,32 @@ export default function HomePage() {
                                 const fsLabel = fs.status === "ok" ? `${fs.pass_count}/${fs.total} ok` : fs.status === "warning" ? `${fs.warn_count} atenção` : `${fs.fail_count} reprov.`;
                                 return (
                                   <span title={`Política do Fundo${fs.preset_name ? ` (${fs.preset_name})` : ""}: ${fs.pass_count} aprovados, ${fs.warn_count} atenção, ${fs.fail_count} reprovados`}
-                                    style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 99, background: fsBg, color: fsColor, border: `1px solid ${fsBorder}`, flexShrink: 0, whiteSpace: "nowrap", cursor: "default" }}>
+                                    style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 99, background: fsBg, color: fsColor, border: `1px solid ${fsBorder}`, flexShrink: 0, whiteSpace: "nowrap", cursor: "default" }}>
                                     <FsIcon size={9} /> {fsLabel}
                                   </span>
                                 );
                               })()}
                             </div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 5, flexWrap: "wrap" }}>
-                              {col.cnpj && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "#94a3b8", fontFamily: "monospace" }}><Hash size={9} />{col.cnpj}</span>}
-                              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "#94a3b8" }}><Calendar size={9} />{group.date}</span>
-                              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "#94a3b8" }}><FileText size={9} />{col.documents?.length || 0} docs</span>
-                              {col.fmm_12m && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "#94a3b8" }}><DollarSign size={9} />FMM R$ {Number(col.fmm_12m).toLocaleString("pt-BR", { minimumFractionDigits: 0 })}/mês</span>}
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                              {col.cnpj && <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: "#94a3b8", fontFamily: "monospace" }}><Hash size={9} />{col.cnpj}</span>}
+                              <span style={{ color: "#cbd5e1", fontSize: 10 }}>·</span>
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: "#94a3b8" }}><Calendar size={9} />{group.date}</span>
+                              <span style={{ color: "#cbd5e1", fontSize: 10 }}>·</span>
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: "#94a3b8" }}><FileText size={9} />{col.documents?.length || 0} docs</span>
+                              {col.fmm_12m && <><span style={{ color: "#cbd5e1", fontSize: 10 }}>·</span><span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: "#94a3b8" }}><DollarSign size={9} />R$ {Number(col.fmm_12m).toLocaleString("pt-BR", { minimumFractionDigits: 0 })}/mês</span></>}
+                              {col.observacoes && <><span style={{ color: "#cbd5e1", fontSize: 10 }}>·</span><span style={{ fontSize: 11, color: "#b0bac9", fontStyle: "italic", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 180 }}>{col.observacoes}</span></>}
                             </div>
-                            {col.observacoes && <p style={{ fontSize: 11, color: "#94a3b8", marginTop: 3, fontStyle: "italic", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>&ldquo;{col.observacoes}&rdquo;</p>}
                           </div>
 
                           {/* Badge decisão */}
-                          <div style={{ flexShrink: 0 }}>
-                            <span style={{
-                              display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700,
-                              padding: "5px 12px", borderRadius: 99,
-                              background: decisaoBg, color: decisaoColor,
-                              border: `1px solid ${decisaoColor}33`,
-                            }}>
-                              {decisaoIcon} {decisaoLabel}
-                            </span>
-                          </div>
+                          <span style={{
+                            display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700,
+                            padding: "4px 11px", borderRadius: 99, flexShrink: 0,
+                            background: decisaoBg, color: decisaoColor,
+                            border: `1px solid ${decisaoColor}33`,
+                          }}>
+                            {decisaoIcon} {decisaoLabel}
+                          </span>
 
                           {/* ações */}
                           <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
@@ -1674,17 +1674,23 @@ export default function HomePage() {
                               </button>
                             )}
                             <a href={`/historico?highlight=${col.id}`} style={{
-                              width: 30, height: 30, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center",
+                              width: 28, height: 28, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center",
                               color: "#94a3b8", textDecoration: "none", background: "#f8fafc", border: "1px solid #e8edf5",
-                            }}>
-                              <ArrowRight size={13} />
+                            }}
+                              onMouseEnter={e => { e.currentTarget.style.color = "#203b88"; e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#bfdbfe"; }}
+                              onMouseLeave={e => { e.currentTarget.style.color = "#94a3b8"; e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#e8edf5"; }}
+                            >
+                              <ArrowRight size={12} />
                             </a>
                             {isMulti && (
                               <button onClick={toggleGroup} style={{
-                                width: 30, height: 30, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center",
+                                width: 28, height: 28, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center",
                                 color: "#94a3b8", background: "#f8fafc", border: "1px solid #e8edf5", cursor: "pointer", minHeight: "auto",
-                              }}>
-                                <ChevronDown size={13} style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
+                              }}
+                                onMouseEnter={e => { e.currentTarget.style.color = "#203b88"; e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#bfdbfe"; }}
+                                onMouseLeave={e => { e.currentTarget.style.color = "#94a3b8"; e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#e8edf5"; }}
+                              >
+                                <ChevronDown size={12} style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
                               </button>
                             )}
                           </div>
@@ -1692,48 +1698,53 @@ export default function HomePage() {
 
                         {/* Expanded sub-attempts */}
                         {isMulti && isExpanded && (
-                          <div className="border-t border-[#f1f5f9] bg-[#f8fafc]">
+                          <div style={{ borderTop: "1px solid #f1f5f9", background: "#f8fafc" }}>
                             {group.items.map((attempt, j) => (
-                              <div key={attempt.id} className={`px-5 py-3 flex items-center gap-3 ${j > 0 ? "border-t border-[#f1f5f9]" : ""}`}>
-                                <div className="w-7 h-7 flex-shrink-0 rounded-lg flex items-center justify-center bg-white border border-[#e2e8f0]">
-                                  <span className="text-[10px] font-bold text-[#94a3b8]">{group.items.length - j}</span>
+                              <div key={attempt.id} style={{ padding: "10px 16px 10px 19px", display: "flex", alignItems: "center", gap: 10, borderTop: j > 0 ? "1px solid #f1f5f9" : "none" }}>
+                                <div style={{ width: 22, height: 22, flexShrink: 0, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", background: "white", border: "1px solid #e2e8f0" }}>
+                                  <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8" }}>{group.items.length - j}</span>
                                 </div>
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2">
-                                    <span className="inline-flex items-center gap-1 text-[11px] text-[#64748b]">
-                                      <Clock size={10} /> {new Date(attempt.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-                                    </span>
-                                    <span className="inline-flex items-center gap-1 text-[11px] text-[#64748b]">
-                                      <FileText size={10} /> {attempt.documents?.length || 0} docs
-                                    </span>
-                                  </div>
+                                <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8 }}>
+                                  <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: "#64748b" }}>
+                                    <Clock size={9} /> {new Date(attempt.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                                  </span>
+                                  <span style={{ color: "#cbd5e1", fontSize: 10 }}>·</span>
+                                  <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: "#64748b" }}>
+                                    <FileText size={9} /> {attempt.documents?.length || 0} docs
+                                  </span>
                                 </div>
                                 {attempt.decisao ? (
-                                  <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border flex-shrink-0 ${
-                                    attempt.decisao === "APROVADO" ? "text-green-700 bg-green-50 border-green-200"
-                                    : attempt.decisao === "REPROVADO" ? "text-red-600 bg-red-50 border-red-200"
-                                    : "text-amber-600 bg-amber-50 border-amber-200"
-                                  }`}>
-                                    {attempt.decisao === "APROVACAO_CONDICIONAL" ? "CONDICIONAL" : attempt.decisao}
+                                  <span style={{
+                                    display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700,
+                                    padding: "2px 8px", borderRadius: 99, flexShrink: 0,
+                                    ...(attempt.decisao === "APROVADO" ? { color: "#16a34a", background: "#f0fdf4", border: "1px solid #bbf7d0" }
+                                      : attempt.decisao === "REPROVADO" ? { color: "#dc2626", background: "#fff1f2", border: "1px solid #fecaca" }
+                                      : { color: "#7c3aed", background: "#f5f3ff", border: "1px solid #ddd6fe" })
+                                  }}>
+                                    {attempt.decisao === "APROVACAO_CONDICIONAL" ? "Condicional" : attempt.decisao === "APROVADO" ? "Aprovado" : "Recusado"}
                                   </span>
                                 ) : (
-                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#f59e0b] flex-shrink-0">
+                                  <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 600, color: "#d97706", flexShrink: 0 }}>
                                     <Clock size={9} /> Em andamento
                                   </span>
                                 )}
                                 {attempt.status === "in_progress" && (
-                                  <button
-                                    onClick={() => handleResumeCollection(attempt.id)}
-                                    className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-lg text-white flex-shrink-0"
-                                    style={{ backgroundColor: "#203b88", minHeight: "auto" }}
-                                  >
+                                  <button onClick={() => handleResumeCollection(attempt.id)} style={{
+                                    display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 600,
+                                    padding: "3px 9px", borderRadius: 6, border: "none", cursor: "pointer",
+                                    background: "#192f5d", color: "white", flexShrink: 0, minHeight: "auto",
+                                  }}>
                                     <RefreshCw size={9} /> Retomar
                                   </button>
                                 )}
-                                <a href={`/historico?highlight=${attempt.id}`}
-                                  className="w-6 h-6 rounded-md flex items-center justify-center text-[#94a3b8] hover:text-[#203b88] hover:bg-[#eff6ff] transition-colors flex-shrink-0"
-                                  style={{ minHeight: "auto" }}>
-                                  <ArrowRight size={12} />
+                                <a href={`/historico?highlight=${attempt.id}`} style={{
+                                  width: 24, height: 24, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center",
+                                  color: "#94a3b8", textDecoration: "none", flexShrink: 0,
+                                }}
+                                  onMouseEnter={e => { e.currentTarget.style.color = "#203b88"; e.currentTarget.style.background = "#eff6ff"; }}
+                                  onMouseLeave={e => { e.currentTarget.style.color = "#94a3b8"; e.currentTarget.style.background = "transparent"; }}
+                                >
+                                  <ArrowRight size={11} />
                                 </a>
                               </div>
                             ))}
@@ -1764,7 +1775,7 @@ export default function HomePage() {
         })() : step === "generate" ? (
 
         <div key="generate" className="w-full animate-slide-up">
-          <GenerateStep data={extractedData} originalFiles={originalFiles} collectionId={collectionId} onCollectionIdChange={setCollectionId} onBack={() => setStep("review")} onReset={() => { setShowDashboard(true); setStep("upload"); setExtractedData(defaultData); setResumedDocs(undefined); setCollectionId(null); setLocalDraft(null); try { localStorage.removeItem(DRAFT_KEY); } catch {/**/} try { const url = new URL(window.location.href); url.searchParams.delete("resume"); url.searchParams.delete("step"); window.history.replaceState({}, "", url.toString()); } catch {/**/} setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] }); }} onNotify={handleNotify} onFirstCollection={markFirstCollectionDone} />
+          <GenerateStep data={extractedData} originalFiles={originalFiles} collectionId={collectionId} onCollectionIdChange={setCollectionId} onBack={() => setStep("review")} onReset={() => { setShowDashboard(true); setStep("upload"); setExtractedData(defaultData); setResumedDocs(undefined); setCollectionId(null); setLocalDraft(null); try { localStorage.removeItem(DRAFT_KEY); } catch {/**/} try { const url = new URL(window.location.href); url.searchParams.delete("resume"); url.searchParams.delete("step"); window.history.replaceState({}, "", url.toString()); } catch {/**/} setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] }); }} onNotify={handleNotify} onFirstCollection={markFirstCollectionDone} onAbrirScoreForm={() => { setStep("review"); setTimeout(() => { document.getElementById("score-section")?.scrollIntoView({ behavior: "smooth" }); }, 300); }} />
         </div>
 
         ) : (
@@ -1799,6 +1810,9 @@ export default function HomePage() {
               resumedDocs={resumedDocs && resumedDocs.length > 0 ? resumedDocs : (buildCollectionDocs(extractedData) as import("@/types").CollectionDocument[])}
               initialData={extractedData}
             />
+          )}
+          {step === "review" && collectionId && (
+            <ScoreSection collectionId={collectionId} extractedData={extractedData} />
           )}
           {step === "review" && (
             <ReviewStep

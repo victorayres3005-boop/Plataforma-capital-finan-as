@@ -5,6 +5,9 @@ import type { SPCResult } from "./spc";
 import type { QuodResult } from "./quod";
 import type { BrasilApiResult } from "./brasilapi";
 import type { SancoesResult } from "./transparencia";
+import type { BigDataCorpResult } from "./bigdatacorp";
+import type { AssertivaResult } from "./assertiva";
+import { mapearEmpresaParaExtractedData } from "./assertiva";
 
 export interface BureauResults {
   credithub?: CreditHubResult;
@@ -13,6 +16,8 @@ export interface BureauResults {
   quod?: QuodResult;
   brasilapi?: BrasilApiResult;
   sancoes?: SancoesResult;
+  bigdatacorp?: BigDataCorpResult;
+  assertiva?: AssertivaResult;
 }
 
 export function mergeBureauResults(
@@ -188,6 +193,244 @@ export function mergeBureauResults(
     };
     merged.sancoes = sancoesData;
     bureausConsultados.push("Portal da Transparência (CEIS/CNEP)");
+  }
+
+  // ── BigDataCorp ─────────────────────────────────────────────────────────────
+  if (results.bigdatacorp?.success && !results.bigdatacorp.mock) {
+    bureausConsultados.push("BigDataCorp");
+    const bdc = results.bigdatacorp;
+
+    // CNPJ: preenche apenas campos vazios (CreditHub e BrasilAPI têm prioridade)
+    if (bdc.cnpjEnrichment) {
+      const base = merged.cnpj ?? data.cnpj;
+      const e = bdc.cnpjEnrichment;
+      merged.cnpj = {
+        ...base,
+        razaoSocial:       base.razaoSocial       || e.razaoSocial       || "",
+        situacaoCadastral: base.situacaoCadastral  || e.situacaoCadastral || "",
+        dataAbertura:      base.dataAbertura       || e.dataAbertura      || "",
+        cnaePrincipal:     base.cnaePrincipal      || e.cnaePrincipal     || "",
+        funcionarios:      base.funcionarios       || e.funcionarios      || "",
+        naturezaJuridica:  base.naturezaJuridica   || e.naturezaJuridica  || "",
+      };
+    }
+
+    // QSA: preenche se ainda vazio
+    if (bdc.qsaEnrichment?.quadroSocietario.length) {
+      const sociosReais = ((merged.qsa ?? data.qsa)?.quadroSocietario ?? []).filter(s => s.nome || s.cpfCnpj);
+      if (sociosReais.length === 0) {
+        merged.qsa = {
+          capitalSocial: (merged.qsa ?? data.qsa)?.capitalSocial ?? "",
+          quadroSocietario: bdc.qsaEnrichment.quadroSocietario,
+        };
+      }
+    }
+
+    // Processos: usa BDC se CreditHub não trouxe
+    if (!processos && bdc.processos) {
+      processos = bdc.processos;
+    }
+
+    // Parentesco via MotherName (BDC KYC sócios)
+    if (bdc.alertaParentesco && bdc.parentescosDetectados?.length) {
+      const existingGE = merged.grupoEconomico ?? data.grupoEconomico;
+      merged.grupoEconomico = {
+        empresas: existingGE?.empresas ?? [],
+        alertaParentesco: true,
+        parentescosDetectados: [
+          ...(existingGE?.parentescosDetectados ?? []),
+          ...bdc.parentescosDetectados,
+        ],
+      };
+    }
+
+    // KYC sócios: enriquece QSA com hasObitIndication, taxIdStatus e dados PEP/sanções do BDC
+    if (bdc.socios?.length || bdc.ownersKyc?.length) {
+      const bdcSocioMap = new Map((bdc.socios ?? []).map(s => [s.cpf.replace(/\D/g, ""), s]));
+      // owners_kyc por CPF — match por CPF ou por nome aproximado
+      const kycByCpf  = new Map((bdc.ownersKyc ?? []).map(k => [k.cpf.replace(/\D/g, ""), k]));
+      const baseQSA = merged.qsa ?? data.qsa;
+      if (baseQSA?.quadroSocietario.length) {
+        merged.qsa = {
+          ...baseQSA,
+          quadroSocietario: baseQSA.quadroSocietario.map(s => {
+            const cpfNum = (s.cpfCnpj ?? "").replace(/\D/g, "");
+            const bdcS   = bdcSocioMap.get(cpfNum);
+            const kycS   = kycByCpf.get(cpfNum);
+            return {
+              ...s,
+              hasObitIndication:       bdcS?.hasObitIndication || undefined,
+              taxIdStatus:             bdcS?.taxIdStatus && bdcS.taxIdStatus !== "REGULAR" ? bdcS.taxIdStatus : undefined,
+              isPEP:                   kycS?.isPEP || undefined,
+              isSanctioned:            kycS?.isSanctioned || undefined,
+              sanctionSources:         kycS?.sanctionSources?.length ? kycS.sanctionSources : undefined,
+              // financial_risk do sócio
+              financialRiskScore:      bdcS?.financialRiskScore,
+              financialRiskLevel:      bdcS?.financialRiskLevel,
+              totalAssetsRange:        bdcS?.totalAssetsRange,
+              estimatedIncomeRange:    bdcS?.estimatedIncomeRange,
+              isCurrentlyOnCollection: bdcS?.isCurrentlyOnCollection,
+              last365DaysCollections:  bdcS?.last365DaysCollections,
+              pgfnDebtTotal:           bdcS?.pgfnDebtTotal,
+              pgfnTotalDebts:          bdcS?.pgfnTotalDebts,
+              pgfnDebts:               bdcS?.pgfnDebts,
+              processosTotal:          bdcS?.processosTotal,
+              processosPassivo:        bdcS?.processosPassivo,
+              processosAtivo:          bdcS?.processosAtivo,
+              processosValorTotal:     bdcS?.processosValorTotal,
+            };
+          }),
+        };
+      }
+      if (bdc.sociosFalecidos?.length) {
+        merged.sociosFalecidos = bdc.sociosFalecidos;
+      }
+
+      // Alertas PEP/sanções
+      const pepSocios  = (bdc.ownersKyc ?? []).filter(k => k.isPEP).map(k => k.nome).filter(Boolean);
+      const sancSocios = (bdc.ownersKyc ?? []).filter(k => k.isSanctioned).map(k => k.nome).filter(Boolean);
+      if (pepSocios.length > 0) console.warn(`[bureaus] BDC owners_kyc: PEP detectado: ${pepSocios.join(", ")}`);
+      if (sancSocios.length > 0) console.warn(`[bureaus] BDC owners_kyc: sancionado: ${sancSocios.join(", ")}`);
+    }
+
+    // interests_and_behaviors → ExtractedData.bdcInterests
+    if (bdc.interestsAndBehaviors) {
+      merged.bdcInterests = bdc.interestsAndBehaviors;
+    }
+
+    // owners_lawsuits_distribution → ExtractedData.bdcLawsuitsDistribution
+    if (bdc.ownersLawsuitsDistribution) {
+      merged.bdcLawsuitsDistribution = bdc.ownersLawsuitsDistribution;
+    }
+
+    // Grupo econômico: adiciona empresas dos sócios com processos BDC
+    if (bdc.grupoEconomicoProcessos?.length) {
+      const procMap = new Map(bdc.grupoEconomicoProcessos.map(e => [e.cnpj.replace(/\D/g, ""), e]));
+      const existingGE = merged.grupoEconomico ?? data.grupoEconomico;
+      const cnpjsExistentes = new Set((existingGE?.empresas ?? []).map(e => e.cnpj.replace(/\D/g, "")));
+
+      // Enriquece empresas já existentes com valorProcessos
+      const empresasEnriquecidas = (existingGE?.empresas ?? []).map(emp => {
+        const match = procMap.get(emp.cnpj.replace(/\D/g, ""));
+        if (!match) return emp;
+        return {
+          ...emp,
+          processos: emp.processos === "—" ? (match.processosTotal > 0 ? String(match.processosTotal) : "0") : emp.processos,
+          valorProcessos: match.valorTotalEstimado,
+        };
+      });
+
+      // Adiciona empresas encontradas pelo BDC que não estão ainda na lista
+      const novasEmpresas = bdc.grupoEconomicoProcessos
+        .filter(e => !cnpjsExistentes.has(e.cnpj.replace(/\D/g, "")))
+        .map(e => ({
+          razaoSocial: e.nome || "—",
+          cnpj:         e.cnpj,
+          relacao:      e.via,
+          scrTotal:     "—",
+          protestos:    "—",
+          processos:    e.processosTotal > 0 ? String(e.processosTotal) : "0",
+          valorProcessos: e.valorTotalEstimado,
+          socioOrigem:  e.via.replace(/^Via\s+/i, ""),
+        }));
+
+      merged.grupoEconomico = {
+        empresas: [...empresasEnriquecidas, ...novasEmpresas],
+        alertaParentesco: existingGE?.alertaParentesco,
+        parentescosDetectados: existingGE?.parentescosDetectados,
+      };
+    }
+  }
+
+  // ── Assertiva ─────────────────────────────────────────────────────────────
+  if (results.assertiva?.success && !results.assertiva.mock) {
+    bureausConsultados.push("Assertiva");
+    const ass = results.assertiva;
+
+    if (ass.empresa) {
+      const base = merged.cnpj ?? data.cnpj;
+      const aFields = mapearEmpresaParaExtractedData(ass.empresa);
+      merged.cnpj = {
+        ...base,
+        scoreAssertivaPJ:      base.scoreAssertivaPJ      || aFields.scoreAssertivaPJ,
+        negativacoesAssertiva: base.negativacoesAssertiva  || aFields.negativacoesAssertiva,
+        rendaPresumidaPJ:      base.rendaPresumidaPJ       || aFields.rendaPresumidaPJ,
+      };
+    }
+
+    // Protestos Assertiva — armazena sempre; usa como fallback se Credit Hub não trouxe
+    if (ass.empresa) {
+      const ae = ass.empresa;
+      merged.assertivaProtestos = {
+        qtd:      ae.protestosQtd,
+        valor:    ae.protestosValor,
+        completo: ae.protestoCompleto,
+        lista:    ae.protestosLista,
+      };
+      // Fallback: se Credit Hub não trouxe protestos, converte Assertiva para o formato padrão
+      if (!protestos && ae.protestosQtd > 0) {
+        protestos = {
+          vigentesQtd:        String(ae.protestosQtd),
+          vigentesValor:      ae.protestosValor > 0 ? `R$ ${ae.protestosValor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : "R$ 0,00",
+          regularizadosQtd:   "0",
+          regularizadosValor: "R$ 0,00",
+          detalhes: ae.protestosLista.map(p => ({
+            data:         p.data,
+            apresentante: p.cartorio,
+            credor:       `${p.cidade}/${p.uf}`,
+            valor:        `R$ ${p.valor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`,
+            regularizado: false,
+          })),
+        };
+      }
+      // Últimas consultas ao mercado
+      if (ae.consultasTotal > 0) {
+        merged.assertivaConsultas = {
+          total:    ae.consultasTotal,
+          ultima:   ae.consultasUltima,
+          recentes: ae.consultasRecentes,
+        };
+      }
+    }
+
+    // Protestos dos sócios (Assertiva PF) → QSASocio
+    if (ass.socios?.length) {
+      const assertivaSocioMap = new Map(ass.socios.map(s => [s.cpf.replace(/\D/g, ""), s]));
+      const baseQSA2 = merged.qsa ?? data.qsa;
+      if (baseQSA2?.quadroSocietario.length) {
+        merged.qsa = {
+          ...baseQSA2,
+          quadroSocietario: baseQSA2.quadroSocietario.map(s => {
+            const cpfN = (s.cpfCnpj ?? "").replace(/\D/g, "");
+            const aS   = assertivaSocioMap.get(cpfN);
+            if (!aS) return s;
+            return {
+              ...s,
+              ...(aS.protestosQtd ? { protestosSocioQtd: aS.protestosQtd, protestosSocioValor: aS.protestosValor } : {}),
+              ...(aS.rendaPresumida ? { rendaPresumida: aS.rendaPresumida } : {}),
+            };
+          }),
+        };
+      }
+    }
+
+    if (ass.socios?.length && data.scrSocios?.length) {
+      const assertivaMap = new Map(ass.socios.map(s => [s.cpf.replace(/\D/g, ""), s]));
+      merged.scrSocios = data.scrSocios.map(sc => {
+        const cpfNum = ((sc as any).cpf ?? "").replace(/\D/g, "");
+        const aS = assertivaMap.get(cpfNum);
+        if (!aS) return sc;
+        return {
+          ...sc,
+          scoreAssertivaPF:    aS.scoreAssertivaPF    || (sc as any).scoreAssertivaPF,
+          rendaPresumida:      aS.rendaPresumida       || (sc as any).rendaPresumida,
+          patrimonioEstimado:  aS.patrimonioEstimado   || (sc as any).patrimonioEstimado,
+          validacaoIdentidade: aS.validacaoIdentidade  ?? (sc as any).validacaoIdentidade,
+          bensVeiculos:        aS.bensVeiculos?.length ? aS.bensVeiculos : (sc as any).bensVeiculos,
+          bensImoveis:         aS.bensImoveis?.length  ? aS.bensImoveis  : (sc as any).bensImoveis,
+        };
+      });
+    }
   }
 
   merged.score = Object.keys(score).length > 0 ? score : data.score;

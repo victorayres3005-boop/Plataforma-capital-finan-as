@@ -59,6 +59,10 @@ export interface CNPJData {
   regimeTributario?: string;
   site?: string;
   enderecos?: string[];
+  // Campos enriquecidos pela Assertiva
+  scoreAssertivaPJ?:      number;  // 0-1000
+  negativacoesAssertiva?: number;  // quantidade de negativações
+  rendaPresumidaPJ?:      string;  // faturamento estimado "R$ X.XXX,00"
 }
 
 // ─── QSA (Quadro de Sócios e Administradores) ───
@@ -69,6 +73,31 @@ export interface QSASocio {
   participacao: string;
   dataEntrada?: string;
   dataSaida?: string;
+  hasObitIndication?: boolean;
+  taxIdStatus?: string; // "REGULAR" | "IRREGULAR" | "CANCELADO_POR_OFICIO" | "SUSPENSO" | etc.
+  // Enriched from BigDataCorp owners_kyc
+  isPEP?: boolean;
+  isSanctioned?: boolean;
+  sanctionSources?: string[];
+  // Enriched from BigDataCorp financial_risk (pessoas)
+  financialRiskScore?: number;      // 0-1000
+  financialRiskLevel?: string;      // A-H
+  totalAssetsRange?: string;        // "ABAIXO DE 100K" | "DE 100K A 500K" | ...
+  estimatedIncomeRange?: string;
+  isCurrentlyOnCollection?: boolean;
+  last365DaysCollections?: number;
+  pgfnDebtTotal?: string;
+  pgfnTotalDebts?: number;
+  pgfnDebts?: Array<{ origin: string; value: string; situation: string; filed: boolean }>;
+  // BDC processos individuais do sócio
+  processosTotal?:      number;
+  processosPassivo?:    number;
+  processosAtivo?:      number;
+  processosValorTotal?: string;
+  // Assertiva — protestos e renda presumida do sócio PF
+  protestosSocioQtd?:   number;
+  protestosSocioValor?: number;
+  rendaPresumida?:      string; // renda mensal estimada pela Assertiva (ex: "R$ 5.430,00")
 }
 
 export interface QSAData {
@@ -440,6 +469,26 @@ export interface IRSocioData {
   sociedades: SociedadeIR[];
   coerenciaComEmpresa: boolean;
   observacoes: string;
+  bensEDireitos?: IRBemDireito[];
+  dividasOnusReais?: IRDividaOnus[];
+  pagamentosEfetuados?: IRPagamento[];
+}
+
+export interface IRBemDireito {
+  grupo: string;
+  discriminacao: string;
+  valor_atual: number | null;
+}
+
+export interface IRDividaOnus {
+  discriminacao: string;
+  situacao_atual: number | null;
+}
+
+export interface IRPagamento {
+  nome_beneficiario: string;
+  valor_pago: number | null;
+  descricao?: string;
 }
 
 // ─── Balanço Patrimonial ───
@@ -544,6 +593,7 @@ export interface EmpresaGrupo {
   scrTotal: string;
   protestos: string;
   processos: string;
+  valorProcessos?: string; // valor total estimado dos processos (BDC)
   socioOrigem?: string;   // nome do sócio que vincula esta empresa
   cpfSocio?: string;
   participacao?: string;
@@ -568,6 +618,25 @@ export interface SCRSocioData {
   tipoPessoa: "PF";
   periodoAtual: SCRData;
   periodoAnterior?: SCRData;
+  // ── Assertiva (preenchido após integração) ────────────────────────────────
+  scoreAssertivaPF?:    number;                           // 0-1000
+  rendaPresumida?:      string;                           // "R$ X.XXX,00"
+  patrimonioEstimado?:  string;                           // "R$ X.XXX,00"
+  validacaoIdentidade?: "ok" | "alerta" | "reprovado";
+  bensVeiculos?: Array<{
+    placa:     string;
+    modelo:    string;
+    ano:       number;
+    valorFipe: string;
+    situacao:  string;
+  }>;
+  bensImoveis?: Array<{
+    municipio:      string;
+    uf:             string;
+    areaM2?:        number;
+    valorEstimado?: string;
+    matricula?:     string;
+  }>;
 }
 
 // ─── CCF (Cheque Sem Fundo) ───
@@ -671,6 +740,40 @@ export interface ExtractedData {
   ccf?: CCFData;
   historicoConsultas?: HistoricoConsultaItem[];
   sancoes?: SancoesData;
+  sociosFalecidos?: string[];
+  // BigDataCorp — interests_and_behaviors
+  bdcInterests?: {
+    creditSeeker: string;        // A-H
+    creditCardScore: string;     // A-H
+    appUser: string;             // A-H ou boolean
+    paymentServicesUser: string; // A-H
+    onlineInvestor: boolean;
+    onlineBankingUser: string;   // A-H
+  };
+  // BigDataCorp — owners_lawsuits_distribution_data (agregado sócios ativos)
+  bdcLawsuitsDistribution?: {
+    totalOwners: number;
+    totalLawsuits: number;
+    totalAsAuthor: number;
+    totalAsDefendant: number;
+    typeDistribution: Record<string, number>;
+    courtTypeDistribution: Record<string, number>;
+    statusDistribution: Record<string, number>;
+    subjectDistribution: Record<string, number>;
+  };
+  // Assertiva — protestos (fallback quando Credit Hub não retorna)
+  assertivaProtestos?: {
+    qtd:      number;
+    valor:    number;
+    completo: boolean;
+    lista:    Array<{ uf: string; cidade: string; data: string; valor: number; cartorio: string }>;
+  };
+  // Assertiva — últimas consultas ao mercado
+  assertivaConsultas?: {
+    total:    number;
+    ultima:   string;
+    recentes: Array<{ consultante: string; data: string }>;
+  };
 }
 
 // ─── Histórico de Operações ───

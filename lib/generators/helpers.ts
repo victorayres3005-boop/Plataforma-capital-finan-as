@@ -112,13 +112,15 @@ export function buildContext(data: ExtractedData, aiAnalysis: AIAnalysis | null)
   const riskScore: "alto" | "medio" | "baixo" = alertsHigh.length > 0 ? "alto" : alertsMod.length > 0 ? "medio" : "baixo";
 
   const companyAge = (() => {
-    if (!data.cnpj.dataAbertura) return "";
-    const parts = data.cnpj.dataAbertura.split("/");
-    if (parts.length >= 3) {
-      const year = parseInt(parts[parts.length - 1], 10);
-      if (!isNaN(year)) { const age = new Date().getFullYear() - year; return `${age} ano${age !== 1 ? "s" : ""}`; }
-    }
-    return "";
+    const raw = data.cnpj?.dataAbertura;
+    if (!raw) return "";
+    // Suporta DD/MM/YYYY (CreditHub/BDC) e YYYY-MM-DD (BrasilAPI)
+    const parts = raw.split(/[\/\-]/);
+    if (parts.length < 3) return "";
+    const year = parseInt(parts[0].length === 4 ? parts[0] : parts[parts.length - 1], 10);
+    if (isNaN(year) || year < 1900) return "";
+    const age = new Date().getFullYear() - year;
+    return `${age} ano${age !== 1 ? "s" : ""}`;
   })();
 
   return {

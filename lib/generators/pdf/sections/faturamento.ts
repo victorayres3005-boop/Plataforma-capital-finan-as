@@ -209,25 +209,32 @@ export function renderFaturamento(ctx: PdfCtx): void {
       const upTrend = n >= 4 && vals.slice(-2).reduce((s,v)=>s+v,0) > vals.slice(-4,-2).reduce((s,v)=>s+v,0);
 
       last12.forEach((m, i) => {
-        const v   = vals[i];
-        const bh  = Math.max(v / maxVal * CHARTH, 0.5);
-        const bx  = ML + 4 + i * bw;
-        const by  = chartY + CHARTH - bh;
-        const isRecent = i >= n - 2;
-        const bc: [number,number,number] = isRecent && !upTrend ? P.n1 : P.n8;
-        doc.setFillColor(...bc);
-        doc.roundedRect(bx + bw * 0.1, by, bw * 0.8, bh, 0.8, 0.8, "F");
-        if (v > 0) {
-          // Se a barra for muito alta, coloca o label dentro (texto branco); senão, acima
+        const v  = vals[i];
+        const bx = ML + 4 + i * bw;
+
+        if (v === 0) {
+          // Mês sem faturamento — nota em cinza itálico no lugar da barra
+          doc.setFont("helvetica", "italic");
+          doc.setFontSize(3.5);
+          doc.setTextColor(...P.x4);
+          doc.text("s/fat.", bx + bw / 2, chartY + CHARTH - 1, { align: "center" });
+        } else {
+          const bh = Math.max(v / maxVal * CHARTH, 0.5);
+          const by = chartY + CHARTH - bh;
+          const isRecent = i >= n - 2;
+          const bc: [number,number,number] = isRecent && !upTrend ? P.n1 : P.n8;
+          doc.setFillColor(...bc);
+          doc.roundedRect(bx + bw * 0.1, by, bw * 0.8, bh, 0.8, 0.8, "F");
           const insideBar = by - 1 < chartY + 4;
           const labelY: number = insideBar ? by + 4.5 : by - 1;
-          doc.setFont("helvetica","bold"); doc.setFontSize(3.8);
+          doc.setFont("helvetica", "bold"); doc.setFontSize(3.8);
           doc.setTextColor(...(insideBar ? P.wh : P.x5));
-          doc.text(mo(v).replace("R$ ",""), bx + bw/2, labelY, { align: "center" });
+          doc.text(mo(v).replace("R$ ", ""), bx + bw / 2, labelY, { align: "center" });
         }
-        doc.setFont("helvetica","normal"); doc.setFontSize(4.5); doc.setTextColor(...P.x4);
-        const lbl = (m.mes || "").split("/")[0].slice(0,3).toLowerCase();
-        doc.text(lbl, bx + bw/2, chartY + CHARTH + 5, { align: "center" });
+
+        doc.setFont("helvetica", "normal"); doc.setFontSize(4.5); doc.setTextColor(...P.x4);
+        const lbl = (m.mes || "").split("/")[0].slice(0, 3).toLowerCase();
+        doc.text(lbl, bx + bw / 2, chartY + CHARTH + 5, { align: "center" });
       });
 
       // KPI row

@@ -1,21 +1,24 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Loader2, ChevronDown, ChevronUp, BarChart3, Settings, PenLine, AlertCircle } from "lucide-react";
+import { Loader2, ChevronDown, ChevronUp, BarChart3, Settings, PenLine, AlertCircle, Zap } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { ConfiguracaoPolitica, RespostaCriterio, ScoreResult } from "@/types/politica-credito";
 import { DEFAULT_POLITICA_V2, mergeComDefaults } from "@/lib/politica-credito/defaults";
+import { autoPreencherScore } from "@/lib/politica-credito/auto-score";
+import type { ExtractedData } from "@/types";
 import { ScoreForm } from "./ScoreForm";
 import { ScoreSummaryCard } from "./ScoreSummaryCard";
 // import { PolicyVersionBanner } from "@/components/politica/PolicyVersionBanner";
 
 interface Props {
   collectionId: string;
+  extractedData?: ExtractedData;
 }
 
 type ViewMode = "form" | "summary";
 
-export function ScoreSection({ collectionId }: Props) {
+export function ScoreSection({ collectionId, extractedData }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
@@ -28,6 +31,9 @@ export function ScoreSection({ collectionId }: Props) {
   const [scoreResult, setScoreResult] = useState<ScoreResult | null>(null);
   const [scoreId, setScoreId] = useState<string | null>(null);
   const [preenchidoPor, setPreenchidoPor] = useState<string | null>(null);
+
+  const [autoGerado, setAutoGerado] = useState(false);
+  const [criteriosManuaisPendentes, setCriteriosManuaisPendentes] = useState<string[]>([]);
 
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userId = useRef<string | null>(null);
@@ -52,10 +58,12 @@ export function ScoreSection({ collectionId }: Props) {
           .limit(1)
           .maybeSingle();
 
+        let resolvedPolicy: ConfiguracaoPolitica;
         if (policyData) {
-          setPolicy(mergeComDefaults(policyData as Record<string, unknown>));
+          resolvedPolicy = mergeComDefaults(policyData as Record<string, unknown>);
+          setPolicy(resolvedPolicy);
         } else {
-          // Sem configuração salva — usa defaults V2 como preview
+          resolvedPolicy = DEFAULT_POLITICA_V2;
           setPolicy(DEFAULT_POLITICA_V2);
           setNoPolicy(true);
         }
@@ -76,6 +84,32 @@ export function ScoreSection({ collectionId }: Props) {
           setSavedAt(scoreData.preenchido_em);
           setPreenchidoPor(scoreData.preenchido_por ?? null);
           if (scoreData.score_result) setViewMode("summary");
+        } else if (extractedData) {
+          // Nenhum score salvo — auto-preenche a partir dos documentos extraídos
+          const resultado = autoPreencherScore(extractedData, resolvedPolicy, []);
+          const now = new Date().toISOString();
+          const payload = {
+            collection_id: collectionId,
+            cedente_cnpj: null,
+            versao_politica: resultado.score.versao_politica,
+            score_result: resultado.score,
+            respostas: resultado.respostas,
+            preenchido_por: user.id,
+            preenchido_em: now,
+          };
+          const { data: inserted } = await supabase
+            .from("score_operacoes")
+            .insert(payload)
+            .select("id")
+            .single();
+          if (inserted?.id) setScoreId(inserted.id);
+          setRespostas(resultado.respostas);
+          setScoreResult(resultado.score);
+          setSavedAt(now);
+          setPreenchidoPor(user.id);
+          setAutoGerado(true);
+          setCriteriosManuaisPendentes(resultado.criterios_manuais);
+          setViewMode("summary");
         }
       } catch (err) {
         console.warn("[ScoreSection] load error:", err);
@@ -141,7 +175,7 @@ export function ScoreSection({ collectionId }: Props) {
     : null;
 
   return (
-    <div style={{
+    <div id="score-section" style={{
       background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16,
       marginBottom: 20, boxShadow: "0 2px 12px rgba(0,0,0,0.04)", overflow: "hidden",
     }}>
@@ -236,6 +270,40 @@ export function ScoreSection({ collectionId }: Props) {
                       {" "}para personalizar os pesos e critérios.
                     </p>
                   </div>
+                </div>
+              )}
+
+              {/* Banner auto-gerado */}
+              {autoGerado && (
+                <div style={{
+                  display: "flex", alignItems: "flex-start", gap: 12,
+                  background: "#f0fdf4", border: "1px solid #86efac",
+                  borderRadius: 10, padding: "12px 16px", marginBottom: 16,
+                }}>
+                  <Zap size={15} style={{ color: "#16a34a", marginTop: 1, flexShrink: 0 }} />
+                  <div style={{ flex: 1 }}>
+                    <p style={{ fontSize: 13, fontWeight: 700, color: "#15803d", margin: "0 0 2px" }}>
+                      Score gerado automaticamente
+                    </p>
+                    <p style={{ fontSize: 11, color: "#166534", margin: 0 }}>
+                      Calculado com base nos documentos enviados.
+                      {criteriosManuaisPendentes.length > 0
+                        ? ` ${criteriosManuaisPendentes.length} critério${criteriosManuaisPendentes.length > 1 ? "s precisam" : " precisa"} de revisão manual para maior precisão.`
+                        : " Todos os critérios foram preenchidos automaticamente."}
+                    </p>
+                  </div>
+                  {criteriosManuaisPendentes.length > 0 && (
+                    <button
+                      onClick={() => setViewMode("form")}
+                      style={{
+                        fontSize: 11, fontWeight: 700, color: "#15803d",
+                        background: "white", border: "1px solid #86efac",
+                        borderRadius: 6, padding: "4px 10px", cursor: "pointer", flexShrink: 0,
+                      }}
+                    >
+                      Revisar
+                    </button>
+                  )}
                 </div>
               )}
 

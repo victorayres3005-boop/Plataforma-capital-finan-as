@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Home, Plus, Clock, Settings, HelpCircle, Activity, ClipboardList, Zap,
+  Home, Plus, Clock, Settings, HelpCircle, Activity, ClipboardList, Zap, ReceiptText,
   ChevronLeft, ChevronRight,
   type LucideIcon,
 } from "lucide-react";
@@ -61,6 +61,7 @@ const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
       { icon: Clock,         label: "Histórico",    href: "/historico" },
       { icon: Activity,      label: "Em Andamento", href: "/operacoes" },
       { icon: ClipboardList, label: "Pareceres",    href: "/pareceres" },
+      { icon: ReceiptText,  label: "Custos",        href: "/custos" },
     ],
   },
   {

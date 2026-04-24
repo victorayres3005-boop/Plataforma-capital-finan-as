@@ -20,6 +20,8 @@ import AlertList from "@/components/AlertList";
 import NotasSection from "@/components/generate/NotasSection";
 import VisitaSection from "@/components/generate/VisitaSection";
 import ExportSection from "@/components/generate/ExportSection";
+import OnboardingTooltip from "@/components/OnboardingTooltip";
+import { useTooltips } from "@/lib/useTooltips";
 import { ExtractedData, CollectionDocument, DocumentCollection, FundSettings, AIAnalysis, FundCriterion, FundValidationResult, CriterionStatus, CreditLimitResult } from "@/types";
 import { DEFAULT_POLITICA_V2 } from "@/lib/politica-credito/defaults";
 import type { ParametrosElegibilidade, ScoreResult, RespostaCriterio } from "@/types/politica-credito";
@@ -245,7 +247,16 @@ function validarContraParametros(data: ExtractedData, settings: FundSettings): F
   });
 
   // ── 9. Recuperação Judicial ───────────────────────────────────────────────
-  const temRJ = data.processos?.temRJ === true;
+  // Fallback 1: extrator setou temRJ
+  // Fallback 2: distribuicao contém tipo com "recupera" (extrator extraiu mas não setou o flag)
+  // Fallback 3: razaoSocial contém "recuperacao" (nome da empresa indica RJ)
+  const temRJFlag = data.processos?.temRJ === true;
+  const temRJDistrib = (data.processos?.distribuicao ?? []).some(
+    (d: { tipo?: string }) => (d.tipo ?? "").toLowerCase().includes("recupera")
+  );
+  const temRJRazao = (data.cnpj?.razaoSocial ?? "").toLowerCase().includes("recupera");
+  const temRJ = temRJFlag || temRJDistrib || temRJRazao;
+  const rjFonte = temRJFlag ? "campo temRJ" : temRJDistrib ? "distribuição de processos" : temRJRazao ? "razão social" : "";
   criteria.push({
     id: "rj",
     label: "Recuperação Judicial",
@@ -253,6 +264,7 @@ function validarContraParametros(data: ExtractedData, settings: FundSettings): F
     actual: temRJ ? "ATIVA" : "Não detectada",
     status: temRJ ? "error" : "ok",
     eliminatoria: true,
+    detail: temRJ && rjFonte ? `Detectada via ${rjFonte}` : undefined,
   });
 
   const passCount   = criteria.filter(c => c.status === "ok").length;
@@ -563,6 +575,19 @@ function validateExtractedData(data: ExtractedData): ValidationResult {
     }
   }
 
+  // Óbito de sócio (BigDataCorp KYC)
+  if ((data as any).sociosFalecidos?.length) {
+    const nomes = ((data as any).sociosFalecidos as string[]).join(", ");
+    warnings.push({ field: "socioFalecido", document: "qsa", message: `Sócio(s) com indicação de óbito: ${nomes} — verificar sucessão e situação jurídica`, severity: "error" });
+  }
+
+  // CPF irregular de sócio (BigDataCorp KYC)
+  const sociosIrregulares = (data.qsa?.quadroSocietario ?? []).filter(s => (s as any).taxIdStatus && (s as any).taxIdStatus !== "REGULAR");
+  if (sociosIrregulares.length > 0) {
+    const lista = sociosIrregulares.map(s => `${s.nome} (${String((s as any).taxIdStatus).replace(/_/g, " ")})`).join(", ");
+    warnings.push({ field: "cpfIrregular", document: "qsa", message: `CPF com situação irregular: ${lista}`, severity: "warning" });
+  }
+
   // Grupo econômico com empresa em situação irregular
   if (data.grupoEconomico?.empresas && data.grupoEconomico.empresas.length > 0) {
     const irregulares = data.grupoEconomico.empresas.filter(e => e.situacao && !e.situacao.toUpperCase().includes("ATIVA"));
@@ -652,6 +677,8 @@ function validateExtractedData(data: ExtractedData): ValidationResult {
 export default function GenerateStep({ data: initialData, originalFiles, onBack, onReset, collectionId: collectionIdProp, onCollectionIdChange, onAbrirScoreForm, ...rest }: GenerateStepProps) {
   void rest; // onNotify e onFirstCollection substituídos pela página /parecer
   const [data, setData] = useState<ExtractedData>(() => JSON.parse(JSON.stringify(initialData)));
+  const { isSeen, markSeen } = useTooltips();
+
   const [editing, setEditing] = useState(false);
   const [generatingFormat, setGeneratingFormat] = useState<Format | null>(null);
   const [generatedFormats, setGeneratedFormats] = useState<Set<Format>>(new Set());
@@ -1405,7 +1432,9 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     decisaoOverride ? String(decisaoOverride).toUpperCase() :
     aiAnalysis ? aiAnalysis.decisao :
     finalRating == null ? "" :
-    (finalRating >= 7 ? "APROVADO" : finalRating >= 4 ? "PENDENTE" : "REPROVADO");
+    // Faixas alinhadas à Política V2 (escala 0–10 = score V2 ÷ 10)
+    // A/B (≥8) → APROVADO | C/D (6–7.9) → CONDICIONAL | E (5–5.9) → PENDENTE | F (<5) → REPROVADO
+    (finalRating >= 8 ? "APROVADO" : finalRating >= 6 ? "APROVACAO_CONDICIONAL" : finalRating >= 5 ? "PENDENTE" : "REPROVADO");
   const decisionColor = decision === "APROVADO" ? "#16A34A" : decision === "REPROVADO" ? "#DC2626" : "#D97706";
   const decisionBg = decision === "APROVADO" ? "#F0FDF4" : decision === "PENDENTE" ? "#FFFBEB" : "#FEF2F2";
   const decisionBorder = decision === "APROVADO" ? "#BBF7D0" : decision === "PENDENTE" ? "#FDE68A" : "#FECACA";
@@ -1690,53 +1719,15 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     toast.info("Gerando PDF…");
     setGeneratingFormat("pdf");
     try {
-      // Busca 4 vistas do Street View (0°/90°/180°/270°) + mapa aéreo em paralelo
-      // com TIMEOUT INDIVIDUAL — se uma falhar, não trava o restante.
-      let streetViewBase64: string | undefined;
-      let streetView90Base64: string | undefined;
-      let streetView180Base64: string | undefined;
-      let streetView270Base64: string | undefined;
-      let mapStaticBase64: string | undefined;
-      let streetViewInteractiveUrl: string | undefined;
-      const endereco = data.cnpj?.endereco;
-      if (endereco) {
-        console.log("[generatePDF] buscando imagens do Street View…");
-        const fetchMapProxy = async (type: "streetview" | "map", heading?: number): Promise<string | undefined> => {
-          try {
-            const qs = new URLSearchParams({ address: endereco, type });
-            if (heading != null) qs.set("heading", String(heading));
-            const ctrl = new AbortController();
-            const timeoutId = setTimeout(() => ctrl.abort(), 8000); // 8s timeout
-            const res = await fetch(`/api/map-image?${qs.toString()}`, { signal: ctrl.signal });
-            clearTimeout(timeoutId);
-            if (!res.ok) return undefined;
-            const json = await res.json();
-            if (json.error || !json.base64) return undefined;
-            return `data:image/${json.mime ?? "jpeg"};base64,${json.base64}`;
-          } catch (e) {
-            console.warn(`[generatePDF] fetchMapProxy ${type}/${heading} falhou:`, e instanceof Error ? e.message : e);
-            return undefined;
-          }
-        };
-        try {
-          const [sv0, sv90, sv180, sv270, mp] = await Promise.all([
-            fetchMapProxy("streetview", 0),
-            fetchMapProxy("streetview", 90),
-            fetchMapProxy("streetview", 180),
-            fetchMapProxy("streetview", 270),
-            fetchMapProxy("map"),
-          ]);
-          streetViewBase64 = sv0;
-          streetView90Base64 = sv90;
-          streetView180Base64 = sv180;
-          streetView270Base64 = sv270;
-          mapStaticBase64 = mp;
-          console.log(`[generatePDF] imagens: sv0=${!!sv0} sv90=${!!sv90} sv180=${!!sv180} sv270=${!!sv270} mp=${!!mp}`);
-        } catch (e) {
-          console.warn("[generatePDF] fetch de mapas falhou — seguindo sem imagens:", e);
-        }
-        streetViewInteractiveUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(endereco)}`;
-      }
+      console.log("[generatePDF] buscando imagens…");
+      const {
+        streetViewBase64,
+        streetView90Base64,
+        streetView180Base64,
+        streetView270Base64,
+        mapStaticBase64,
+        streetViewInteractiveUrl,
+      } = await fetchGoogleMapsImages();
 
       // ── Busca histórico de operações do cedente ────────────────────────────
       let histOperacoes: import("@/types").Operacao[] = [];
@@ -1781,6 +1772,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       };
 
       // Adiciona mapEmbedUrl para preview interativo (usado no HTML, ignorado no PDF)
+      const endereco = data.cnpj?.endereco;
       const mapsEmbedKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
       const mapEmbedUrl = endereco && mapsEmbedKey
         ? `https://www.google.com/maps/embed/v1/place?key=${mapsEmbedKey}&q=${encodeURIComponent(endereco)}`
@@ -1865,8 +1857,8 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     }
   };
 
-  // Helper: busca 4 vistas do Street View (0°/90°/180°/270°) + Static Map via proxy
-  // com timeout individual de 8s — se falhar, segue sem as imagens.
+  // Helper: busca fotos via Places API (New) com validação Gemini, fallback Street View.
+  // Compartilhado por generatePDF, generateHTMLView e shareReport.
   const fetchGoogleMapsImages = async (): Promise<{
     streetViewBase64?: string;
     streetView90Base64?: string;
@@ -1877,6 +1869,11 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   }> => {
     const endereco = data.cnpj?.endereco;
     if (!endereco) return {};
+
+    const razaoSocial = data.cnpj?.razaoSocial ?? "";
+    const cnae        = data.cnpj?.cnaePrincipal ?? "";
+    const porte       = data.cnpj?.porte ?? "";
+
     const fetchMapProxy = async (type: "streetview" | "map", heading?: number): Promise<string | undefined> => {
       try {
         const qs = new URLSearchParams({ address: endereco, type });
@@ -1894,28 +1891,70 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         return undefined;
       }
     };
+
+    let sv0: string | undefined, sv90: string | undefined, sv180: string | undefined, sv270: string | undefined;
+    let interactiveUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(endereco)}`;
+    let usedPlaces = false;
+
+    // ── Tenta Places API primeiro ────────────────────────────────────────
     try {
-      const [sv0, sv90, sv180, sv270, mp] = await Promise.all([
-        fetchMapProxy("streetview", 0),
-        fetchMapProxy("streetview", 90),
-        fetchMapProxy("streetview", 180),
-        fetchMapProxy("streetview", 270),
-        fetchMapProxy("map"),
-      ]);
-      return {
-        streetViewBase64: sv0,
-        streetView90Base64: sv90,
-        streetView180Base64: sv180,
-        streetView270Base64: sv270,
-        mapStaticBase64: mp,
-        streetViewInteractiveUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(endereco)}`,
-      };
+      const ctrl = new AbortController();
+      const tid  = setTimeout(() => ctrl.abort(), 10000);
+      const qs   = new URLSearchParams({ type: "places", address: endereco, razaoSocial, cnae, porte });
+      const res  = await fetch(`/api/map-image?${qs.toString()}`, { signal: ctrl.signal });
+      clearTimeout(tid);
+
+      if (res.ok) {
+        const pj = await res.json() as {
+          fotos: Array<{ base64: string; mime: string; tipo: string }>;
+          place_id: string | null;
+          nome_encontrado: string | null;
+          fallback: boolean;
+        };
+        if (!pj.fallback && pj.fotos.length > 0) {
+          const toUrl = (f?: { base64: string; mime: string }) =>
+            f ? `data:image/${f.mime};base64,${f.base64}` : undefined;
+          sv0   = toUrl(pj.fotos[0]);
+          sv90  = toUrl(pj.fotos[1]);
+          sv180 = toUrl(pj.fotos[2]);
+          sv270 = toUrl(pj.fotos[3]);
+          if (pj.place_id) interactiveUrl = `https://www.google.com/maps/place/?q=place_id:${pj.place_id}`;
+          usedPlaces = true;
+          console.log(`[fetchGoogleMapsImages] Places: ${pj.fotos.length} fotos, "${pj.nome_encontrado}", place_id=${pj.place_id}`);
+        }
+      }
     } catch (e) {
-      console.warn("[fetchGoogleMapsImages] Promise.all falhou:", e);
-      return {
-        streetViewInteractiveUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(endereco)}`,
-      };
+      console.warn("[fetchGoogleMapsImages] Places falhou/timeout:", e instanceof Error ? e.message : e);
     }
+
+    // ── Fallback: Street View ────────────────────────────────────────────
+    if (!usedPlaces) {
+      console.log("[fetchGoogleMapsImages] Street View (Places sem resultado)");
+      try {
+        const [a, b, c, d] = await Promise.all([
+          fetchMapProxy("streetview", 0),
+          fetchMapProxy("streetview", 90),
+          fetchMapProxy("streetview", 180),
+          fetchMapProxy("streetview", 270),
+        ]);
+        sv0 = a; sv90 = b; sv180 = c; sv270 = d;
+      } catch (e) {
+        console.warn("[fetchGoogleMapsImages] Street View falhou:", e);
+      }
+    }
+
+    // ── Mapa estático sempre busca ───────────────────────────────────────
+    const mp = await fetchMapProxy("map").catch(() => undefined);
+    console.log(`[fetchGoogleMapsImages] sv0=${!!sv0} sv90=${!!sv90} mp=${!!mp} source=${usedPlaces ? "places" : "streetview"}`);
+
+    return {
+      streetViewBase64: sv0,
+      streetView90Base64: sv90,
+      streetView180Base64: sv180,
+      streetView270Base64: sv270,
+      mapStaticBase64: mp,
+      streetViewInteractiveUrl: interactiveUrl,
+    };
   };
 
   // ═══════════════════════════════════════════════════
@@ -2267,7 +2306,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
                       return `${nivelLabel ? `${nivelLabel} · ` : ""}${conf}% confiança`;
                     }
                     if (finalRating == null) return "—";
-                    return finalRating >= 7 ? "Perfil saudável" : finalRating >= 4 ? "Atenção recomendada" : "Perfil crítico";
+                    return finalRating >= 8 ? "Perfil saudável" : finalRating >= 6 ? "Atenção recomendada" : "Perfil crítico";
                   })()}
                   variant={!analysisReady ? "default" : decision === "APROVADO" ? "success" : decision === "REPROVADO" ? "danger" : "warning"}
                 />
@@ -2914,36 +2953,47 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         {/* ════════════════════════════════════════
             SEÇÃO ↓ — EXPORTAR
             ════════════════════════════════════════ */}
-        <ExportSection
-          generatedFormats={generatedFormats}
-          generatingFormat={generatingFormat}
-          generatePDF={wrappedGeneratePDF}
-          generateDOCX={wrappedGenerateDOCX}
-          generateExcel={wrappedGenerateExcel}
-          generateHTML={wrappedGenerateHTML}
-          generateHTMLView={wrappedGenerateHTMLView}
-          shareReport={shareReport}
-          sharingReport={sharingReport}
-          sharedUrl={sharedUrl}
-        />
+        <OnboardingTooltip
+          id="generate-exportar"
+          message="Gere o relatório em PDF completo com análise de IA, grupo econômico e dados dos birôs. Preencha o Score V2 antes para incluir o rating A-F no relatório."
+          position="top"
+          isSeen={isSeen("generate-exportar")}
+          onSeen={() => markSeen("generate-exportar")}
+        >
+          <ExportSection
+            generatedFormats={generatedFormats}
+            generatingFormat={generatingFormat}
+            generatePDF={wrappedGeneratePDF}
+            generateDOCX={wrappedGenerateDOCX}
+            generateExcel={wrappedGenerateExcel}
+            generateHTML={wrappedGenerateHTML}
+            generateHTMLView={wrappedGenerateHTMLView}
+            shareReport={shareReport}
+            sharingReport={sharingReport}
+            sharedUrl={sharedUrl}
+          />
+        </OnboardingTooltip>
 
         {/* ── Sticky bottom action bar ── */}
-        <div className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200">
-          <div className="max-w-[1720px] mx-auto px-8 py-4 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2">
-              <button onClick={onBack} className="btn-secondary min-h-0 px-4 py-2 text-[13px]">
+        <div className="fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-sm" style={{ borderTop: "1px solid #e5e7eb", boxShadow: "0 -4px 16px rgba(0,0,0,0.06)" }}>
+          <div className="max-w-[1720px] mx-auto px-8 flex items-center justify-between gap-4" style={{ height: 56 }}>
+
+            {/* Esquerda — navegação */}
+            <div className="flex items-center gap-1.5">
+              <button onClick={onBack} className="btn-secondary min-h-0 px-3.5 py-1.5 text-[13px]">
                 <ArrowLeft size={13} /> Voltar
               </button>
               {onReset && (
                 <button
                   onClick={() => { try { localStorage.removeItem(NOTES_KEY); } catch { /* ignore */ } onReset(); }}
-                  className="flex items-center gap-1 text-xs text-cf-text-4 bg-transparent border-none cursor-pointer px-2 py-1.5 rounded-md hover:text-cf-text-2 hover:bg-gray-100 transition-colors"
+                  className="flex items-center gap-1 text-[12px] text-cf-text-4 bg-transparent border-none cursor-pointer px-2.5 py-1.5 rounded-md hover:text-cf-text-2 hover:bg-gray-100 transition-colors"
                 >
-                  <RotateCcw size={12} /> Recomeçar
+                  <RotateCcw size={11} /> Recomeçar
                 </button>
               )}
             </div>
 
+            {/* Centro — status */}
             <div className="flex items-center gap-2">
               {savedFeedback && <StatusPill label="Salvo" variant="green" dot />}
               {generatedFormats.size > 0 && (
@@ -2955,49 +3005,55 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
               )}
             </div>
 
-            <div className="flex items-center gap-2.5">
+            {/* Direita — ações */}
+            <div className="flex items-center gap-2">
               <GoalfyButton data={data} aiAnalysis={aiAnalysis} settings={activeValidationSettings} disabled={!aiAnalysis} />
-              <div className="flex flex-col items-end gap-2">
-                {pendentesScore.length > 0 && (
-                  <div style={{
-                    background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 10,
-                    padding: "10px 14px", maxWidth: 340,
-                  }}>
-                    <p style={{ fontSize: 12, fontWeight: 700, color: "#92400e", margin: "0 0 4px" }}>
-                      Preencha os critérios obrigatórios no Score V2 antes de gerar o parecer:
-                    </p>
-                    <ul style={{ margin: "0 0 8px", paddingLeft: 16 }}>
-                      {pendentesScore.map(c => (
-                        <li key={c.id} style={{ fontSize: 11, color: "#b45309" }}>{c.label}</li>
-                      ))}
-                    </ul>
-                    {onAbrirScoreForm && (
-                      <button
-                        onClick={onAbrirScoreForm}
-                        style={{
-                          fontSize: 11, fontWeight: 700, color: "#d97706",
-                          background: "transparent", border: "1px solid #fbbf24",
-                          borderRadius: 6, padding: "3px 10px", cursor: "pointer",
-                        }}
-                      >
-                        Preencher agora
-                      </button>
-                    )}
-                  </div>
-                )}
-                <button
-                  onClick={handleGoToParecer}
-                  disabled={finishing || pendentesScore.length > 0}
-                  className="btn-green min-h-0 px-[18px] py-2 text-[13px] flex items-center gap-1.5"
-                  style={pendentesScore.length > 0 ? { opacity: 0.4, cursor: "not-allowed" } : undefined}
+
+              {/* Score V2 inline — só aparece se há pendentes */}
+              {pendentesScore.length > 0 && (
+                <OnboardingTooltip
+                  id="generate-score-v2"
+                  message="Score V2 avalia a empresa em 5 pilares (Risco, Financeiro, Sócios, Operação e Perfil) com pontuação de 0-100. Clique para completar os critérios pendentes — o rating A-F aparecerá no relatório."
+                  position="top"
+                  isSeen={isSeen("generate-score-v2")}
+                  onSeen={() => markSeen("generate-score-v2")}
                 >
-                  {finishing
-                    ? <><Loader2 size={13} className="animate-spin" /> Salvando...</>
-                    : <>Registrar Parecer <ArrowRight size={13} /></>
-                  }
-                </button>
-              </div>
+                  <button
+                    onClick={onAbrirScoreForm}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 6,
+                      background: "#fffbeb", border: "1px solid #fcd34d",
+                      borderRadius: 8, padding: "5px 12px", cursor: onAbrirScoreForm ? "pointer" : "default",
+                      fontSize: 12, fontWeight: 600, color: "#92400e",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#f59e0b", flexShrink: 0 }} />
+                    Score V2 · {pendentesScore.length} pendente{pendentesScore.length > 1 ? "s" : ""}
+                    {onAbrirScoreForm && (
+                      <span style={{ fontSize: 11, color: "#b45309", borderLeft: "1px solid #fcd34d", paddingLeft: 8, marginLeft: 2 }}>
+                        Preencher
+                      </span>
+                    )}
+                  </button>
+                </OnboardingTooltip>
+              )}
+
+              {/* Divisor */}
+              <div style={{ width: 1, height: 24, background: "#e5e7eb" }} />
+
+              <button
+                onClick={handleGoToParecer}
+                disabled={finishing}
+                className="btn-green min-h-0 px-4 py-1.5 text-[13px] flex items-center gap-1.5"
+              >
+                {finishing
+                  ? <><Loader2 size={13} className="animate-spin" /> Salvando...</>
+                  : <>Registrar Parecer <ArrowRight size={13} /></>
+                }
+              </button>
             </div>
+
           </div>
         </div>
 

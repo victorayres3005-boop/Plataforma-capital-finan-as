@@ -456,16 +456,52 @@ export function renderSintese(ctx: PdfCtx): void {
           doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(...P.n8);
           doc.text(pct+"%", sx+socW-3, ry+4, {align:"right"});
         }
-        // Patrimônio Líquido (IR) — direita, linha do meio
+        // Patrimônio Líquido (IR) — direita, linha do meio; fallback: renda presumida Assertiva ou faixa BDC
         const cpfKey = cpfEnrich || normCpfS(s.cpfCnpj);
         const plRaw  = cpfKey ? irPLMap[cpfKey] : undefined;
+        const sAny = s as typeof s & {
+          isPEP?: boolean; isSanctioned?: boolean;
+          isCurrentlyOnCollection?: boolean; financialRiskLevel?: string;
+          totalAssetsRange?: string; hasObitIndication?: boolean;
+          processosTotal?: number; rendaPresumida?: string;
+          estimatedIncomeRange?: string;
+        };
         if (plRaw !== undefined) {
           const plNum  = parseMoneyToNumber(plRaw);
           const plStr  = moFmt(plNum);
           const plColor: [number,number,number] = plNum > 0 ? P.g6 : plNum < 0 ? P.r6 : P.x4;
           doc.setFont("courier","normal"); doc.setFontSize(5.5); doc.setTextColor(...plColor);
           doc.text("PL " + plStr, sx+socW-3, ry+rh/2+1.5, {align:"right"});
+        } else if (sAny.rendaPresumida) {
+          // Renda presumida da Assertiva como fallback quando IR não enviado
+          const rendaNum = parseMoneyToNumber(sAny.rendaPresumida);
+          const rendaStr = moFmt(rendaNum) + "/mês";
+          doc.setFont("courier","normal"); doc.setFontSize(4.5); doc.setTextColor(...P.a5);
+          doc.text("~" + rendaStr, sx+socW-3, ry+rh/2+0.5, {align:"right"});
+          doc.setFont("helvetica","normal"); doc.setFontSize(3.5); doc.setTextColor(...P.x4);
+          doc.text("est. Assertiva", sx+socW-3, ry+rh/2+4, {align:"right"});
+        } else if (sAny.estimatedIncomeRange) {
+          // Faixa de renda BDC como último fallback
+          doc.setFont("helvetica","normal"); doc.setFontSize(4.5); doc.setTextColor(...P.x4);
+          doc.text(sAny.estimatedIncomeRange, sx+socW-3, ry+rh/2+1.5, {align:"right"});
         }
+        let badgeX = sx + 3;
+        const badgeY = ry + rh - 3.5;
+        const drawBadge = (label: string, bg: [number,number,number], fg: [number,number,number]) => {
+          const tw2 = doc.getTextWidth(label);
+          doc.setFont("helvetica","bold"); doc.setFontSize(4.5);
+          doc.setFillColor(...bg);
+          doc.roundedRect(badgeX, badgeY - 2.5, tw2 + 3, 3.5, 0.5, 0.5, "F");
+          doc.setTextColor(...fg);
+          doc.text(label, badgeX + 1.5, badgeY);
+          badgeX += tw2 + 5;
+        };
+        if (sAny.isPEP) drawBadge("PEP", [232,213,245], [107,33,168]);
+        if (sAny.isSanctioned) drawBadge("SANCIONADO", P.r1, P.r6);
+        if (sAny.hasObitIndication) drawBadge("ÓBITO", P.r1, P.r6);
+        if (sAny.isCurrentlyOnCollection) drawBadge("NEGATIVADO", P.a1, P.a5);
+        if (sAny.financialRiskLevel) drawBadge(`RISCO ${sAny.financialRiskLevel}`, P.n0, P.n8);
+        if ((sAny.processosTotal ?? 0) > 0) drawBadge(`${sAny.processosTotal} PROC.`, P.a1, P.a5);
         doc.setDrawColor(...P.x1); doc.setLineWidth(0.15);
         doc.line(sx+2, ry+rh, sx+socW-2, ry+rh);
       });
@@ -572,8 +608,21 @@ export function renderSintese(ctx: PdfCtx): void {
           // Processos
           const procStr = (e.processos && e.processos !== "—") ? e.processos : "—";
           const procColor: [number,number,number] = procStr !== "—" && procStr !== "0" ? P.r6 : P.g6;
+          const hasValProc = e.valorProcessos && e.valorProcessos !== "—" && e.valorProcessos !== "R$ 0,00";
+          const procY = hasValProc ? pos.y + rowH/2 - 0.5 : pos.y + rowH/2 + 1;
           doc.setFont("helvetica","bold"); doc.setFontSize(6); doc.setTextColor(...procColor);
-          doc.text(procStr, colX[5] + colW[5]/2, pos.y + rowH/2 + 1, { align: "center" });
+          doc.text(procStr, colX[5] + colW[5]/2, procY, { align: "center" });
+          if (hasValProc) {
+            // abrevia: "R$ 1.234.567,00" → "R$1,2M"  /  "R$ 123.456,00" → "R$123K"
+            const rawN = parseFloat((e.valorProcessos ?? "").replace(/[^\d,]/g, "").replace(",", ".")) || 0;
+            const abrev = rawN >= 1_000_000
+              ? `R$${(rawN/1_000_000).toFixed(1).replace(".",",")}M`
+              : rawN >= 1_000
+              ? `R$${Math.round(rawN/1_000)}K`
+              : e.valorProcessos!;
+            doc.setFont("helvetica","normal"); doc.setFontSize(4); doc.setTextColor(...P.r6);
+            doc.text(abrev, colX[5] + colW[5]/2, procY + 3, { align: "center" });
+          }
 
           doc.setDrawColor(...P.x1); doc.setLineWidth(0.1);
           doc.line(ML, pos.y + rowH, ML + CW, pos.y + rowH);

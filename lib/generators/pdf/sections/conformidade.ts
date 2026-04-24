@@ -132,7 +132,33 @@ export function renderConformidade(ctx: PdfCtx): void {
       pos.y = y0 + CH + GAP;
     }
 
-    // Taxas e limites (row 2)
+    // Limites e tranche (row 2)
+    checkPageBreak(ctx, 20);
+    {
+      const CH = 18; const cw = (CW - GAP * 3) / 4;
+      const y0 = pos.y;
+      const moLim = (v?: string) => {
+        if (!v) return "—";
+        const n = parseMoneyToNumber(v);
+        if (!n) return "—";
+        if (n >= 1_000_000) return `R$ ${fmtBR(n/1_000_000,2)}M`;
+        if (n >= 1_000)     return `R$ ${fmtBR(n/1_000,0)}k`;
+        return `R$ ${fmtBR(n,0)}`;
+      };
+      const lcConvStr      = moLim(rv.limiteConvencional);
+      const comissariaStr  = !rv.limiteComissaria || moLim(rv.limiteComissaria) === "—"
+        ? "Não se aplica"
+        : moLim(rv.limiteComissaria);
+      const trancheLGStr   = moLim(rv.tranche);
+      const trancheChecStr = rv.trancheChecagem || "—";
+      icell(ML,              y0, cw, CH, "Limite Convencional", lcConvStr,      P.n0, P.n1, lcConvStr      === "—"            ? P.x4 : P.n9);
+      icell(ML+cw+GAP,       y0, cw, CH, "Limite Comissária",   comissariaStr,  P.n0, P.n1, comissariaStr  === "Não se aplica" ? P.x4 : P.n9);
+      icell(ML+(cw+GAP)*2,   y0, cw, CH, "Tranche LG",          trancheLGStr,   P.n0, P.n1, trancheLGStr   === "—"            ? P.x4 : P.n9);
+      icell(ML+(cw+GAP)*3,   y0, cw, CH, "Tranche Checagem",    trancheChecStr, P.n0, P.n1, trancheChecStr === "—"            ? P.x4 : P.n9);
+      pos.y = y0 + CH + GAP;
+    }
+
+    // Taxas e limites (row 3)
     checkPageBreak(ctx, 20);
     {
       const CH = 18; const cw = (CW - GAP * 3) / 4;

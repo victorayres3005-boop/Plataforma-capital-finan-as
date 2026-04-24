@@ -3,6 +3,8 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, Info, GitCompareArrows, Receipt, Scale, PieChart, FileKey, ClipboardList, Loader2 } from "lucide-react";
 import UploadArea from "./UploadArea";
+import OnboardingTooltip from "./OnboardingTooltip";
+import { useTooltips } from "@/lib/useTooltips";
 import { CNPJData, QSAData, ContratoSocialData, FaturamentoData, SCRData, SCRSocioData, ProtestosData, ProcessosData, GrupoEconomicoData, ExtractedData, IRSocioData, CollectionDocument } from "@/types";
 import { upload } from "@vercel/blob/client";
 
@@ -356,6 +358,8 @@ export default function UploadStep({
     onDataChange?.(extracted);
   }, [extracted, onDataChange]);
 
+  const { isSeen, markSeen } = useTooltips();
+
   // ── Bureau state ──
   const [bureauStatus, setBureauStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [bureauDetail, setBureauDetail] = useState<Record<string, { success: boolean; mock: boolean; error?: string }>>({});
@@ -433,12 +437,19 @@ export default function UploadStep({
         }
 
         // 2. Send everything to bureaus endpoint (server parses + merges)
+        console.log("[bureaus] iniciando consulta BDC + Assertiva + demais bureaus...");
         const res = await fetch("/api/bureaus", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ cnpj, data: extractedRef.current, creditHubRaw }),
         });
+        if (!res.ok) {
+          console.warn(`[bureaus] HTTP ${res.status} — resposta não-JSON`);
+          setBureauStatus("error");
+          return;
+        }
         const json = await res.json();
+        console.log(`[bureaus] resposta: success=${json.success} | bureaus=${Object.keys(json.bureaus ?? {}).join(",")} | mock=${Object.entries(json.bureaus ?? {}).filter(([,v]: any) => v?.mock).map(([k]) => k).join(",") || "nenhum"}`);
         if (json.success && json.merged) {
           setExtracted(prev => ({ ...prev, ...json.merged }));
         }
@@ -1067,7 +1078,15 @@ export default function UploadStep({
 
         {/* Group 1 — Obrigatórios */}
         <div>
-          <GroupHeader label="Documentos Obrigatórios" count={requiredDoneCount} total={totalRequired} />
+          <OnboardingTooltip
+            id="upload-docs-obrigatorios"
+            message="Envie pelo menos os 3 documentos obrigatórios: Cartão CNPJ, Contrato Social e SCR/Bacen. A plataforma extrai os dados automaticamente via IA — sem digitação manual."
+            position="right"
+            isSeen={isSeen("upload-docs-obrigatorios")}
+            onSeen={() => markSeen("upload-docs-obrigatorios")}
+          >
+            <GroupHeader label="Documentos Obrigatórios" count={requiredDoneCount} total={totalRequired} />
+          </OnboardingTooltip>
           <div className="space-y-2">
             {requiredSections.map(section => (
               <UploadArea
@@ -1153,10 +1172,14 @@ export default function UploadStep({
             })()}
             {bureauStatus === "done" && Object.keys(bureauDetail).length > 0 && (
               <div className="flex items-center gap-1 flex-wrap">
-                {(["credithub", "serasa", "spc", "quod"] as const).map(key => {
+                {(["credithub", "serasa", "spc", "quod", "bigdatacorp", "brasilapi", "sancoes"] as const).map(key => {
                   const b = bureauDetail[key];
                   if (!b) return null;
-                  const lbl = key === "credithub" ? "Credit Hub" : key.toUpperCase();
+                  const lbl = key === "credithub" ? "Credit Hub"
+                    : key === "bigdatacorp" ? "BigDataCorp"
+                    : key === "brasilapi"   ? "BrasilAPI"
+                    : key === "sancoes"     ? "Sanções"
+                    : key.toUpperCase();
                   return (
                     <div key={key} title={b.error} className={`flex items-center gap-1 text-[10px] rounded-md px-2 py-0.5 border ${
                       b.mock || !b.success ? "text-amber-700 bg-amber-50 border-amber-200" : "text-green-700 bg-green-50 border-green-200"
@@ -1172,14 +1195,22 @@ export default function UploadStep({
 
           {/* Right: CTA */}
           <div className="flex flex-col items-end gap-1.5">
-            <button
-              onClick={handleSubmit}
-              disabled={!canProceed}
-              className={`btn-primary ${!canProceed ? "opacity-50 cursor-not-allowed" : ""}`}
+            <OnboardingTooltip
+              id="upload-prosseguir"
+              message="Após enviar os documentos obrigatórios, prossiga para revisar os dados extraídos. Você poderá corrigir campos antes de gerar o relatório."
+              position="top"
+              isSeen={isSeen("upload-prosseguir")}
+              onSeen={() => markSeen("upload-prosseguir")}
             >
-              {anyProcessing || anyRetrying ? "Extraindo..." : canProceed ? "Prosseguir para Revisão" : "Aguardando documentos"}
-              <ArrowRight size={15} />
-            </button>
+              <button
+                onClick={handleSubmit}
+                disabled={!canProceed}
+                className={`btn-primary ${!canProceed ? "opacity-50 cursor-not-allowed" : ""}`}
+              >
+                {anyProcessing || anyRetrying ? "Extraindo..." : canProceed ? "Prosseguir para Revisão" : "Aguardando documentos"}
+                <ArrowRight size={15} />
+              </button>
+            </OnboardingTooltip>
             {!allRequiredDone && !anyProcessing && !anyRetrying && !forcarAvancar && requiredDoneCount >= 1 && (
               <button
                 onClick={() => setForcarAvancar(true)}

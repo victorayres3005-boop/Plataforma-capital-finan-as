@@ -530,6 +530,61 @@ export function renderRisco(ctx: PdfCtx): void {
   }
 
   // ════════════════════════════════════════════════════════════════════════════
+  // SEÇÃO 09b — PROCESSOS & PROTESTOS DOS SÓCIOS
+  // ════════════════════════════════════════════════════════════════════════════
+  {
+    const sociosComRisco = (data.qsa?.quadroSocietario ?? []).filter(s =>
+      ((s as any).processosTotal ?? 0) > 0 || ((s as any).protestosSocioQtd ?? 0) > 0
+    );
+    if (sociosComRisco.length > 0) {
+      checkPageBreak(ctx, 14);
+      pos.y += 4;
+      stitle("09b · Sócios — Processos & Protestos");
+
+      const RH = 9; const HH = 9;
+      const TH = HH + sociosComRisco.length * RH + 2;
+      checkPageBreak(ctx, TH + 4);
+      const cols9b = [
+        { label: "Sócio",       x: 4,          align: "left"  as const },
+        { label: "Prot. Qtd",   x: CW * 0.38,  align: "right" as const },
+        { label: "Prot. R$",    x: CW * 0.52,  align: "right" as const },
+        { label: "Proc. Total", x: CW * 0.65,  align: "right" as const },
+        { label: "Passivo",     x: CW * 0.78,  align: "right" as const },
+        { label: "Valor Est.",  x: CW - 2,     align: "right" as const },
+      ];
+      const y0b = pos.y;
+      doc.setFillColor(...P.wh); doc.setDrawColor(...P.x2); doc.setLineWidth(0.25);
+      doc.roundedRect(ML, y0b, CW, TH, 2, 2, "FD");
+      tableHeader(y0b, cols9b, HH);
+
+      sociosComRisco.forEach((s: any, i) => {
+        const ry = y0b + HH + i * RH;
+        if (i % 2 !== 0) { doc.setFillColor(...P.x0); doc.rect(ML, ry, CW, RH, "F"); }
+        const nm = (s.nome || "").length > 24 ? (s.nome || "").slice(0, 22) + "…" : (s.nome || "");
+        doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(...P.x7);
+        doc.text(nm, ML + 4, ry + 6);
+        const protQtd = s.protestosSocioQtd ?? 0;
+        doc.setTextColor(...(protQtd > 0 ? P.r6 : P.g6)); doc.setFont("helvetica","bold");
+        doc.text(String(protQtd), ML + CW * 0.38, ry + 6, { align: "right" });
+        const valProt = s.protestosSocioValor ?? 0;
+        doc.setTextColor(...(valProt > 0 ? P.r6 : P.x4)); doc.setFont("helvetica","normal");
+        doc.text(valProt > 0 ? mo(valProt) : "—", ML + CW * 0.52, ry + 6, { align: "right" });
+        const procTotal = s.processosTotal ?? 0;
+        doc.setTextColor(...(procTotal > 0 ? P.r6 : P.g6)); doc.setFont("helvetica","bold");
+        doc.text(String(procTotal), ML + CW * 0.65, ry + 6, { align: "right" });
+        const procPassivo = s.processosPassivo ?? 0;
+        doc.setTextColor(...(procPassivo > 0 ? P.r6 : P.x4));
+        doc.text(String(procPassivo), ML + CW * 0.78, ry + 6, { align: "right" });
+        doc.setFont("helvetica","normal"); doc.setTextColor(...P.x5);
+        doc.text(s.processosValorTotal ?? "—", ML + CW - 2, ry + 6, { align: "right" });
+        doc.setDrawColor(...P.x1); doc.setLineWidth(0.15);
+        doc.line(ML + 2, ry + RH, ML + CW - 2, ry + RH);
+      });
+      pos.y = y0b + TH + 5;
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
   // SEÇÃO 10 — GRUPO ECONÔMICO
   // ════════════════════════════════════════════════════════════════════════════
   const grupo = data.grupoEconomico;

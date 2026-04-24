@@ -7,6 +7,7 @@ import type { CNPJData, ContratoSocialData, SCRData, QSAData, FaturamentoData, F
 import { sanitizeDescricaoDebitos, sanitizeStr, sanitizeEnum, sanitizeMoney } from "@/lib/extract/sanitize";
 import {
   CNPJDataSchema, QSADataSchema, ContratoSocialDataSchema, FaturamentoDataSchema, SCRDataSchema,
+  RelatorioVisitaSchema,
   safeParseExtracted, auditBusinessRules,
 } from "@/lib/extract/schemas";
 
@@ -21,13 +22,12 @@ const GEMINI_API_KEYS = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_K
   .map(k => k.trim())
   .filter(Boolean);
 
-// Flash como primário — melhor custo-benefício para extração estruturada.
-// Pro como fallback para documentos complexos (contrato, SCR detalhado).
-const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"];
+// Flash 2.5 primário (mais rápido, cabe no timeout 52s do Hobby plan), Pro como fallback.
+const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"];
 
 const OPENROUTER_API_KEYS = (process.env.OPENROUTER_API_KEYS || process.env.OPENROUTER_API_KEY || "")
   .split(",").map(k => k.trim()).filter(Boolean);
-const OPENROUTER_MODELS: string[] = [];
+const OPENROUTER_MODELS = ["google/gemini-2.5-flash-preview:free", "google/gemini-2.0-flash-exp:free", "meta-llama/llama-4-maverick:free"];
 
 function geminiUrl(model: string, key: string) {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
@@ -310,7 +310,8 @@ const PROMPT_CNPJ = `Você receberá um PDF de Comprovante de Inscrição e Situ
 Regras:
 - Campos com valor ******** ou em branco → retornar null
 - CNPJ sempre com máscara XX.XXX.XXX/XXXX-XX
-- Datas sempre no formato DD/MM/AAAA
+- data_abertura → extrair EXATAMENTE como aparece no documento. Formatos aceitos: DD/MM/AAAA, MM/AAAA, AAAA. NUNCA converter ou reformatar — retornar o valor original
+- Outras datas → formato DD/MM/AAAA
 - cnaes_secundarios sempre como array — vazio [] se não houver nenhum
 - Nunca inventar dados ausentes — se o campo não existir no documento, retornar null`;
 
@@ -514,13 +515,19 @@ Adaptações por tipo de documento:
 - assinaturas inclui todos os signatários listados (sócio, contador etc.) — cada um com papel identificado.
 - Nunca inventar dados ausentes`;
 
-const PROMPT_SCR = `Você receberá um PDF de Resultado de Consulta SCR emitido pelo Banco Central do Brasil. O documento pode ser de Pessoa Física ou Pessoa Jurídica. Extraia todos os dados presentes e retorne SOMENTE um JSON válido, sem texto adicional, sem markdown, sem explicações.
+const PROMPT_SCR = `CONTEXTO DO DOCUMENTO:
+Este documento é um SCR de {{TIPO_ESPERADO}}.
+- Se TIPO_ESPERADO = "PJ": o consultado é uma empresa. Retornar tipo_cliente: "PJ". CPF deve ser null.
+- Se TIPO_ESPERADO = "PF": o consultado é uma pessoa física. Retornar tipo_cliente: "PF". CNPJ deve ser null. Empresas que aparecem nas modalidades são credoras, não o consultado.
+
+Você receberá um PDF de Resultado de Consulta SCR emitido pelo Banco Central do Brasil. O documento pode ser de Pessoa Física ou Pessoa Jurídica. Extraia todos os dados presentes e retorne SOMENTE um JSON válido, sem texto adicional, sem markdown, sem explicações.
 
 {
   "cpf_cnpj": "",
   "tipo_cliente": "",
   "periodo_referencia": "",
   "inicio_relacionamento": "",
+  "classificacao_risco": null,
   "dados_operacao": {
     "coobrigacao_assumida": null,
     "coobrigacao_recebida": null,
@@ -596,6 +603,8 @@ Regras:
 - Se o documento contiver dois períodos, retornar apenas o mais recente (o período anterior será enviado em um segundo upload)
 - carteira_a_vencer: extrair TODAS as 7 faixas do BACEN — a faixa "De 14 a 30 dias" (a primeira/menor) deve ir em "de_14_a_30_dias". NUNCA deixe essa faixa como null se houver valor na seção "A Vencer". Confira que total = soma das 7 faixas.
 - vencidos: a primeira faixa no BACEN chama "De 15 a 30 dias" (diferente de a_vencer) — vai em "de_15_a_30_dias". Confira que total = soma das 6 faixas. O "total" declarado no documento é o valor correto — não recalcule.
+- prejuizos → seção "Prejuízo (B)" do documento BACEN. ATENÇÃO: esta seção é DIFERENTE de "Vencidos" — são créditos já lançados como perda pela instituição financeira. Extrair obrigatoriamente: ate_12_meses = linha "Prejuízo até 12 meses"; acima_12_meses = linha "Prejuízo acima de 12 meses" (pode aparecer como "acima de 12 a 48 meses" dependendo do banco); total = valor do campo "Prejuízo (B)" conforme declarado no documento, ou soma das duas faixas. NUNCA retornar null ou 0 se houver qualquer linha de prejuízo no documento. Exemplo real: "Prejuízo (B) R$ 5.304.569,54 82,39%" → prejuizos.total = 5304569.54
+- classificacao_risco → campo "Classificação de risco" do cabeçalho do documento BACEN. Valores possíveis: AA, A, B, C, D, E, F, G, H, HH. Extrair exatamente como aparece no documento. IMPORTANTE: "HH" indica risco máximo (pior classificação — operações em prejuízo).
 - Nunca inventar dados ausentes`;
 
 // ── Subformato SCR: cliente sem operações no período ──────────────────────────
@@ -922,7 +931,12 @@ Regras:
 - faturamento_por_empresa_grupo → extrair a divisão de faturamento entre empresas do grupo quando disponível
 - anos_filtro → array com os anos selecionados no filtro do dashboard — ex: [2023, 2024, 2025]
 - Nomes de clientes devem ser transcritos exatamente como aparecem no documento, mesmo que truncados
-- Nunca inventar dados ausentes`;
+- Nunca inventar dados ausentes
+- Se a lista de clientes for muito extensa (acima de 300 clientes), priorize extrair:
+  1. Os top 20 clientes por valor (classe A)
+  2. Os totalizadores: total_faturado, e calcule internamente concentracaoTop3/Top5/Top10, maiorCliente, maiorClientePct
+  3. Os demais clientes de classe B e C em ordem decrescente até o limite de tokens disponível
+  NUNCA deixar os totalizadores vazios mesmo que a lista de clientes seja truncada — os totalizadores são mais importantes que a lista completa`;
 
 const PROMPT_DRE = `Você receberá um PDF de Demonstração do Resultado do Exercício (DRE). O documento pode conter colunas para dois anos (ano atual e ano anterior). Extraia todos os dados presentes e retorne SOMENTE um JSON válido, sem texto adicional, sem markdown, sem explicações.
 
@@ -1298,8 +1312,8 @@ Regras:
 - limite_comissaria → limite para operações em comissária; buscar em "Limite comissária", "Limite comissaria", "LCom"; se for 0 → retornar 0.0
 - limite_por_sacado → limite máximo por sacado individual; buscar em "Limite por sacado", "Concentração por sacado"
 - limite_principais_sacados → limite para os principais sacados em conjunto; buscar em "Limite principais sacados", "Limite principais sacados (30 a 40%)", "Top sacados"
-- tranche_limite_global → valor monetário da TRANCHE DO LIMITE GLOBAL (liberação parcial do limite total por tranche). Buscar em: "Tranche limite global", "Tranche LG", "Tranche", "Valor da tranche". ATENÇÃO: este campo é DIFERENTE de tranche_checagem — NÃO coloque aqui o valor da tranche de checagem/comissária. Exemplo: se o documento diz "Tranche: R$ 300.000,00" e "Tranche checagem: R$ 100.000,00" → tranche_limite_global = 300000.0 e tranche_checagem = 100000.0.
-- tranche_checagem → tranche aplicada à verificação comissária. Pode ser valor monetário (ex: 500000.0) OU texto descritivo (ex: "Sem checagem comissária", "Não se aplica"). Se for texto, retornar a string descritiva; se for valor, retornar float. Buscar em: "Tranche checagem", "Tranche de checagem", "Checagem comissária".
+- tranche_limite_global → SOMENTE quando o documento usar EXPLICITAMENTE as expressões "Tranche Limite Global", "Tranche LG" ou "Tranche Global" seguido de valor monetário. SE o documento usar "Tranche checagem", "Tranche comissária" ou simplesmente "Tranche" sem qualificador → NÃO colocar aqui, retornar null. Em caso de dúvida entre os dois campos → sempre preferir tranche_checagem (tranche_limite_global é o campo mais raro). Exemplos CORRETOS: "Tranche LG: R$ 500.000" → tranche_limite_global: 500000 | "Tranche checagem: R$ 300.000" → tranche_limite_global: null | "Tranche: R$ 300.000" → tranche_limite_global: null.
+- tranche_checagem → campo PRINCIPAL de tranche. Capturar quando o documento usar: "Tranche checagem", "Tranche comissária", "Checagem", ou simplesmente "Tranche" sem qualificador. Pode ser float OU string descritiva: se valor monetário → retornar float; se "Sem checagem", "Não se aplica", "S/C" → retornar string exata. NUNCA retornar null se houver qualquer menção a tranche ou checagem no documento. Exemplos CORRETOS: "Tranche checagem: R$ 300.000" → tranche_checagem: 300000 | "Tranche: R$ 300.000" → tranche_checagem: 300000 | "Sem checagem comissária" → tranche_checagem: "Sem checagem comissária".
 - prazo_maximo_titulo_dias → prazo máximo do título/recebível; buscar em "Prazo máximo", "Prazo máx", "Prazo máximo de título", "Prazo max. título"; retornar APENAS o número inteiro de dias (ex: 180)
 - prazo_tranche_limite_global_dias → prazo em dias da tranche do limite global; buscar em "Prazo tranche", "Prazo da tranche", "Prazo tranche LG", "Prazo de tranche"; retornar APENAS o número inteiro de dias (ex: 5, 30). ATENÇÃO: NÃO confundir com prazo máximo do título ou prazo de recompra.
 - prazo_cartorio_dias → prazo em dias para envio ao cartório de protesto; buscar em "Prazo cartório", "Prazo de cartório", "Prazo cartório protesto", "Envio cartório", "Protesto cartório"; retornar APENAS o número inteiro (ex: 10, 15, 20). Se o documento disser "até X dias" → retornar X.
@@ -1326,20 +1340,27 @@ Regras:
 async function uploadToGeminiFiles(buffer: Buffer, mimeType: string, displayName: string, apiKey: string): Promise<string> {
   const boundary = "cap_gemini_boundary_x7z";
   const metaJson = JSON.stringify({ file: { display_name: displayName } });
-  const body = Buffer.concat([
-    Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=utf-8\r\n\r\n`),
-    Buffer.from(metaJson),
-    Buffer.from(`\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`),
-    buffer,
-    Buffer.from(`\r\n--${boundary}--`),
-  ]);
+  // Google Files API exige X-Goog-Upload-Protocol: multipart e dados em base64 com Content-Transfer-Encoding
+  const base64Data = buffer.toString("base64");
+  const body = [
+    `--${boundary}`,
+    `Content-Type: application/json; charset=utf-8`,
+    ``,
+    metaJson,
+    `--${boundary}`,
+    `Content-Type: ${mimeType}`,
+    `Content-Transfer-Encoding: base64`,
+    ``,
+    base64Data,
+    `--${boundary}--`,
+  ].join("\r\n");
   const response = await fetch(
     `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`,
     {
       method: "POST",
       headers: {
         "Content-Type": `multipart/related; boundary=${boundary}`,
-        "Content-Length": body.length.toString(),
+        "X-Goog-Upload-Protocol": "multipart",
       },
       body,
     }
@@ -1373,16 +1394,20 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
 
   const startIdx = Math.floor(Math.random() * GEMINI_API_KEYS.length);
   const rotatedKeys = [...GEMINI_API_KEYS.slice(startIdx), ...GEMINI_API_KEYS.slice(0, startIdx)];
-  const MAX_ATTEMPTS = 2; // 1 tentativa + 1 retry com backoff em 503/429
+  const MAX_ATTEMPTS = 3; // 1 tentativa + 2 retries com backoff em 503/429
   const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-  for (const apiKey of rotatedKeys) {
+  keyLoop: for (const apiKey of rotatedKeys) {
     for (const model of GEMINI_MODELS) {
+      // flash-lite rejeita thinkingBudget entre 1-511 com HTTP 400 — pular modelo e usar o próximo
+      if (model.includes("lite") && thinkingBudget > 0 && thinkingBudget < 512) continue;
+      // gemini-2.5-pro rejeita thinkingBudget=0 — exige thinking mode obrigatório
+      const effectiveBudget = (model.includes("2.5-pro") && thinkingBudget === 0) ? 1024 : thinkingBudget;
       for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         try {
           console.log(`[Gemini] key=${apiKey.substring(0, 8)}... model=${model} attempt=${attempt + 1}/${MAX_ATTEMPTS}`);
           const controller = new AbortController();
-          // 20s por tentativa: se um modelo travar, o próximo ainda tem chance dentro dos 52s totais
-          const fetchTimeout = setTimeout(() => controller.abort(), 20000);
+          // 12s por tentativa: 3 tentativas flash = 36s, sobra 16s para flash-lite dentro dos 52s totais
+          const fetchTimeout = setTimeout(() => controller.abort(), 12000);
           const response = await fetch(geminiUrl(model, apiKey), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1393,16 +1418,27 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
                 temperature: 0,
                 maxOutputTokens,
                 responseMimeType: "application/json",
-                ...((model.includes("2.5") || model.includes("3.")) ? { thinkingConfig: { thinkingBudget } } : {}),
+                ...((model.includes("2.5") || model.includes("3.")) ? {
+                  thinkingConfig: {
+                    thinkingBudget: effectiveBudget,
+                  },
+                } : {}),
               },
             }),
           });
           clearTimeout(fetchTimeout);
 
+          // 403: chave inválida/vazada — não adianta tentar outros modelos, pula para próxima chave
+          if (response.status === 403) {
+            const body = await response.text();
+            console.error(`[Gemini] HTTP 403 key=${apiKey.substring(0, 8)} — chave revogada/vazada, skip key:`, body.substring(0, 200));
+            continue keyLoop;
+          }
+
           // 429/503: erros transitorios — backoff exponencial e tenta de novo
           if (response.status === 429 || response.status === 503) {
             if (attempt < MAX_ATTEMPTS - 1) {
-              const backoffMs = 1000 * Math.pow(2, attempt); // 1s, 2s
+              const backoffMs = 3000 * Math.pow(2, attempt); // 3s, 6s, 12s
               console.log(`[Gemini] HTTP ${response.status} key=${apiKey.substring(0, 8)} model=${model}, backoff ${backoffMs}ms`);
               await sleep(backoffMs);
               continue;
@@ -1881,7 +1917,7 @@ function adaptSCRNew(raw: Record<string, unknown>): Partial<SCRData> {
     operacoesEmAtraso: "",
     operacoesVencidas: "",
     tempoAtraso: "",
-    classificacaoRisco: "",
+    classificacaoRisco: _s((r as Record<string, unknown>).classificacao_risco) || "",
     semDados: r.sem_dados_scr === true ? true : undefined,
     fonteBureau: _s(r.fonte_bureau) || undefined,
   };
@@ -2043,6 +2079,11 @@ function adaptCurvaABCNew(raw: Record<string, unknown>): Partial<CurvaABCData> {
     return s + n;
   }, 0);
 
+  console.log('[curva_abc]', {
+    totalClientes: clientes.length,
+    maiorClientePct: clientes[0]?.percentualReceita ?? "—",
+    clientesRaw: clientesRaw.length,
+  });
   return {
     clientes,
     totalClientesExtraidos: clientes.length,
@@ -2248,10 +2289,23 @@ function adaptIRNew(raw: Record<string, unknown>): Partial<IRSocioData> {
     sociedades,
     coerenciaComEmpresa: true,
     observacoes: "",
-    // Situação da declaração e débitos
     situacaoMalhas: r.debitos_receita_federal === true || _s(r.situacao_declaracao).toLowerCase().includes("malha"),
     debitosEmAberto: r.debitos_receita_federal === true,
     descricaoDebitos: r.debitos_receita_federal === true ? (_s(r.situacao_declaracao) || "Débitos identificados") : "",
+    bensEDireitos: bens.map(b => ({
+      grupo: _s(b.grupo),
+      discriminacao: _s(b.discriminacao),
+      valor_atual: typeof b.valor_atual === "number" ? b.valor_atual : numOr(b.valor_atual) || null,
+    })),
+    dividasOnusReais: (Array.isArray(r.dividas_onus_reais) ? r.dividas_onus_reais as Array<Record<string, unknown>> : []).map(d => ({
+      discriminacao: _s(d.discriminacao),
+      situacao_atual: typeof d.situacao_atual === "number" ? d.situacao_atual : numOr(d.situacao_atual) || null,
+    })),
+    pagamentosEfetuados: (Array.isArray(r.pagamentos_efetuados) ? r.pagamentos_efetuados as Array<Record<string, unknown>> : []).map(p => ({
+      nome_beneficiario: _s(p.nome_beneficiario),
+      valor_pago: typeof p.valor_pago === "number" ? p.valor_pago : numOr(p.valor_pago) || null,
+      descricao: _s(p.descricao),
+    })),
   };
 }
 
@@ -2432,7 +2486,7 @@ function fillQSADefaults(data: Partial<QSAData>): QSAData & { _incompleteCount?:
       if (!hasName && !hasCpf && !hasQual) { incompleteCount++; return false; }
       // Se so tem nome OU so tem CPF, mantem com warning no log
       if (!hasName || !hasCpf) {
-        console.warn(`[extract][qsa] socio parcial mantido: nome="${s.nome || "—"}" cpf="${s.cpfCnpj || "—"}"`);
+        console.warn(`[extract][qsa] socio parcial mantido: nome="${s.nome ? s.nome.split(" ")[0] : "—"}" cpf="${s.cpfCnpj ? s.cpfCnpj.replace(/\D/g,"").slice(0,3)+"***" : "—"}"`);
       }
       return true;
     })
@@ -2461,7 +2515,7 @@ function fillContratoDefaults(data: Partial<ContratoSocialData>): ContratoSocial
       const hasPart = !!(s.participacao && s.participacao.trim());
       if (!hasName && !hasCpf && !hasPart) { incompleteCount++; return false; }
       if (!hasName || !hasCpf) {
-        console.warn(`[extract][contrato] socio parcial mantido: nome="${s.nome || "—"}" cpf="${s.cpf || "—"}"`);
+        console.warn(`[extract][contrato] socio parcial mantido: nome="${s.nome ? s.nome.split(" ")[0] : "—"}" cpf="${s.cpf ? s.cpf.replace(/\D/g,"").slice(0,3)+"***" : "—"}"`);
       }
       return true;
     })
@@ -2783,6 +2837,9 @@ function fillIRSocioDefaults(data: Partial<IRSocioData>): IRSocioData {
     sociedades: Array.isArray(data.sociedades) ? data.sociedades : [],
     coerenciaComEmpresa: data.coerenciaComEmpresa ?? true,
     observacoes: sanitizeStr(data.observacoes, 500),
+    bensEDireitos: Array.isArray(data.bensEDireitos) ? data.bensEDireitos : [],
+    dividasOnusReais: Array.isArray(data.dividasOnusReais) ? data.dividasOnusReais : [],
+    pagamentosEfetuados: Array.isArray(data.pagamentosEfetuados) ? data.pagamentosEfetuados : [],
   };
 }
 
@@ -3050,11 +3107,15 @@ async function processExtract(
         else if (subformat === "FAT_BANCARIO") prompt = PROMPT_FAT_BANCARIO;
         else                               prompt = PROMPT_FATURAMENTO;
         break;
-      case "scr":
+      case "scr": {
         if (subformat === "SCR_BACEN_SEM_DADOS") prompt = PROMPT_SCR_SEM_DADOS;
         else if (subformat === "SCR_BUREAU")     prompt = PROMPT_SCR_BUREAU;
-        else                                      prompt = PROMPT_SCR;
+        else {
+          const tipoEsperado = slot === "scr_socio" ? "PF" : "PJ";
+          prompt = PROMPT_SCR.replace("{{TIPO_ESPERADO}}", tipoEsperado);
+        }
         break;
+      }
       case "protestos":      prompt = PROMPT_PROTESTOS; break;
       case "processos":      prompt = PROMPT_PROCESSOS; break;
       case "grupoEconomico": prompt = PROMPT_GRUPO_ECONOMICO; break;
@@ -3125,7 +3186,7 @@ async function processExtract(
         cnpj: 4000, qsa: 6000, faturamento: 20000, scr: 15000,
         protestos: 8000, processos: 12000, grupoEconomico: 8000,
         dre: 12000, balanco: 12000, ir_socio: 25000,
-        curva_abc: 30000,  // tabelas grandes com muitos clientes
+        curva_abc: 30000,
         // relatorio_visita / contrato → modo visual, não chegam aqui
       };
       textContent = textContent.substring(0, maxChars[docType] || 10000);
@@ -3156,7 +3217,7 @@ async function processExtract(
       cnpj: 4096, qsa: 4096, grupoEconomico: 4096, protestos: 4096,
       faturamento: 8192, scr: 8192, processos: 8192,
       dre: 8192, balanco: 8192,
-      contrato: 8192, curva_abc: 8192, ir_socio: 8192, relatorio_visita: 8192,
+      contrato: 8192, curva_abc: 10000, ir_socio: 8192, relatorio_visita: 8192,
     };
     const _maxOutputTokens = maxOutputTokensMap[docType] ?? 2048;
 
@@ -3168,13 +3229,13 @@ async function processExtract(
       ir_socio:            0,  // tabelas/listas — thinking sem ganho; evita timeout no Hobby plan
       curva_abc:           0,  // tabela de clientes — sem raciocínio necessário
       faturamento:         0,  // extração de tabela simples — thinking adiciona latência sem ganho
-      scr:               256,
-      dre:               256,
-      balanco:           256,
-      processos:         256,
-      protestos:         128,
-      qsa:               128,
-      grupoEconomico:    128,
+      scr:               128,
+      dre:               128,
+      balanco:           128,
+      processos:         128,
+      protestos:           0,
+      qsa:                 0,
+      grupoEconomico:      0,
       cnpj:                0,
     };
     const _thinkingBudget = thinkingBudgetMap[docType] ?? 256;
@@ -3236,7 +3297,12 @@ async function processExtract(
               else if (_docType === "dre")         parsed = adaptDRENew(rawParsed)      as Record<string, unknown>;
               else if (_docType === "balanco")     parsed = adaptBalancoNew(rawParsed)  as Record<string, unknown>;
               else if (_docType === "ir_socio")    parsed = adaptIRNew(rawParsed)       as Record<string, unknown>;
-              else if (_docType === "relatorio_visita") parsed = adaptVisitaNew(rawParsed) as Record<string, unknown>;
+              else if (_docType === "relatorio_visita") {
+                const adaptedVisita = adaptVisitaNew(rawParsed) as Record<string, unknown>;
+                const rv = safeParseExtracted(RelatorioVisitaSchema, adaptedVisita, "relatorio_visita");
+                parsed = rv.data as unknown as Record<string, unknown>;
+                zodWarnings.push(...rv.warnings);
+              }
               // Audit de regras de negocio (range, coerencia, formato)
               const businessWarnings = auditBusinessRules(_docType, parsed);
               zodWarnings.push(...businessWarnings);
@@ -3447,7 +3513,7 @@ async function processExtract(
                   cached: false,
                   zod_warnings: zodWarnings.length > 0 ? zodWarnings : null,
                   input_chars: _textContent.length || null,
-                  raw_response: filled === 0 ? _rawAiResponse.slice(0, 5000) || null : null,
+                  raw_response: (filled === 0 || _docType === "relatorio_visita") ? _rawAiResponse.slice(0, 5000) || null : null,
                 });
               } catch { /* nunca falha a requisicao */ }
             })();

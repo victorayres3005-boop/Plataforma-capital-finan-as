@@ -33,6 +33,7 @@ import { renderSCR } from "./sections/scr";
 import { renderABC } from "./sections/abc";
 import { renderSocios } from "./sections/socios";
 import { renderVisita } from "./sections/visita";
+import { renderBdcInsights } from "./sections/bdc-insights";
 
 export type { PDFReportParams };
 
@@ -124,6 +125,7 @@ export async function buildPDFReport(params: PDFReportParams): Promise<Blob> {
   renderSCR(ctx);
   renderABC(ctx);
   renderSocios(ctx);
+  renderBdcInsights(ctx);
   renderVisita(ctx);
 
   // ── Footer on all pages (except cover = page 1) ──

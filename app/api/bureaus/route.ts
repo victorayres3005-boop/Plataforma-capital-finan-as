@@ -8,6 +8,8 @@ import { consultarSPC } from "@/lib/bureaus/spc";
 import { consultarQuod } from "@/lib/bureaus/quod";
 import { consultarBrasilApi } from "@/lib/bureaus/brasilapi";
 import { consultarSancoes } from "@/lib/bureaus/transparencia";
+import { consultarEmpresa as consultarBigDataCorp, consultarSocios as consultarBDCSocios, consultarProcessosGrupoEconomico } from "@/lib/bureaus/bigdatacorp";
+import { consultarEmpresa as consultarAssertiva, consultarSocios as consultarSociosAssertiva } from "@/lib/bureaus/assertiva";
 import { mergeBureauResults } from "@/lib/bureaus/merger";
 import { enrichProcessosWithDataJud } from "@/lib/bureaus/datajud";
 import { cacheGet, cacheSet, cacheClear, cacheClearAll, cacheSize } from "@/lib/bureaus/cache";
@@ -69,9 +71,32 @@ export async function POST(req: NextRequest) {
       }
     });
 
+    // Fonte 3: BigDataCorp — sempre consultado para enriquecer sócios (pode ter dados mais completos que o documento)
+    let bdcPreFetch = await consultarBigDataCorp(cnpj);
+    if (bdcPreFetch?.success) {
+      const sociosBDC = (bdcPreFetch.qsaEnrichment?.quadroSocietario ?? [])
+        .filter(s => s.cpfCnpj && s.cpfCnpj.replace(/\D/g, "").length === 11);
+      let novos = 0;
+      sociosBDC.forEach(s => {
+        const cpfNum = s.cpfCnpj.replace(/\D/g, "");
+        if (!cpfsVistos.has(cpfNum)) {
+          cpfsVistos.add(cpfNum);
+          sociosParaGrupo.push({ nome: s.nome, cpfCnpj: s.cpfCnpj });
+          novos++;
+        }
+      });
+      if (novos > 0) {
+        console.log(`[bureaus] Grupo econômico: ${novos} sócio(s) PF adicionado(s) via BigDataCorp`);
+      }
+    }
+
     console.log(`[bureaus] Grupo econômico: ${sociosParaGrupo.length} sócio(s) PF — ${sociosIR.length} via IR, ${sociosQSA.length} via QSA`);
 
-    const [credithub, serasa, spc, quod, grupoEconomico, brasilapi, sancoes] = await Promise.allSettled([
+    const cpfsParaBDC = sociosParaGrupo.map(s => s.cpfCnpj);
+
+    const assertivaSociosInput = sociosParaGrupo.map(s => ({ cpf: s.cpfCnpj, nome: s.nome }));
+
+    const [credithub, serasa, spc, quod, grupoEconomico, brasilapi, sancoes, bigdatacorp, bdcSocios, assertivaEmpresa, assertivaSocios] = await Promise.allSettled([
       consultarCreditHubComCache(cnpj, creditHubRaw),
       consultarSerasa(cnpj),
       consultarSPC(cnpj),
@@ -79,14 +104,54 @@ export async function POST(req: NextRequest) {
       consultarGrupoEconomicoSocios(sociosParaGrupo, cnpj),
       consultarBrasilApi(cnpj),
       consultarSancoes(cnpj, sociosParaGrupo),
+      bdcPreFetch ? Promise.resolve(bdcPreFetch) : consultarBigDataCorp(cnpj),
+      consultarBDCSocios(cpfsParaBDC),
+      consultarAssertiva(cnpj),
+      consultarSociosAssertiva(assertivaSociosInput),
     ]);
 
     const grupoEconomicoResult = grupoEconomico.status === "fulfilled" ? grupoEconomico.value : undefined;
-    const brasilapiResult = brasilapi.status === "fulfilled" ? brasilapi.value : undefined;
-    const sancoesResult = sancoes.status === "fulfilled" ? sancoes.value : undefined;
+    const brasilapiResult      = brasilapi.status      === "fulfilled" ? brasilapi.value      : undefined;
+    const sancoesResult        = sancoes.status        === "fulfilled" ? sancoes.value        : undefined;
+    let bigdatacorpResult      = bigdatacorp.status    === "fulfilled" ? bigdatacorp.value    : undefined;
+
+    // Mescla dados de KYC dos sócios no resultado da empresa
+    if (bigdatacorpResult && bdcSocios.status === "fulfilled") {
+      const s = bdcSocios.value;
+      bigdatacorpResult = {
+        ...bigdatacorpResult,
+        socios:                s.socios,
+        sociosFalecidos:       s.sociosFalecidos,
+        alertaParentesco:      s.alertaParentesco,
+        parentescosDetectados: s.parentescosDetectados,
+      };
+      if (s.sociosFalecidos.length > 0) {
+        console.warn(`[bureaus] BigDataCorp: sócios com óbito: ${s.sociosFalecidos.join(", ")}`);
+      }
+      if (s.alertaParentesco) {
+        console.warn(`[bureaus] BigDataCorp: parentesco detectado: ${s.parentescosDetectados.map(p => `${p.socio1} + ${p.socio2}`).join(" | ")}`);
+      }
+
+      // Enriquece grupo econômico com processos de cada empresa vinculada aos sócios
+      if (bigdatacorpResult.success && s.socios.length > 0) {
+        const grupoProc = await consultarProcessosGrupoEconomico(s.socios, cnpj);
+        if (grupoProc.length > 0) {
+          bigdatacorpResult = { ...bigdatacorpResult, grupoEconomicoProcessos: grupoProc };
+          console.log(`[bureaus] BigDataCorp grupo econômico: ${grupoProc.length} empresa(s) com processos consultados`);
+        }
+      }
+    }
+
+    // Mescla socios Assertiva no resultado da empresa
+    let assertivaResult = assertivaEmpresa.status === "fulfilled" ? assertivaEmpresa.value : undefined;
+    if (assertivaResult && assertivaSocios.status === "fulfilled" && assertivaSocios.value.length > 0) {
+      assertivaResult = { ...assertivaResult, socios: assertivaSocios.value };
+    }
 
     console.log(`[bureaus] BrasilAPI: ${brasilapiResult?.success ? "ok" : brasilapiResult?.error || "erro"}`);
     console.log(`[bureaus] Sanções: ${sancoesResult?.mock ? "sem chave API" : sancoesResult?.success ? `${sancoesResult.totalSancoes} sanção(ões)` : sancoesResult?.error || "erro"}`);
+    console.log(`[bureaus] BigDataCorp: ${bigdatacorpResult?.mock ? "sem credenciais" : bigdatacorpResult?.success ? "ok" : bigdatacorpResult?.error || "erro"}`);
+    console.log(`[bureaus] Assertiva: ${assertivaResult?.mock ? "sem credenciais" : assertivaResult?.success ? "ok" : assertivaResult?.error || "erro"}`);
 
     const results = {
       credithub: credithub.status === "fulfilled"
@@ -95,8 +160,10 @@ export async function POST(req: NextRequest) {
       serasa: serasa.status === "fulfilled" ? serasa.value : undefined,
       spc:    spc.status    === "fulfilled" ? spc.value    : undefined,
       quod:   quod.status   === "fulfilled" ? quod.value   : undefined,
-      brasilapi: brasilapiResult,
-      sancoes: sancoesResult,
+      brasilapi:   brasilapiResult,
+      sancoes:     sancoesResult,
+      bigdatacorp: bigdatacorpResult,
+      assertiva:   assertivaResult,
     };
 
     const bureausConsultados = [
@@ -144,6 +211,15 @@ export async function POST(req: NextRequest) {
                        ativa: results.brasilapi?.data?.ativa },
         sancoes:     { success: results.sancoes?.success,     mock: results.sancoes?.mock,     error: results.sancoes?.error,
                        totalSancoes: results.sancoes?.totalSancoes, cnpjLimpo: results.sancoes?.cnpjLimpo },
+        bigdatacorp: {
+          success:               results.bigdatacorp?.success,
+          mock:                  results.bigdatacorp?.mock,
+          error:                 results.bigdatacorp?.error,
+          sociosFalecidos:       results.bigdatacorp?.sociosFalecidos,
+          alertaParentesco:      results.bigdatacorp?.alertaParentesco,
+          parentescosDetectados: results.bigdatacorp?.parentescosDetectados,
+        },
+        assertiva: { success: results.assertiva?.success, mock: results.assertiva?.mock, error: results.assertiva?.error },
       },
     });
   } catch (err) {

@@ -87,13 +87,13 @@ function fmtDecision(d: string | null | undefined): string {
 
 // ─── Score helpers ─────────────────────────────────────────────────────────────
 function scoreColor(score: number): string {
-  if (score >= 7) return "var(--g6)";
-  if (score >= 4) return "var(--a5)";
+  if (score >= 8) return "var(--g6)";
+  if (score >= 5) return "var(--a5)";
   return "var(--r6)";
 }
 function scoreBorder(score: number): string {
-  if (score >= 7) return "var(--g6)";
-  if (score >= 4) return "var(--a5)";
+  if (score >= 8) return "var(--g6)";
+  if (score >= 5) return "var(--a5)";
   return "var(--r6)";
 }
 function decisionBg(decision: string): string {
@@ -618,7 +618,7 @@ function pageCapa(params: PDFReportParams, date: string): string {
   const sc = scoreColor(score);
   const sb = scoreBorder(score);
   const decBg = decisionBg(params.decision ?? "");
-  const ratingLabel = score >= 7 ? "Baixo Risco" : score >= 4 ? "Risco Moderado" : "Alto Risco";
+  const ratingLabel = score >= 8 ? "Baixo Risco" : score >= 5 ? "Risco Moderado" : "Alto Risco";
 
   // Data por extenso (ex: 15 de abril de 2026)
   const now = new Date();
@@ -706,7 +706,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
   const sc = scoreColor(score);
   const sb = scoreBorder(score);
   const decBg = decisionBg(params.decision ?? "");
-  const ratingLabel = score >= 7 ? "Baixo Risco" : score >= 4 ? "Risco Moderado" : "Alto Risco";
+  const ratingLabel = score >= 8 ? "Baixo Risco" : score >= 5 ? "Risco Moderado" : "Alto Risco";
   const isAtiva = (cnpj?.situacaoCadastral ?? "").toUpperCase().includes("ATIVA");
 
   // Info strip values
@@ -778,8 +778,26 @@ function pageSintese(params: PDFReportParams, date: string): string {
     // Strip leading QSA numeric code prefix (e.g. "49-Sócio-Administrador" → "Sócio-Administrador")
     const cleanQual = (s.qualificacao ?? "").replace(/^\d{1,3}[-\s]+/, "").trim();
 
-    const pl = irMap[cpfK] ? fmtMoneyAbr(irMap[cpfK]) : "—";
-    return `<tr><td><b>${esc(s.nome)}</b></td><td style="font-family:'JetBrains Mono',monospace;font-size:11px">${fmtCpf(cpfRaw)}</td><td>${esc(cleanQual)}</td><td style="color:var(--x4)">${fmt(part)}</td><td><b>${pl}</b></td></tr>`;
+    // Patrimônio Líq. do IR; fallback: renda presumida Assertiva ou faixa BDC
+    const plIR = irMap[cpfK];
+    const rendaAss = (s as any).rendaPresumida as string | undefined;
+    const incomeRange = (s as any).estimatedIncomeRange as string | undefined;
+    const assetsRange = (s as any).totalAssetsRange as string | undefined;
+    const pl = plIR
+      ? `<span style="font-weight:700">${fmtMoneyAbr(plIR)}</span>`
+      : rendaAss
+        ? `<span style="color:var(--a5);font-size:10px" title="Renda mensal presumida — Assertiva (sem IR enviado)">~${fmtMoneyAbr(rendaAss)}<span style="font-size:8px;color:var(--x4)">/mês est.</span></span>`
+        : (incomeRange || assetsRange)
+          ? `<span style="color:var(--x4);font-size:10px" title="Faixa estimada — BigDataCorp (sem IR enviado)">${esc(incomeRange ?? assetsRange ?? "—")}</span>`
+          : "—";
+    const obitBadge = (s as any).hasObitIndication
+      ? `<span style="display:inline-block;margin-left:5px;padding:1px 5px;background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;border-radius:3px;font-size:8.5px;font-weight:700;letter-spacing:0.05em;vertical-align:middle">ÓBITO</span>`
+      : "";
+    const cpfStatus = (s as any).taxIdStatus as string | undefined;
+    const cpfBadge = cpfStatus && cpfStatus !== "REGULAR"
+      ? `<span style="display:inline-block;margin-left:5px;padding:1px 5px;background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;border-radius:3px;font-size:8.5px;font-weight:700;letter-spacing:0.05em;vertical-align:middle">CPF ${esc(cpfStatus.replace(/_/g, " "))}</span>`
+      : "";
+    return `<tr><td><b>${esc(s.nome)}</b>${obitBadge}${cpfBadge}</td><td style="font-family:'JetBrains Mono',monospace;font-size:11px">${fmtCpf(cpfRaw)}</td><td>${esc(cleanQual)}</td><td style="color:var(--x4)">${fmt(part)}</td><td>${pl}</td></tr>`;
   }).join("");
 
   // SCR cards
@@ -790,9 +808,9 @@ function pageSintese(params: PDFReportParams, date: string): string {
   const totalNum = numVal(totalDivida);
   const pctVencido = totalNum > 0 && vencNum >= 0 ? ((vencNum / totalNum) * 100).toFixed(1) + "%" : "0,0%";
   const nIfs = scr?.qtdeInstituicoes ?? "—";
-  const alavStr = params.alavancagem != null ? params.alavancagem.toFixed(2) + "x" : "—";
   const fmmNumVal = numVal(d.faturamento?.fmm12m ?? d.faturamento?.mediaAno ?? "0");
   const alavAtual = params.alavancagem ?? (fmmNumVal > 0 ? totalNum / fmmNumVal : 0);
+  const alavStr = alavAtual > 0 ? alavAtual.toFixed(2) + "x" : "—";
 
   // Protestos
   const prot = d.protestos;
@@ -1116,10 +1134,25 @@ function pageSintese(params: PDFReportParams, date: string): string {
     <!-- 5. Sócios -->
     ${stitle("Quadro societário")}
     <table class="soc-tbl">
-      <thead><tr><th>Sócio</th><th>CPF/CNPJ</th><th>Qualificação</th><th>Part.</th><th>Patrim. (IR)</th></tr></thead>
+      <thead><tr><th>Sócio</th><th>CPF/CNPJ</th><th>Qualificação</th><th>Part.</th><th>Patrim. Líq. / Renda Est.</th></tr></thead>
       <tbody>${socRows || `<tr><td colspan="5" style="color:var(--x4);text-align:center">—</td></tr>`}</tbody>
     </table>
     <div class="soc-extra">Capital Social: <b>${fmtMoney(capitalSocial)}</b> · Grupo Econômico: <b>${d.grupoEconomico?.empresas?.length > 0 ? d.grupoEconomico.empresas.length + " empresa(s) identificada(s)" : "Não identificado"}</b></div>
+
+    <!-- 5c. Alertas KYC sócios (óbito / CPF irregular) -->
+    ${(() => {
+      const alertas: string[] = [];
+      if ((d as any).sociosFalecidos?.length) {
+        const nomes = ((d as any).sociosFalecidos as string[]).map(n => `<b>${esc(n)}</b>`).join(", ");
+        alertas.push(`<div class="alert alta" style="margin-top:8px"><span class="atag">CRÍTICO</span> Sócio(s) com indicação de óbito: ${nomes}. Verificar sucessão e situação jurídica da empresa.</div>`);
+      }
+      const sociosIrr = (d.qsa?.quadroSocietario ?? []).filter((s: any) => s.taxIdStatus && s.taxIdStatus !== "REGULAR");
+      if (sociosIrr.length > 0) {
+        const lista = sociosIrr.map((s: any) => `<b>${esc(s.nome)}</b> (${esc(String(s.taxIdStatus).replace(/_/g, " "))})`).join(", ");
+        alertas.push(`<div class="alert mod" style="margin-top:8px"><span class="atag">RESTRITIVO</span> CPF com situação irregular: ${lista}. Consultar Receita Federal.</div>`);
+      }
+      return alertas.join("");
+    })()}
 
     <!-- 5b. Grupo Econômico dos Sócios -->
     ${(() => {
@@ -1150,6 +1183,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
           const hasSCR = e.scrTotal && e.scrTotal !== "—";
           const hasProt = e.protestos && e.protestos !== "—";
           const hasProc = e.processos && e.processos !== "—";
+          const hasVal  = e.valorProcessos && e.valorProcessos !== "—";
           const relacaoLabel = (e.relacao ?? "")
             .replace(/\bRéu\b/gi, "Polo Passivo")
             .replace(/\bAutor\b(?=\s*\(Processo\))/gi, "Polo Ativo");
@@ -1161,6 +1195,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
             <td class="mono" style="color:${hasSCR ? "var(--n9)" : "var(--x4)"}">${hasSCR ? fmtMoneyAbr(e.scrTotal) : "—"}</td>
             <td style="text-align:center;color:${hasProt && e.protestos !== "0" ? "var(--r6)" : "var(--g6)"};font-weight:600">${hasProt ? e.protestos : "—"}</td>
             <td style="text-align:center;color:${hasProc && e.processos !== "0" ? "var(--r6)" : "var(--g6)"};font-weight:600">${hasProc ? e.processos : "—"}</td>
+            <td class="mono" style="color:${hasVal && e.valorProcessos !== "R$ 0,00" ? "var(--r6)" : "var(--x4)"};font-size:var(--fs-tag)">${hasVal ? esc(e.valorProcessos!) : "—"}</td>
           </tr>`;
         }).join("");
 
@@ -1169,7 +1204,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
           <span style="font-weight:500;color:var(--n8);margin-left:auto">${emps.length} empresa${emps.length > 1 ? "s" : ""}</span>
         </div>
         <table class="ge-tbl">
-          <thead><tr><th>Razão Social</th><th>CNPJ</th><th>Relação</th><th>Situação</th><th>SCR</th><th style="text-align:center">Prot.</th><th style="text-align:center">Proc.</th></tr></thead>
+          <thead><tr><th>Razão Social</th><th>CNPJ</th><th>Relação</th><th>Situação</th><th>SCR</th><th style="text-align:center">Prot.</th><th style="text-align:center">Proc.</th><th style="text-align:right">Valor Proc.</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>`;
       }).join("");
@@ -1230,6 +1265,40 @@ function pageSintese(params: PDFReportParams, date: string): string {
           </div>
         </div>
       </div>
+      ${(() => {
+        const sociosComRisco = (d.qsa?.quadroSocietario ?? []).filter((s: any) =>
+          (s.processosTotal ?? 0) > 0 || (s.protestosSocioQtd ?? 0) > 0
+        );
+        if (!sociosComRisco.length) return "";
+        const rows = sociosComRisco.map((s: any) => {
+          const temProt = (s.protestosSocioQtd ?? 0) > 0;
+          const temProc = (s.processosTotal ?? 0) > 0;
+          const val = s.protestosSocioValor ?? 0;
+          const valStr = val > 0 ? `R$ ${val.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : "—";
+          return `<tr>
+            <td><b>${esc(s.nome)}</b></td>
+            <td style="text-align:center;font-weight:700;color:${temProt ? "var(--r6)" : "var(--g6)"}">${s.protestosSocioQtd ?? 0}</td>
+            <td style="text-align:right;color:${temProt ? "var(--r6)" : "var(--x4)"}" class="mono">${valStr}</td>
+            <td style="text-align:center;font-weight:700;color:${temProc ? "var(--r6)" : "var(--g6)"}">${s.processosTotal ?? 0}</td>
+            <td style="text-align:center;color:${(s.processosPassivo ?? 0) > 0 ? "var(--r6)" : "var(--x7)"}">${s.processosPassivo ?? 0}</td>
+            <td style="text-align:right;color:var(--x5);font-size:var(--fs-tag)" class="mono">${s.processosValorTotal ?? "—"}</td>
+          </tr>`;
+        }).join("");
+        return `<div style="margin-top:10px">
+          <div class="label" style="font-size:var(--fs-label);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--x4);margin-bottom:6px">Sócios — Processos & Protestos</div>
+          <table class="ge-tbl">
+            <thead><tr>
+              <th>Sócio</th>
+              <th style="text-align:center">Prot. Qtd</th>
+              <th style="text-align:right">Prot. Valor</th>
+              <th style="text-align:center">Proc. Total</th>
+              <th style="text-align:center">Polo Passivo</th>
+              <th style="text-align:right">Valor Est.</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+      })()}
       <div style="margin-top:8px">
         <div class="label" style="font-size:var(--fs-label);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--x4);margin-bottom:4px">CCF — Cheques Sem Fundo</div>
         ${ccfBlock}

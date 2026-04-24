@@ -123,12 +123,14 @@ export default function ReviewStep({ data, onComplete, onBack, onDataChange }: R
     if (!cnpj) { setBureauMsg("CNPJ não encontrado nos dados."); setBureauStatus("error"); return; }
     setBureauStatus("loading"); setBureauMsg("");
     try {
+      console.log("[bureaus] reconsulta BDC + Assertiva + demais bureaus...");
       const res = await fetch("/api/bureaus", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cnpj, data: form }),
       });
       const json = await res.json();
+      console.log(`[bureaus] resposta: success=${json.success} | bureaus=${Object.keys(json.bureaus ?? {}).join(",")} | mock=${Object.entries(json.bureaus ?? {}).filter(([,v]: any) => v?.mock).map(([k]) => k).join(",") || "nenhum"}`);
       if (json.success && json.merged) {
         setForm(prev => ({ ...prev, ...json.merged }));
         const consultados: string[] = json.merged?.bureausConsultados || [];
@@ -171,7 +173,7 @@ export default function ReviewStep({ data, onComplete, onBack, onDataChange }: R
   const addSocio = () => setForm(p => ({ ...p, contrato: { ...p.contrato, socios: [...p.contrato.socios, { nome: "", cpf: "", participacao: "", qualificacao: "" }] } }));
   const removeSocio = (i: number) => setForm(p => {
     const s = p.contrato.socios.filter((_, idx) => idx !== i);
-    return { ...p, contrato: { ...p.contrato, socios: s.length > 0 ? s : [{ nome: "", cpf: "", participacao: "", qualificacao: "" }] } };
+    return { ...p, contrato: { ...p.contrato, socios: s } };
   });
 
   // ── Faturamento setters ───────────────────────────────────────────────────
@@ -251,10 +253,34 @@ export default function ReviewStep({ data, onComplete, onBack, onDataChange }: R
     faturamento:avaliarQualidade("faturamento",form.faturamento as unknown as Record<string, unknown>),
     scr:        avaliarQualidade("scr",        form.scr        as unknown as Record<string, unknown>),
   };
+
+  // Empresa nova: se idadeAnos < 2, a análise vai reprovar no pré-requisito de idade
+  // independentemente do faturamento — não bloquear o botão por faturamento ausente.
+  const idadeAnosReview = (() => {
+    const da = form.cnpj?.dataAbertura ?? "";
+    let ms = 0;
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(da)) {
+      const [d, m, a] = da.split("/").map(Number);
+      ms = Date.now() - new Date(a, m - 1, d).getTime();
+    } else if (/^\d{2}\/\d{4}$/.test(da)) {
+      const [m, a] = da.split("/").map(Number);
+      ms = Date.now() - new Date(a, m - 1, 1).getTime();
+    } else if (/^\d{4}$/.test(da)) {
+      ms = Date.now() - new Date(Number(da), 0, 1).getTime();
+    }
+    return ms > 0 ? ms / (1000 * 60 * 60 * 24 * 365.25) : null;
+  })();
+  const empresaNova = idadeAnosReview !== null && idadeAnosReview < 2;
+
+  // Se empresa nova, rebaixa faturamento de "error" → "warning" para desbloqueio
+  const qualityMapEfetivo = empresaNova && qualityMap.faturamento.score === "error"
+    ? { ...qualityMap, faturamento: { ...qualityMap.faturamento, score: "warning" as const } }
+    : qualityMap;
+
   const goodCount    = Object.values(qualityMap).filter(q => q.score === "good").length;
   const warningCount = Object.values(qualityMap).filter(q => q.score === "warning").length;
   const errorCount   = Object.values(qualityMap).filter(q => q.score === "error").length;
-  const { pode, motivos } = podeAvancar(qualityMap);
+  const { pode, motivos } = podeAvancar(qualityMapEfetivo);
   const avisos = getAvisos(qualityMap);
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -305,6 +331,16 @@ export default function ReviewStep({ data, onComplete, onBack, onDataChange }: R
         </div>
 
         {/* Barra de status */}
+        {empresaNova && qualityMap.faturamento.score === "error" && (
+          <div style={{ padding: "10px 24px", background: "#eff6ff", borderTop: "1px solid #bfdbfe" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <AlertTriangle size={13} style={{ color: "#2563eb", flexShrink: 0 }} />
+              <p style={{ fontSize: "11px", fontWeight: 600, color: "#1d4ed8", margin: 0 }}>
+                Empresa com menos de 2 anos — faturamento ausente não bloqueia. A análise irá reprovar no critério de idade mínima.
+              </p>
+            </div>
+          </div>
+        )}
         {!pode && !forcarAvancar ? (
           <div style={{ padding: "12px 24px", background: "#fef2f2", borderTop: "1px solid #fecaca" }}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>

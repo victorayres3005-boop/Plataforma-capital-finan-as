@@ -729,7 +729,7 @@ function ParecerContent() {
   const showParams = true;
   const selectedD = DECISOES.find(d => d.value === decisao);
   const rating = ratingAnalista ?? collection?.rating ?? null;
-  const ratingColor = rating != null ? (rating >= 7 ? "#16a34a" : rating >= 4 ? "#d97706" : "#dc2626") : "#94a3b8";
+  const ratingColor = rating != null ? (rating >= 8 ? "#16a34a" : rating >= 5 ? "#d97706" : "#dc2626") : "#94a3b8";
 const ratingIsAnalista = ratingAnalista != null;
   const companyName = collection?.company_name || collection?.label || "Empresa";
   const cnpj = collection?.cnpj || "—";
@@ -755,8 +755,8 @@ const ratingIsAnalista = ratingAnalista != null;
       };
       const variant = decVariant(decisao);
       const ratingVariant: "success" | "warn" | "danger" | null = rating == null
-        ? null : rating >= 7 ? "success" : rating >= 4 ? "warn" : "danger";
-      const riskLabel = rating != null ? (rating >= 7 ? "BAIXO RISCO" : rating >= 4 ? "RISCO MODERADO" : "ALTO RISCO") : "";
+        ? null : rating >= 8 ? "success" : rating >= 5 ? "warn" : "danger";
+      const riskLabel = rating != null ? (rating >= 8 ? "BAIXO RISCO" : rating >= 5 ? "RISCO MODERADO" : "ALTO RISCO") : "";
 
       // Comparativo rows
       const rows: { label: string; pleito: string; aprovado: string }[] = [];
@@ -1262,12 +1262,12 @@ const ratingIsAnalista = ratingAnalista != null;
             </div>
             {ratingAnalista != null && (
               <div style={{
-                background: ratingAnalista >= 7 ? "#f0fdf4" : ratingAnalista >= 4 ? "#fffbeb" : "#fff1f2",
-                border: `2px solid ${ratingAnalista >= 7 ? "#86efac" : ratingAnalista >= 4 ? "#fcd34d" : "#fca5a5"}`,
+                background: ratingAnalista >= 8 ? "#f0fdf4" : ratingAnalista >= 5 ? "#fffbeb" : "#fff1f2",
+                border: `2px solid ${ratingAnalista >= 8 ? "#86efac" : ratingAnalista >= 5 ? "#fcd34d" : "#fca5a5"}`,
                 borderRadius: 14, padding: "10px 20px", textAlign: "center", flexShrink: 0,
               }}>
-                <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", margin: 0, color: ratingAnalista >= 7 ? "#16a34a" : ratingAnalista >= 4 ? "#d97706" : "#dc2626" }}>Comitê</p>
-                <p style={{ fontSize: 28, fontWeight: 900, margin: 0, lineHeight: 1.1, color: ratingAnalista >= 7 ? "#16a34a" : ratingAnalista >= 4 ? "#d97706" : "#dc2626" }}>
+                <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", margin: 0, color: ratingAnalista >= 8 ? "#16a34a" : ratingAnalista >= 5 ? "#d97706" : "#dc2626" }}>Comitê</p>
+                <p style={{ fontSize: 28, fontWeight: 900, margin: 0, lineHeight: 1.1, color: ratingAnalista >= 8 ? "#16a34a" : ratingAnalista >= 5 ? "#d97706" : "#dc2626" }}>
                   {ratingAnalista.toFixed(1)}<span style={{ fontSize: 13, fontWeight: 500 }}>/10</span>
                 </p>
               </div>
@@ -1279,8 +1279,8 @@ const ratingIsAnalista = ratingAnalista != null;
             {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => {
               const active = ratingAnalista != null && Math.floor(ratingAnalista) === n && ratingAnalista % 1 === 0;
               const inRange = ratingAnalista != null && ratingAnalista >= n && ratingAnalista < n + 1;
-              const color = n >= 7 ? "#16a34a" : n >= 4 ? "#d97706" : "#dc2626";
-              const lightBg = n >= 7 ? "#f0fdf4" : n >= 4 ? "#fffbeb" : "#fff1f2";
+              const color = n >= 8 ? "#16a34a" : n >= 5 ? "#d97706" : "#dc2626";
+              const lightBg = n >= 8 ? "#f0fdf4" : n >= 5 ? "#fffbeb" : "#fff1f2";
               return (
                 <button key={n} onClick={() => setRatingAnalista(active ? null : n)}
                   style={{
@@ -1316,7 +1316,7 @@ const ratingIsAnalista = ratingAnalista != null;
                 style={{
                   width: 120, padding: "9px 12px", fontSize: 16, fontWeight: 700,
                   border: "1.5px solid #e2e8f0", borderRadius: 10, outline: "none",
-                  color: ratingAnalista != null ? (ratingAnalista >= 7 ? "#16a34a" : ratingAnalista >= 4 ? "#d97706" : "#dc2626") : "#94a3b8",
+                  color: ratingAnalista != null ? (ratingAnalista >= 8 ? "#16a34a" : ratingAnalista >= 5 ? "#d97706" : "#dc2626") : "#94a3b8",
                   background: "#fafafa", textAlign: "center",
                 }}
                 onFocus={e => (e.target.style.borderColor = "#203b88")}

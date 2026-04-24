@@ -30,6 +30,16 @@ const P = {
   wh:  [255, 255, 255] as [number,number,number],
 };
 
+const GRUPO_LABELS: Record<string, string> = {
+  "01": "BENS IMÓVEIS",
+  "02": "VEÍCULOS E EMBARCAÇÕES",
+  "03": "PARTICIPAÇÕES SOCIETÁRIAS",
+  "04": "APLICAÇÕES / INVESTIMENTOS",
+  "05": "CRÉDITOS E RECEBÍVEIS",
+  "06": "DEPÓSITOS BANCÁRIOS",
+  "07": "FUNDOS DE INVESTIMENTO",
+};
+
 const mo = (v: string | number | null | undefined): string => {
   if (v == null || v === "") return "—";
   const n = typeof v === "number" ? v : parseMoneyToNumber(String(v));
@@ -203,6 +213,109 @@ export function renderSocios(ctx: PdfCtx): void {
     }
     const plv = parseMoneyToNumber(ir.patrimonioLiquido || "0");
     if (plv > 0) alertRow("ok", `Sem débitos com a Receita Federal`);
+
+    // ─── IR detail tables ──────────────────────────────────────────────
+    const bensArr    = ir.bensEDireitos    ?? [];
+    const divsArr    = ir.dividasOnusReais ?? [];
+    const pagsArr    = ir.pagamentosEfetuados ?? [];
+    const totalBensN2 = parseMoneyToNumber(ir.totalBensDireitos || "0");
+    const totalDivN2  = parseMoneyToNumber(ir.dividasOnus || "0");
+
+    const ROW_H = 5.5;
+
+    const tblTitle = (
+      label: string,
+      totalVal: number | null,
+      bg: [number,number,number],
+      bd: [number,number,number],
+      fg: [number,number,number],
+    ) => {
+      checkPageBreak(ctx, 8);
+      doc.setFillColor(...bg);
+      doc.setDrawColor(...bd);
+      doc.setLineWidth(0.25);
+      doc.roundedRect(ML, pos.y, CW, 7, 1, 1, "FD");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(6.5);
+      doc.setTextColor(...fg);
+      doc.text(label, ML + 4, pos.y + 4.6);
+      if (totalVal !== null) doc.text(mo(totalVal), ML + CW - 3, pos.y + 4.6, { align: "right" });
+      pos.y += 7.5;
+    };
+
+    const subHeader = (label: string) => {
+      checkPageBreak(ctx, ROW_H);
+      doc.setFillColor(...P.n0);
+      doc.rect(ML, pos.y, CW, ROW_H, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(5.5);
+      doc.setTextColor(...P.n7);
+      doc.text(label, ML + 4, pos.y + 3.8);
+      pos.y += ROW_H;
+    };
+
+    const tblRow = (desc: string, valStr: string, rowIdx: number) => {
+      checkPageBreak(ctx, ROW_H);
+      if (rowIdx % 2 === 0) {
+        doc.setFillColor(...P.x0);
+        doc.rect(ML, pos.y, CW, ROW_H, "F");
+      }
+      const truncDesc = desc.length > 62 ? desc.slice(0, 60) + "…" : desc;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(6);
+      doc.setTextColor(...P.x7);
+      doc.text(truncDesc || "—", ML + 4, pos.y + 3.8);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(...P.x9);
+      doc.text(valStr, ML + CW - 3, pos.y + 3.8, { align: "right" });
+      pos.y += ROW_H;
+    };
+
+    // ── Tabela 1: Bens e Direitos ──
+    if (bensArr.length > 0) {
+      const bensTitleBg: [number,number,number] = totalDivN2 > totalBensN2 ? P.r0 : totalBensN2 > 0 ? P.g0 : P.n0;
+      const bensTitleBd: [number,number,number] = totalDivN2 > totalBensN2 ? P.r1 : totalBensN2 > 0 ? P.g1 : P.n1;
+      const bensTitleFg: [number,number,number] = totalDivN2 > totalBensN2 ? P.r6 : totalBensN2 > 0 ? P.g6 : P.n7;
+      tblTitle("BENS E DIREITOS", totalBensN2, bensTitleBg, bensTitleBd, bensTitleFg);
+
+      // Agrupar por grupo
+      const grupoMap = new Map<string, typeof bensArr>();
+      for (const b of bensArr) {
+        const gKey = String(b.grupo || "").trim().padStart(2, "0");
+        if (!grupoMap.has(gKey)) grupoMap.set(gKey, []);
+        grupoMap.get(gKey)!.push(b);
+      }
+      for (const entry of Array.from(grupoMap.entries())) {
+        const gKey = entry[0];
+        const items = entry[1];
+        subHeader(GRUPO_LABELS[gKey] ?? `GRUPO ${gKey}`);
+        items.forEach((b, i) => tblRow(b.discriminacao, mo(b.valor_atual), i));
+      }
+      pos.y += 3;
+    }
+
+    // ── Tabela 2: Dívidas e Ônus Reais ──
+    if (divsArr.length > 0) {
+      const divTotal = divsArr.reduce((s, d) => s + (d.situacao_atual ?? 0), 0);
+      tblTitle("DÍVIDAS E ÔNUS REAIS", divTotal, P.r0, P.r1, P.r6);
+      divsArr.forEach((d, i) => tblRow(d.discriminacao, mo(d.situacao_atual), i));
+      pos.y += 3;
+    }
+
+    // ── Tabela 3: Pagamentos Relevantes ──
+    const pagsRelevantes = pagsArr
+      .filter(p => (p.valor_pago ?? 0) > 10000)
+      .sort((a, b) => (b.valor_pago ?? 0) - (a.valor_pago ?? 0))
+      .slice(0, 5);
+
+    if (pagsRelevantes.length > 0) {
+      tblTitle("PAGAMENTOS RELEVANTES (> R$ 10k)", null, P.n0, P.n1, P.n7);
+      pagsRelevantes.forEach((p, i) => {
+        const label = p.nome_beneficiario || p.descricao || "—";
+        tblRow(label, mo(p.valor_pago), i);
+      });
+      pos.y += 3;
+    }
   }
 
   pos.y += 3;

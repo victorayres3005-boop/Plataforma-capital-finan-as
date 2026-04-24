@@ -14,6 +14,8 @@ import {
 import Link from "next/link";
 import { useAuth } from "@/lib/useAuth";
 import { deleteCollectionFiles } from "@/lib/storage";
+import OnboardingTooltip from "@/components/OnboardingTooltip";
+import { useTooltips } from "@/lib/useTooltips";
 
 // ── Logo ──
 function Logo() {
@@ -286,11 +288,14 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
     try {
       const extractedData: Record<string, Record<string, unknown>> = {};
       for (const doc of docs) { if (doc.extracted_data) extractedData[doc.type] = doc.extracted_data; }
-      let analysis: Record<string, unknown> | null = null;
-      try {
-        const res = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ data: extractedData }) });
-        if (res.ok) { const json = await res.json(); if (json.success) analysis = json.analysis; }
-      } catch { /* sem análise IA */ }
+      // Usa análise salva — preserva o rating V2 original e evita re-chamar a IA sem o scoreV2
+      let analysis: Record<string, unknown> | null = (col.ai_analysis as Record<string, unknown> | null) ?? null;
+      if (!analysis) {
+        try {
+          const res = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ data: extractedData }) });
+          if (res.ok) { const json = await res.json(); if (json.success) analysis = json.analysis; }
+        } catch { /* sem análise IA */ }
+      }
       const html = gerarRelatorioHTML(col, extractedData, analysis);
       const blob = new Blob([html], { type: "text/html;charset=utf-8" });
       const url = URL.createObjectURL(blob);
@@ -1176,6 +1181,7 @@ function HistoricoContent() {
   const [notifications, setNotifications] = useState<{ id: string; message: string; read: boolean; created_at: string }[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const { user, loading: authLoading, signOut } = useAuth();
+  const { isSeen, markSeen } = useTooltips();
   const searchParams = useSearchParams();
   const highlightId = searchParams.get("highlight");
   const filterRef = useRef<HTMLDivElement>(null);
@@ -1635,6 +1641,13 @@ function HistoricoContent() {
               )}
             </div>
             <div className="relative" ref={filterRef}>
+              <OnboardingTooltip
+                id="historico-filtros-rating"
+                message="Use os filtros para encontrar análises por status, decisão (Aprovado/Reprovado), setor ou período. O badge A/B/C/D em cada card é o rating do Score V2 — A=baixo risco, D=alto risco."
+                position="bottom"
+                isSeen={isSeen("historico-filtros-rating")}
+                onSeen={() => markSeen("historico-filtros-rating")}
+              >
               <button
                 onClick={() => setShowFilters(p => !p)}
                 className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium bg-white border border-[#E2E8F0] rounded-lg hover:border-[#203b88]/40 transition-colors"
@@ -1646,6 +1659,7 @@ function HistoricoContent() {
                   <span className="w-4 h-4 rounded-full bg-[#203b88] text-white text-[10px] font-bold flex items-center justify-center">{activeFilters}</span>
                 )}
               </button>
+              </OnboardingTooltip>
               {showFilters && (
                 <div className="absolute left-0 top-11 bg-white rounded-xl border border-[#E2E8F0] shadow-lg z-20 w-72 p-4 space-y-4">
                   {/* Status */}
