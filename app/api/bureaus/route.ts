@@ -217,7 +217,7 @@ export async function POST(req: NextRequest) {
         await sb.from("api_usage_logs").insert({
           collection_id: collection_id ?? null,
           cnpj: cnpj ?? null,
-          company_name: (data?.cnpj as Record<string, string>)?.razaoSocial ?? null,
+          company_name: (data?.cnpj as unknown as Record<string, string>)?.razaoSocial ?? null,
           log_type: "bureau",
           bureau_calls,
         });
