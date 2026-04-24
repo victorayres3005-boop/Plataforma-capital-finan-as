@@ -231,6 +231,45 @@ export function mergeBureauResults(
       processos = bdc.processos;
     }
 
+    // Grupo econômico via BDC business_relationships (QSA real por sócio)
+    // Usa empresas já buscadas por consultarSocios — sem chamadas extras
+    if (bdc.socios?.length) {
+      const cnpjPrincipal = (data.cnpj?.cnpj ?? "").replace(/\D/g, "");
+      const existingGE = merged.grupoEconomico ?? data.grupoEconomico;
+      const cnpjsExistentes = new Set(
+        (existingGE?.empresas ?? []).map(e => e.cnpj.replace(/\D/g, "")).filter(Boolean)
+      );
+      const novasEmpresas: typeof existingGE.empresas = [];
+      for (const socio of bdc.socios) {
+        for (const emp of socio.empresas ?? []) {
+          const cnpjNum = emp.cnpj.replace(/\D/g, "");
+          if (!cnpjNum || cnpjNum === cnpjPrincipal) continue;
+          if (cnpjsExistentes.has(cnpjNum)) continue;
+          cnpjsExistentes.add(cnpjNum);
+          novasEmpresas.push({
+            razaoSocial: emp.nome || "—",
+            cnpj:        cnpjNum,
+            relacao:     emp.relacao || "via Sócio",
+            scrTotal:    "—",
+            protestos:   "—",
+            processos:   "—",
+            socioOrigem: socio.nome || socio.cpf,
+            cpfSocio:    socio.cpf,
+            participacao: "",
+            situacao:    "ATIVA",
+          });
+        }
+      }
+      if (novasEmpresas.length > 0) {
+        merged.grupoEconomico = {
+          empresas: [...(existingGE?.empresas ?? []), ...novasEmpresas],
+          alertaParentesco: existingGE?.alertaParentesco,
+          parentescosDetectados: existingGE?.parentescosDetectados,
+        };
+        console.log(`[merger] BDC business_relationships: ${novasEmpresas.length} empresa(s) adicionada(s) ao grupo econômico`);
+      }
+    }
+
     // Parentesco via MotherName (BDC KYC sócios)
     if (bdc.alertaParentesco && bdc.parentescosDetectados?.length) {
       const existingGE = merged.grupoEconomico ?? data.grupoEconomico;
@@ -303,43 +342,6 @@ export function mergeBureauResults(
       merged.bdcLawsuitsDistribution = bdc.ownersLawsuitsDistribution;
     }
 
-    // Grupo econômico: adiciona empresas dos sócios com processos BDC
-    if (bdc.grupoEconomicoProcessos?.length) {
-      const procMap = new Map(bdc.grupoEconomicoProcessos.map(e => [e.cnpj.replace(/\D/g, ""), e]));
-      const existingGE = merged.grupoEconomico ?? data.grupoEconomico;
-      const cnpjsExistentes = new Set((existingGE?.empresas ?? []).map(e => e.cnpj.replace(/\D/g, "")));
-
-      // Enriquece empresas já existentes com valorProcessos
-      const empresasEnriquecidas = (existingGE?.empresas ?? []).map(emp => {
-        const match = procMap.get(emp.cnpj.replace(/\D/g, ""));
-        if (!match) return emp;
-        return {
-          ...emp,
-          processos: emp.processos === "—" ? (match.processosTotal > 0 ? String(match.processosTotal) : "0") : emp.processos,
-          valorProcessos: match.valorTotalEstimado,
-        };
-      });
-
-      // Adiciona empresas encontradas pelo BDC que não estão ainda na lista
-      const novasEmpresas = bdc.grupoEconomicoProcessos
-        .filter(e => !cnpjsExistentes.has(e.cnpj.replace(/\D/g, "")))
-        .map(e => ({
-          razaoSocial: e.nome || "—",
-          cnpj:         e.cnpj,
-          relacao:      e.via,
-          scrTotal:     "—",
-          protestos:    "—",
-          processos:    e.processosTotal > 0 ? String(e.processosTotal) : "0",
-          valorProcessos: e.valorTotalEstimado,
-          socioOrigem:  e.via.replace(/^Via\s+/i, ""),
-        }));
-
-      merged.grupoEconomico = {
-        empresas: [...empresasEnriquecidas, ...novasEmpresas],
-        alertaParentesco: existingGE?.alertaParentesco,
-        parentescosDetectados: existingGE?.parentescosDetectados,
-      };
-    }
   }
 
   // ── Assertiva ─────────────────────────────────────────────────────────────
@@ -430,6 +432,23 @@ export function mergeBureauResults(
           bensImoveis:         aS.bensImoveis?.length  ? aS.bensImoveis  : (sc as any).bensImoveis,
         };
       });
+    }
+  }
+
+  // BDC Protestos — enriquece datas ausentes do CreditHub ou serve como fallback adicional
+  const bdcProtestos = results.bigdatacorp?.protestos;
+  if (bdcProtestos?.detalhes.length) {
+    if (protestos) {
+      // CH tem protestos mas sem datas — substitui detalhes pelos do BDC (mesma fonte CRC, mais completo)
+      const chSemDatas = protestos.detalhes.every(d => !d.data);
+      if (chSemDatas) {
+        protestos = { ...protestos, detalhes: bdcProtestos.detalhes };
+        console.log("[merger] BDC protestos: datas enriquecidas (CH não tinha datas)");
+      }
+    } else {
+      // Nenhuma outra fonte trouxe protestos — usa BDC como fallback
+      protestos = bdcProtestos;
+      console.log("[merger] BDC protestos: usado como fallback");
     }
   }
 

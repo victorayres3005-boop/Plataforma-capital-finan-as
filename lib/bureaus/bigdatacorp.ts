@@ -1,4 +1,4 @@
-import type { CNPJData, QSASocio, ProcessosData, ParentescoDetectado } from "@/types";
+import type { CNPJData, QSASocio, ProcessosData, ProtestosData, ProtestoDetalhe, ParentescoDetectado } from "@/types";
 
 const BDC_BASE = "https://plataforma.bigdatacorp.com.br";
 
@@ -106,6 +106,7 @@ export interface BigDataCorpResult {
   cnpjEnrichment?: Partial<CNPJData>;
   qsaEnrichment?: { quadroSocietario: QSASocio[] };
   processos?: ProcessosData;
+  protestos?: ProtestosData;
   // Novos: datasets owners_kyc, owners_lawsuits_distribution_data, interests_and_behaviors
   ownersKyc?: OwnerKycData[];
   ownersLawsuitsDistribution?: OwnerLawsuitsDistribution;
@@ -141,6 +142,7 @@ export async function consultarEmpresa(cnpj: string): Promise<BigDataCorpResult>
           "registration_data",
           "relationships",
           "processes",
+          // "protests", — não habilitado na conta BDC atual (código -109). Habilitar via BDC Center.
           "economic_group_relationships",
           "owners_kyc",
           "owners_lawsuits_distribution_data",
@@ -490,6 +492,7 @@ export function mapearParaExtractedData(r: Record<string, unknown>, rawBody?: Re
   cnpjEnrichment?: Partial<CNPJData>;
   qsaEnrichment?: { quadroSocietario: QSASocio[] };
   processos?: ProcessosData;
+  protestos?: ProtestosData;
   ownersKyc?: OwnerKycData[];
   ownersLawsuitsDistribution?: OwnerLawsuitsDistribution;
   interestsAndBehaviors?: InterestsAndBehaviors;
@@ -597,6 +600,45 @@ export function mapearParaExtractedData(r: Record<string, unknown>, rawBody?: Re
       ] as { tipo: string; qtd: string; pct: string }[]).filter(d => Number(d.qtd) > 0),
       bancarios: [], fiscais: [], fornecedores: [], outros: [],
     };
+  }
+
+  // ── protests → protestos ──────────────────────────────────────────────────
+  const protestsSec = (r.Protests ?? getSection(r, "protests")) as Record<string, unknown> | undefined;
+  if (protestsSec) {
+    const total = _num(protestsSec.TotalProtests ?? protestsSec.Total ?? protestsSec.Count);
+    const protestsArr = Array.isArray(protestsSec.Protests)
+      ? (protestsSec.Protests as Record<string, unknown>[])
+      : (Array.isArray(protestsSec.Items) ? protestsSec.Items as Record<string, unknown>[] : []);
+    if (total > 0 || protestsArr.length > 0) {
+      if (protestsArr.length > 0) {
+        console.log(`[bigdatacorp] protests dataset keys[0]: ${Object.keys(protestsArr[0]).join(",")}`);
+      }
+      let totalValue = 0;
+      const detalhes: ProtestoDetalhe[] = protestsArr.map(p => {
+        const val = _num(p.Value ?? p.ProtestValue ?? p.Amount ?? p.Valor);
+        totalValue += val;
+        const rawDate = _str(p.ProtestDate ?? p.Date ?? p.ProtestDateTime ?? p.Data ?? p.DataProtesto);
+        return {
+          data:         rawDate ? _dateStr(rawDate) : "",
+          credor:       _str(p.CreditorName ?? p.Creditor ?? p.NotaryName ?? p.CartorioNome ?? p.Cartorio),
+          valor:        val > 0 ? _moeda(val) : "R$ 0,00",
+          regularizado: false,
+          apresentante: _str(p.CreditorName ?? p.Creditor ?? p.Apresentante),
+          municipio:    _str(p.City ?? p.Cidade ?? p.NotaryCity ?? p.Municipio),
+          uf:           _str(p.State ?? p.UF ?? p.NotaryState ?? p.Estado),
+          especie:      _str(p.DocumentType ?? p.TipoDocumento ?? p.Especie),
+          numero:       _str(p.ProtestNumber ?? p.Number ?? p.Numero),
+        };
+      });
+      out.protestos = {
+        vigentesQtd:        String(total || detalhes.length),
+        vigentesValor:      totalValue > 0 ? _moeda(totalValue) : "R$ 0,00",
+        regularizadosQtd:   "0",
+        regularizadosValor: "R$ 0,00",
+        detalhes,
+      };
+      console.log(`[bigdatacorp] protestos: ${detalhes.length} título(s), total ${out.protestos.vigentesValor}`);
+    }
   }
 
   // ── owners_kyc → ownersKyc ─────────────────────────────────────────────────

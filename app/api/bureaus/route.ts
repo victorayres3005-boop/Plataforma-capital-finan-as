@@ -8,7 +8,7 @@ import { consultarSPC } from "@/lib/bureaus/spc";
 import { consultarQuod } from "@/lib/bureaus/quod";
 import { consultarBrasilApi } from "@/lib/bureaus/brasilapi";
 import { consultarSancoes } from "@/lib/bureaus/transparencia";
-import { consultarEmpresa as consultarBigDataCorp, consultarSocios as consultarBDCSocios, consultarProcessosGrupoEconomico } from "@/lib/bureaus/bigdatacorp";
+import { consultarEmpresa as consultarBigDataCorp, consultarSocios as consultarBDCSocios } from "@/lib/bureaus/bigdatacorp";
 import { consultarEmpresa as consultarAssertiva, consultarSocios as consultarSociosAssertiva } from "@/lib/bureaus/assertiva";
 import { mergeBureauResults } from "@/lib/bureaus/merger";
 import { enrichProcessosWithDataJud } from "@/lib/bureaus/datajud";
@@ -133,14 +133,6 @@ export async function POST(req: NextRequest) {
         console.warn(`[bureaus] BigDataCorp: parentesco detectado: ${s.parentescosDetectados.map(p => `${p.socio1} + ${p.socio2}`).join(" | ")}`);
       }
 
-      // Enriquece grupo econômico com processos de cada empresa vinculada aos sócios
-      if (bigdatacorpResult.success && s.socios.length > 0) {
-        const grupoProc = await consultarProcessosGrupoEconomico(s.socios, cnpj);
-        if (grupoProc.length > 0) {
-          bigdatacorpResult = { ...bigdatacorpResult, grupoEconomicoProcessos: grupoProc };
-          console.log(`[bureaus] BigDataCorp grupo econômico: ${grupoProc.length} empresa(s) com processos consultados`);
-        }
-      }
     }
 
     // Mescla socios Assertiva no resultado da empresa

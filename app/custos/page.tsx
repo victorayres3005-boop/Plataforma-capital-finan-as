@@ -94,14 +94,14 @@ function fmtDate(iso: string): string {
   return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
-function calcCustoBureau(calls: BureauCalls, prices: BureauPrices, usdBrl: number): number {
+function calcCustoBureau(calls: BureauCalls, prices: BureauPrices): number {
   return (
     calls.credithub * prices.credithub_empresa +
     calls.assertiva_pj * prices.assertiva_pj +
     calls.assertiva_pf * prices.assertiva_pf +
     calls.bdc_empresa * prices.bdc_empresa +
     calls.bdc_socio * prices.bdc_socio
-  ) * usdBrl;
+  );
 }
 
 function calcCustoIA(
@@ -247,7 +247,7 @@ export default function CustosPage() {
         company_name: ref.company_name ?? "—",
         cnpj: ref.cnpj ?? "—",
         created_at: ref.created_at,
-        custo_bureau: calcCustoBureau(bureauCalls, prices, usdBrl),
+        custo_bureau: calcCustoBureau(bureauCalls, prices),
         custo_ia: calcCustoIA(geminiTokens, prices, usdBrl),
         get total() { return this.custo_bureau + this.custo_ia; },
         bureauCalls,
@@ -266,7 +266,7 @@ export default function CustosPage() {
         company_name: s.company_name ?? "—",
         cnpj: s.cnpj ?? "—",
         created_at: s.created_at,
-        custo_bureau: calcCustoBureau(bureauCalls, prices, usdBrl),
+        custo_bureau: calcCustoBureau(bureauCalls, prices),
         custo_ia: 0,
         get total() { return this.custo_bureau + this.custo_ia; },
         bureauCalls,
@@ -458,12 +458,12 @@ export default function CustosPage() {
             { label: "BDC Sócio",    key: "bdc_socio"    as const, price: prices.bdc_socio },
           ].map(({ label, key, price }) => {
             const totalCalls = filtered.reduce((s, r) => s + (r.bureauCalls[key] ?? 0), 0);
-            const custoTotal = totalCalls * price * usdBrl;
+            const custoTotal = totalCalls * price;
             return (
               <div key={key} style={{ padding: "12px 14px", background: "#f9fafb", borderRadius: "8px" }}>
                 <div style={{ fontSize: "11px", color: "#9ca3af", marginBottom: "4px" }}>{label}</div>
                 <div style={{ fontSize: "16px", fontWeight: 700, color: "#111827" }}>{fmtBRL(custoTotal)}</div>
-                <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "2px" }}>{totalCalls} consultas · {fmtBRL(price * usdBrl)}/un</div>
+                <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "2px" }}>{totalCalls} consultas · {fmtBRL(price)}/un</div>
               </div>
             );
           })}
@@ -534,8 +534,8 @@ export default function CustosPage() {
                                 ].map(({ label, val, price }) => (
                                   <div key={label} style={{ display: "flex", gap: "16px", marginBottom: "4px", color: val > 0 ? "#374151" : "#d1d5db" }}>
                                     <span style={{ minWidth: "120px" }}>{label}</span>
-                                    <span>{val} × {fmtBRL(price * usdBrl)}</span>
-                                    <span style={{ fontWeight: 600 }}>{fmtBRL(val * price * usdBrl)}</span>
+                                    <span>{val} × {fmtBRL(price)}</span>
+                                    <span style={{ fontWeight: 600 }}>{fmtBRL(val * price)}</span>
                                   </div>
                                 ))}
                               </div>

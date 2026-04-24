@@ -6,7 +6,6 @@ import type {
   GrupoEconomicoData, ParentescoDetectado,
 } from "@/types";
 import { protestosSave, protestosLoad, processosSave, processosLoad, ccfSave, ccfLoad } from "@/lib/bureaus/cache";
-import { buscarEmpresasDataJud } from "@/lib/bureaus/datajud";
 
 const CREDITHUB_API_URL = process.env.CREDITHUB_API_URL || "";
 const CREDITHUB_API_KEY = process.env.CREDITHUB_API_KEY || "";
@@ -197,14 +196,15 @@ function parseProtestos(d: any): ProtestosData {
     };
 
     if (protestosInner.length > 0) {
-      protestosInner.forEach((p: any) => {
+      protestosInner.forEach((p: any, idx: number) => {
+        if (idx === 0) console.log(`[credithub][protestos] keys do 1º título: ${Object.keys(p ?? {}).join(",")}`);
         const rawValor = p.valor ?? p.valorProtestado ?? p.valorTitulo ?? 0;
         const valor = parseMoneyRobust(rawValor);
         if (valor > 1_000_000) {
           console.log(`[credithub][protestos] valor alto: raw="${rawValor}" parsed=${valor} data=${p.data ?? p.dataProtesto}`);
         }
         todos.push({
-          data:             p.dataProtesto ?? p.data ?? p.dataOcorrencia ?? "",
+          data:             p.dataProtesto ?? p.data ?? p.dataOcorrencia ?? p.dataEmissao ?? p.dataRegistro ?? p.dtOcorrencia ?? p.dt ?? "",
           valor,
           nomeCedente:      p.nomeCedente ?? p.cedente ?? p.credor ?? "",
           nomeApresentante: p.nomeApresentante ?? p.apresentante ?? "",
@@ -214,9 +214,10 @@ function parseProtestos(d: any): ProtestosData {
       });
     } else {
       // Cartório sem array interno — o próprio objeto do cartório é o protesto
+      console.log(`[credithub][protestos] keys do cartório-protesto: ${Object.keys(c ?? {}).join(",")}`);
       const rawValor = c.valor ?? c.valorProtestado ?? 0;
       todos.push({
-        data:             c.data ?? c.dataProtesto ?? "",
+        data:             c.data ?? c.dataProtesto ?? c.dataOcorrencia ?? c.dataEmissao ?? c.dataRegistro ?? c.dtOcorrencia ?? c.dt ?? "",
         valor:            parseMoneyRobust(rawValor),
         nomeCedente:      c.nomeCedente ?? c.cedente ?? c.credor ?? "",
         nomeApresentante: c.nomeApresentante ?? c.apresentante ?? "",
@@ -945,24 +946,21 @@ async function consultarCreditHubPorCPF(cpf: string, nomeSocio: string): Promise
       console.log(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** OK — keys: ${Object.keys(d ?? {}).join(", ")}`);
       console.log(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** array keys: ${arrKeys.join(", ") || "(nenhum)"}`);
 
-      // Fonte 1: campos diretos de participações (retorno original — geralmente vazio neste endpoint)
+      // Fonte 1: campos diretos de participações
       const empresasDirectas = parseEmpresasVinculadas(d, cpfNum, nomeSocio);
 
-      // Fonte 2 (Opção D): empresas extraídas dos processos judiciais do sócio
-      const empresasProcessos = extrairEmpresasDeProcessos(d, cpfNum, nomeSocio);
-
-      // Fonte 3 (Opção B): empresa própria do sócio via rfb.cnpj → publica.cnpj.ws
+      // Fonte 2 (Opção B): empresa própria do sócio via rfb.cnpj → publica.cnpj.ws
       const empresaRFB = await buscarEmpresaPropriaRFB(d, cpfNum, nomeSocio);
 
-      // Combina e deduplica (prioridade: diretas > rfb > processos)
+      // Combina e deduplica (prioridade: diretas > rfb)
       const vistos = new Set<string>();
       const todas: GrupoEconomicoData["empresas"] = [];
-      for (const emp of [...empresasDirectas, ...empresaRFB, ...empresasProcessos]) {
+      for (const emp of [...empresasDirectas, ...empresaRFB]) {
         const key = emp.cnpj || emp.razaoSocial.toLowerCase().trim();
         if (!vistos.has(key)) { vistos.add(key); todas.push(emp); }
       }
 
-      console.log(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** total empresas: diretas=${empresasDirectas.length} rfb=${empresaRFB.length} processos=${empresasProcessos.length}`);
+      console.log(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** total empresas: diretas=${empresasDirectas.length} rfb=${empresaRFB.length}`);
       return todas;
 
     } catch (err: unknown) {
@@ -1208,63 +1206,28 @@ export async function consultarGrupoEconomicoSocios(
     })
   );
 
-  // Agrega e deduplica:
-  // — por CNPJ quando disponível (empresas da Option B)
-  // — por razão social normalizada quando CNPJ vazio (empresas de processos, Option D)
-  // Exclui a empresa principal e filtra apenas situação ATIVA ou sem situação confirmada (rfb)
+  // Agrega e deduplica — apenas empresas com vínculo societário real (QSA/participação)
+  // Exclui empresa principal e empresas com situação confirmada como inativa
+  const SITUACOES_INATIVAS = ["BAIXADA", "INAPTA", "SUSPENSA", "CANCELADA", "NULA"];
   const chaveVista = new Set<string>();
   const empresas: GrupoEconomicoData["empresas"] = [];
 
   resultados.forEach(r => {
     if (r.status !== "fulfilled") return;
     r.value.forEach(emp => {
-      // Exclui a empresa analisada (aparece em processos como parte)
       if (cnpjPrincipalNorm && emp.cnpj && emp.cnpj === cnpjPrincipalNorm) return;
 
-      // Só inclui empresas ATIVAS (rfb.cnpj) ou extraídas de processos com CNPJ válido
-      // Empresas sem CNPJ e status VERIFICAR precisam ter razao social útil
+      // Exclui somente quando a situação é confirmada como inativa
       const sit = (emp.situacao ?? "").toUpperCase();
-      if (sit === "VERIFICAR") {
-        // Processo: só inclui se razão social parece legítima (>= 6 chars, não é banco federal)
-        const nome = emp.razaoSocial.trim();
-        if (nome.length < 6) return;
-        if (/\b(BANCO DO BRASIL|CAIXA ECONOM|BRADESCO|ITAU|SANTANDER|SICRED|SICOOB|BB S\/A|PREFEITURA|MUNICIPIO|ESTADO DE|FAZENDA DO ESTADO|SPPREV|INSS)\b/i.test(nome)) return;
-      } else if (!sit.includes("ATIVA")) {
-        // Empresas com situação confirmada mas não ATIVA: inclui com a situação real
-        // (para informar o analista que existe mas está inativa)
-      }
+      if (SITUACOES_INATIVAS.some(s => sit.includes(s))) return;
 
-      const chave = emp.cnpj
-        ? emp.cnpj
-        : emp.razaoSocial.toLowerCase().trim();
-
+      const chave = emp.cnpj ? emp.cnpj : emp.razaoSocial.toLowerCase().trim();
       if (!chaveVista.has(chave)) {
         chaveVista.add(chave);
         empresas.push(emp);
       }
     });
   });
-
-  // ── Enriquecimento via DataJud (gratuito) ──────────────────────────────────
-  // Busca empresas co-partes nos processos dos sócios em todos os principais tribunais.
-  // Complementa os dados do CreditHub sem custo adicional.
-  const djEmpresas = await buscarEmpresasDataJud(
-    sociosPF.map(s => ({ cpf: s.cpfCnpj, nome: s.nome })),
-    cnpjEmpresaPrincipal,
-  );
-
-  // Funde: só adiciona empresas do DataJud que ainda não estão na lista
-  for (const emp of djEmpresas) {
-    const chave = emp.cnpj ? emp.cnpj : emp.razaoSocial.toLowerCase().trim();
-    if (!chaveVista.has(chave)) {
-      // Aplica os mesmos filtros da lista CreditHub
-      const nome = emp.razaoSocial.trim();
-      if (nome.length < 6) continue;
-      if (/\b(BANCO DO BRASIL|CAIXA ECONOM|BRADESCO|ITAU|SANTANDER|SICRED|SICOOB|BB S\/A|PREFEITURA|MUNICIPIO|ESTADO DE|FAZENDA DO ESTADO|SPPREV|INSS)\b/i.test(nome)) continue;
-      chaveVista.add(chave);
-      empresas.push(emp);
-    }
-  }
 
   // ── Enriquecimento: busca CNPJ (quando ausente) + protestos/processos via CreditHub ──
   // Muta os objetos da lista in-place (protestos, processos, cnpj, situação).
