@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/useAuth";
 import {
   ReceiptText, Settings2, TrendingDown, Cpu, Building2,
@@ -20,15 +19,25 @@ interface BureauPrices {
   gemini_output_per_1m: number;
 }
 
-interface AnaliseRow {
+interface ApiLog {
+  id: string;
+  collection_id: string | null;
+  cnpj: string | null;
+  company_name: string | null;
+  log_type: "gemini_analyze" | "bureau";
+  model: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  bureau_calls: BureauCalls | null;
+  created_at: string;
+}
+
+interface CollectionStub {
   id: string;
   company_name: string | null;
   cnpj: string | null;
   created_at: string;
-  ai_analysis: Record<string, unknown> | null;
-  // API usage — populated when backend is ready
-  bureauCalls?: BureauCalls;
-  geminiTokens?: GeminiTokens;
+  has_ai_analysis: boolean;
 }
 
 interface BureauCalls {
@@ -39,14 +48,9 @@ interface BureauCalls {
   bdc_socio: number;
 }
 
-interface GeminiTokens {
-  input: number;
-  output: number;
-  model: "flash" | "pro";
-}
-
-interface CustoRow {
-  id: string;
+// One row per "analysis session" in the table
+interface AnalysisRow {
+  key: string; // collection_id or cnpj+date
   company_name: string;
   cnpj: string;
   created_at: string;
@@ -54,7 +58,7 @@ interface CustoRow {
   custo_bureau: number;
   total: number;
   bureauCalls: BureauCalls;
-  geminiTokens: GeminiTokens | null;
+  geminiTokens: { input: number; output: number; model: string } | null;
   hasRealCosts: boolean;
 }
 
@@ -90,33 +94,35 @@ function fmtDate(iso: string): string {
   return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
-function calcCustoBureau(calls: BureauCalls, prices: BureauPrices): number {
+function calcCustoBureau(calls: BureauCalls, prices: BureauPrices, usdBrl: number): number {
   return (
     calls.credithub * prices.credithub_empresa +
     calls.assertiva_pj * prices.assertiva_pj +
     calls.assertiva_pf * prices.assertiva_pf +
     calls.bdc_empresa * prices.bdc_empresa +
     calls.bdc_socio * prices.bdc_socio
-  );
+  ) * usdBrl;
 }
 
-function calcCustoIA(tokens: GeminiTokens | null, prices: BureauPrices): number {
-  if (!tokens) return 0;
-  const rate = tokens.model === "pro"
-    ? { in: 1.25, out: 10.0 }
-    : { in: prices.gemini_input_per_1m, out: prices.gemini_output_per_1m };
-  return (tokens.input / 1_000_000) * rate.in + (tokens.output / 1_000_000) * rate.out;
+function calcCustoIA(
+  tokens: { input: number; output: number; model: string } | null,
+  prices: BureauPrices,
+  usdBrl: number,
+): number {
+  if (!tokens || tokens.input === 0) return 0;
+  const isPro = tokens.model?.includes("pro");
+  const rateIn  = isPro ? 1.25  : prices.gemini_input_per_1m;
+  const rateOut = isPro ? 10.0  : prices.gemini_output_per_1m;
+  return ((tokens.input / 1_000_000) * rateIn + (tokens.output / 1_000_000) * rateOut) * usdBrl;
 }
 
-// Estimate costs for analyses that don't have real API logs yet
-function estimateBureauCalls(aiAnalysis: Record<string, unknown> | null): BureauCalls {
-  const hasAI = aiAnalysis !== null;
+function estimateBureauCalls(hasAI: boolean): BureauCalls {
   return {
     credithub: hasAI ? 1 : 0,
     assertiva_pj: hasAI ? 1 : 0,
-    assertiva_pf: 0,    // unknown without logs
+    assertiva_pf: 0,
     bdc_empresa: hasAI ? 1 : 0,
-    bdc_socio: 0,       // unknown without logs
+    bdc_socio: 0,
   };
 }
 
@@ -146,11 +152,10 @@ function PriceInput({
 }: {
   label: string; value: number; onChange: (v: number) => void; prefix?: string;
 }) {
-  const [local, setLocal] = useState(value.toFixed(prefix === "R$" ? 2 : 4));
+  const decimals = prefix === "R$" ? 2 : 4;
+  const [local, setLocal] = useState(value.toFixed(decimals));
 
-  useEffect(() => {
-    setLocal(value.toFixed(prefix === "R$" ? 2 : 4));
-  }, [value, prefix]);
+  useEffect(() => { setLocal(value.toFixed(decimals)); }, [value, decimals]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
@@ -162,18 +167,15 @@ function PriceInput({
         <input
           type="number"
           min={0}
-          step={prefix === "R$" ? 0.01 : 0.0001}
+          step={decimals === 2 ? 0.01 : 0.0001}
           value={local}
           onChange={e => setLocal(e.target.value)}
           onBlur={() => {
             const v = parseFloat(local);
             if (!isNaN(v) && v >= 0) onChange(v);
-            else setLocal(value.toFixed(prefix === "R$" ? 2 : 4));
+            else setLocal(value.toFixed(decimals));
           }}
-          style={{
-            flex: 1, padding: "6px 8px", fontSize: "12px", border: "none", outline: "none",
-            width: "80px", background: "transparent",
-          }}
+          style={{ flex: 1, padding: "6px 8px", fontSize: "12px", border: "none", outline: "none", width: "80px", background: "transparent" }}
         />
       </div>
     </div>
@@ -183,7 +185,8 @@ function PriceInput({
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function CustosPage() {
   const { user, loading: authLoading } = useAuth();
-  const [analyses, setAnalyses] = useState<AnaliseRow[]>([]);
+  const [logs, setLogs] = useState<ApiLog[]>([]);
+  const [stubs, setStubs] = useState<CollectionStub[]>([]);
   const [loading, setLoading] = useState(true);
   const [prices, setPrices] = useState<BureauPrices>(DEFAULT_PRICES);
   const [showConfig, setShowConfig] = useState(false);
@@ -193,88 +196,114 @@ export default function CustosPage() {
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [usdBrl, setUsdBrl] = useState<number>(5.0);
 
-  // Load prices from localStorage
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as BureauPrices;
-        setPrices(parsed);
-        setDraftPrices(parsed);
-      }
+      if (raw) { const p = JSON.parse(raw) as BureauPrices; setPrices(p); setDraftPrices(p); }
     } catch { /* ignore */ }
   }, []);
 
-  // Fetch analyses from Supabase
   const fetchData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from("document_collections")
-      .select("id, company_name, cnpj, created_at, ai_analysis")
-      .order("created_at", { ascending: false })
-      .limit(200);
-
-    if (!error && data) {
-      setAnalyses(data as AnaliseRow[]);
-    }
+    try {
+      const res = await fetch("/api/custos");
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success) {
+          setLogs(json.logs ?? []);
+          setStubs(json.collectionsWithoutLogs ?? []);
+        }
+      }
+    } catch { /* ignore */ }
     setLoading(false);
   }, [user]);
 
-  useEffect(() => {
-    if (!authLoading && user) fetchData();
-  }, [authLoading, user, fetchData]);
+  useEffect(() => { if (!authLoading && user) fetchData(); }, [authLoading, user, fetchData]);
 
-  // Build cost rows
-  const costRows: CustoRow[] = analyses.map(a => {
-    const calls = a.bureauCalls ?? estimateBureauCalls(a.ai_analysis);
-    const tokens = a.geminiTokens ?? null;
-    const custo_bureau = calcCustoBureau(calls, prices) * usdBrl;
-    const custo_ia = calcCustoIA(tokens, prices) * usdBrl;
-    return {
-      id: a.id,
-      company_name: a.company_name ?? "—",
-      cnpj: a.cnpj ?? "—",
-      created_at: a.created_at,
-      custo_ia,
-      custo_bureau,
-      total: custo_ia + custo_bureau,
-      bureauCalls: calls,
-      geminiTokens: tokens,
-      hasRealCosts: !!(a.bureauCalls || a.geminiTokens),
-    };
-  });
+  // Build one row per "analysis" — group logs by collection_id, then append stubs
+  const analysisRows: AnalysisRow[] = (() => {
+    const groups = new Map<string, { bureauLog?: ApiLog; geminiLog?: ApiLog }>();
+
+    logs.forEach(log => {
+      const key = log.collection_id ?? `${log.cnpj}-${log.created_at.slice(0, 10)}`;
+      const g = groups.get(key) ?? {};
+      if (log.log_type === "bureau")         g.bureauLog  = log;
+      if (log.log_type === "gemini_analyze") g.geminiLog  = log;
+      groups.set(key, g);
+    });
+
+    const rows: AnalysisRow[] = [];
+
+    groups.forEach((g, key) => {
+      const ref = g.geminiLog ?? g.bureauLog!;
+      const bureauCalls: BureauCalls = g.bureauLog?.bureau_calls ?? estimateBureauCalls(!!g.geminiLog);
+      const geminiTokens = (g.geminiLog?.input_tokens && g.geminiLog.input_tokens > 0)
+        ? { input: g.geminiLog.input_tokens, output: g.geminiLog.output_tokens ?? 0, model: g.geminiLog.model ?? "" }
+        : null;
+
+      rows.push({
+        key,
+        company_name: ref.company_name ?? "—",
+        cnpj: ref.cnpj ?? "—",
+        created_at: ref.created_at,
+        custo_bureau: calcCustoBureau(bureauCalls, prices, usdBrl),
+        custo_ia: calcCustoIA(geminiTokens, prices, usdBrl),
+        get total() { return this.custo_bureau + this.custo_ia; },
+        bureauCalls,
+        geminiTokens,
+        hasRealCosts: !!(g.bureauLog || g.geminiLog),
+      });
+    });
+
+    // Add collections that have no logs (estimated)
+    stubs.forEach(s => {
+      const key = s.id;
+      if (groups.has(key)) return; // already in groups
+      const bureauCalls = estimateBureauCalls(s.has_ai_analysis);
+      rows.push({
+        key,
+        company_name: s.company_name ?? "—",
+        cnpj: s.cnpj ?? "—",
+        created_at: s.created_at,
+        custo_bureau: calcCustoBureau(bureauCalls, prices, usdBrl),
+        custo_ia: 0,
+        get total() { return this.custo_bureau + this.custo_ia; },
+        bureauCalls,
+        geminiTokens: null,
+        hasRealCosts: false,
+      });
+    });
+
+    return rows.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  })();
 
   // Filter by month
   const filtered = selectedMonth === "all"
-    ? costRows
-    : costRows.filter(r => {
+    ? analysisRows
+    : analysisRows.filter(r => {
         const d = new Date(r.created_at);
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}` === selectedMonth;
       });
 
-  // Available months
   const monthsAvailable = Array.from(new Set(
-    analyses.map(a => {
-      const d = new Date(a.created_at);
+    analysisRows.map(r => {
+      const d = new Date(r.created_at);
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     })
   )).sort((a, b) => b.localeCompare(a));
 
-  // KPIs
-  const totalCusto = filtered.reduce((s, r) => s + r.total, 0);
-  const totalBureau = filtered.reduce((s, r) => s + r.custo_bureau, 0);
-  const totalIA = filtered.reduce((s, r) => s + r.custo_ia, 0);
+  const totalCusto   = filtered.reduce((s, r) => s + r.total, 0);
+  const totalBureau  = filtered.reduce((s, r) => s + r.custo_bureau, 0);
+  const totalIA      = filtered.reduce((s, r) => s + r.custo_ia, 0);
   const mediaAnalise = filtered.length > 0 ? totalCusto / filtered.length : 0;
-  const totalTokens = filtered.reduce((s, r) => s + (r.geminiTokens ? r.geminiTokens.input + r.geminiTokens.output : 0), 0);
-  const hasAnyRealCosts = filtered.some(r => r.hasRealCosts);
+  const totalTokens  = filtered.reduce((s, r) => s + (r.geminiTokens ? r.geminiTokens.input + r.geminiTokens.output : 0), 0);
+  const hasAnyReal   = filtered.some(r => r.hasRealCosts);
 
   function savePrices() {
     setPrices(draftPrices);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(draftPrices));
-    setSavedMsg(true);
-    setTimeout(() => setSavedMsg(false), 2000);
+    setSavedMsg(true); setTimeout(() => setSavedMsg(false), 2000);
   }
 
   const monthLabel = (key: string) => {
@@ -307,105 +336,81 @@ export default function CustosPage() {
         </div>
 
         <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
-          {/* Month filter */}
           <div style={{ position: "relative" }}>
             <select
               value={selectedMonth}
               onChange={e => setSelectedMonth(e.target.value)}
-              style={{
-                appearance: "none", padding: "8px 32px 8px 12px", fontSize: "13px",
-                border: "1px solid #d1d5db", borderRadius: "8px", background: "#fff",
-                color: "#374151", cursor: "pointer", outline: "none",
-              }}
+              style={{ appearance: "none", padding: "8px 32px 8px 12px", fontSize: "13px", border: "1px solid #d1d5db", borderRadius: "8px", background: "#fff", color: "#374151", cursor: "pointer", outline: "none" }}
             >
               <option value="all">Todos os períodos</option>
-              {monthsAvailable.map(m => (
-                <option key={m} value={m}>{monthLabel(m)}</option>
-              ))}
+              {monthsAvailable.map(m => <option key={m} value={m}>{monthLabel(m)}</option>)}
             </select>
             <Calendar size={14} style={{ position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)", color: "#9ca3af", pointerEvents: "none" }} />
           </div>
 
-          {/* USD/BRL */}
           <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: "8px", background: "#fff", fontSize: "13px" }}>
             <span style={{ color: "#6b7280" }}>USD/BRL</span>
             <input
-              type="number"
-              min={1}
-              step={0.01}
-              value={usdBrl}
+              type="number" min={1} step={0.01} value={usdBrl}
               onChange={e => setUsdBrl(parseFloat(e.target.value) || 5.0)}
               style={{ width: "52px", border: "none", outline: "none", fontSize: "13px", fontWeight: 600, color: "#111827", textAlign: "right" }}
             />
           </div>
 
-          {/* Config button */}
           <button
             onClick={() => { setShowConfig(c => !c); setDraftPrices(prices); }}
-            style={{
-              display: "flex", alignItems: "center", gap: "6px",
-              padding: "8px 14px", fontSize: "13px", fontWeight: 500,
-              border: "1px solid #d1d5db", borderRadius: "8px",
-              background: showConfig ? "#1a2f6b" : "#fff",
-              color: showConfig ? "#fff" : "#374151",
-              cursor: "pointer", transition: "all 0.15s",
-            }}
+            style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 14px", fontSize: "13px", fontWeight: 500, border: "1px solid #d1d5db", borderRadius: "8px", background: showConfig ? "#1a2f6b" : "#fff", color: showConfig ? "#fff" : "#374151", cursor: "pointer", transition: "all 0.15s" }}
           >
             <Settings2 size={14} />
             Preços
           </button>
+
+          <button
+            onClick={fetchData}
+            style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 12px", fontSize: "13px", border: "1px solid #d1d5db", borderRadius: "8px", background: "#fff", color: "#374151", cursor: "pointer" }}
+            title="Atualizar"
+          >
+            <RefreshCw size={14} />
+          </button>
         </div>
       </div>
 
-      {/* Backend notice */}
-      {!hasAnyRealCosts && (
-        <div style={{
-          display: "flex", alignItems: "flex-start", gap: "10px", padding: "12px 16px",
-          background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: "10px",
-          marginBottom: "20px", fontSize: "13px",
-        }}>
+      {/* Logging status banner */}
+      {!hasAnyReal ? (
+        <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "12px 16px", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: "10px", marginBottom: "20px", fontSize: "13px" }}>
           <AlertCircle size={16} color="#d97706" style={{ flexShrink: 0, marginTop: "1px" }} />
           <div style={{ color: "#92400e", lineHeight: 1.5 }}>
-            <strong>Logging de API ainda não ativado.</strong>{" "}
-            Os custos exibidos são <strong>estimativas</strong> com base nos bureaus tipicamente consultados por análise.
-            Ative o registro no backend para ver custos reais por chamada.
+            <strong>Logging ativo — aguardando primeiros registros.</strong>{" "}
+            As próximas análises geradas vão registrar tokens e chamadas de bureau automaticamente.
+            Custos exibidos agora são <strong>estimativas</strong>.
           </div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 14px", background: "#f0fdf4", border: "1px solid #86efac", borderRadius: "10px", marginBottom: "20px", fontSize: "12px", color: "#166534" }}>
+          <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#16a34a", display: "inline-block" }} />
+          Logging ativo — {logs.length} registro(s) coletado(s)
         </div>
       )}
 
       {/* Price configurator */}
       {showConfig && (
-        <div style={{
-          background: "#fff", border: "1px solid #e5e7eb", borderRadius: "12px",
-          padding: "20px 24px", marginBottom: "20px",
-        }}>
+        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: "12px", padding: "20px 24px", marginBottom: "20px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
             <h3 style={{ fontSize: "14px", fontWeight: 700, color: "#111827", margin: 0, display: "flex", alignItems: "center", gap: "6px" }}>
               <Settings2 size={14} color="#6b7280" />
               Configurar Preços por Consulta
             </h3>
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              {savedMsg && (
-                <span style={{ fontSize: "12px", color: "#16a34a", fontWeight: 500 }}>✓ Salvo</span>
-              )}
-              <button
-                onClick={savePrices}
-                style={{
-                  display: "flex", alignItems: "center", gap: "6px",
-                  padding: "7px 14px", fontSize: "12px", fontWeight: 600,
-                  background: "#1a2f6b", color: "#fff", border: "none",
-                  borderRadius: "7px", cursor: "pointer",
-                }}
-              >
+              {savedMsg && <span style={{ fontSize: "12px", color: "#16a34a", fontWeight: 500 }}>✓ Salvo</span>}
+              <button onClick={savePrices} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "7px 14px", fontSize: "12px", fontWeight: 600, background: "#1a2f6b", color: "#fff", border: "none", borderRadius: "7px", cursor: "pointer" }}>
                 <Save size={13} />
                 Salvar
               </button>
             </div>
           </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "12px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "12px" }}>
             <div>
-              <p style={{ fontSize: "11px", fontWeight: 700, color: "#9ca3af", letterSpacing: "0.06em", marginBottom: "8px" }}>BUREAUS</p>
+              <p style={{ fontSize: "11px", fontWeight: 700, color: "#9ca3af", letterSpacing: "0.06em", marginBottom: "8px" }}>BUREAUS (R$)</p>
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 <PriceInput label="CreditHub (empresa)" value={draftPrices.credithub_empresa} onChange={v => setDraftPrices(p => ({ ...p, credithub_empresa: v }))} />
                 <PriceInput label="Assertiva PJ" value={draftPrices.assertiva_pj} onChange={v => setDraftPrices(p => ({ ...p, assertiva_pj: v }))} />
@@ -415,11 +420,11 @@ export default function CustosPage() {
               </div>
             </div>
             <div>
-              <p style={{ fontSize: "11px", fontWeight: 700, color: "#9ca3af", letterSpacing: "0.06em", marginBottom: "8px" }}>IA — GEMINI (USD / 1M tokens)</p>
+              <p style={{ fontSize: "11px", fontWeight: 700, color: "#9ca3af", letterSpacing: "0.06em", marginBottom: "8px" }}>GEMINI (USD / 1M tokens)</p>
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 <PriceInput label="Flash — Input" value={draftPrices.gemini_input_per_1m} onChange={v => setDraftPrices(p => ({ ...p, gemini_input_per_1m: v }))} prefix="USD" />
                 <PriceInput label="Flash — Output" value={draftPrices.gemini_output_per_1m} onChange={v => setDraftPrices(p => ({ ...p, gemini_output_per_1m: v }))} prefix="USD" />
-                <div style={{ padding: "8px 10px", background: "#f9fafb", borderRadius: "6px", fontSize: "11px", color: "#9ca3af", display: "flex", alignItems: "flex-start", gap: "5px" }}>
+                <div style={{ padding: "8px 10px", background: "#f9fafb", borderRadius: "6px", fontSize: "11px", color: "#9ca3af", display: "flex", gap: "5px" }}>
                   <Info size={11} style={{ flexShrink: 0, marginTop: "1px" }} />
                   Gemini Pro: $1.25 input / $10.00 output (fixo)
                 </div>
@@ -431,41 +436,14 @@ export default function CustosPage() {
 
       {/* KPI cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "14px", marginBottom: "24px" }}>
-        <KpiCard
-          icon={DollarSign}
-          label={`Custo Total ${selectedMonth !== "all" ? monthLabel(selectedMonth) : "(todos)"}`}
-          value={fmtBRL(totalCusto)}
-          sub={filtered.length + " análises"}
-          color="#1a2f6b"
-        />
-        <KpiCard
-          icon={TrendingDown}
-          label="Custo Médio / Análise"
-          value={fmtBRL(mediaAnalise)}
-          sub="bureau + IA"
-          color="#7c3aed"
-        />
-        <KpiCard
-          icon={Building2}
-          label="Custo Bureau"
-          value={fmtBRL(totalBureau)}
-          sub={Math.round(totalBureau / (totalCusto || 1) * 100) + "% do total"}
-          color="#0891b2"
-        />
-        <KpiCard
-          icon={Cpu}
-          label="Custo IA (Gemini)"
-          value={fmtBRL(totalIA)}
-          sub={totalTokens > 0 ? (totalTokens / 1000).toFixed(0) + "k tokens" : "sem logs de tokens"}
-          color="#d97706"
-        />
+        <KpiCard icon={DollarSign} label={`Custo Total ${selectedMonth !== "all" ? monthLabel(selectedMonth) : "(todos)"}`} value={fmtBRL(totalCusto)} sub={filtered.length + " análises"} color="#1a2f6b" />
+        <KpiCard icon={TrendingDown} label="Custo Médio / Análise" value={fmtBRL(mediaAnalise)} sub="bureau + IA" color="#7c3aed" />
+        <KpiCard icon={Building2} label="Custo Bureau" value={fmtBRL(totalBureau)} sub={Math.round(totalBureau / (totalCusto || 1) * 100) + "% do total"} color="#0891b2" />
+        <KpiCard icon={Cpu} label="Custo IA (Gemini)" value={fmtBRL(totalIA)} sub={totalTokens > 0 ? (totalTokens / 1000).toFixed(0) + "k tokens" : "sem logs de tokens"} color="#d97706" />
       </div>
 
-      {/* Bureau cost breakdown */}
-      <div style={{
-        background: "#fff", border: "1px solid #e5e7eb", borderRadius: "12px",
-        padding: "18px 20px", marginBottom: "20px",
-      }}>
+      {/* Bureau breakdown */}
+      <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: "12px", padding: "18px 20px", marginBottom: "20px" }}>
         <h3 style={{ fontSize: "13px", fontWeight: 700, color: "#374151", margin: "0 0 14px", display: "flex", alignItems: "center", gap: "7px" }}>
           <Building2 size={14} color="#6b7280" />
           Estimativa por Bureau
@@ -473,11 +451,11 @@ export default function CustosPage() {
         </h3>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "10px" }}>
           {[
-            { label: "CreditHub", key: "credithub" as const, price: prices.credithub_empresa },
+            { label: "CreditHub",    key: "credithub"    as const, price: prices.credithub_empresa },
             { label: "Assertiva PJ", key: "assertiva_pj" as const, price: prices.assertiva_pj },
             { label: "Assertiva PF", key: "assertiva_pf" as const, price: prices.assertiva_pf },
-            { label: "BDC Empresa", key: "bdc_empresa" as const, price: prices.bdc_empresa },
-            { label: "BDC Sócio", key: "bdc_socio" as const, price: prices.bdc_socio },
+            { label: "BDC Empresa",  key: "bdc_empresa"  as const, price: prices.bdc_empresa },
+            { label: "BDC Sócio",    key: "bdc_socio"    as const, price: prices.bdc_socio },
           ].map(({ label, key, price }) => {
             const totalCalls = filtered.reduce((s, r) => s + (r.bureauCalls[key] ?? 0), 0);
             const custoTotal = totalCalls * price * usdBrl;
@@ -497,7 +475,7 @@ export default function CustosPage() {
         <div style={{ padding: "16px 20px", borderBottom: "1px solid #f3f4f6", display: "flex", alignItems: "center", gap: "8px" }}>
           <FileText size={14} color="#6b7280" />
           <h3 style={{ fontSize: "13px", fontWeight: 700, color: "#374151", margin: 0 }}>Por Análise</h3>
-          {!hasAnyRealCosts && (
+          {!hasAnyReal && (
             <span style={{ fontSize: "11px", color: "#d97706", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: "4px", padding: "2px 6px" }}>
               estimativas
             </span>
@@ -514,11 +492,7 @@ export default function CustosPage() {
               <thead>
                 <tr style={{ background: "#f9fafb" }}>
                   {["Empresa", "Data", "Bureau", "IA", "Total", ""].map((h, i) => (
-                    <th key={i} style={{
-                      padding: "10px 16px", textAlign: i >= 2 ? "right" : "left",
-                      fontSize: "11px", fontWeight: 600, color: "#9ca3af",
-                      letterSpacing: "0.05em", borderBottom: "1px solid #f3f4f6",
-                    }}>
+                    <th key={i} style={{ padding: "10px 16px", textAlign: i >= 2 ? "right" : "left", fontSize: "11px", fontWeight: 600, color: "#9ca3af", letterSpacing: "0.05em", borderBottom: "1px solid #f3f4f6" }}>
                       {h}
                     </th>
                   ))}
@@ -526,49 +500,37 @@ export default function CustosPage() {
               </thead>
               <tbody>
                 {filtered.map((row) => {
-                  const expanded = expandedRow === row.id;
+                  const expanded = expandedRow === row.key;
                   return (
                     <>
-                      <tr
-                        key={row.id}
-                        style={{ borderBottom: "1px solid #f9fafb", cursor: "pointer" }}
-                        onClick={() => setExpandedRow(expanded ? null : row.id)}
-                      >
+                      <tr key={row.key} style={{ borderBottom: "1px solid #f9fafb", cursor: "pointer" }} onClick={() => setExpandedRow(expanded ? null : row.key)}>
                         <td style={{ padding: "12px 16px" }}>
                           <div style={{ fontWeight: 500, color: "#111827" }}>{row.company_name}</div>
                           <div style={{ fontSize: "11px", color: "#9ca3af", fontFamily: "monospace" }}>{row.cnpj}</div>
                         </td>
-                        <td style={{ padding: "12px 16px", color: "#6b7280", whiteSpace: "nowrap" }}>
-                          {fmtDate(row.created_at)}
-                        </td>
-                        <td style={{ padding: "12px 16px", textAlign: "right", color: "#0891b2", fontWeight: 500 }}>
-                          {fmtBRL(row.custo_bureau)}
-                        </td>
+                        <td style={{ padding: "12px 16px", color: "#6b7280", whiteSpace: "nowrap" }}>{fmtDate(row.created_at)}</td>
+                        <td style={{ padding: "12px 16px", textAlign: "right", color: "#0891b2", fontWeight: 500 }}>{fmtBRL(row.custo_bureau)}</td>
                         <td style={{ padding: "12px 16px", textAlign: "right", color: "#d97706", fontWeight: 500 }}>
                           {row.custo_ia > 0 ? fmtBRL(row.custo_ia) : <span style={{ color: "#d1d5db" }}>—</span>}
                         </td>
-                        <td style={{ padding: "12px 16px", textAlign: "right", fontWeight: 700, color: "#111827" }}>
-                          {fmtBRL(row.total)}
-                        </td>
+                        <td style={{ padding: "12px 16px", textAlign: "right", fontWeight: 700, color: "#111827" }}>{fmtBRL(row.total)}</td>
                         <td style={{ padding: "12px 16px", textAlign: "right" }}>
                           {expanded ? <ChevronUp size={14} color="#9ca3af" /> : <ChevronDown size={14} color="#9ca3af" />}
                         </td>
                       </tr>
 
                       {expanded && (
-                        <tr key={row.id + "-exp"} style={{ background: "#f9fafb" }}>
+                        <tr key={row.key + "-exp"} style={{ background: "#f9fafb" }}>
                           <td colSpan={6} style={{ padding: "14px 20px 16px" }}>
                             <div style={{ display: "flex", gap: "32px", flexWrap: "wrap", fontSize: "12px" }}>
                               <div>
-                                <p style={{ fontSize: "11px", fontWeight: 700, color: "#9ca3af", letterSpacing: "0.06em", marginBottom: "8px" }}>
-                                  CONSULTAS BUREAU
-                                </p>
+                                <p style={{ fontSize: "11px", fontWeight: 700, color: "#9ca3af", letterSpacing: "0.06em", marginBottom: "8px" }}>CONSULTAS BUREAU</p>
                                 {[
-                                  { label: "CreditHub", val: row.bureauCalls.credithub, price: prices.credithub_empresa },
+                                  { label: "CreditHub",    val: row.bureauCalls.credithub,    price: prices.credithub_empresa },
                                   { label: "Assertiva PJ", val: row.bureauCalls.assertiva_pj, price: prices.assertiva_pj },
                                   { label: "Assertiva PF", val: row.bureauCalls.assertiva_pf, price: prices.assertiva_pf },
-                                  { label: "BDC Empresa", val: row.bureauCalls.bdc_empresa, price: prices.bdc_empresa },
-                                  { label: "BDC Sócio", val: row.bureauCalls.bdc_socio, price: prices.bdc_socio },
+                                  { label: "BDC Empresa",  val: row.bureauCalls.bdc_empresa,  price: prices.bdc_empresa },
+                                  { label: "BDC Sócio",    val: row.bureauCalls.bdc_socio,    price: prices.bdc_socio },
                                 ].map(({ label, val, price }) => (
                                   <div key={label} style={{ display: "flex", gap: "16px", marginBottom: "4px", color: val > 0 ? "#374151" : "#d1d5db" }}>
                                     <span style={{ minWidth: "120px" }}>{label}</span>
@@ -579,28 +541,20 @@ export default function CustosPage() {
                               </div>
 
                               <div>
-                                <p style={{ fontSize: "11px", fontWeight: 700, color: "#9ca3af", letterSpacing: "0.06em", marginBottom: "8px" }}>
-                                  IA — GEMINI
-                                </p>
-                                {row.geminiTokens ? (
+                                <p style={{ fontSize: "11px", fontWeight: 700, color: "#9ca3af", letterSpacing: "0.06em", marginBottom: "8px" }}>IA — GEMINI</p>
+                                {row.geminiTokens && row.geminiTokens.input > 0 ? (
                                   <>
+                                    <div style={{ color: "#374151", marginBottom: "4px" }}>Modelo: <strong>{row.geminiTokens.model || "Flash"}</strong></div>
                                     <div style={{ color: "#374151", marginBottom: "4px" }}>
-                                      Modelo: <strong>{row.geminiTokens.model === "pro" ? "Gemini Pro" : "Gemini Flash"}</strong>
-                                    </div>
-                                    <div style={{ color: "#374151", marginBottom: "4px" }}>
-                                      Input: {row.geminiTokens.input.toLocaleString("pt-BR")} tokens
-                                      · {fmtUSD(row.geminiTokens.input / 1_000_000 * (row.geminiTokens.model === "pro" ? 1.25 : prices.gemini_input_per_1m))}
+                                      Input: {row.geminiTokens.input.toLocaleString("pt-BR")} tokens · {fmtUSD(row.geminiTokens.input / 1_000_000 * (row.geminiTokens.model?.includes("pro") ? 1.25 : prices.gemini_input_per_1m))}
                                     </div>
                                     <div style={{ color: "#374151", marginBottom: "4px" }}>
-                                      Output: {row.geminiTokens.output.toLocaleString("pt-BR")} tokens
-                                      · {fmtUSD(row.geminiTokens.output / 1_000_000 * (row.geminiTokens.model === "pro" ? 10.0 : prices.gemini_output_per_1m))}
+                                      Output: {row.geminiTokens.output.toLocaleString("pt-BR")} tokens · {fmtUSD(row.geminiTokens.output / 1_000_000 * (row.geminiTokens.model?.includes("pro") ? 10.0 : prices.gemini_output_per_1m))}
                                     </div>
-                                    <div style={{ fontWeight: 700, color: "#374151" }}>
-                                      Total IA: {fmtBRL(row.custo_ia)}
-                                    </div>
+                                    <div style={{ fontWeight: 700, color: "#374151" }}>Total IA: {fmtBRL(row.custo_ia)}</div>
                                   </>
                                 ) : (
-                                  <div style={{ color: "#d1d5db" }}>Sem logs de tokens — ative o logging no backend</div>
+                                  <div style={{ color: "#d1d5db" }}>{row.hasRealCosts ? "Tokens não registrados" : "Sem logs de tokens — análise futura irá registrar"}</div>
                                 )}
                               </div>
 

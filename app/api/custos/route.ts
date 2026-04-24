@@ -42,11 +42,11 @@ export async function GET(req: NextRequest) {
     }
 
     // Enrich: fetch company info for collection_ids that are missing company_name
-    const collectionIds = [...new Set(
+    const collectionIds = Array.from(new Set(
       (logs ?? [])
         .filter(l => l.collection_id && !l.company_name)
         .map(l => l.collection_id as string)
-    )];
+    ));
 
     const collectionMap: Record<string, { company_name: string | null; cnpj: string | null }> = {};
     if (collectionIds.length > 0) {
