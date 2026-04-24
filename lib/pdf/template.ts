@@ -1118,7 +1118,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
     <div class="istrip" style="grid-template-columns:repeat(6,1fr)">
       <div class="icell"><div class="l">Tempo de Fundação</div><div class="v sm">${fmt(params.companyAge)}</div></div>
       <div class="icell"><div class="l">Porte</div><div class="v sm">${fmt(cnpj?.porte)}</div></div>
-      <div class="icell"><div class="l">Capital Social</div><div class="v sm mono">${fmtMoneyAbr(capitalSocial)}</div></div>
+      <div class="icell"><div class="l">Capital Social</div><div class="v sm mono">${fmtMoney(capitalSocial)}</div></div>
       <div class="icell"><div class="l">Tipo</div><div class="v sm">${fmt(cnpj?.tipoEmpresa ?? "Matriz")}</div></div>
       <div class="icell"><div class="l">Local</div><div class="v sm">${fmt(local)}</div></div>
       <div class="icell"><div class="l">Natureza Jurídica</div><div class="v sm">${cnpj?.naturezaJuridica ? esc(cnpj.naturezaJuridica) : "—"}</div></div>
