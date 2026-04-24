@@ -1394,7 +1394,7 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
 
   const startIdx = Math.floor(Math.random() * GEMINI_API_KEYS.length);
   const rotatedKeys = [...GEMINI_API_KEYS.slice(startIdx), ...GEMINI_API_KEYS.slice(0, startIdx)];
-  const MAX_ATTEMPTS = 3; // 1 tentativa + 2 retries com backoff em 503/429
+  const MAX_ATTEMPTS = 2; // 1 tentativa + 1 retry — 3 modelos × 2 × 8s = 48s cabe nos 52s
   const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
   keyLoop: for (const apiKey of rotatedKeys) {
     for (const model of GEMINI_MODELS) {
@@ -1406,8 +1406,8 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
         try {
           console.log(`[Gemini] key=${apiKey.substring(0, 8)}... model=${model} attempt=${attempt + 1}/${MAX_ATTEMPTS}`);
           const controller = new AbortController();
-          // 12s por tentativa: 3 tentativas flash = 36s, sobra 16s para flash-lite dentro dos 52s totais
-          const fetchTimeout = setTimeout(() => controller.abort(), 12000);
+          // 8s por tentativa: 3 modelos × 2 tentativas × 8s = 48s, cabe nos 52s totais
+          const fetchTimeout = setTimeout(() => controller.abort(), 8000);
           const response = await fetch(geminiUrl(model, apiKey), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
