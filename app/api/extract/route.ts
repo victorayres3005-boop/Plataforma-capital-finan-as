@@ -1535,9 +1535,9 @@ async function callAI(
   fileBuffer?: Buffer,
   thinkingBudget = 0,
 ): Promise<string> {
-  // Para PDFs com imagem (> 100KB): usa Gemini Files API (fileUri) em vez de inline base64.
-  // Files API é mais estável para PDFs com tabelas complexas — suporte universal entre modelos.
-  const FILES_API_THRESHOLD = 100 * 1024;
+  // Para PDFs com imagem (> 500KB): usa Gemini Files API (fileUri) em vez de inline base64.
+  // Abaixo de 500KB vai inline — elimina latência e 503 do upload. Acima, Files API é mais estável.
+  const FILES_API_THRESHOLD = 500 * 1024;
   let resolvedContent: string | { mimeType: string; base64: string } | { mimeType: string; fileUri: string };
 
   if (imageContent && fileBuffer && fileBuffer.length > FILES_API_THRESHOLD && GEMINI_API_KEYS.length > 0) {
@@ -3158,9 +3158,18 @@ async function processExtract(
           console.log(`[extract] ${docType}/${subformat} — modo visual (texto insuficiente: ${rawPdfText.trim().length} chars)`);
         }
       } else {
-        console.log(`[extract] ${docType} — modo visual (PDF binário)`);
-        imageContent = { mimeType: "application/pdf", base64: buffer.toString("base64") };
-        textContent = "";
+        // PDFs grandes (>1MB) digitais: tenta texto antes de ir visual — evita Files API e timeout de 52s.
+        // Se escaneado (rawPdfText insuficiente) → cai pro visual normalmente.
+        const isLargeFile = buffer.length > 1024 * 1024;
+        const hasUsefulText = rawPdfText.trim().length > 200 && /\d/.test(rawPdfText);
+        if (isLargeFile && hasUsefulText) {
+          textContent = rawPdfText;
+          console.log(`[extract] ${docType} — texto (fallback ${rawPdfText.length} chars, ${(buffer.length / 1024 / 1024).toFixed(1)}MB PDF digital)`);
+        } else {
+          console.log(`[extract] ${docType} — modo visual (PDF binário)`);
+          imageContent = { mimeType: "application/pdf", base64: buffer.toString("base64") };
+          textContent = "";
+        }
       }
     } else {
       // Formatos não-PDF (xlsx, docx, txt…): extrai texto normalmente
@@ -3185,8 +3194,8 @@ async function processExtract(
       const maxChars: Record<string, number> = {
         cnpj: 4000, qsa: 6000, faturamento: 20000, scr: 15000,
         protestos: 8000, processos: 12000, grupoEconomico: 8000,
-        dre: 12000, balanco: 12000, ir_socio: 25000,
-        curva_abc: 30000,
+        dre: 30000, balanco: 30000, ir_socio: 25000,
+        curva_abc: 60000,
         // relatorio_visita / contrato → modo visual, não chegam aqui
       };
       textContent = textContent.substring(0, maxChars[docType] || 10000);
