@@ -24,7 +24,7 @@ export interface BigDataCorpSocioData {
   birthDate: string;
   motherName: string;
   hasObitIndication: boolean;
-  empresas: { cnpj: string; nome: string; relacao: string }[];
+  empresas: { cnpj: string; nome: string; relacao: string; participacao?: string }[];
   // financial_risk
   financialRiskScore?:          number;   // 0-1000
   financialRiskLevel?:          string;   // A-H
@@ -369,16 +369,29 @@ function parsePessoaResponse(cpf: string, json: unknown): BigDataCorpSocioData |
       ? (biz.BusinessRelationships as unknown[])
       : (biz && Array.isArray(biz.Relationships) ? (biz.Relationships as unknown[]) : []);
 
+    // Apenas vínculos de propriedade — exclui roles puramente administrativos sem capital
+    const OWNERSHIP_KEYWORDS = ["sócio", "socio", "quotista", "acionista", "proprietário", "proprietario", "titular", "responsável", "responsavel", "membro", "diretor", "partner"];
+    const isOwnership = (rel: string) => {
+      if (!rel) return true; // sem tipo → assume propriedade
+      const r = rel.toLowerCase();
+      // Exclui explicitamente roles sem capital
+      if (r.includes("procurador") || r.includes("contador") || r.includes("correspondente") || r.includes("representante legal")) return false;
+      return OWNERSHIP_KEYWORDS.some(k => r.includes(k));
+    };
+
     const empresas = relList
       .map(rel => {
         const e = rel as Record<string, unknown>;
+        const pctRaw = e.EquityShare ?? e.EquitySharePercent ?? e.CapitalEquityPercentage ?? e.PartnerEquityPercentage ?? e.EquityPercentage ?? e.Percentage ?? e.SharePercentage;
+        const pct = pctRaw != null ? String(pctRaw).replace(/[^0-9.,]/g, "") : "";
         return {
-          cnpj:    _str(e.RelatedEntityTaxIdNumber ?? e.CompanyTaxIdNumber ?? e.CompanyTaxId),
-          nome:    _str(e.RelatedEntityName ?? e.CompanyName),
-          relacao: _str(e.RelationshipType),
+          cnpj:         _str(e.RelatedEntityTaxIdNumber ?? e.CompanyTaxIdNumber ?? e.CompanyTaxId),
+          nome:         _str(e.RelatedEntityName ?? e.CompanyName),
+          relacao:      _str(e.RelationshipType),
+          participacao: pct ? `${pct}%` : "",
         };
       })
-      .filter(e => e.cnpj);
+      .filter(e => e.cnpj && isOwnership(e.relacao));
 
     // ── financial_risk ─────────────────────────────────────────────────────────
     const fr = getSection(r, "financial_risk");

@@ -606,9 +606,18 @@ export function renderRisco(ctx: PdfCtx): void {
       pos.y = y0 + CH + 5;
     }
 
-    // Tabela de empresas
-    const RH = 9; const HH = 9;
-    const TH = HH + grupoEmpresas.length * RH + 2;
+    // Tabela de empresas — agrupada por sócio de origem
+    const RH = 9; const HH = 9; const GH = 7;
+
+    const porSocioGE: Record<string, typeof grupoEmpresas> = {};
+    grupoEmpresas.forEach(e => {
+      const key = e.socioOrigem || "Sem identificação";
+      if (!porSocioGE[key]) porSocioGE[key] = [];
+      porSocioGE[key].push(e);
+    });
+    const socioGroupsGE = Object.entries(porSocioGE);
+
+    const TH = HH + socioGroupsGE.length * GH + grupoEmpresas.length * RH + 2;
     checkPageBreak(ctx, 7 + TH + 4);
     stitle("Empresas do grupo");
     const grCols = [
@@ -625,27 +634,49 @@ export function renderRisco(ctx: PdfCtx): void {
     doc.setLineWidth(0.25);
     doc.roundedRect(ML, y0, CW, TH, 2, 2, "FD");
     tableHeader(y0, grCols, HH);
-    grupoEmpresas.forEach((e, i) => {
-      const ry = y0 + HH + i * RH;
-      if (i % 2 !== 0) { doc.setFillColor(...P.x0); doc.rect(ML, ry, CW, RH, "F"); }
-      const isAtiva = (e.situacao || "").toUpperCase() === "ATIVA";
-      const sitFg: [number,number,number] = isAtiva ? P.g6 : P.a5;
-      doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(...P.x7);
-      doc.text(tr(e.razaoSocial || "—", 20), ML + 4, ry + 6.5);
-      doc.setFont("helvetica","normal"); doc.setTextColor(...P.x5);
-      doc.text(tr(e.relacao || "—", 14), ML + CW * 0.35, ry + 6.5);
-      doc.setTextColor(...sitFg); doc.setFont("helvetica","bold");
-      doc.text(tr(e.situacao || "—", 10), ML + CW * 0.52, ry + 6.5);
-      doc.setFont("helvetica","normal"); doc.setTextColor(...P.x5);
-      doc.text(mo(e.scrTotal) !== "—" ? mo(e.scrTotal) : "—", ML + CW * 0.67, ry + 6.5, { align: "right" });
-      const protN = parseInt(e.protestos || "0") || 0;
-      doc.setTextColor(...(protN > 0 ? P.r6 : P.x4)); doc.setFont("helvetica","bold");
-      doc.text(String(protN) || "—", ML + CW * 0.79, ry + 6.5, { align: "right" });
-      const procN = parseInt(e.processos || "0") || 0;
-      doc.setTextColor(...(procN > 0 ? P.a5 : P.x4));
-      doc.text(String(procN) || "—", ML + CW - 2, ry + 6.5, { align: "right" });
-      doc.setDrawColor(...P.x1); doc.setLineWidth(0.15);
-      doc.line(ML + 2, ry + RH, ML + CW - 2, ry + RH);
+
+    let geOffset = HH;
+    let geParity = 0;
+    socioGroupsGE.forEach(([socio, emps]) => {
+      const gry = y0 + geOffset;
+      doc.setFillColor(...P.x1); doc.rect(ML, gry, CW, GH, "F");
+      doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(...P.x5);
+      doc.text(
+        `Via socio: ${socio}  (${emps.length} empresa${emps.length > 1 ? "s" : ""})`,
+        ML + 4, gry + GH - 1.5
+      );
+      geOffset += GH;
+
+      emps.forEach(e => {
+        const ry = y0 + geOffset;
+        if (geParity % 2 !== 0) { doc.setFillColor(...P.x0); doc.rect(ML, ry, CW, RH, "F"); }
+        const isAtiva = (e.situacao || "").toUpperCase() === "ATIVA";
+        const sitFg: [number,number,number] = isAtiva ? P.g6 : P.a5;
+        doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(...P.x7);
+        const nameLabel = tr(e.razaoSocial || "—", 20);
+        const nameW = doc.getTextWidth(nameLabel);
+        doc.text(nameLabel, ML + 4, ry + 6.5);
+        if (e.participacao) {
+          doc.setFont("helvetica","normal"); doc.setFontSize(6); doc.setTextColor(...P.x4);
+          doc.text(e.participacao, ML + 4 + nameW + 2, ry + 6.5);
+        }
+        doc.setFont("helvetica","normal"); doc.setFontSize(7); doc.setTextColor(...P.x5);
+        doc.text(tr(e.relacao || "—", 14), ML + CW * 0.35, ry + 6.5);
+        doc.setTextColor(...sitFg); doc.setFont("helvetica","bold");
+        doc.text(tr(e.situacao || "—", 10), ML + CW * 0.52, ry + 6.5);
+        doc.setFont("helvetica","normal"); doc.setTextColor(...P.x5);
+        doc.text(mo(e.scrTotal) !== "—" ? mo(e.scrTotal) : "—", ML + CW * 0.67, ry + 6.5, { align: "right" });
+        const protN = parseInt(e.protestos || "0") || 0;
+        doc.setTextColor(...(protN > 0 ? P.r6 : P.x4)); doc.setFont("helvetica","bold");
+        doc.text(String(protN) || "—", ML + CW * 0.79, ry + 6.5, { align: "right" });
+        const procN = parseInt(e.processos || "0") || 0;
+        doc.setTextColor(...(procN > 0 ? P.a5 : P.x4));
+        doc.text(String(procN) || "—", ML + CW - 2, ry + 6.5, { align: "right" });
+        doc.setDrawColor(...P.x1); doc.setLineWidth(0.15);
+        doc.line(ML + 2, ry + RH, ML + CW - 2, ry + RH);
+        geOffset += RH;
+        geParity++;
+      });
     });
     pos.y = y0 + TH + 5;
 

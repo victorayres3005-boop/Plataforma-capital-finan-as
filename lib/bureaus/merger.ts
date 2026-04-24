@@ -247,16 +247,16 @@ export function mergeBureauResults(
           if (cnpjsExistentes.has(cnpjNum)) continue;
           cnpjsExistentes.add(cnpjNum);
           novasEmpresas.push({
-            razaoSocial: emp.nome || "—",
-            cnpj:        cnpjNum,
-            relacao:     emp.relacao || "via Sócio",
-            scrTotal:    "—",
-            protestos:   "—",
-            processos:   "—",
-            socioOrigem: socio.nome || socio.cpf,
-            cpfSocio:    socio.cpf,
-            participacao: "",
-            situacao:    "ATIVA",
+            razaoSocial:  emp.nome || "—",
+            cnpj:         cnpjNum,
+            relacao:      emp.relacao || "via Sócio",
+            scrTotal:     "—",
+            protestos:    "—",
+            processos:    "—",
+            socioOrigem:  socio.nome || socio.cpf,
+            cpfSocio:     socio.cpf,
+            participacao: emp.participacao || "",
+            situacao:     "ATIVA",
           });
         }
       }
