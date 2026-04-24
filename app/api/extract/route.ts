@@ -1435,15 +1435,19 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
             continue keyLoop;
           }
 
-          // 429/503: erros transitorios — backoff exponencial e tenta de novo
-          if (response.status === 429 || response.status === 503) {
+          // 503: servidor fora — não adianta retry, pula modelo imediatamente
+          if (response.status === 503) {
+            console.log(`[Gemini] HTTP 503 key=${apiKey.substring(0, 8)} model=${model} — skip`);
+            break;
+          }
+          // 429: rate limit — vale esperar e tentar de novo
+          if (response.status === 429) {
             if (attempt < MAX_ATTEMPTS - 1) {
-              const backoffMs = 3000 * Math.pow(2, attempt); // 3s, 6s, 12s
-              console.log(`[Gemini] HTTP ${response.status} key=${apiKey.substring(0, 8)} model=${model}, backoff ${backoffMs}ms`);
+              const backoffMs = 3000 * Math.pow(2, attempt);
+              console.log(`[Gemini] HTTP 429 key=${apiKey.substring(0, 8)} model=${model}, backoff ${backoffMs}ms`);
               await sleep(backoffMs);
               continue;
             }
-            console.log(`[Gemini] HTTP ${response.status} esgotou retries — skip para proximo model/key`);
             break;
           }
 
