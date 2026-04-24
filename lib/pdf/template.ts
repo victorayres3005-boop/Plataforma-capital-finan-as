@@ -1184,13 +1184,9 @@ function pageSintese(params: PDFReportParams, date: string): string {
           const hasProt = e.protestos && e.protestos !== "—";
           const hasProc = e.processos && e.processos !== "—";
           const hasVal  = e.valorProcessos && e.valorProcessos !== "—";
-          const relacaoLabel = (e.relacao ?? "")
-            .replace(/\bRéu\b/gi, "Polo Passivo")
-            .replace(/\bAutor\b(?=\s*\(Processo\))/gi, "Polo Ativo");
           return `<tr>
             <td><b>${esc(e.razaoSocial)}</b>${e.participacao ? `<span style="color:var(--x4);font-size:var(--fs-tag);margin-left:6px">${esc(e.participacao)}</span>` : ""}</td>
             <td class="mono">${cnpjFmt}</td>
-            <td><span class="ge-rel">${esc(relacaoLabel)}</span></td>
             <td><span class="ge-badge ${sitCls}">${esc(e.situacao ?? "—")}</span></td>
             <td class="mono" style="color:${hasSCR ? "var(--n9)" : "var(--x4)"}">${hasSCR ? fmtMoneyAbr(e.scrTotal) : "—"}</td>
             <td style="text-align:center;color:${hasProt && e.protestos !== "0" ? "var(--r6)" : "var(--g6)"};font-weight:600">${hasProt ? e.protestos : "—"}</td>
@@ -1204,7 +1200,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
           <span style="font-weight:500;color:var(--n8);margin-left:auto">${emps.length} empresa${emps.length > 1 ? "s" : ""}</span>
         </div>
         <table class="ge-tbl">
-          <thead><tr><th>Razão Social</th><th>CNPJ</th><th>Relação</th><th>Situação</th><th>SCR</th><th style="text-align:center">Prot.</th><th style="text-align:center">Proc.</th><th style="text-align:right">Valor Proc.</th></tr></thead>
+          <thead><tr><th>Razão Social</th><th>CNPJ</th><th>Situação</th><th>SCR</th><th style="text-align:center">Prot.</th><th style="text-align:center">Proc.</th><th style="text-align:right">Valor Proc.</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>`;
       }).join("");
@@ -1779,14 +1775,20 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
     const blocks = params.data.scrSocios.map(ss => {
       const sa = ss.periodoAtual;
       const sp = ss.periodoAnterior;
-      const vVenc = scrVar(sa.vencidos, sp?.vencidos, true);
-      const vTotal2 = scrVar(sa.totalDividasAtivas, sp?.totalDividasAtivas, true);
+      const respAtiva = numVal(sa.carteiraAVencer) + numVal(sa.vencidos);
+      const respAtivaAnt = sp ? numVal(sp.carteiraAVencer) + numVal(sp.vencidos) : null;
+      const prejVal = numVal(sa.prejuizos);
+      const semDivida = respAtiva === 0 && prejVal > 0;
+      const vRespAtiva = respAtivaAnt !== null ? scrVar(String(respAtiva), String(respAtivaAnt), true) : { val: "—", cls: "" };
+      const vPrej = sp ? scrVar(sa.prejuizos, sp.prejuizos, true) : { val: "—", cls: "" };
+      const vAVencer = sp ? scrVar(sa.carteiraAVencer, sp.carteiraAVencer, false) : { val: "—", cls: "" };
       return `<div style="margin-bottom:14px;padding:14px;background:var(--x0);border-radius:8px;border:1px solid var(--x2)">
         <div style="font-size:12px;font-weight:700;color:var(--n9);margin-bottom:10px">${esc(ss.nomeSocio)} <span style="font-size:10px;color:var(--x5);font-family:'JetBrains Mono',monospace">${fmtCpf(ss.cpfSocio)}</span></div>
-        <div class="istrip c4">
-          <div class="icell"><div class="l">Total Dívidas</div><div class="v sm mono">${fmtMoneyAbr(sa.totalDividasAtivas)}</div>${sp ? `<div class="sub var-cell ${vTotal2.cls}" style="font-size:9px">${esc(vTotal2.val)}</div>` : ""}</div>
-          <div class="icell ${numVal(sa.vencidos) > 0 ? "danger" : ""}"><div class="l">Vencidos</div><div class="v sm mono ${numVal(sa.vencidos) > 0 ? "red" : "green"}">${fmtMoneyAbr(sa.vencidos)}</div>${sp ? `<div class="sub var-cell ${vVenc.cls}" style="font-size:9px">${esc(vVenc.val)}</div>` : ""}</div>
-          <div class="icell"><div class="l">A Vencer</div><div class="v sm mono">${fmtMoneyAbr(sa.carteiraAVencer)}</div></div>
+        <div class="istrip c5">
+          <div class="icell"${semDivida ? ` title="Crédito baixado para prejuízo — sem dívida ativa em cobrança"` : ""}><div class="l">Resp. Ativa</div><div class="v sm mono">${fmtMoneyAbr(String(respAtiva))}</div>${vRespAtiva.val !== "—" ? `<div class="sub var-cell ${vRespAtiva.cls}" style="font-size:9px">${esc(vRespAtiva.val)}</div>` : ""}${semDivida ? `<div class="sub" style="font-size:9px;font-style:italic;color:var(--x4)">sem cobrança ativa</div>` : ""}</div>
+          <div class="icell ${prejVal > 0 ? "danger" : ""}"><div class="l">Prejuízos</div><div class="v sm mono ${prejVal > 0 ? "red" : ""}">${prejVal > 0 ? fmtMoneyAbr(sa.prejuizos) : "—"}</div>${prejVal > 0 ? `<div class="sub" style="font-size:9px;font-weight:700;color:#DC2626">⚠ Write-off</div>` : ""}${sp && vPrej.val !== "—" ? `<div class="sub var-cell ${vPrej.cls}" style="font-size:9px">${esc(vPrej.val)}</div>` : ""}</div>
+          <div class="icell"><div class="l">A Vencer</div><div class="v sm mono">${fmtMoneyAbr(sa.carteiraAVencer)}</div>${sp && vAVencer.val !== "—" ? `<div class="sub var-cell ${vAVencer.cls}" style="font-size:9px">${esc(vAVencer.val)}</div>` : ""}</div>
+          <div class="icell"><div class="l">Limite</div><div class="v sm mono ${numVal(sa.limiteCredito) === 0 ? "muted" : ""}">${numVal(sa.limiteCredito) > 0 ? fmtMoneyAbr(sa.limiteCredito) : "Não informado"}</div></div>
           <div class="icell"><div class="l">IFs</div><div class="v">${fmt(sa.qtdeInstituicoes)}</div></div>
         </div>
         <div class="inf" style="margin-top:6px;margin-bottom:0">Período: <b>${esc(sa.periodoReferencia ?? "—")}</b>${sp ? ` · Anterior: <b>${esc(sp.periodoReferencia ?? "—")}</b>` : ""}</div>

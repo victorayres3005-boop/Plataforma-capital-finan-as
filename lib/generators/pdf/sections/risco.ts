@@ -622,10 +622,9 @@ export function renderRisco(ctx: PdfCtx): void {
     stitle("Empresas do grupo");
     const grCols = [
       { label: "Razão Social",  x: 4,         align: "left" as const },
-      { label: "Relação",       x: CW * 0.35, align: "left" as const },
-      { label: "Situação",      x: CW * 0.52, align: "left" as const },
-      { label: "SCR",           x: CW * 0.67, align: "right" as const },
-      { label: "Prot.",         x: CW * 0.79, align: "right" as const },
+      { label: "Situação",      x: CW * 0.44, align: "left" as const },
+      { label: "SCR",           x: CW * 0.60, align: "right" as const },
+      { label: "Prot.",         x: CW * 0.74, align: "right" as const },
       { label: "Proc.",         x: CW - 2,    align: "right" as const },
     ];
     const y0 = pos.y;
@@ -660,15 +659,13 @@ export function renderRisco(ctx: PdfCtx): void {
           doc.setFont("helvetica","normal"); doc.setFontSize(6); doc.setTextColor(...P.x4);
           doc.text(e.participacao, ML + 4 + nameW + 2, ry + 6.5);
         }
-        doc.setFont("helvetica","normal"); doc.setFontSize(7); doc.setTextColor(...P.x5);
-        doc.text(tr(e.relacao || "—", 14), ML + CW * 0.35, ry + 6.5);
-        doc.setTextColor(...sitFg); doc.setFont("helvetica","bold");
-        doc.text(tr(e.situacao || "—", 10), ML + CW * 0.52, ry + 6.5);
+        doc.setTextColor(...sitFg); doc.setFont("helvetica","bold"); doc.setFontSize(7);
+        doc.text(tr(e.situacao || "—", 10), ML + CW * 0.44, ry + 6.5);
         doc.setFont("helvetica","normal"); doc.setTextColor(...P.x5);
-        doc.text(mo(e.scrTotal) !== "—" ? mo(e.scrTotal) : "—", ML + CW * 0.67, ry + 6.5, { align: "right" });
+        doc.text(mo(e.scrTotal) !== "—" ? mo(e.scrTotal) : "—", ML + CW * 0.60, ry + 6.5, { align: "right" });
         const protN = parseInt(e.protestos || "0") || 0;
         doc.setTextColor(...(protN > 0 ? P.r6 : P.x4)); doc.setFont("helvetica","bold");
-        doc.text(String(protN) || "—", ML + CW * 0.79, ry + 6.5, { align: "right" });
+        doc.text(String(protN) || "—", ML + CW * 0.74, ry + 6.5, { align: "right" });
         const procN = parseInt(e.processos || "0") || 0;
         doc.setTextColor(...(procN > 0 ? P.a5 : P.x4));
         doc.text(String(procN) || "—", ML + CW - 2, ry + 6.5, { align: "right" });
