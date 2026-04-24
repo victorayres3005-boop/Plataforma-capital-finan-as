@@ -988,7 +988,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         const res = await fetch("/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ data, settings: activeValidationSettings, user_id: currentUser?.id, scoreV2: scoreV2 ?? autoScoreResultado.score, scoreV2Respostas: scoreV2Respostas.length ? scoreV2Respostas : autoScoreResultado.respostas }),
+          body: JSON.stringify({ data, settings: activeValidationSettings, user_id: currentUser?.id, collection_id: collectionId ?? null, scoreV2: scoreV2 ?? autoScoreResultado.score, scoreV2Respostas: scoreV2Respostas.length ? scoreV2Respostas : autoScoreResultado.respostas }),
         });
         if (!res.ok) {
           throw new Error(res.status === 504 ? "Timeout (504) — tente novamente." : `Erro HTTP ${res.status}`);

@@ -15,6 +15,7 @@ import { enrichProcessosWithDataJud } from "@/lib/bureaus/datajud";
 import { cacheGet, cacheSet, cacheClear, cacheClearAll, cacheSize } from "@/lib/bureaus/cache";
 import type { ExtractedData } from "@/types";
 import type { CreditHubResult } from "@/lib/bureaus/credithub";
+import { createClient } from "@supabase/supabase-js";
 
 async function consultarCreditHubComCache(cnpj: string, rawDataFromClient?: unknown): Promise<CreditHubResult> {
   const cnpjNum = cnpj.replace(/\D/g, "");
@@ -43,7 +44,7 @@ async function consultarCreditHubComCache(cnpj: string, rawDataFromClient?: unkn
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { cnpj, data, creditHubRaw } = body as { cnpj: string; data: ExtractedData; creditHubRaw?: unknown };
+    const { cnpj, data, creditHubRaw, collection_id } = body as { cnpj: string; data: ExtractedData; creditHubRaw?: unknown; collection_id?: string };
 
     if (!cnpj) {
       return NextResponse.json({ success: false, error: "CNPJ não informado" }, { status: 400 });
@@ -197,6 +198,31 @@ export async function POST(req: NextRequest) {
 
     console.log("[bureaus] Credit Hub:", results.credithub?.success ? "ok" : results.credithub?.error);
     console.log("[bureaus] Consultados:", bureausConsultados);
+
+    // Fire-and-forget: registra chamadas de bureau para rastreio de custo
+    try {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      if (supabaseUrl && supabaseKey) {
+        const sb = createClient(supabaseUrl, supabaseKey);
+        const numSociosPF = (data?.qsa?.quadroSocietario ?? [])
+          .filter((s: { cpfCnpj?: string }) => s.cpfCnpj && s.cpfCnpj.replace(/\D/g, "").length === 11).length;
+        const bureau_calls = {
+          credithub:     results.credithub?.success && !results.credithub?.mock ? 1 : 0,
+          assertiva_pj:  results.assertiva?.success && !results.assertiva?.mock  ? 1 : 0,
+          assertiva_pf:  results.assertiva?.success && !results.assertiva?.mock  ? numSociosPF : 0,
+          bdc_empresa:   results.bigdatacorp?.success && !results.bigdatacorp?.mock ? 1 : 0,
+          bdc_socio:     results.bigdatacorp?.success && !results.bigdatacorp?.mock ? numSociosPF : 0,
+        };
+        await sb.from("api_usage_logs").insert({
+          collection_id: collection_id ?? null,
+          cnpj: cnpj ?? null,
+          company_name: (data?.cnpj as Record<string, string>)?.razaoSocial ?? null,
+          log_type: "bureau",
+          bureau_calls,
+        });
+      }
+    } catch { /* não bloqueia a resposta */ }
 
     return NextResponse.json({
       success: true,

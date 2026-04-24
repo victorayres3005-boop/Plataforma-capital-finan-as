@@ -166,7 +166,9 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 // ─────────────────────────────────────────
 // Chamada Gemini
 // ─────────────────────────────────────────
-async function callGemini(prompt: string, data: string): Promise<string> {
+interface GeminiResult { text: string; inputTokens: number; outputTokens: number; model: string; }
+
+async function callGemini(prompt: string, data: string): Promise<GeminiResult> {
   // Caching implicito do Gemini 2.5: prompt estatico (ANALYSIS_PROMPT + few-shots)
   // como part isolada antes do bloco dinamico de dados. Habilita desconto
   // automatico em input tokens quando o mesmo prompt e reutilizado.
@@ -244,7 +246,15 @@ async function callGemini(prompt: string, data: string): Promise<string> {
           const resParts = result?.candidates?.[0]?.content?.parts || [];
           const textP = [...resParts].reverse().find((p: { text?: string; thought?: boolean }) => p.text && !p.thought);
           const text = textP?.text || resParts?.[resParts.length - 1]?.text || resParts?.[0]?.text;
-          if (text) return text;
+          if (text) {
+            const usage = result?.usageMetadata ?? {};
+            return {
+              text,
+              inputTokens: usage.promptTokenCount ?? 0,
+              outputTokens: usage.candidatesTokenCount ?? 0,
+              model,
+            };
+          }
           console.error(`[analyze] Gemini model=${model} returned empty response`);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -1714,20 +1724,24 @@ Dívida total SCR: R$ ${_alav.totalDivida.toLocaleString("pt-BR", { minimumFract
                 const msg = err instanceof Error ? err.message : String(err);
                 if (msg === "GEMINI_EXHAUSTED" && OPENROUTER_API_KEYS.length > 0) {
                   console.log("[analyze] Gemini esgotado → OpenRouter");
-                  return await callOpenRouter(dynamicPrompt, calculosInjetados + "\n" + dataStr);
+                  const t = await callOpenRouter(dynamicPrompt, calculosInjetados + "\n" + dataStr);
+                  return { text: t, inputTokens: 0, outputTokens: 0, model: "openrouter" } as GeminiResult;
                 }
                 throw err;
               }
             })(),
             callGemini(sintesePrompt, "").catch(err => {
               console.warn("[analyze] Síntese falhou:", err instanceof Error ? err.message : err);
-              return "";
+              return { text: "", inputTokens: 0, outputTokens: 0, model: "" } as GeminiResult;
             }),
           ]);
 
           if (analysisSettled.status === "rejected") throw analysisSettled.reason;
-          analysisText = analysisSettled.value;
-          const sinteseExecutiva = sinteseSettled.status === "fulfilled" ? (sinteseSettled.value?.trim() || "") : "";
+          const analysisResult = analysisSettled.value as GeminiResult;
+          analysisText = analysisResult.text;
+          const sinteseExecutiva = sinteseSettled.status === "fulfilled"
+            ? ((sinteseSettled.value as GeminiResult)?.text?.trim() || "")
+            : "";
 
           send(controller, "status", { message: "Processando resultado..." });
 
@@ -1834,6 +1848,25 @@ Dívida total SCR: R$ ${_alav.totalDivida.toLocaleString("pt-BR", { minimumFract
           }
 
           send(controller, "result", { success: true, analysis });
+
+          // Fire-and-forget: registra uso de tokens para rastreio de custo
+          try {
+            const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+            const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+            if (supabaseUrl && supabaseKey && analysisResult.inputTokens > 0) {
+              const sb = createClient(supabaseUrl, supabaseKey);
+              const cnpjData = (_body.data as Record<string, unknown>)?.cnpj as Record<string, string> | undefined;
+              await sb.from("api_usage_logs").insert({
+                collection_id: (_body as Record<string, unknown>).collection_id ?? null,
+                cnpj: cnpjData?.cnpj ?? null,
+                company_name: cnpjData?.razaoSocial ?? null,
+                log_type: "gemini_analyze",
+                model: analysisResult.model,
+                input_tokens: analysisResult.inputTokens,
+                output_tokens: analysisResult.outputTokens,
+              });
+            }
+          } catch { /* não bloqueia o resultado */ }
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
           console.error(`[analyze] Stream error: ${errMsg}`);
