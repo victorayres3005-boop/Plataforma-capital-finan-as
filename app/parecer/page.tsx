@@ -1087,8 +1087,7 @@ const ratingIsAnalista = ratingAnalista != null;
         background: "#fff", borderBottom: "1px solid #f1f5f9",
         boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
       }}>
-        <div style={{ maxWidth: 880, margin: "0 auto", padding: "0 24px", height: 56, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <a href="/" style={{ textDecoration: "none" }}><Logo height={24} /></a>
+        <div style={{ maxWidth: 880, margin: "0 auto", padding: "0 24px", height: 56, display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             {autoSaveError && (
               <span style={{ fontSize: 12, color: "#b91c1c", display: "flex", alignItems: "center", gap: 4, fontWeight: 600 }}>
