@@ -841,7 +841,7 @@ async function consultarGrupoEconomicoDedicado(
   if (!docNum) return [];
 
   const url = `${CREDITHUB_API_URL}/v1/grupo-economico/${docNum}`;
-  const MAX_ATTEMPTS = 8;
+  const MAX_ATTEMPTS = 5;
   const DELAY_MS = 3000;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -852,6 +852,7 @@ async function consultarGrupoEconomicoDedicado(
           "Authorization": `Bearer ${CREDITHUB_API_KEY}`,
         },
         cache: "no-store",
+        signal: AbortSignal.timeout(8000),
       });
       const text = await res.text();
 
@@ -902,7 +903,7 @@ async function consultarCreditHubPorCPF(cpf: string, nomeSocio: string): Promise
   if (cpfNum.length !== 11) return [];
 
   const url = `${CREDITHUB_API_URL}/simples/${CREDITHUB_API_KEY}/${cpfNum}`;
-  const MAX_ATTEMPTS = 8;
+  const MAX_ATTEMPTS = 5;
   const DELAY_MS = 3000;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -910,6 +911,7 @@ async function consultarCreditHubPorCPF(cpf: string, nomeSocio: string): Promise
       const res = await fetch(url, {
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
+        signal: AbortSignal.timeout(8000),
       });
       const text = await res.text();
 
@@ -1269,13 +1271,13 @@ export async function consultarCreditHub(cnpj: string, rawDataFromClient?: unkno
     }
     const url = `${CREDITHUB_API_URL}/simples/${CREDITHUB_API_KEY}/${cnpjNum}`;
     // A API CreditHub é assíncrona: pode retornar 500 + XML push="true" enquanto processa.
-    // Fazemos retry até 12 vezes com 3s de intervalo (36s total).
-    const MAX_SERVER_ATTEMPTS = 12;
+    // Fazemos retry até 8 vezes com 3s de intervalo (24s total).
+    const MAX_SERVER_ATTEMPTS = 8;
     const DELAY_MS = 3000;
     let lastError = "";
     for (let attempt = 1; attempt <= MAX_SERVER_ATTEMPTS; attempt++) {
       try {
-        const res = await fetch(url, { headers: { "Content-Type": "application/json" }, cache: "no-store" });
+        const res = await fetch(url, { headers: { "Content-Type": "application/json" }, cache: "no-store", signal: AbortSignal.timeout(8000) });
         const text = await res.text();
         // API retorna 500 + XML com push="true" enquanto processa — aguarda e tenta novamente
         if (text.includes(`push="true"`) || text.includes("push='true'")) {
