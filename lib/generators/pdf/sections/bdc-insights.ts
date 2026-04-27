@@ -474,5 +474,76 @@ export function renderBdcInsights(ctx: PdfCtx): void {
     pos.y += 4;
   }
 
+  // ══════════════════════════════════════════════════════════════════
+  // 7. Patrimônio, Veículos e Imóveis — Assertiva PF
+  // ══════════════════════════════════════════════════════════════════
+  {
+    const sociosBens = (data.scrSocios ?? []).filter(ss =>
+      ss.patrimonioEstimado || (ss.bensVeiculos?.length ?? 0) > 0 || (ss.bensImoveis?.length ?? 0) > 0
+    );
+    if (sociosBens.length > 0) {
+      checkPageBreak(ctx, 20);
+      stitle(ctx, "Patrimônio & Bens — Assertiva PF");
+
+      for (const ss of sociosBens) {
+        const rowH = 6;
+        const nameH = 8;
+        const veics = ss.bensVeiculos ?? [];
+        const imovs = ss.bensImoveis ?? [];
+        const estimated = nameH + (ss.patrimonioEstimado ? 8 : 0) + veics.length * rowH + imovs.length * rowH + 4;
+        checkPageBreak(ctx, Math.min(estimated, 50));
+
+        // Nome do sócio
+        doc.setFont("helvetica", "bold"); doc.setFontSize(6.5); doc.setTextColor(...P.n8);
+        doc.text(ss.nomeSocio, ML, pos.y + 5);
+        pos.y += nameH;
+
+        // Patrimônio estimado
+        if (ss.patrimonioEstimado) {
+          doc.setFillColor(...P.n0); doc.setDrawColor(...P.x1); doc.setLineWidth(0.2);
+          doc.roundedRect(ML, pos.y, CW / 3, 7, 1, 1, "FD");
+          doc.setFont("helvetica", "bold"); doc.setFontSize(5); doc.setTextColor(...P.x4);
+          doc.text("PATRIMÔNIO ESTIMADO", ML + 2, pos.y + 2.5);
+          doc.setFont("helvetica", "bold"); doc.setFontSize(7); doc.setTextColor(...P.n8);
+          doc.text(ss.patrimonioEstimado, ML + 2, pos.y + 6);
+          pos.y += 9;
+        }
+
+        // Veículos
+        if (veics.length > 0) {
+          doc.setFont("helvetica", "bold"); doc.setFontSize(5.5); doc.setTextColor(...P.x4);
+          doc.text("VEÍCULOS", ML, pos.y + 3.5);
+          pos.y += 5;
+          veics.slice(0, 5).forEach((v, i) => {
+            if (i % 2 === 0) { doc.setFillColor(...P.x0); doc.rect(ML, pos.y, CW, rowH, "F"); }
+            doc.setFont("helvetica", "normal"); doc.setFontSize(5.5); doc.setTextColor(...P.x7);
+            doc.text(`${v.placa || "—"}  ${v.modelo || "—"}  ${v.ano || ""}`, ML + 3, pos.y + 4);
+            doc.setFont("helvetica", "normal"); doc.setTextColor(...P.x4);
+            doc.text(v.valorFipe || "—", ML + CW - 3, pos.y + 4, { align: "right" });
+            pos.y += rowH;
+          });
+        }
+
+        // Imóveis
+        if (imovs.length > 0) {
+          doc.setFont("helvetica", "bold"); doc.setFontSize(5.5); doc.setTextColor(...P.x4);
+          doc.text("IMÓVEIS", ML, pos.y + 3.5);
+          pos.y += 5;
+          imovs.slice(0, 5).forEach((v, i) => {
+            if (i % 2 === 0) { doc.setFillColor(...P.x0); doc.rect(ML, pos.y, CW, rowH, "F"); }
+            doc.setFont("helvetica", "normal"); doc.setFontSize(5.5); doc.setTextColor(...P.x7);
+            const area = v.areaM2 ? `${v.areaM2}m²` : "";
+            doc.text(`${v.municipio || "—"}/${v.uf || "—"}  ${area}`, ML + 3, pos.y + 4);
+            doc.setFont("helvetica", "normal"); doc.setTextColor(...P.x4);
+            doc.text(v.valorEstimado || "—", ML + CW - 3, pos.y + 4, { align: "right" });
+            pos.y += rowH;
+          });
+        }
+
+        pos.y += 4;
+      }
+    }
+  }
+
   pos.y += 3;
 }

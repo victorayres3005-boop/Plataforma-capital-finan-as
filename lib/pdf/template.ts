@@ -1855,7 +1855,45 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
         <div class="inf" style="margin-top:6px;margin-bottom:0">Período: <b>${esc(sa.periodoReferencia ?? "—")}</b>${sp ? ` · Anterior: <b>${esc(sp.periodoReferencia ?? "—")}</b>` : ""}</div>
       </div>`;
     }).join("");
-    sociosSCRSection = `${stitle("08 · SCR dos Sócios (PF)")}${blocks}`;
+    // Patrimônio & bens Assertiva PF
+    const bensSocios = (params.data.scrSocios ?? []).filter(ss =>
+      ss.patrimonioEstimado || (ss.bensVeiculos?.length ?? 0) > 0 || (ss.bensImoveis?.length ?? 0) > 0
+    );
+    const bensSection = bensSocios.length > 0 ? `
+      ${stitle("Patrimônio & Bens — Assertiva PF")}
+      ${bensSocios.map(ss => `
+        <div style="margin-bottom:14px;padding:14px;background:var(--x0);border-radius:8px;border:1px solid var(--x2)">
+          <div style="font-size:12px;font-weight:700;color:var(--n9);margin-bottom:8px">${esc(ss.nomeSocio)}</div>
+          ${ss.patrimonioEstimado ? `<div style="margin-bottom:8px;padding:8px 10px;background:var(--n0);border-radius:6px;display:inline-block">
+            <div style="font-size:9px;color:var(--x4);font-weight:700;text-transform:uppercase;letter-spacing:0.05em">Patrimônio Estimado</div>
+            <div style="font-size:14px;font-weight:700;color:var(--n8)">${esc(ss.patrimonioEstimado)}</div>
+          </div>` : ""}
+          ${(ss.bensVeiculos?.length ?? 0) > 0 ? `
+            <div style="margin-top:8px">
+              <div style="font-size:10px;font-weight:700;color:var(--x4);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">Veículos</div>
+              <table class="tbl"><thead><tr><th>Placa</th><th>Modelo</th><th>Ano</th><th class="r">Valor FIPE</th><th>Situação</th></tr></thead>
+              <tbody>${(ss.bensVeiculos ?? []).slice(0,5).map(v => `<tr>
+                <td class="mono">${esc(v.placa || "—")}</td>
+                <td>${esc(v.modelo || "—")}</td>
+                <td>${v.ano || "—"}</td>
+                <td class="r mono">${esc(v.valorFipe || "—")}</td>
+                <td><span style="color:var(--x5);font-size:10px">${esc(v.situacao || "—")}</span></td>
+              </tr>`).join("")}</tbody></table>
+            </div>` : ""}
+          ${(ss.bensImoveis?.length ?? 0) > 0 ? `
+            <div style="margin-top:8px">
+              <div style="font-size:10px;font-weight:700;color:var(--x4);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">Imóveis</div>
+              <table class="tbl"><thead><tr><th>Município/UF</th><th class="r">Área</th><th class="r">Valor Estimado</th><th>Matrícula</th></tr></thead>
+              <tbody>${(ss.bensImoveis ?? []).slice(0,5).map(v => `<tr>
+                <td>${esc(v.municipio || "—")}/${esc(v.uf || "—")}</td>
+                <td class="r mono">${v.areaM2 ? `${v.areaM2}m²` : "—"}</td>
+                <td class="r mono">${esc(v.valorEstimado || "—")}</td>
+                <td style="color:var(--x5);font-size:10px">${esc(v.matricula || "—")}</td>
+              </tr>`).join("")}</tbody></table>
+            </div>` : ""}
+        </div>`).join("")}` : "";
+
+    sociosSCRSection = `${stitle("08 · SCR dos Sócios (PF)")}${blocks}${bensSection}`;
   }
 
   const scrPeriodoAtual = scr?.periodoReferencia ?? "—";

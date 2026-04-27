@@ -260,7 +260,8 @@ function parseEmpresaResponse(cnpj: string, json: unknown): AssertivaEmpresaData
 }
 
 // ── parseSocioResponse ────────────────────────────────────────────────────────
-// PF: { resposta: { score, protestosPublicos, registrosDebitos, rendaPresumida, cheques } }
+// PF: { resposta: { score, protestosPublicos, registrosDebitos, rendaPresumida,
+//                   patrimonioEstimado, veiculos, imoveis, cheques } }
 function parseSocioResponse(cpf: string, nome: string, json: unknown): AssertivaSocioData {
   const root     = json as Record<string, unknown>;
   const resposta = (root.resposta ?? {}) as Record<string, unknown>;
@@ -282,6 +283,48 @@ function parseSocioResponse(cpf: string, nome: string, json: unknown): Assertiva
     scoreClasse === "E" ? "alerta" :
     "ok";
 
+  // Patrimônio estimado — tenta múltiplos nomes de campo possíveis
+  const patrimonioRaw = resposta.patrimonioEstimado ?? resposta.patrimonio ?? resposta.patrimonioLiquido;
+  const patrimonioObj = (patrimonioRaw != null && typeof patrimonioRaw === "object")
+    ? patrimonioRaw as Record<string, unknown>
+    : null;
+  const patrimonioValor = patrimonioObj
+    ? _num(patrimonioObj.valor ?? patrimonioObj.valorEstimado)
+    : _num(patrimonioRaw);
+  const patrimonioEstimado = patrimonioValor > 0
+    ? `R$ ${patrimonioValor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
+    : "";
+
+  // Veículos — tenta veiculos, bensVeiculos, bens.veiculos
+  const veicRaw = resposta.veiculos ?? resposta.bensVeiculos ??
+    ((resposta.bens as Record<string, unknown> | undefined)?.veiculos);
+  const bensVeiculos = Array.isArray(veicRaw)
+    ? (veicRaw as Record<string, unknown>[]).map(v => ({
+        placa:     _str(v.placa ?? v.numeroPlaca),
+        modelo:    _str(v.modelo ?? v.descricao ?? v.marca),
+        ano:       _num(v.ano ?? v.anoFabricacao ?? v.anoModelo),
+        valorFipe: _num(v.valorFipe ?? v.valor) > 0
+          ? `R$ ${_num(v.valorFipe ?? v.valor).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
+          : "—",
+        situacao:  _str(v.situacao ?? v.status ?? ""),
+      }))
+    : [];
+
+  // Imóveis — tenta imoveis, bensImoveis, bens.imoveis
+  const imovRaw = resposta.imoveis ?? resposta.bensImoveis ??
+    ((resposta.bens as Record<string, unknown> | undefined)?.imoveis);
+  const bensImoveis = Array.isArray(imovRaw)
+    ? (imovRaw as Record<string, unknown>[]).map(v => ({
+        municipio:      _str(v.municipio ?? v.cidade),
+        uf:             _str(v.uf ?? v.estado),
+        areaM2:         _num(v.areaM2 ?? v.area) || undefined,
+        valorEstimado:  _num(v.valorEstimado ?? v.valor) > 0
+          ? `R$ ${_num(v.valorEstimado ?? v.valor).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
+          : undefined,
+        matricula:      _str(v.matricula ?? v.registro) || undefined,
+      }))
+    : [];
+
   // Protestos do sócio PF
   const protPF     = (resposta.protestosPublicos ?? {}) as Record<string, unknown>;
   const protestosQtd   = _num(protPF.qtdProtestos);
@@ -302,13 +345,13 @@ function parseSocioResponse(cpf: string, nome: string, json: unknown): Assertiva
     scoreAssertivaPF,
     scoreClasse,
     rendaPresumida,
-    patrimonioEstimado: "",
+    patrimonioEstimado,
     validacaoIdentidade,
     protestosQtd,
     protestosValor,
     protestosLista,
-    bensVeiculos: [],
-    bensImoveis:  [],
+    bensVeiculos,
+    bensImoveis,
   };
 }
 
