@@ -587,23 +587,118 @@ export function mapearParaExtractedData(r: Record<string, unknown>, rawBody?: Re
     const passivos = _num(lawsuitsSection.TotalLawsuitsAsDefendant ?? lawsuitsSection.TotalLawsuits);
     const ativos   = _num(lawsuitsSection.TotalLawsuitsAsAuthor);
 
-    // Soma valores e conta por CourtType dos processos individuais
     const lawsuitsArr = Array.isArray(lawsuitsSection.Lawsuits)
       ? (lawsuitsSection.Lawsuits as Record<string, unknown>[])
       : [];
+
     let totalValue = 0;
     const byType: Record<string, number> = {};
+    const items: import("@/types").ProcessoItem[] = [];
+
     for (const l of lawsuitsArr) {
-      totalValue += _num(l.Value);
-      const ct = _str(l.CourtType).toUpperCase();
+      const val = _num(l.Value ?? l.LawsuitValue ?? l.ValueOfAction);
+      totalValue += val;
+      const ct = _str(l.CourtType ?? l.LawsuitType).toUpperCase() || "OUTROS";
       byType[ct] = (byType[ct] || 0) + 1;
+
+      // Extrai data: prefere data de distribuição, fallback movimentação
+      const rawDate = _str(
+        l.NoticeDate ?? l.FilingDate ?? l.DistributionDate ?? l.LastMovementDate ?? l.PublicationDate ?? l.Date ?? ""
+      );
+      // Mantém ISO YYYY-MM-DD para ordenação correta
+      const dataIso = rawDate ? rawDate.substring(0, 10) : "";
+
+      const rawUpdated = _str(l.LastMovementDate ?? l.LastUpdateDate ?? l.LastActivity ?? "");
+      const dataUltimo = rawUpdated ? rawUpdated.substring(0, 10) : "";
+
+      const numero = _str(l.LawsuitNumber ?? l.ProcessNumber ?? l.Number ?? l.LawsuitID ?? "");
+      const tipo   = (_str(l.CourtType ?? l.LawsuitType ?? l.MainSubject ?? "")).toUpperCase() || "OUTROS";
+      const assunto = _str(l.MainSubject ?? l.Subject ?? l.CnjSubject ?? l.LawsuitSubject ?? "");
+      const partes  = _str(l.PlaintiffName ?? l.AuthorName ?? l.Plaintiff ?? l.Author ?? "");
+      const polo_passivo = _str(l.DefendantName ?? l.Defendant ?? l.ExecutedName ?? "");
+      const tribunal = _str(l.CourtName ?? l.Court ?? l.Vara ?? l.OrgaoJulgador ?? "");
+      const uf = _str(l.State ?? l.UF ?? l.StateName ?? "");
+      const status = _str(l.Status ?? l.LawsuitStatus ?? l.StatusDescription ?? "");
+
+      items.push({
+        numero,
+        tipo,
+        assunto,
+        data: dataIso,
+        valor: _moeda(val),
+        valorNum: val,
+        status,
+        partes,
+        tribunal,
+        polo_passivo,
+        uf,
+        dataUltimoAndamento: dataUltimo,
+      });
     }
 
+    // Top 10 por valor e mais recentes
+    const top10Valor = [...items]
+      .sort((a, b) => b.valorNum - a.valorNum)
+      .slice(0, 10);
+
+    const top10Recentes = [...items]
+      .filter(p => p.data)
+      .sort((a, b) => (b.data > a.data ? 1 : b.data < a.data ? -1 : 0))
+      .slice(0, 10);
+
+    // Distribuição temporal
+    const now = new Date();
+    const temporalBuckets: Record<string, { qtd: number; valor: number }> = {
+      "< 1 ano": { qtd: 0, valor: 0 },
+      "1-3 anos": { qtd: 0, valor: 0 },
+      "3-5 anos": { qtd: 0, valor: 0 },
+      "> 5 anos": { qtd: 0, valor: 0 },
+    };
+    for (const p of items) {
+      if (!p.data) continue;
+      const dt = new Date(p.data);
+      if (isNaN(dt.getTime())) continue;
+      const anos = (now.getTime() - dt.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+      const bucket = anos < 1 ? "< 1 ano" : anos < 3 ? "1-3 anos" : anos < 5 ? "3-5 anos" : "> 5 anos";
+      temporalBuckets[bucket].qtd++;
+      temporalBuckets[bucket].valor += p.valorNum;
+    }
+    const distribuicaoTemporal = Object.entries(temporalBuckets)
+      .filter(([, v]) => v.qtd > 0)
+      .map(([periodo, v]) => ({ periodo, qtd: String(v.qtd), valor: _moeda(v.valor) }));
+
+    // Distribuição por faixa de valor
+    const faixaBuckets: Record<string, { qtd: number; valor: number }> = {
+      "< R$10k": { qtd: 0, valor: 0 },
+      "R$10k-50k": { qtd: 0, valor: 0 },
+      "R$50k-200k": { qtd: 0, valor: 0 },
+      "R$200k-1M": { qtd: 0, valor: 0 },
+      "> R$1M": { qtd: 0, valor: 0 },
+    };
+    for (const p of items) {
+      const v = p.valorNum;
+      const k = v < 10000 ? "< R$10k" : v < 50000 ? "R$10k-50k" : v < 200000 ? "R$50k-200k" : v < 1000000 ? "R$200k-1M" : "> R$1M";
+      faixaBuckets[k].qtd++;
+      faixaBuckets[k].valor += v;
+    }
+    const distribuicaoPorFaixa = Object.entries(faixaBuckets)
+      .filter(([, v]) => v.qtd > 0)
+      .map(([faixa, v]) => ({
+        faixa,
+        qtd: String(v.qtd),
+        valor: _moeda(v.valor),
+        pct: items.length > 0 ? ((v.qtd / items.length) * 100).toFixed(0) : "0",
+      }));
+
+    const temRJ = items.some(p =>
+      /recupera|judicial|falência|concurso/i.test(p.tipo + " " + p.assunto)
+    );
+
     out.processos = {
-      passivosTotal:      String(passivos),
+      passivosTotal:      String(passivos || items.length),
       ativosTotal:        String(ativos),
       valorTotalEstimado: _moeda(totalValue),
-      temRJ:              false,
+      temRJ,
       distribuicao: ([
         { tipo: "TRABALHISTA", qtd: String(byType["TRABALHISTA"] || 0), pct: "" },
         { tipo: "FISCAL",      qtd: String(byType["TRIBUTARIA"]  || 0), pct: "" },
@@ -611,7 +706,14 @@ export function mapearParaExtractedData(r: Record<string, unknown>, rawBody?: Re
         { tipo: "OUTROS",      qtd: String(byType["OUTROS"]       || 0), pct: "" },
       ] as { tipo: string; qtd: string; pct: string }[]).filter(d => Number(d.qtd) > 0),
       bancarios: [], fiscais: [], fornecedores: [], outros: [],
+      ...(top10Valor.length > 0   && { top10Valor }),
+      ...(top10Recentes.length > 0 && { top10Recentes }),
+      ...(distribuicaoTemporal.length > 0 && { distribuicaoTemporal }),
+      ...(distribuicaoPorFaixa.length > 0 && { distribuicaoPorFaixa }),
     };
+    if (items.length > 0) {
+      console.log(`[bigdatacorp] processos: ${items.length} entradas individuais extraídas, top10Valor=${top10Valor.length}, top10Recentes=${top10Recentes.length}`);
+    }
   }
 
   // ── protests → protestos ──────────────────────────────────────────────────

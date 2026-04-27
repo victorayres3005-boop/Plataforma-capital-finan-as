@@ -246,9 +246,21 @@ export function mergeBureauResults(
       }
     }
 
-    // Processos: usa BDC se CreditHub não trouxe
+    // Processos: usa BDC se CreditHub não trouxe ou se CH veio vazio e BDC tem dados individuais
     if (!processos && bdc.processos) {
       processos = bdc.processos;
+    } else if (processos && bdc.processos) {
+      // CH trouxe resultado vazio (0 passivos, 0 top10) mas BDC tem entradas com datas — enriquece
+      const chVazio = Number(processos.passivosTotal ?? 0) === 0 &&
+        (processos.top10Valor?.length ?? 0) === 0 &&
+        (processos.top10Recentes?.length ?? 0) === 0;
+      const bdcTemDados = (bdc.processos.top10Valor?.length ?? 0) > 0 ||
+        (bdc.processos.top10Recentes?.length ?? 0) > 0 ||
+        Number(bdc.processos.passivosTotal ?? 0) > 0;
+      if (chVazio && bdcTemDados) {
+        processos = bdc.processos;
+        console.log("[merger] processos: CH vazio → usando BDC com dados individuais");
+      }
     }
 
     // Grupo econômico: fonte = CreditHub; BDC enriquece campos vazios (participação, relação)
