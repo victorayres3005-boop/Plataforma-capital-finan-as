@@ -70,15 +70,15 @@ interface AnalysisRow {
 // BDC: preços confirmados na tabela pública (faixa 1-10k consultas/mês)
 // bdc_empresa = basic_data(0,020)+registration_data(0,120)+relationships(0,030)+processes(0,070)+economic_group_rel(0,050)+owners_kyc(0,090)+owners_lawsuits(0,130) = R$ 0,510
 // bdc_socio   = basic_data(0,030)+financial_risk(0,050)+financial_data(0,050)+collections(0,050)+government_debtors(0,050)+processes(0,070) = R$ 0,300
-// DataBox360: preço por consulta SCR — a confirmar com DataBox360 (valor provisório 0,00)
+// DataBox360: R$2,49/consulta até 100 | R$2,24 de 101-500 | R$1,99 acima de 500 (contrato 2026-04-27)
 const DEFAULT_PRICES: BureauPrices = {
   credithub_empresa:  0.80,
   assertiva_pj:       1.20,
   assertiva_pf:       0.60,
   bdc_empresa:        0.51,
   bdc_socio:          0.30,
-  databox360_empresa: 0.00,
-  databox360_socio:   0.00,
+  databox360_empresa: 2.49,
+  databox360_socio:   2.49,
   gemini_input_per_1m:  0.075,
   gemini_output_per_1m: 0.30,
 };
