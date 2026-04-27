@@ -67,12 +67,15 @@ interface AnalysisRow {
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────────
+// CreditHub: assinatura R$ 2.500/mês com franquia de 8.000 chamadas (proposta recebida 2026-04-27)
+//   Custo efetivo dentro da franquia = R$ 2.500 / 8.000 = R$ 0,3125/chamada
+//   Excedentes: 0,29 (8k-50k) | 0,27 (50k-100k) | 0,25 (100k-200k) | 0,23 (200k-400k) | 0,20 (>400k)
 // BDC: preços confirmados na tabela pública (faixa 1-10k consultas/mês)
 // bdc_empresa = basic_data(0,020)+registration_data(0,120)+relationships(0,030)+processes(0,070)+economic_group_rel(0,050)+owners_kyc(0,090)+owners_lawsuits(0,130) = R$ 0,510
 // bdc_socio   = basic_data(0,030)+financial_risk(0,050)+financial_data(0,050)+collections(0,050)+government_debtors(0,050)+processes(0,070) = R$ 0,300
 // DataBox360: R$2,49/consulta até 100 | R$2,24 de 101-500 | R$1,99 acima de 500 (contrato 2026-04-27)
 const DEFAULT_PRICES: BureauPrices = {
-  credithub_empresa:  0.80,
+  credithub_empresa:  0.31,
   assertiva_pj:       1.20,
   assertiva_pf:       0.60,
   bdc_empresa:        0.51,
@@ -445,7 +448,11 @@ export default function CustosPage() {
             <div>
               <p style={{ fontSize: "11px", fontWeight: 700, color: "#9ca3af", letterSpacing: "0.06em", marginBottom: "8px" }}>BUREAUS (R$)</p>
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                <PriceInput label="CreditHub (empresa)" value={draftPrices.credithub_empresa} onChange={v => setDraftPrices(p => ({ ...p, credithub_empresa: v }))} />
+                <PriceInput label="CreditHub (custo/chamada)" value={draftPrices.credithub_empresa} onChange={v => setDraftPrices(p => ({ ...p, credithub_empresa: v }))} />
+                <div style={{ padding: "7px 10px", background: "#f0f9ff", borderRadius: "6px", fontSize: "11px", color: "#0369a1", display: "flex", gap: "5px", lineHeight: 1.4 }}>
+                  <Info size={11} style={{ flexShrink: 0, marginTop: "1px" }} />
+                  Plano: R$ 2.500/mês com 8.000 chamadas (R$ 0,31/un). Excedente: R$ 0,29/chamada.
+                </div>
                 <PriceInput label="Assertiva PJ" value={draftPrices.assertiva_pj} onChange={v => setDraftPrices(p => ({ ...p, assertiva_pj: v }))} />
                 <PriceInput label="Assertiva PF (sócio)" value={draftPrices.assertiva_pf} onChange={v => setDraftPrices(p => ({ ...p, assertiva_pf: v }))} />
                 <PriceInput label="BDC Empresa (7 datasets)" value={draftPrices.bdc_empresa} onChange={v => setDraftPrices(p => ({ ...p, bdc_empresa: v }))} />
@@ -475,6 +482,7 @@ export default function CustosPage() {
         <KpiCard icon={TrendingDown} label="Custo Médio / Análise" value={fmtBRL(mediaAnalise)} sub="bureau + IA" color="#7c3aed" />
         <KpiCard icon={Building2} label="Custo Bureau" value={fmtBRL(totalBureau)} sub={Math.round(totalBureau / (totalCusto || 1) * 100) + "% do total"} color="#0891b2" />
         <KpiCard icon={Cpu} label="Custo IA (Gemini)" value={fmtBRL(totalIA)} sub={totalTokens > 0 ? (totalTokens / 1000).toFixed(0) + "k tokens" : "sem logs de tokens"} color="#d97706" />
+        <KpiCard icon={ReceiptText} label="CreditHub — Assinatura Fixa" value="R$ 2.500,00" sub="8.000 chamadas/mês inclusas" color="#0369a1" />
       </div>
 
       {/* Bureau breakdown */}
