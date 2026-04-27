@@ -1,4 +1,4 @@
-import type { ExtractedData, BureauScore, ProtestosData, ProcessosData, SancoesData } from "@/types";
+import type { ExtractedData, BureauScore, ProtestosData, ProcessosData, SancoesData, SCRSocioData } from "@/types";
 import type { CreditHubResult } from "./credithub";
 import type { SerasaResult } from "./serasa";
 import type { SPCResult } from "./spc";
@@ -7,7 +7,23 @@ import type { BrasilApiResult } from "./brasilapi";
 import type { SancoesResult } from "./transparencia";
 import type { BigDataCorpResult } from "./bigdatacorp";
 import type { AssertivaResult } from "./assertiva";
+import type { DataBox360EmpresaResult, DataBox360SocioResult } from "./databox360";
 import { mapearEmpresaParaExtractedData } from "./assertiva";
+
+// Detecta resposta de sandbox: DataBox360 sandbox retorna o mesmo SCR para qualquer
+// período solicitado, então valores 100% idênticos = ambiente de teste sem histórico real.
+function isScrIdenticoSandbox(
+  a: { carteiraAVencer?: string; vencidos?: string; prejuizos?: string; qtdeOperacoes?: string; qtdeInstituicoes?: string },
+  b: { carteiraAVencer?: string; vencidos?: string; prejuizos?: string; qtdeOperacoes?: string; qtdeInstituicoes?: string },
+): boolean {
+  return (
+    a.carteiraAVencer   === b.carteiraAVencer   &&
+    a.vencidos          === b.vencidos          &&
+    a.prejuizos         === b.prejuizos         &&
+    a.qtdeOperacoes     === b.qtdeOperacoes     &&
+    a.qtdeInstituicoes  === b.qtdeInstituicoes
+  );
+}
 
 export interface BureauResults {
   credithub?: CreditHubResult;
@@ -18,6 +34,7 @@ export interface BureauResults {
   sancoes?: SancoesResult;
   bigdatacorp?: BigDataCorpResult;
   assertiva?: AssertivaResult;
+  databox360?: { empresa?: DataBox360EmpresaResult; socios?: DataBox360SocioResult[] };
 }
 
 export function mergeBureauResults(
@@ -62,12 +79,15 @@ export function mergeBureauResults(
       merged.historicoConsultas = results.credithub.historicoConsultas;
     }
 
-    // Grupo econômico via CPF dos sócios + parentesco
+    // Grupo econômico via CreditHub — somente PJ (CNPJ 14 dígitos)
     if (results.credithub.grupoEconomicoEnrichment) {
       const ge = results.credithub.grupoEconomicoEnrichment;
       const empresasExistentes = data.grupoEconomico?.empresas ?? [];
       const cnpjsExistentes = new Set(empresasExistentes.map(e => e.cnpj.replace(/\D/g, "")));
-      const novasEmpresas = ge.empresas.filter(e => !cnpjsExistentes.has(e.cnpj.replace(/\D/g, "")));
+      const novasEmpresas = ge.empresas.filter(e => {
+        const cnpjNum = e.cnpj.replace(/\D/g, "");
+        return cnpjNum.length === 14 && !cnpjsExistentes.has(cnpjNum);
+      });
       merged.grupoEconomico = {
         empresas: [...empresasExistentes, ...novasEmpresas],
         alertaParentesco: ge.alertaParentesco,
@@ -231,42 +251,33 @@ export function mergeBureauResults(
       processos = bdc.processos;
     }
 
-    // Grupo econômico via BDC business_relationships (QSA real por sócio)
-    // Usa empresas já buscadas por consultarSocios — sem chamadas extras
-    if (bdc.socios?.length) {
-      const cnpjPrincipal = (data.cnpj?.cnpj ?? "").replace(/\D/g, "");
-      const existingGE = merged.grupoEconomico ?? data.grupoEconomico;
-      const cnpjsExistentes = new Set(
-        (existingGE?.empresas ?? []).map(e => e.cnpj.replace(/\D/g, "")).filter(Boolean)
-      );
-      const novasEmpresas: typeof existingGE.empresas = [];
+    // Grupo econômico: fonte = CreditHub; BDC enriquece campos vazios (participação, relação)
+    if (bdc.socios?.length && merged.grupoEconomico?.empresas?.length) {
+      const bdcEmpMap = new Map<string, { participacao: string; relacao: string }>();
       for (const socio of bdc.socios) {
         for (const emp of socio.empresas ?? []) {
           const cnpjNum = emp.cnpj.replace(/\D/g, "");
-          if (!cnpjNum || cnpjNum === cnpjPrincipal) continue;
-          if (cnpjsExistentes.has(cnpjNum)) continue;
-          cnpjsExistentes.add(cnpjNum);
-          novasEmpresas.push({
-            razaoSocial:  emp.nome || "—",
-            cnpj:         cnpjNum,
-            relacao:      emp.relacao || "via Sócio",
-            scrTotal:     "—",
-            protestos:    "—",
-            processos:    "—",
-            socioOrigem:  socio.nome || socio.cpf,
-            cpfSocio:     socio.cpf,
-            participacao: emp.participacao || "",
-            situacao:     "ATIVA",
-          });
+          if (cnpjNum.length === 14 && !bdcEmpMap.has(cnpjNum)) {
+            bdcEmpMap.set(cnpjNum, {
+              participacao: emp.participacao || "",
+              relacao:      emp.relacao      || "",
+            });
+          }
         }
       }
-      if (novasEmpresas.length > 0) {
+      if (bdcEmpMap.size > 0) {
         merged.grupoEconomico = {
-          empresas: [...(existingGE?.empresas ?? []), ...novasEmpresas],
-          alertaParentesco: existingGE?.alertaParentesco,
-          parentescosDetectados: existingGE?.parentescosDetectados,
+          ...merged.grupoEconomico,
+          empresas: merged.grupoEconomico.empresas.map(e => {
+            const bdc = bdcEmpMap.get(e.cnpj.replace(/\D/g, ""));
+            if (!bdc) return e;
+            return {
+              ...e,
+              participacao: e.participacao || bdc.participacao,
+              relacao:      e.relacao      || bdc.relacao,
+            };
+          }),
         };
-        console.log(`[merger] BDC business_relationships: ${novasEmpresas.length} empresa(s) adicionada(s) ao grupo econômico`);
       }
     }
 
@@ -432,6 +443,63 @@ export function mergeBureauResults(
           bensImoveis:         aS.bensImoveis?.length  ? aS.bensImoveis  : (sc as any).bensImoveis,
         };
       });
+    }
+  }
+
+  // ── DataBox360 SCR ──────────────────────────────────────────────────────────
+  if (results.databox360) {
+    const db = results.databox360;
+    bureausConsultados.push("DataBox360 (SCR)");
+
+    // SCR da empresa
+    if (db.empresa?.scr) {
+      merged.scr = db.empresa.scr;
+    }
+    if (db.empresa?.scrAnterior) {
+      merged.scrAnterior = db.empresa.scrAnterior;
+    }
+
+    // Sandbox DataBox360 retorna dados idênticos para qualquer período solicitado.
+    // Se atual e anterior têm os mesmos valores financeiros, é sandbox — esconde comparativo.
+    if (merged.scr && merged.scrAnterior && isScrIdenticoSandbox(merged.scr, merged.scrAnterior)) {
+      console.log(`[merger] DataBox360 sandbox detectado (scr atual e anterior idênticos) — ocultando comparativo`);
+      merged.scrAnterior = undefined;
+      merged.scrSandboxSemHistorico = true;
+    }
+
+    // SCR dos sócios — converte para SCRSocioData e mescla com dados Assertiva já presentes
+    if (db.socios?.length) {
+      const assertivaMap = results.assertiva?.socios?.length
+        ? new Map(results.assertiva.socios.map(s => [s.cpf.replace(/\D/g, ""), s]))
+        : new Map();
+
+      const scrSocios: SCRSocioData[] = db.socios
+        .filter(s => s.periodoAtual !== null)
+        .map(s => {
+          const aS = assertivaMap.get(s.cpfSocio);
+          // Mesma detecção de sandbox para cada sócio
+          const periodoAnt = s.periodoAnterior && s.periodoAtual && isScrIdenticoSandbox(s.periodoAtual, s.periodoAnterior)
+            ? undefined
+            : (s.periodoAnterior ?? undefined);
+          return {
+            nomeSocio:           s.nomeSocio,
+            cpfSocio:            s.cpfSocio,
+            tipoPessoa:          "PF" as const,
+            periodoAtual:        s.periodoAtual!,
+            periodoAnterior:     periodoAnt,
+            scoreAssertivaPF:    aS?.scoreAssertivaPF,
+            rendaPresumida:      aS?.rendaPresumida,
+            patrimonioEstimado:  aS?.patrimonioEstimado,
+            validacaoIdentidade: aS?.validacaoIdentidade,
+            bensVeiculos:        aS?.bensVeiculos,
+            bensImoveis:         aS?.bensImoveis,
+          };
+        });
+
+      if (scrSocios.length > 0) {
+        merged.scrSocios = scrSocios;
+        console.log(`[merger] DataBox360: ${scrSocios.length} sócio(s) com SCR`);
+      }
     }
   }
 

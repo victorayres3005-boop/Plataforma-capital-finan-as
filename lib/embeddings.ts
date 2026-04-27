@@ -1,7 +1,9 @@
-// Geração de embeddings via Google text-embedding-004 (768 dims)
+// Geração de embeddings via Google gemini-embedding-001 (768 dims)
 // Usado na Fase 2 do sistema de feedback de rating IA
+// text-embedding-004 foi descontinuado (404 a partir de 2026)
 
-const EMBEDDING_MODEL = "text-embedding-004";
+const EMBEDDING_MODEL = "gemini-embedding-001";
+const EMBEDDING_DIMS = 768;
 
 function embeddingUrl(apiKey: string) {
   return `https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:embedContent?key=${apiKey}`;
@@ -18,9 +20,9 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   if (keys.length === 0) throw new Error("Nenhuma chave Gemini configurada");
 
   const body = JSON.stringify({
-    model: `models/${EMBEDDING_MODEL}`,
     content: { parts: [{ text: text.slice(0, 8000) }] }, // limite seguro
     taskType: "SEMANTIC_SIMILARITY",
+    outputDimensionality: EMBEDDING_DIMS, // gemini-embedding-001 default é 3072; força 768 p/ Supabase
   });
 
   const failures: Array<{ key: string; reason: string }> = [];
@@ -41,8 +43,8 @@ export async function generateEmbedding(text: string): Promise<number[]> {
       }
       const json = await res.json();
       const values = json?.embedding?.values as number[] | undefined;
-      if (values && values.length === 768) return values;
-      console.warn(`[embedding] key=${keyShort}... resposta invalida (sem values ou dim != 768)`);
+      if (values && values.length === EMBEDDING_DIMS) return values;
+      console.warn(`[embedding] key=${keyShort}... resposta invalida (sem values ou dim != ${EMBEDDING_DIMS}, got ${values?.length})`);
       failures.push({ key: keyShort, reason: "invalid_response" });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

@@ -15,6 +15,8 @@ interface BureauPrices {
   assertiva_pf: number;
   bdc_empresa: number;
   bdc_socio: number;
+  databox360_empresa: number;
+  databox360_socio: number;
   gemini_input_per_1m: number;
   gemini_output_per_1m: number;
 }
@@ -46,6 +48,8 @@ interface BureauCalls {
   assertiva_pf: number;
   bdc_empresa: number;
   bdc_socio: number;
+  databox360_empresa: number;
+  databox360_socio: number;
 }
 
 // One row per "analysis session" in the table
@@ -63,13 +67,19 @@ interface AnalysisRow {
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────────
+// BDC: preços confirmados na tabela pública (faixa 1-10k consultas/mês)
+// bdc_empresa = basic_data(0,020)+registration_data(0,120)+relationships(0,030)+processes(0,070)+economic_group_rel(0,050)+owners_kyc(0,090)+owners_lawsuits(0,130) = R$ 0,510
+// bdc_socio   = basic_data(0,030)+financial_risk(0,050)+financial_data(0,050)+collections(0,050)+government_debtors(0,050)+processes(0,070) = R$ 0,300
+// DataBox360: preço por consulta SCR — a confirmar com DataBox360 (valor provisório 0,00)
 const DEFAULT_PRICES: BureauPrices = {
-  credithub_empresa: 0.80,
-  assertiva_pj: 1.20,
-  assertiva_pf: 0.60,
-  bdc_empresa: 0.50,
-  bdc_socio: 0.30,
-  gemini_input_per_1m: 0.075,
+  credithub_empresa:  0.80,
+  assertiva_pj:       1.20,
+  assertiva_pf:       0.60,
+  bdc_empresa:        0.51,
+  bdc_socio:          0.30,
+  databox360_empresa: 0.00,
+  databox360_socio:   0.00,
+  gemini_input_per_1m:  0.075,
   gemini_output_per_1m: 0.30,
 };
 
@@ -96,11 +106,13 @@ function fmtDate(iso: string): string {
 
 function calcCustoBureau(calls: BureauCalls, prices: BureauPrices): number {
   return (
-    calls.credithub * prices.credithub_empresa +
-    calls.assertiva_pj * prices.assertiva_pj +
-    calls.assertiva_pf * prices.assertiva_pf +
-    calls.bdc_empresa * prices.bdc_empresa +
-    calls.bdc_socio * prices.bdc_socio
+    calls.credithub            * prices.credithub_empresa +
+    calls.assertiva_pj         * prices.assertiva_pj +
+    calls.assertiva_pf         * prices.assertiva_pf +
+    calls.bdc_empresa          * prices.bdc_empresa +
+    calls.bdc_socio            * prices.bdc_socio +
+    (calls.databox360_empresa ?? 0) * prices.databox360_empresa +
+    (calls.databox360_socio   ?? 0) * prices.databox360_socio
   );
 }
 
@@ -118,11 +130,13 @@ function calcCustoIA(
 
 function estimateBureauCalls(hasAI: boolean): BureauCalls {
   return {
-    credithub: hasAI ? 1 : 0,
-    assertiva_pj: hasAI ? 1 : 0,
-    assertiva_pf: 0,
-    bdc_empresa: hasAI ? 1 : 0,
-    bdc_socio: 0,
+    credithub:          hasAI ? 1 : 0,
+    assertiva_pj:       hasAI ? 1 : 0,
+    assertiva_pf:       0,
+    bdc_empresa:        hasAI ? 1 : 0,
+    bdc_socio:          0,
+    databox360_empresa: hasAI ? 1 : 0,
+    databox360_socio:   0,
   };
 }
 
@@ -199,7 +213,7 @@ export default function CustosPage() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) { const p = JSON.parse(raw) as BureauPrices; setPrices(p); setDraftPrices(p); }
+      if (raw) { const p = JSON.parse(raw) as Partial<BureauPrices>; const merged = { ...DEFAULT_PRICES, ...p }; setPrices(merged); setDraftPrices(merged); }
     } catch { /* ignore */ }
   }, []);
 
@@ -415,8 +429,10 @@ export default function CustosPage() {
                 <PriceInput label="CreditHub (empresa)" value={draftPrices.credithub_empresa} onChange={v => setDraftPrices(p => ({ ...p, credithub_empresa: v }))} />
                 <PriceInput label="Assertiva PJ" value={draftPrices.assertiva_pj} onChange={v => setDraftPrices(p => ({ ...p, assertiva_pj: v }))} />
                 <PriceInput label="Assertiva PF (sócio)" value={draftPrices.assertiva_pf} onChange={v => setDraftPrices(p => ({ ...p, assertiva_pf: v }))} />
-                <PriceInput label="BDC Empresa" value={draftPrices.bdc_empresa} onChange={v => setDraftPrices(p => ({ ...p, bdc_empresa: v }))} />
-                <PriceInput label="BDC Sócio" value={draftPrices.bdc_socio} onChange={v => setDraftPrices(p => ({ ...p, bdc_socio: v }))} />
+                <PriceInput label="BDC Empresa (7 datasets)" value={draftPrices.bdc_empresa} onChange={v => setDraftPrices(p => ({ ...p, bdc_empresa: v }))} />
+                <PriceInput label="BDC Sócio (6 datasets)" value={draftPrices.bdc_socio} onChange={v => setDraftPrices(p => ({ ...p, bdc_socio: v }))} />
+                <PriceInput label="DataBox360 Empresa (SCR)" value={draftPrices.databox360_empresa} onChange={v => setDraftPrices(p => ({ ...p, databox360_empresa: v }))} />
+                <PriceInput label="DataBox360 Sócio (SCR)" value={draftPrices.databox360_socio} onChange={v => setDraftPrices(p => ({ ...p, databox360_socio: v }))} />
               </div>
             </div>
             <div>
@@ -451,17 +467,20 @@ export default function CustosPage() {
         </h3>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "10px" }}>
           {[
-            { label: "CreditHub",    key: "credithub"    as const, price: prices.credithub_empresa },
-            { label: "Assertiva PJ", key: "assertiva_pj" as const, price: prices.assertiva_pj },
-            { label: "Assertiva PF", key: "assertiva_pf" as const, price: prices.assertiva_pf },
-            { label: "BDC Empresa",  key: "bdc_empresa"  as const, price: prices.bdc_empresa },
-            { label: "BDC Sócio",    key: "bdc_socio"    as const, price: prices.bdc_socio },
-          ].map(({ label, key, price }) => {
+            { label: "CreditHub",        key: "credithub"           as const, price: prices.credithub_empresa },
+            { label: "Assertiva PJ",     key: "assertiva_pj"        as const, price: prices.assertiva_pj },
+            { label: "Assertiva PF",     key: "assertiva_pf"        as const, price: prices.assertiva_pf },
+            { label: "BDC Empresa",      key: "bdc_empresa"         as const, price: prices.bdc_empresa,        sub: "7 datasets" },
+            { label: "BDC Sócio",        key: "bdc_socio"           as const, price: prices.bdc_socio,           sub: "6 datasets" },
+            { label: "DataBox360 Emp.",  key: "databox360_empresa"  as const, price: prices.databox360_empresa,  sub: "SCR empresa" },
+            { label: "DataBox360 Sócio", key: "databox360_socio"    as const, price: prices.databox360_socio,    sub: "SCR sócio" },
+          ].map(({ label, key, price, sub }) => {
             const totalCalls = filtered.reduce((s, r) => s + (r.bureauCalls[key] ?? 0), 0);
             const custoTotal = totalCalls * price;
             return (
               <div key={key} style={{ padding: "12px 14px", background: "#f9fafb", borderRadius: "8px" }}>
-                <div style={{ fontSize: "11px", color: "#9ca3af", marginBottom: "4px" }}>{label}</div>
+                <div style={{ fontSize: "11px", color: "#9ca3af", marginBottom: "2px" }}>{label}</div>
+                {sub && <div style={{ fontSize: "10px", color: "#d1d5db", marginBottom: "4px" }}>{sub}</div>}
                 <div style={{ fontSize: "16px", fontWeight: 700, color: "#111827" }}>{fmtBRL(custoTotal)}</div>
                 <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "2px" }}>{totalCalls} consultas · {fmtBRL(price)}/un</div>
               </div>
@@ -526,11 +545,13 @@ export default function CustosPage() {
                               <div>
                                 <p style={{ fontSize: "11px", fontWeight: 700, color: "#9ca3af", letterSpacing: "0.06em", marginBottom: "8px" }}>CONSULTAS BUREAU</p>
                                 {[
-                                  { label: "CreditHub",    val: row.bureauCalls.credithub,    price: prices.credithub_empresa },
-                                  { label: "Assertiva PJ", val: row.bureauCalls.assertiva_pj, price: prices.assertiva_pj },
-                                  { label: "Assertiva PF", val: row.bureauCalls.assertiva_pf, price: prices.assertiva_pf },
-                                  { label: "BDC Empresa",  val: row.bureauCalls.bdc_empresa,  price: prices.bdc_empresa },
-                                  { label: "BDC Sócio",    val: row.bureauCalls.bdc_socio,    price: prices.bdc_socio },
+                                  { label: "CreditHub",        val: row.bureauCalls.credithub,                          price: prices.credithub_empresa },
+                                  { label: "Assertiva PJ",     val: row.bureauCalls.assertiva_pj,                       price: prices.assertiva_pj },
+                                  { label: "Assertiva PF",     val: row.bureauCalls.assertiva_pf,                       price: prices.assertiva_pf },
+                                  { label: "BDC Empresa",      val: row.bureauCalls.bdc_empresa,                        price: prices.bdc_empresa },
+                                  { label: "BDC Sócio",        val: row.bureauCalls.bdc_socio,                          price: prices.bdc_socio },
+                                  { label: "DataBox360 Emp.",  val: row.bureauCalls.databox360_empresa ?? 0,             price: prices.databox360_empresa },
+                                  { label: "DataBox360 Sócio", val: row.bureauCalls.databox360_socio   ?? 0,             price: prices.databox360_socio },
                                 ].map(({ label, val, price }) => (
                                   <div key={label} style={{ display: "flex", gap: "16px", marginBottom: "4px", color: val > 0 ? "#374151" : "#d1d5db" }}>
                                     <span style={{ minWidth: "120px" }}>{label}</span>

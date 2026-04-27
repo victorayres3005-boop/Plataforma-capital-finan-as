@@ -8,7 +8,7 @@ const steps = [
   {
     icon: "01",
     title: "Envie os documentos",
-    description: "Faca upload dos documentos da empresa: Cartao CNPJ, QSA, Contrato Social, SCR do Banco Central e Faturamento.",
+    description: "Faca upload dos 4 documentos obrigatorios: Cartao CNPJ, QSA, Contrato Social e Faturamento. O SCR e consultado automaticamente via API.",
     color: "bg-cf-navy",
   },
   {

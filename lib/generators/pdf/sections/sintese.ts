@@ -1001,7 +1001,7 @@ export function renderSintese(ctx: PdfCtx): void {
     const cw4  = (CW - GAP*3)/4;
     const taxa  = rvP.taxaConvencional || rvP.taxaComissaria || "—";
     const cards = [
-      {l:"VALOR PLEITEADO", v:pleitoVal>0?mo(pleitoVal):"—"},
+      {l:"VALOR PLEITEADO", v:pleitoVal>0?`R$ ${fmtBR(pleitoVal,2)}`:"—"},
       {l:"MODALIDADE",      v:tr(rvP.modalidade||"—",18)},
       {l:"PRAZO MÁXIMO",    v:String(rvP.prazoMaximoOp||"—")},
       {l:"TAXA",            v:String(taxa)},
@@ -1069,18 +1069,21 @@ export function renderSintese(ctx: PdfCtx): void {
 
   // ════════════════════════════════════════════════════════════════════════════
   // B11 — Percepção do Analista (bloco editorial diferenciado)
+  // Prioridade: texto manual do analista > resumo gerado pela IA
   // ════════════════════════════════════════════════════════════════════════════
   {
-    const texto = (resumoExecutivo || "").trim();
+    const isManual = !!(params.observacoes?.trim());
+    const texto = (params.observacoes?.trim() || resumoExecutivo || "").trim();
     const HEADER_H = 9;
     const FOOTER_H = 8;
+    const BADGE_H  = isManual ? 7 : 0; // altura extra para o badge "✎ Manual"
 
     if (texto) {
       const bodyLines = doc.splitTextToSize(texto, CW - 16) as string[];
       const maxLines  = 8;
       const visLines  = bodyLines.slice(0, maxLines);
       if (bodyLines.length > maxLines) visLines[maxLines-1] = visLines[maxLines-1].replace(/…?$/, "…");
-      const BODY_H  = Math.max(22, visLines.length * 4.8 + 10);
+      const BODY_H  = Math.max(22, visLines.length * 4.8 + 10 + BADGE_H);
       const TOTAL_H = HEADER_H + BODY_H + FOOTER_H;
 
       checkPageBreak(ctx, TOTAL_H + 12);
@@ -1106,8 +1109,23 @@ export function renderSintese(ctx: PdfCtx): void {
       // ── Corpo navy50, texto itálico ─────────────────────────────────────────
       doc.setFillColor(...P.n0);
       doc.rect(ML, y0 + HEADER_H, CW, BODY_H, "F");
+
+      let bodyY = y0 + HEADER_H + 5;
+
+      // Badge azul "✎ Percepção do Analista" quando veio do analista manualmente
+      if (isManual) {
+        const badgeLabel = "✎ Percepção do Analista";
+        doc.setFont("helvetica","bold"); doc.setFontSize(6.5);
+        doc.setTextColor(37, 99, 235);
+        const bw = doc.getTextWidth(badgeLabel) + 6;
+        doc.setFillColor(239, 246, 255);
+        doc.roundedRect(ML + 8, bodyY - 0.5, bw, 5.5, 1, 1, "F");
+        doc.text(badgeLabel, ML + 11, bodyY + 3.5);
+        bodyY += BADGE_H;
+      }
+
       doc.setFont("helvetica","italic"); doc.setFontSize(8); doc.setTextColor(...P.x7);
-      drawJustifiedText(doc, visLines, ML + 8, y0 + HEADER_H + 8, CW - 16, 4.8);
+      drawJustifiedText(doc, visLines, ML + 8, bodyY + 3, CW - 16, 4.8);
 
       // ── Rodapé referência à seção 03 ────────────────────────────────────────
       doc.setFillColor(...P.x0);

@@ -1144,6 +1144,11 @@ function countEmptyFieldRatio(obj: Record<string, unknown>): number {
   return total > 0 ? empty / total : 1;
 }
 
+const pct = (v: string | number | null | undefined): string => {
+  if (!v && v !== 0) return "0";
+  return String(v).replace(/%/g, "").trim();
+};
+
 const PROMPT_SINTESE = (data: ExtractedData, settings: FundSettings, preReq: ReturnType<typeof calcularPreRequisitos>) => `
 Você é um analista de crédito sênior especializado em FIDCs (Fundos de Investimento em Direitos Creditórios).
 Escreva uma síntese executiva completa sobre o cedente abaixo para embasar a decisão de crédito do fundo.
@@ -1183,11 +1188,13 @@ ${data.balanco!.anos.map((a: { ano: string; ativoTotal: string; patrimonioLiquid
 - Tendência PL: ${data.balanco!.tendenciaPatrimonio}
 ${data.balanco!.observacoes ? `- Observações: ${data.balanco!.observacoes}` : ""}` : "BALANÇO: Não informado"}
 
-${data.curvaABC ? `CONCENTRAÇÃO DE CLIENTES:
-- Maior cliente: ${data.curvaABC.maiorCliente} (${data.curvaABC.maiorClientePct}%)
-- Top 3: ${data.curvaABC.concentracaoTop3}% | Top 5: ${data.curvaABC.concentracaoTop5}%
-- Total clientes: ${data.curvaABC.totalClientesNaBase || "N/D"}
-- Alerta concentração: ${data.curvaABC.alertaConcentracao ? "SIM — cliente acima de 30%" : "NÃO"}` : "CURVA ABC: Não informada"}
+${(data.curvaABC?.maiorCliente || (data.curvaABC?.clientes?.length ?? 0) > 0 || data.curvaABC?.concentracaoTop5) ? `CONCENTRAÇÃO DE CLIENTES:
+- Maior cliente: ${data.curvaABC!.maiorCliente || "N/D"} (${pct(data.curvaABC!.maiorClientePct)}%)
+- Top 3: ${pct(data.curvaABC!.concentracaoTop3)}% | Top 5: ${pct(data.curvaABC!.concentracaoTop5)}%
+- Total clientes: ${data.curvaABC!.totalClientesNaBase || "N/D"}
+- Alerta concentração: ${data.curvaABC!.alertaConcentracao ? "SIM — cliente acima de 30%" : "NÃO"}${(data.curvaABC!.clientes?.length ?? 0) > 0 ? `
+- Carteira (top ${Math.min(10, data.curvaABC!.clientes.length)}):
+${data.curvaABC!.clientes.slice(0, 10).map(c => `  • ${c.nome}: ${pct(c.percentualReceita)}% (R$ ${c.valorFaturado}) — Classe ${c.classe || "N/D"}`).join("\n")}` : ""}` : "CONCENTRAÇÃO DE CLIENTES: Não informada — curva ABC ausente ou não preenchida"}
 
 ${(data.irSocios?.length ?? 0) > 0 ? `IR DOS SÓCIOS:
 ${data.irSocios!.map((s) => `- ${s.nomeSocio} (${s.anoBase}): Renda R$ ${s.rendimentoTotal}, PL R$ ${s.patrimonioLiquido}${s.situacaoMalhas ? " — MALHAS FISCAIS" : ""}${s.debitosEmAberto ? " — DÉBITOS EM ABERTO" : ""}`).join("\n")}` : "IR DOS SÓCIOS: Não informado"}

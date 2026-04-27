@@ -927,11 +927,8 @@ async function consultarCreditHubPorCPF(cpf: string, nomeSocio: string): Promise
       }
 
       if (!res.ok) {
+        // 500 sem push="true" = erro real, não transiente — não adianta retry
         console.warn(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** status ${res.status}: ${text.slice(0,100)}`);
-        if (attempt < MAX_ATTEMPTS) {
-          await new Promise(r => setTimeout(r, DELAY_MS));
-          continue;
-        }
         return [];
       }
 

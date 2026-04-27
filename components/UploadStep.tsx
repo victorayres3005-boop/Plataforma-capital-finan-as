@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, Info, GitCompareArrows, Receipt, Scale, PieChart, FileKey, ClipboardList, Loader2 } from "lucide-react";
 import UploadArea from "./UploadArea";
 import OnboardingTooltip from "./OnboardingTooltip";
@@ -191,10 +191,7 @@ const SECTIONS: SectionConfig[] = [
   { key: 'qsa',         title: 'QSA',                               description: 'Quadro de Sócios e Administradores',                              icon: <Users size={19} />,            stepNumber: '2', required: true },
   { key: 'contrato',    title: 'Contrato Social',                   description: 'Contrato ou Estatuto Social — consolidado ou última alteração',   icon: <ScrollText size={19} />,       stepNumber: '3', required: true },
   { key: 'faturamento', title: 'Faturamento',                       description: 'Relatório de faturamento mensal — PDF ou planilha Excel (.xlsx)', icon: <TrendingUp size={19} />,       stepNumber: '4', required: true },
-  { key: 'scr',         title: 'SCR / Bacen — Atual',               description: 'Relatório SCR do período mais recente',                           icon: <BarChart3 size={19} />,        stepNumber: '5', required: true },
-  { key: 'scrAnterior',      title: 'SCR / Bacen — Anterior (opcional)', description: 'Relatório SCR do período anterior para comparativo',              icon: <GitCompareArrows size={19} />, stepNumber: '▿', required: false },
-  { key: 'scr_socio',        title: 'SCR dos Sócios — Atual',             description: 'Relatório SCR dos sócios (PF) — período mais recente',            icon: <Users size={19} />,            stepNumber: '▿', required: false },
-  { key: 'scr_socio_anterior', title: 'SCR dos Sócios — Anterior',         description: 'Relatório SCR dos sócios (PF) — período anterior para comparativo', icon: <GitCompareArrows size={19} />, stepNumber: '▿', required: false },
+  // SCR removido: consultado automaticamente via DataBox360 (API BCB)
   { key: 'dre',              title: 'DRE — Demonstração de Resultado',   description: 'Demonstração de resultado dos últimos 2-3 anos',                 icon: <Receipt size={19} />,          stepNumber: '▿', required: false },
   { key: 'balanco',          title: 'Balanço Patrimonial',               description: 'Balanço dos últimos 2-3 anos',                                   icon: <Scale size={19} />,            stepNumber: '▿', required: false },
   { key: 'curva_abc',        title: 'Curva ABC — Top Clientes',          description: 'Carteira de clientes com concentração de receita',               icon: <PieChart size={19} />,         stepNumber: '▿', required: false },
@@ -202,7 +199,7 @@ const SECTIONS: SectionConfig[] = [
   { key: 'relatorio_visita', title: 'Relatório de Visita',               description: 'Relatório da visita presencial à empresa',                       icon: <ClipboardList size={19} />,    stepNumber: '▿', required: false },
 ];
 
-const REQUIRED_KEYS: DocKey[] = ['cnpj', 'qsa', 'contrato', 'faturamento', 'scr'];
+const REQUIRED_KEYS: DocKey[] = ['cnpj', 'qsa', 'contrato', 'faturamento'];
 
 // ─── GroupHeader ───
 
@@ -233,6 +230,14 @@ function GroupHeader({ label, count, total, optional }: { label: string; count?:
 }
 
 // ─── Component ───
+
+// Goalfy doc_type → DocKey (para highlight via URL param)
+const GOALFY_TYPE_TO_KEY: Partial<Record<string, DocKey>> = {
+  contrato_social: 'contrato', faturamento: 'faturamento',
+  scr: 'scr', dre: 'dre', balanco: 'balanco', curva_abc: 'curva_abc',
+  qsa: 'qsa', ir_socio: 'ir_socio', relatorio_visita: 'relatorio_visita',
+  contrato: 'contrato',
+};
 
 // Mapa de tipo de CollectionDocument para DocKey do UploadStep
 const DOC_TYPE_TO_KEY: Record<string, DocKey | null> = {
@@ -308,11 +313,13 @@ export default function UploadStep({
   resumedDocs,
   initialData,
   onDataChange,
+  highlightKeys,
 }: {
   onComplete: (data: ExtractedData, files: OriginalFiles) => void;
   resumedDocs?: CollectionDocument[];
   initialData?: ExtractedData;
   onDataChange?: (data: ExtractedData) => void;
+  highlightKeys?: string[];
 }) {
   const [sections, setSections] = useState<Record<DocKey, SectionState>>(() =>
     resumedDocs && resumedDocs.length > 0 ? buildInitialSections(resumedDocs) : {
@@ -363,6 +370,23 @@ export default function UploadStep({
   // ── Bureau state ──
   const [bureauStatus, setBureauStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [bureauDetail, setBureauDetail] = useState<Record<string, { success: boolean; mock: boolean; error?: string }>>({});
+
+  const highlightedSet = useMemo(() => {
+    if (!highlightKeys || highlightKeys.length === 0) return new Set<DocKey>();
+    return new Set(highlightKeys.map(k => GOALFY_TYPE_TO_KEY[k]).filter(Boolean) as DocKey[]);
+  }, [highlightKeys]);
+
+  const sectionRefs = useRef<Partial<Record<DocKey, HTMLDivElement | null>>>({});
+
+  useEffect(() => {
+    if (highlightedSet.size === 0) return;
+    const timer = setTimeout(() => {
+      const firstKey = SECTIONS.find(s => highlightedSet.has(s.key))?.key;
+      if (firstKey) sectionRefs.current[firstKey]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 600);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const bureauTriggered = useRef(false);
 
   // Auto-trigger bureaus when CNPJ is extracted
@@ -996,8 +1020,7 @@ export default function UploadStep({
   const anyRetrying = Object.values(sections).some(s => s.retrying);
   const requiredDoneCount = REQUIRED_KEYS.filter(k => sections[k].processedCount > 0).length;
   const allRequiredDone = REQUIRED_KEYS.every(k => sections[k].processedCount > 0);
-  const scrAnteriorDone = sections.scrAnterior.processedCount > 0;
-  const totalRequired = 5;
+  const totalRequired = REQUIRED_KEYS.length;
   const [forcarAvancar, setForcarAvancar] = useState(false);
 
   const canProceed = (allRequiredDone || forcarAvancar) && !anyProcessing && !anyRetrying && bureauStatus !== "loading";
@@ -1041,7 +1064,7 @@ export default function UploadStep({
         <div className="flex items-start gap-3 bg-cf-navy/5 border border-cf-navy/15 rounded-xl px-4 py-3 mb-4">
           <Info size={15} className="text-cf-navy flex-shrink-0 mt-0.5" />
           <p className="text-xs text-cf-text-2 leading-relaxed">
-            Envie os 5 documentos obrigatórios. Os complementares são opcionais e enriquecem o relatório. Aceita PDF, Word, Excel e imagens — extração automática.
+            Envie os 4 documentos obrigatórios. O SCR é consultado automaticamente via API. Os complementares são opcionais e enriquecem o relatório.
           </p>
         </div>
       )}
@@ -1061,7 +1084,7 @@ export default function UploadStep({
             </div>
             <span className="text-[11px] font-semibold text-cf-text-3 whitespace-nowrap">
               {requiredDoneCount}/{totalRequired} obrigatórios
-              {scrAnteriorDone && <span className="text-blue-400 ml-1">+ comparativo</span>}
+              
             </span>
           </div>
           {bureauStatus === "loading" && (
@@ -1073,6 +1096,21 @@ export default function UploadStep({
         </div>
       </div>
 
+      {/* ── Banner Goalfy highlight ── */}
+      {highlightedSet.size > 0 && (
+        <div style={{ margin: "16px 16px 0", padding: "12px 16px", borderRadius: 10, background: "#eff6ff", border: "1px solid #bfdbfe", display: "flex", gap: 10, alignItems: "center" }}>
+          <span style={{ fontSize: 20, flexShrink: 0 }}>📋</span>
+          <div>
+            <p style={{ fontSize: 13, fontWeight: 700, color: "#1e40af", margin: 0 }}>
+              Este card tinha {highlightedSet.size} documento{highlightedSet.size !== 1 ? "s" : ""} identificado{highlightedSet.size !== 1 ? "s" : ""} no Goalfy
+            </p>
+            <p style={{ fontSize: 12, color: "#3b82f6", margin: 0 }}>
+              Faça o upload dos arquivos com borda azul abaixo
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ── Document cards ── */}
       <div className="space-y-6 pb-20">
 
@@ -1080,7 +1118,7 @@ export default function UploadStep({
         <div>
           <OnboardingTooltip
             id="upload-docs-obrigatorios"
-            message="Envie pelo menos os 3 documentos obrigatórios: Cartão CNPJ, Contrato Social e SCR/Bacen. A plataforma extrai os dados automaticamente via IA — sem digitação manual."
+            message="Envie os 4 documentos obrigatórios: Cartão CNPJ, QSA, Contrato Social e Faturamento. O SCR é consultado automaticamente via API do Banco Central — sem upload."
             position="right"
             isSeen={isSeen("upload-docs-obrigatorios")}
             onSeen={() => markSeen("upload-docs-obrigatorios")}
@@ -1088,28 +1126,68 @@ export default function UploadStep({
             <GroupHeader label="Documentos Obrigatórios" count={requiredDoneCount} total={totalRequired} />
           </OnboardingTooltip>
           <div className="space-y-2">
-            {requiredSections.map(section => (
-              <UploadArea
-                key={section.key}
-                title={section.title}
-                description={section.description}
-                icon={section.icon}
-                docKey={section.key}
-                files={sections[section.key].files}
-                onAddFiles={handleAddFiles(section.key)}
-                onRemoveFile={handleRemoveFile(section.key)}
-                processing={sections[section.key].processing}
-                doneCount={sections[section.key].processedCount}
-                errorCount={sections[section.key].errorCount}
-                errorType={sections[section.key].errorType}
-                onRetry={sections[section.key].lastFailedFile ? () => handleRetry(section.key) : undefined}
-                onReprocess={() => handleReprocess(section.key)}
-                reprocessing={sections[section.key].processing && sections[section.key].processedCount === 0 && sections[section.key].files.length > 0 && sections[section.key].errorCount === 0}
-                resumedFilenames={sections[section.key].resumedFilenames}
-                fromCache={sections[section.key].fromCache}
-                onForceReextract={sections[section.key].lastSuccessFile ? () => handleForceReextract(section.key) : undefined}
-              />
-            ))}
+            {requiredSections.map(section => {
+              const isH = highlightedSet.has(section.key);
+              return (
+                <div key={section.key} ref={el => { sectionRefs.current[section.key] = el; }}
+                  style={isH ? { border: "2px solid #3b82f6", borderRadius: 12, position: "relative" } : undefined}>
+                  {isH && <span style={{ position: "absolute", top: -9, right: 12, zIndex: 1, background: "#3b82f6", color: "white", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99 }}>Identificado no Goalfy</span>}
+                  <UploadArea
+                    title={section.title}
+                    description={section.description}
+                    icon={section.icon}
+                    docKey={section.key}
+                    files={sections[section.key].files}
+                    onAddFiles={handleAddFiles(section.key)}
+                    onRemoveFile={handleRemoveFile(section.key)}
+                    processing={sections[section.key].processing}
+                    doneCount={sections[section.key].processedCount}
+                    errorCount={sections[section.key].errorCount}
+                    errorType={sections[section.key].errorType}
+                    onRetry={sections[section.key].lastFailedFile ? () => handleRetry(section.key) : undefined}
+                    onReprocess={() => handleReprocess(section.key)}
+                    reprocessing={sections[section.key].processing && sections[section.key].processedCount === 0 && sections[section.key].files.length > 0 && sections[section.key].errorCount === 0}
+                    resumedFilenames={sections[section.key].resumedFilenames}
+                    fromCache={sections[section.key].fromCache}
+                    onForceReextract={sections[section.key].lastSuccessFile ? () => handleForceReextract(section.key) : undefined}
+                  />
+                </div>
+              );
+            })}
+            {/* SCR — coletado via API DataBox360 (não requer upload) */}
+            {(() => {
+              const db360 = bureauDetail["databox360"] as { empresa?: boolean; socios?: number; mock?: boolean } | undefined;
+              const isLoading = bureauStatus === "loading";
+              const isOk = db360 && !db360.mock && db360.empresa;
+              return (
+                <div className={`flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors ${
+                  isOk ? "border-green-200 bg-green-50" : isLoading ? "border-blue-200 bg-blue-50" : "border-cf-border bg-white"
+                }`}>
+                  <div className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${
+                    isOk ? "bg-green-100 text-green-600" : isLoading ? "bg-blue-100 text-blue-500" : "bg-cf-border/30 text-cf-text-4"
+                  }`}>
+                    <BarChart3 size={16} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[13px] font-semibold text-cf-text-1">SCR / Bacen</span>
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200">API automática</span>
+                    </div>
+                    <p className="text-[11px] text-cf-text-4 mt-0.5">
+                      {isOk
+                        ? `Coletado via DataBox360 — empresa${(db360?.socios ?? 0) > 0 ? ` + ${db360?.socios} sócio(s)` : ""}`
+                        : isLoading
+                          ? "Consultando DataBox360 (SCR)..."
+                          : "Será consultado automaticamente ao prosseguir"}
+                    </p>
+                  </div>
+                  <div className="flex-shrink-0">
+                    {isOk && <span className="text-[11px] font-semibold text-green-600">✓ Coletado</span>}
+                    {isLoading && <Loader2 size={14} className="animate-spin text-blue-500" />}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
 
@@ -1117,28 +1195,34 @@ export default function UploadStep({
         <div>
           <GroupHeader label="Documentos Complementares" count={optionalDoneCount} optional />
           <div className="space-y-2">
-            {optionalSections.map(section => (
-              <UploadArea
-                key={section.key}
-                title={section.title}
-                description={section.description}
-                icon={section.icon}
-                docKey={section.key}
-                files={sections[section.key].files}
-                onAddFiles={handleAddFiles(section.key)}
-                onRemoveFile={handleRemoveFile(section.key)}
-                processing={sections[section.key].processing}
-                doneCount={sections[section.key].processedCount}
-                errorCount={sections[section.key].errorCount}
-                errorType={sections[section.key].errorType}
-                onRetry={sections[section.key].lastFailedFile ? () => handleRetry(section.key) : undefined}
-                onReprocess={() => handleReprocess(section.key)}
-                reprocessing={sections[section.key].processing && sections[section.key].processedCount === 0 && sections[section.key].files.length > 0 && sections[section.key].errorCount === 0}
-                resumedFilenames={sections[section.key].resumedFilenames}
-                fromCache={sections[section.key].fromCache}
-                onForceReextract={sections[section.key].lastSuccessFile ? () => handleForceReextract(section.key) : undefined}
-              />
-            ))}
+            {optionalSections.map(section => {
+              const isH = highlightedSet.has(section.key);
+              return (
+                <div key={section.key} ref={el => { sectionRefs.current[section.key] = el; }}
+                  style={isH ? { border: "2px solid #3b82f6", borderRadius: 12, position: "relative" } : undefined}>
+                  {isH && <span style={{ position: "absolute", top: -9, right: 12, zIndex: 1, background: "#3b82f6", color: "white", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99 }}>Identificado no Goalfy</span>}
+                  <UploadArea
+                    title={section.title}
+                    description={section.description}
+                    icon={section.icon}
+                    docKey={section.key}
+                    files={sections[section.key].files}
+                    onAddFiles={handleAddFiles(section.key)}
+                    onRemoveFile={handleRemoveFile(section.key)}
+                    processing={sections[section.key].processing}
+                    doneCount={sections[section.key].processedCount}
+                    errorCount={sections[section.key].errorCount}
+                    errorType={sections[section.key].errorType}
+                    onRetry={sections[section.key].lastFailedFile ? () => handleRetry(section.key) : undefined}
+                    onReprocess={() => handleReprocess(section.key)}
+                    reprocessing={sections[section.key].processing && sections[section.key].processedCount === 0 && sections[section.key].files.length > 0 && sections[section.key].errorCount === 0}
+                    resumedFilenames={sections[section.key].resumedFilenames}
+                    fromCache={sections[section.key].fromCache}
+                    onForceReextract={sections[section.key].lastSuccessFile ? () => handleForceReextract(section.key) : undefined}
+                  />
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -1163,7 +1247,7 @@ export default function UploadStep({
                       : "bg-cf-border"
                 }`} />
               ))}
-              <div className={`h-1.5 w-3 rounded-full ml-1 transition-all duration-300 ${scrAnteriorDone ? "bg-blue-400" : "bg-cf-border/40"}`} />
+
             </div>
             {(anyProcessing || anyRetrying) && (() => {
               const pc = Object.values(sections).filter(s => s.processing || s.retrying).length;
@@ -1172,13 +1256,14 @@ export default function UploadStep({
             })()}
             {bureauStatus === "done" && Object.keys(bureauDetail).length > 0 && (
               <div className="flex items-center gap-1 flex-wrap">
-                {(["credithub", "serasa", "spc", "quod", "bigdatacorp", "brasilapi", "sancoes"] as const).map(key => {
+                {(["credithub", "serasa", "spc", "quod", "bigdatacorp", "brasilapi", "sancoes", "databox360"] as const).map(key => {
                   const b = bureauDetail[key];
                   if (!b) return null;
-                  const lbl = key === "credithub" ? "Credit Hub"
-                    : key === "bigdatacorp" ? "BigDataCorp"
-                    : key === "brasilapi"   ? "BrasilAPI"
-                    : key === "sancoes"     ? "Sanções"
+                  const lbl = key === "credithub"  ? "Credit Hub"
+                    : key === "bigdatacorp"         ? "BigDataCorp"
+                    : key === "brasilapi"            ? "BrasilAPI"
+                    : key === "sancoes"              ? "Sanções"
+                    : key === "databox360"           ? "SCR (DataBox360)"
                     : key.toUpperCase();
                   return (
                     <div key={key} title={b.error} className={`flex items-center gap-1 text-[10px] rounded-md px-2 py-0.5 border ${

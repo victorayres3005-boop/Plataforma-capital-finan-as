@@ -110,18 +110,45 @@ export function SectionSCRSocios({ socios, expanded, onToggle, quality }: Props)
 
                 {/* Métricas principais — sempre visíveis */}
                 <div style={{ padding: "14px 16px" }}>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "10px" }}>
-                    <Metric label="Total Dívida" value={fmtBRL(atual?.totalDividasAtivas)} variation={anterior ? fmtVar(atual?.totalDividasAtivas, anterior.totalDividasAtivas) : undefined} />
-                    <Metric label="A Vencer" value={fmtBRL(atual?.carteiraAVencer)} variation={anterior ? fmtVar(atual?.carteiraAVencer, anterior.carteiraAVencer) : undefined} />
-                    <Metric label="Vencidos" value={fmtBRL(atual?.vencidos)} variation={anterior ? fmtVar(atual?.vencidos, anterior.vencidos) : undefined} danger={parseBR(atual?.vencidos) > 0} />
-                    <Metric label="Prejuízos" value={fmtBRL(atual?.prejuizos)} variation={anterior ? fmtVar(atual?.prejuizos, anterior.prejuizos) : undefined} danger={parseBR(atual?.prejuizos) > 0} />
-                  </div>
-
-                  <div style={{ marginTop: "10px", display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px" }}>
-                    <Metric label="Limite Crédito" value={fmtBRL(atual?.limiteCredito)} />
-                    <Metric label="Qtde IFs" value={atual?.qtdeInstituicoes || "—"} />
-                    <Metric label="Classificação" value={atual?.classificacaoRisco || "—"} />
-                  </div>
+                  {(() => {
+                    const respAtiva = parseBR(atual?.carteiraAVencer) + parseBR(atual?.vencidos);
+                    const prejVal   = parseBR(atual?.prejuizos);
+                    const limVal    = parseBR(atual?.limiteCredito);
+                    const semDivida = respAtiva === 0 && prejVal > 0;
+                    return (
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "10px" }}>
+                        <div title={semDivida ? "Crédito baixado para prejuízo — sem dívida ativa em cobrança" : undefined}>
+                          <Metric
+                            label="Resp. Ativa"
+                            value={respAtiva > 0 ? fmtBRL(String(respAtiva)) : "R$ 0,00"}
+                            variation={anterior ? fmtVar(
+                              String(parseBR(atual?.carteiraAVencer) + parseBR(atual?.vencidos)),
+                              String(parseBR(anterior.carteiraAVencer) + parseBR(anterior.vencidos))
+                            ) : undefined}
+                            sub={semDivida ? "sem cobrança ativa" : undefined}
+                          />
+                        </div>
+                        <Metric
+                          label="Prejuízos"
+                          value={prejVal > 0 ? fmtBRL(atual?.prejuizos) : "—"}
+                          variation={anterior ? fmtVar(atual?.prejuizos, anterior.prejuizos) : undefined}
+                          danger={prejVal > 0}
+                          tag={prejVal > 0 ? "⚠ Write-off" : undefined}
+                        />
+                        <Metric
+                          label="A Vencer"
+                          value={fmtBRL(atual?.carteiraAVencer)}
+                          variation={anterior ? fmtVar(atual?.carteiraAVencer, anterior.carteiraAVencer) : undefined}
+                        />
+                        <Metric
+                          label="Limite"
+                          value={limVal > 0 ? fmtBRL(atual?.limiteCredito) : "Não informado"}
+                          muted={limVal === 0}
+                        />
+                        <Metric label="IFs" value={atual?.qtdeInstituicoes || "—"} />
+                      </div>
+                    );
+                  })()}
 
                   <button
                     onClick={() => setExpandedIdx(isExpanded ? null : i)}
@@ -152,14 +179,19 @@ export function SectionSCRSocios({ socios, expanded, onToggle, quality }: Props)
                             </thead>
                             <tbody>
                               {[
-                                { label: "Total Dívida", ant: anterior.totalDividasAtivas, at: atual?.totalDividasAtivas, bold: true },
-                                { label: "A Vencer", ant: anterior.carteiraAVencer, at: atual?.carteiraAVencer },
-                                { label: "Vencidos", ant: anterior.vencidos, at: atual?.vencidos },
-                                { label: "Prejuízos", ant: anterior.prejuizos, at: atual?.prejuizos },
-                                { label: "Limite", ant: anterior.limiteCredito, at: atual?.limiteCredito },
+                                {
+                                  label: "Resp. Ativa",
+                                  ant: String(parseBR(anterior.carteiraAVencer) + parseBR(anterior.vencidos)) || "0",
+                                  at:  String(parseBR(atual?.carteiraAVencer)   + parseBR(atual?.vencidos))   || "0",
+                                  bold: true,
+                                },
+                                { label: "Prejuízos",   ant: anterior.prejuizos,          at: atual?.prejuizos },
+                                { label: "A Vencer",    ant: anterior.carteiraAVencer,    at: atual?.carteiraAVencer },
+                                { label: "Vencidos",    ant: anterior.vencidos,           at: atual?.vencidos },
+                                { label: "Limite",      ant: anterior.limiteCredito,      at: atual?.limiteCredito },
                                 { label: "Curto Prazo", ant: anterior.carteiraCurtoPrazo, at: atual?.carteiraCurtoPrazo },
                                 { label: "Longo Prazo", ant: anterior.carteiraLongoPrazo, at: atual?.carteiraLongoPrazo },
-                                { label: "IFs", ant: anterior.qtdeInstituicoes, at: atual?.qtdeInstituicoes },
+                                { label: "IFs",         ant: anterior.qtdeInstituicoes,   at: atual?.qtdeInstituicoes },
                               ].map((m, j) => {
                                 const v = fmtVar(m.at, m.ant);
                                 return (
@@ -223,7 +255,15 @@ export function SectionSCRSocios({ socios, expanded, onToggle, quality }: Props)
   );
 }
 
-function Metric({ label, value, variation, danger }: { label: string; value: string; variation?: { text: string; color: string }; danger?: boolean }) {
+function Metric({ label, value, variation, danger, sub, tag, muted }: {
+  label: string;
+  value: string;
+  variation?: { text: string; color: string };
+  danger?: boolean;
+  sub?: string;
+  tag?: string;
+  muted?: boolean;
+}) {
   return (
     <div
       style={{
@@ -236,9 +276,19 @@ function Metric({ label, value, variation, danger }: { label: string; value: str
       <div style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "#6B7280", marginBottom: "4px" }}>
         {label}
       </div>
-      <div style={{ fontSize: "13px", fontWeight: 700, color: danger ? "#991B1B" : "#111827", fontVariantNumeric: "tabular-nums" }}>
+      <div style={{ fontSize: "13px", fontWeight: 700, color: danger ? "#991B1B" : muted ? "#9CA3AF" : "#111827", fontVariantNumeric: "tabular-nums" }}>
         {value}
       </div>
+      {tag && (
+        <div style={{ fontSize: "10px", fontWeight: 700, color: "#DC2626", marginTop: "2px" }}>
+          {tag}
+        </div>
+      )}
+      {sub && (
+        <div style={{ fontSize: "10px", color: "#9CA3AF", marginTop: "2px", fontStyle: "italic" }}>
+          {sub}
+        </div>
+      )}
       {variation && (
         <div style={{ fontSize: "10px", fontWeight: 600, color: variation.color, marginTop: "2px" }}>
           {variation.text}

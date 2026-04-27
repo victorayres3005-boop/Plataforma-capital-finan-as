@@ -82,7 +82,7 @@ export function buildCollectionDocs(data: ExtractedData): CollectionDocument[] {
   if (data.balanco && (data.balanco.anos?.length > 0 || data.balanco.observacoes || data.balanco.tendenciaPatrimonio)) {
     docs.push({ type: "balanco" as CollectionDocument["type"], filename: "balanco.pdf", extracted_data: asRec(data.balanco), uploaded_at: ts() });
   }
-  if (data.curvaABC && (data.curvaABC.clientes?.length > 0 || data.curvaABC.maiorCliente || data.curvaABC.periodoReferencia)) {
+  if (data.curvaABC && (data.curvaABC.clientes?.length > 0 || data.curvaABC.maiorCliente || data.curvaABC.periodoReferencia || data.curvaABC.totalClientesNaBase || data.curvaABC.concentracaoTop3 || data.curvaABC.concentracaoTop5)) {
     docs.push({ type: "curva_abc" as CollectionDocument["type"], filename: "curva-abc.pdf", extracted_data: asRec(data.curvaABC), uploaded_at: ts() });
   }
   if (data.irSocios && data.irSocios.length > 0) {

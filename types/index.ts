@@ -725,6 +725,10 @@ export interface ExtractedData {
   faturamento: FaturamentoData;
   scr: SCRData;
   scrAnterior: SCRData | null;
+  /** Sandbox DataBox360 retornou dados idênticos para atual e anterior — esconder comparativo */
+  scrSandboxSemHistorico?: boolean;
+  /** Sandbox DataBox360 retornou totalDividas idêntico para CNPJs diferentes do grupo — esconder coluna SCR Total */
+  grupoEconomicoScrSandbox?: boolean;
   protestos: ProtestosData;
   processos: ProcessosData;
   grupoEconomico: GrupoEconomicoData;

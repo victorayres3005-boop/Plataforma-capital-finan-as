@@ -22,7 +22,7 @@ const GEMINI_API_KEYS = (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_K
   .map(k => k.trim())
   .filter(Boolean);
 
-// Flash 2.5 primário (mais rápido, cabe no timeout 52s do Hobby plan), Pro como fallback.
+// Flash 2.5 primário (mais rápido, cabe no timeout 60s do Hobby plan), Pro como fallback.
 const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"];
 
 const OPENROUTER_API_KEYS = (process.env.OPENROUTER_API_KEYS || process.env.OPENROUTER_API_KEY || "")
@@ -1337,7 +1337,7 @@ Regras:
 // ─────────────────────────────────────────
 // Gemini Files API — upload para fileUri (evita inline base64 para PDFs grandes)
 // ─────────────────────────────────────────
-async function uploadToGeminiFiles(buffer: Buffer, mimeType: string, displayName: string, apiKey: string): Promise<string> {
+async function uploadToGeminiFiles(buffer: Buffer, mimeType: string, displayName: string, apiKey: string, timeoutMs = 10000): Promise<string> {
   const boundary = "cap_gemini_boundary_x7z";
   const metaJson = JSON.stringify({ file: { display_name: displayName } });
   // Google Files API exige X-Goog-Upload-Protocol: multipart e dados em base64 com Content-Transfer-Encoding
@@ -1354,25 +1354,58 @@ async function uploadToGeminiFiles(buffer: Buffer, mimeType: string, displayName
     base64Data,
     `--${boundary}--`,
   ].join("\r\n");
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": `multipart/related; boundary=${boundary}`,
-        "X-Goog-Upload-Protocol": "multipart",
-      },
-      body,
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": `multipart/related; boundary=${boundary}`,
+          "X-Goog-Upload-Protocol": "multipart",
+        },
+        body,
+        signal: controller.signal,
+      }
+    );
+    if (!response.ok) {
+      const txt = await response.text();
+      throw new Error(`Gemini Files API ${response.status}: ${txt.substring(0, 200)}`);
     }
-  );
-  if (!response.ok) {
-    const txt = await response.text();
-    throw new Error(`Gemini Files API ${response.status}: ${txt.substring(0, 200)}`);
+    const result = await response.json();
+    const fileUri = result?.file?.uri;
+    if (!fileUri) throw new Error("Gemini Files API não retornou fileUri");
+    return fileUri as string;
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(`Gemini Files API timeout (${timeoutMs}ms)`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  const result = await response.json();
-  const fileUri = result?.file?.uri;
-  if (!fileUri) throw new Error("Gemini Files API não retornou fileUri");
-  return fileUri as string;
+}
+
+// Tenta upload com rotação de chaves: percorre todas as GEMINI_API_KEYS até uma funcionar.
+async function uploadToGeminiFilesWithRotation(buffer: Buffer, mimeType: string, displayName: string): Promise<string> {
+  if (GEMINI_API_KEYS.length === 0) throw new Error("GEMINI_API_KEYS não configurada");
+  const startIdx = Math.floor(Math.random() * GEMINI_API_KEYS.length);
+  const rotated = [...GEMINI_API_KEYS.slice(startIdx), ...GEMINI_API_KEYS.slice(0, startIdx)];
+  let lastErr: unknown = null;
+  for (const apiKey of rotated) {
+    try {
+      const t0 = Date.now();
+      const fileUri = await uploadToGeminiFiles(buffer, mimeType, displayName, apiKey, 10000);
+      console.log(`[extract] Files API upload OK key=${apiKey.substring(0, 8)} (${Date.now() - t0}ms)`);
+      return fileUri;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[extract] Files API upload falhou key=${apiKey.substring(0, 8)}: ${msg}`);
+      lastErr = err;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("Todas as chaves Gemini falharam no Files API upload");
 }
 
 async function callGemini(prompt: string, content: string | { mimeType: string; base64: string } | { mimeType: string; fileUri: string }, maxOutputTokens = 2048, thinkingBudget = 0): Promise<string> {
@@ -1394,11 +1427,12 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
 
   const startIdx = Math.floor(Math.random() * GEMINI_API_KEYS.length);
   const rotatedKeys = [...GEMINI_API_KEYS.slice(startIdx), ...GEMINI_API_KEYS.slice(0, startIdx)];
-  // Conteúdo grande (>20k chars) precisa de mais tempo para o Gemini processar e gerar tokens.
-  // 1 tentativa × 20s × 2 modelos (flash+lite) = 40s — cabe nos 52s. Pro não tem tempo p/ grandes.
-  const isLargeContent = typeof content === "string" && content.length > 20000;
-  const MAX_ATTEMPTS = isLargeContent ? 1 : 2;
-  const perAttemptMs  = isLargeContent ? 20000 : 8000;
+  // Hobby plan: 52s outer timeout. Para binário: 1 tentativa × 40s = 40s + upload (~8s) = 48s, cabe.
+  // Texto: 1 tentativa × 20s ou 2 × 15s para pequeno (cabe em 52s).
+  const isBinaryContent = typeof content === "object";
+  const isLargeContent  = typeof content === "string" && content.length > 20000;
+  const MAX_ATTEMPTS = isBinaryContent ? 1 : 2;
+  const perAttemptMs  = isBinaryContent ? 40000 : isLargeContent ? 20000 : 15000;
   const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
   keyLoop: for (const apiKey of rotatedKeys) {
     for (const model of GEMINI_MODELS) {
@@ -1407,8 +1441,10 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
       // gemini-2.5-pro rejeita thinkingBudget=0 — exige thinking mode obrigatório
       const effectiveBudget = (model.includes("2.5-pro") && thinkingBudget === 0) ? 1024 : thinkingBudget;
       for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        const t0 = Date.now();
         try {
-          console.log(`[Gemini] key=${apiKey.substring(0, 8)}... model=${model} attempt=${attempt + 1}/${MAX_ATTEMPTS}`);
+          const contentSize = typeof content === "string" ? `${content.length}c` : ("base64" in content ? `${(content.base64.length / 1024).toFixed(0)}KB-b64` : `fileUri`);
+          console.log(`[Gemini] key=${apiKey.substring(0, 8)}... model=${model} attempt=${attempt + 1}/${MAX_ATTEMPTS} payload=${contentSize} timeout=${perAttemptMs}ms`);
           const controller = new AbortController();
           const fetchTimeout = setTimeout(() => controller.abort(), perAttemptMs);
           const response = await fetch(geminiUrl(model, apiKey), {
@@ -1472,19 +1508,20 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
           const textPart = [...parts2].reverse().find((p: { text?: string; thought?: boolean }) => p.text && !p.thought);
           const text = textPart?.text || parts2?.[parts2.length - 1]?.text || parts2?.[0]?.text;
           if (!text) {
-            console.error(`[Gemini] Empty response, parts:`, JSON.stringify(parts2).substring(0, 200));
+            console.error(`[Gemini] Empty response after ${Date.now() - t0}ms, parts:`, JSON.stringify(parts2).substring(0, 200));
             break;
           }
+          console.log(`[Gemini] OK model=${model} ${Date.now() - t0}ms ${text.length} chars`);
           return text;
         } catch (err) {
           // AbortError (timeout) e erros de rede: retry uma vez
           const isAbort = err instanceof Error && err.name === "AbortError";
           if (isAbort && attempt < MAX_ATTEMPTS - 1) {
-            console.warn(`[Gemini] timeout key=${apiKey.substring(0, 8)} model=${model}, tentando de novo`);
+            console.warn(`[Gemini] timeout key=${apiKey.substring(0, 8)} model=${model} após ${Date.now() - t0}ms, tentando de novo`);
             await sleep(500);
             continue;
           }
-          console.error(`[Gemini] Error:`, err instanceof Error ? err.message : err);
+          console.error(`[Gemini] Error após ${Date.now() - t0}ms:`, err instanceof Error ? err.message : err);
           break;
         }
       }
@@ -3095,8 +3132,12 @@ async function processExtract(
     // no modo texto para Gemini, evitando dupla extração.
     const isImage = ["jpg", "jpeg", "png"].includes(ext);
     let rawPdfText = "";
+    let pdfParseMs = 0;
     if (ext === "pdf") {
+      const t0 = Date.now();
       rawPdfText = await extractText(buffer, "pdf");
+      pdfParseMs = Date.now() - t0;
+      console.log(`[extract] pdf-parse ${docType} ${(buffer.length / 1024).toFixed(0)}KB → ${rawPdfText.length} chars em ${pdfParseMs}ms`);
     }
     const subformat = detectSubformat(docType, rawPdfText);
     if (subformat !== "DEFAULT") {
@@ -3141,42 +3182,30 @@ async function processExtract(
     let textContent = "";
     let imageContent: { mimeType: string; base64: string } | undefined;
 
-    // Documentos textuais usam modo texto (3-5x mais rápido, sem timeout).
-    // SCR BACEN e bureau também têm PDF digital — estende modo texto para eles.
-    const TEXT_MODE_TYPES = ["faturamento", "ir_socio", "scr", "curva_abc"];
+    // Estratégia: TEXTO PRIMEIRO sempre que pdf-parse extraiu conteúdo útil.
+    // Modo texto é 3-5x mais rápido que visual e cabe folgado nos 52s.
+    // Visual é reservado para tipos onde layout/assinaturas importam (contrato, relatório de visita)
+    // ou quando pdf-parse não conseguiu extrair texto útil (PDF escaneado).
+    const VISUAL_ONLY_TYPES = ["contrato", "relatorio_visita"];
+    const hasUsefulText = rawPdfText.trim().length > 200 && /\d/.test(rawPdfText);
 
     if (isImage) {
       imageContent = { mimeType, base64: buffer.toString("base64") };
     } else if (ext === "pdf") {
-      // Detectar PDF escaneado (sem texto) antes de enviar ao Gemini
-      if (rawPdfText.trim().length < 50) {
-        return NextResponse.json({
-          error: "PDF escaneado sem texto selecionável",
-          meta: { isScanned: true, rawTextLength: rawPdfText.trim().length },
-        }, { status: 422 });
-      }
-      if (TEXT_MODE_TYPES.includes(docType)) {
-        const hasUsefulText = rawPdfText.trim().length > 200 && /\d/.test(rawPdfText);
-        if (hasUsefulText) {
-          textContent = rawPdfText;
-          console.log(`[extract] ${docType}/${subformat} — modo texto (${rawPdfText.length} chars)`);
-        } else {
-          imageContent = { mimeType: "application/pdf", base64: buffer.toString("base64") };
-          console.log(`[extract] ${docType}/${subformat} — modo visual (texto insuficiente: ${rawPdfText.trim().length} chars)`);
-        }
+      if (VISUAL_ONLY_TYPES.includes(docType)) {
+        // Tipos onde o visual importa (assinaturas em contrato, layout em relatório de visita)
+        imageContent = { mimeType: "application/pdf", base64: buffer.toString("base64") };
+        textContent = "";
+        console.log(`[extract] ${docType} — modo visual (tipo requer leitura visual)`);
+      } else if (hasUsefulText) {
+        // PDF digital com texto útil → modo texto rápido (cabe em ~5-8s)
+        textContent = rawPdfText;
+        console.log(`[extract] ${docType}/${subformat} — modo TEXTO (${rawPdfText.length} chars, ${pdfParseMs}ms)`);
       } else {
-        // PDFs grandes (>1MB) digitais: tenta texto antes de ir visual — evita Files API e timeout de 52s.
-        // Se escaneado (rawPdfText insuficiente) → cai pro visual normalmente.
-        const isLargeFile = buffer.length > 1024 * 1024;
-        const hasUsefulText = rawPdfText.trim().length > 200 && /\d/.test(rawPdfText);
-        if (isLargeFile && hasUsefulText) {
-          textContent = rawPdfText;
-          console.log(`[extract] ${docType} — texto (fallback ${rawPdfText.length} chars, ${(buffer.length / 1024 / 1024).toFixed(1)}MB PDF digital)`);
-        } else {
-          console.log(`[extract] ${docType} — modo visual (PDF binário)`);
-          imageContent = { mimeType: "application/pdf", base64: buffer.toString("base64") };
-          textContent = "";
-        }
+        // PDF escaneado/sem texto útil → cai pro Gemini visual
+        console.log(`[extract] ${docType} — modo visual (texto insuficiente: ${rawPdfText.trim().length} chars)`);
+        imageContent = { mimeType: "application/pdf", base64: buffer.toString("base64") };
+        textContent = "";
       }
     } else {
       // Formatos não-PDF (xlsx, docx, txt…): extrai texto normalmente

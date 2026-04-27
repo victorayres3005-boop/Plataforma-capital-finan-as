@@ -469,10 +469,14 @@ export default function HomePage() {
     }
   }, []);
 
+  const [goalfyHighlight, setGoalfyHighlight] = useState<string[]>([]);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const resumeId = params.get("resume");
     const forceStep = params.get("step") as AppStep | null;
+    const highlight = params.get("highlight");
+    if (highlight) setGoalfyHighlight(highlight.split(",").filter(Boolean));
     if (resumeId) {
       handleResumeCollection(resumeId, forceStep || undefined);
     }
@@ -1634,6 +1638,7 @@ export default function HomePage() {
               // no save) para repovoar as sections. Evita "arquivos zerados".
               resumedDocs={resumedDocs && resumedDocs.length > 0 ? resumedDocs : (buildCollectionDocs(extractedData) as import("@/types").CollectionDocument[])}
               initialData={extractedData}
+              highlightKeys={goalfyHighlight.length > 0 ? goalfyHighlight : undefined}
             />
           )}
           {step === "review" && collectionId && (

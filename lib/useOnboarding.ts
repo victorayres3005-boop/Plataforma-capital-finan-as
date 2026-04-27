@@ -43,11 +43,11 @@ export function useOnboarding(userId: string | undefined) {
     load();
   }, [userId]);
 
-  const markWelcomeSeen = useCallback(async () => {
+  const markWelcomeSeen = useCallback(() => {
+    setOnboarding(prev => ({ ...prev, welcomeSeen: true }));
     if (!userId) return;
     const supabase = createClient();
-    await supabase.from("user_onboarding").update({ welcome_seen: true, updated_at: new Date().toISOString() }).eq("user_id", userId);
-    setOnboarding(prev => ({ ...prev, welcomeSeen: true }));
+    supabase.from("user_onboarding").update({ welcome_seen: true, updated_at: new Date().toISOString() }).eq("user_id", userId).then(() => {});
   }, [userId]);
 
   const markTooltipSeen = useCallback(async (tooltipId: string) => {

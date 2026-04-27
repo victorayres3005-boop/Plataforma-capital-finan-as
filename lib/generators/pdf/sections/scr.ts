@@ -102,6 +102,10 @@ export function renderSCR(ctx: PdfCtx): void {
     doc.setFont("helvetica","bold"); doc.setTextColor(...P.x9);
     doc.text(scr.periodoReferencia || "Atual", ML + sep2, pos.y + 5);
     pos.y += 10;
+  } else if (data.scrSandboxSemHistorico) {
+    doc.setFont("helvetica","italic"); doc.setFontSize(6.5); doc.setTextColor(...P.x5);
+    doc.text(`Período: ${scr.periodoReferencia || "Atual"} · Comparativo histórico requer credenciais de produção DataBox360`, ML, pos.y + 4);
+    pos.y += 8;
   }
 
   // Table
@@ -244,6 +248,201 @@ export function renderSCR(ctx: PdfCtx): void {
     if (drop > 30) alertRow("mod", `Limite de crédito reduzido em ${fmtBR(drop,0)}%`);
   }
   if (ifs === 0) alertRow("alta", "Empresa sem relacionamento bancário ativo (0 IFs)");
+
+  // ── Fonte / badge DataBox360 ────────────────────────────────────────────────
+  if (scr.fonteBureau) {
+    checkPageBreak(ctx, 8);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(6); doc.setTextColor(...P.x4);
+    const badge = `Fonte: ${scr.fonteBureau} (API SCR/BCB)`;
+    doc.text(badge, ML, pos.y + 4);
+    pos.y += 7;
+  }
+
+  // ── Faixas de Vencimento ────────────────────────────────────────────────────
+  const fv = scr.faixasAVencer;
+  const fvAnt = scrAnt?.faixasAVencer;
+  if (fv) {
+    checkPageBreak(ctx, 50);
+    stitle("Faixas de Vencimento — Carteira a Vencer");
+
+    type FaixaRow = { label: string; cur: string; ant?: string };
+    const faixaRows: FaixaRow[] = [
+      { label: "Até 30 dias",     cur: fv.ate30d,    ant: fvAnt?.ate30d },
+      { label: "31 a 60 dias",    cur: fv.d31_60,    ant: fvAnt?.d31_60 },
+      { label: "61 a 90 dias",    cur: fv.d61_90,    ant: fvAnt?.d61_90 },
+      { label: "91 a 180 dias",   cur: fv.d91_180,   ant: fvAnt?.d91_180 },
+      { label: "181 a 360 dias",  cur: fv.d181_360,  ant: fvAnt?.d181_360 },
+      { label: "Acima de 360 d",  cur: fv.acima360d, ant: fvAnt?.acima360d },
+      { label: "Prazo Indet.",    cur: fv.prazoIndeterminado ?? "—", ant: fvAnt?.prazoIndeterminado },
+      { label: "Total A Vencer",  cur: fv.total,     ant: fvAnt?.total },
+    ];
+
+    const FRH = 7; const FHH = 8;
+    const FTH = FHH + faixaRows.length * FRH + 2;
+    const fy0 = pos.y;
+
+    doc.setFillColor(...P.wh); doc.setDrawColor(...P.x2); doc.setLineWidth(0.25);
+    doc.roundedRect(ML, fy0, CW, FTH, 2, 2, "FD");
+    doc.setFillColor(...P.n9);
+    doc.roundedRect(ML, fy0, CW, FHH, 2, 2, "F");
+    doc.rect(ML, fy0+3, CW, FHH-3, "F");
+    doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(...P.wh);
+    doc.text("Faixa", ML + 4, fy0 + 5.5);
+    if (hasAnt) {
+      doc.text(scrAnt!.periodoReferencia || "Anterior", ML + CW*0.57, fy0 + 5.5, { align: "right" });
+      doc.text(scr.periodoReferencia || "Atual",        ML + CW*0.78, fy0 + 5.5, { align: "right" });
+    } else {
+      doc.text(scr.periodoReferencia || "Atual", ML + CW*0.78, fy0 + 5.5, { align: "right" });
+    }
+
+    faixaRows.forEach((r, i) => {
+      const ry = fy0 + FHH + i * FRH;
+      const isLast = i === faixaRows.length - 1;
+      if (isLast) doc.setFillColor(...P.n0);
+      else if (i % 2 === 0) doc.setFillColor(...P.x0);
+      else doc.setFillColor(...P.wh);
+      doc.rect(ML, ry, CW, FRH, "F");
+
+      doc.setFont("helvetica", isLast ? "bold" : "normal");
+      doc.setFontSize(7); doc.setTextColor(...(isLast ? P.n9 : P.x7));
+      doc.text(r.label, ML + 4, ry + 5.5);
+
+      const fmtMo = (v: string | undefined) => {
+        if (!v || v === "—") return "—";
+        const num = parseMoneyToNumber(v);
+        return num === 0 ? "—" : mo(num);
+      };
+
+      if (hasAnt) {
+        doc.setFont("helvetica","normal"); doc.setFontSize(7); doc.setTextColor(...P.x7);
+        doc.text(fmtMo(r.ant), ML + CW*0.57, ry + 5.5, { align: "right" });
+      }
+      doc.setFont("helvetica", isLast ? "bold" : "normal");
+      doc.setFontSize(7); doc.setTextColor(...(isLast ? P.n9 : P.x7));
+      doc.text(fmtMo(r.cur), ML + CW*0.78, ry + 5.5, { align: "right" });
+
+      doc.setDrawColor(...P.x1); doc.setLineWidth(0.15);
+      doc.line(ML+2, ry+FRH, ML+CW-2, ry+FRH);
+    });
+
+    pos.y = fy0 + FTH + 5;
+  }
+
+  // ── Vencidos por faixa ──────────────────────────────────────────────────────
+  const fvc = scr.faixasVencidos;
+  const fvcAnt = scrAnt?.faixasVencidos;
+  if (fvc && n(scr.vencidos) > 0) {
+    checkPageBreak(ctx, 50);
+    stitle("Faixas de Atraso — Carteira Vencida");
+
+    type FaixaRow = { label: string; cur: string; ant?: string };
+    const vencRows: FaixaRow[] = [
+      { label: "15 a 30 dias",   cur: fvc.ate30d,    ant: fvcAnt?.ate30d },
+      { label: "31 a 60 dias",   cur: fvc.d31_60,    ant: fvcAnt?.d31_60 },
+      { label: "61 a 90 dias",   cur: fvc.d61_90,    ant: fvcAnt?.d61_90 },
+      { label: "91 a 180 dias",  cur: fvc.d91_180,   ant: fvcAnt?.d91_180 },
+      { label: "181 a 360 dias", cur: fvc.d181_360,  ant: fvcAnt?.d181_360 },
+      { label: "Acima de 360 d", cur: fvc.acima360d, ant: fvcAnt?.acima360d },
+      { label: "Total Vencido",  cur: fvc.total,     ant: fvcAnt?.total },
+    ];
+
+    const FRH = 7; const FHH = 8;
+    const FTH = FHH + vencRows.length * FRH + 2;
+    const vy0 = pos.y;
+
+    doc.setFillColor(...P.wh); doc.setDrawColor(...P.x2); doc.setLineWidth(0.25);
+    doc.roundedRect(ML, vy0, CW, FTH, 2, 2, "FD");
+    doc.setFillColor(...P.r6);
+    doc.roundedRect(ML, vy0, CW, FHH, 2, 2, "F");
+    doc.rect(ML, vy0+3, CW, FHH-3, "F");
+    doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(...P.wh);
+    doc.text("Faixa de Atraso", ML + 4, vy0 + 5.5);
+    if (hasAnt) {
+      doc.text(scrAnt!.periodoReferencia || "Anterior", ML + CW*0.57, vy0 + 5.5, { align: "right" });
+      doc.text(scr.periodoReferencia || "Atual",        ML + CW*0.78, vy0 + 5.5, { align: "right" });
+    } else {
+      doc.text(scr.periodoReferencia || "Atual", ML + CW*0.78, vy0 + 5.5, { align: "right" });
+    }
+
+    vencRows.forEach((r, i) => {
+      const ry = vy0 + FHH + i * FRH;
+      const isLast = i === vencRows.length - 1;
+      if (isLast) doc.setFillColor(...P.r1);
+      else if (i % 2 === 0) doc.setFillColor(...P.x0);
+      else doc.setFillColor(...P.wh);
+      doc.rect(ML, ry, CW, FRH, "F");
+
+      doc.setFont("helvetica", isLast ? "bold" : "normal");
+      doc.setFontSize(7); doc.setTextColor(...(isLast ? P.r6 : P.x7));
+      doc.text(r.label, ML + 4, ry + 5.5);
+
+      const fmtMo = (v: string | undefined) => {
+        if (!v || v === "—") return "—";
+        const num = parseMoneyToNumber(v);
+        return num === 0 ? "—" : mo(num);
+      };
+
+      if (hasAnt) {
+        doc.setFont("helvetica","normal"); doc.setFontSize(7); doc.setTextColor(...P.x7);
+        doc.text(fmtMo(r.ant), ML + CW*0.57, ry + 5.5, { align: "right" });
+      }
+      doc.setFont("helvetica", isLast ? "bold" : "normal");
+      doc.setFontSize(7); doc.setTextColor(...(isLast ? P.r6 : P.x7));
+      doc.text(fmtMo(r.cur), ML + CW*0.78, ry + 5.5, { align: "right" });
+
+      doc.setDrawColor(...P.x1); doc.setLineWidth(0.15);
+      doc.line(ML+2, ry+FRH, ML+CW-2, ry+FRH);
+    });
+
+    pos.y = vy0 + FTH + 5;
+  }
+
+  // ── Outros Valores ──────────────────────────────────────────────────────────
+  const ov = scr.outrosValores;
+  if (ov) {
+    const ovItems = [
+      { label: "Carteira de Crédito",      val: ov.carteiraCredito },
+      { label: "Responsabilidade Total",   val: ov.responsabilidadeTotal },
+      { label: "Risco Total",              val: ov.riscoTotal },
+      { label: "Coobrigação Assumida",     val: ov.coobrigacaoAssumida },
+      { label: "Coobrigação Recebida",     val: ov.coobrigacaoRecebida },
+      { label: "Créditos a Liberar",       val: ov.creditosALiberar },
+    ].filter(x => {
+      const num = parseMoneyToNumber(x.val ?? "0");
+      return num !== 0;
+    });
+
+    if (ovItems.length > 0) {
+      checkPageBreak(ctx, 14 + ovItems.length * 7);
+      stitle("Outros Valores SCR");
+
+      const ORH = 7; const OHH = 8;
+      const OTH = OHH + ovItems.length * ORH + 2;
+      const oy0 = pos.y;
+
+      doc.setFillColor(...P.wh); doc.setDrawColor(...P.x2); doc.setLineWidth(0.25);
+      doc.roundedRect(ML, oy0, CW, OTH, 2, 2, "FD");
+      doc.setFillColor(...P.n8);
+      doc.roundedRect(ML, oy0, CW, OHH, 2, 2, "F");
+      doc.rect(ML, oy0+3, CW, OHH-3, "F");
+      doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(...P.wh);
+      doc.text("Item", ML + 4, oy0 + 5.5);
+      doc.text("Valor", ML + CW*0.78, oy0 + 5.5, { align: "right" });
+
+      ovItems.forEach((r, i) => {
+        const ry = oy0 + OHH + i * ORH;
+        if (i % 2 === 0) doc.setFillColor(...P.x0); else doc.setFillColor(...P.wh);
+        doc.rect(ML, ry, CW, ORH, "F");
+        doc.setFont("helvetica","normal"); doc.setFontSize(7); doc.setTextColor(...P.x7);
+        doc.text(r.label, ML + 4, ry + 5.5);
+        doc.text(mo(r.val), ML + CW*0.78, ry + 5.5, { align: "right" });
+        doc.setDrawColor(...P.x1); doc.setLineWidth(0.15);
+        doc.line(ML+2, ry+ORH, ML+CW-2, ry+ORH);
+      });
+
+      pos.y = oy0 + OTH + 5;
+    }
+  }
 
   void params;
 }

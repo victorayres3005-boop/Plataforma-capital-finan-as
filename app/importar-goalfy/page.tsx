@@ -51,6 +51,7 @@ export default function ImportarGoalfyPage() {
   const [error, setError]             = useState<string | null>(null);
   const [importing, setImporting]     = useState<Record<string, boolean>>({});
   const [imported, setImported]       = useState<Record<string, string>>({});  // opId → collectionId
+  const [importedDocs, setImportedDocs] = useState<Record<string, string[]>>({}); // opId → doc_types
 
   const fetchList = useCallback(async () => {
     setError(null);
@@ -74,6 +75,15 @@ export default function ImportarGoalfyPage() {
 
   async function handleSync() {
     setSyncing(true);
+    try {
+      const res = await fetch("/api/goalfy/sync", { method: "POST" });
+      const json = await res.json() as { success?: boolean; synced?: number; total?: number; error?: string };
+      if (!res.ok || !json.success) {
+        console.warn("[goalfy sync]", json.error);
+      } else {
+        console.log(`[goalfy sync] ${json.synced}/${json.total} cards`);
+      }
+    } catch { /* silencioso */ }
     await fetchList();
     setSyncing(false);
   }
@@ -88,6 +98,8 @@ export default function ImportarGoalfyPage() {
       });
       const json = await res.json() as { success?: boolean; collection_id?: string; error?: string };
       if (!res.ok || !json.success) throw new Error(json.error ?? "Erro ao importar");
+      const docTypes = op.documents.map(d => d.type).filter(t => t && t !== "outro");
+      setImportedDocs(prev => ({ ...prev, [op.id]: docTypes }));
       setImported(prev => ({ ...prev, [op.id]: json.collection_id! }));
       setOperations(prev => prev.map(o => o.id === op.id ? { ...o, already_imported: true } : o));
     } catch (e) {
@@ -97,8 +109,9 @@ export default function ImportarGoalfyPage() {
     }
   }
 
-  function goToCollection(collectionId: string) {
-    router.push(`/?resume=${collectionId}`);
+  function goToCollection(collectionId: string, docTypes?: string[]) {
+    const highlight = docTypes?.filter(Boolean).join(",");
+    router.push(`/?resume=${collectionId}${highlight ? `&highlight=${highlight}` : ""}`);
   }
 
   const pending  = operations.filter(o => !o.already_imported);
@@ -187,7 +200,8 @@ export default function ImportarGoalfyPage() {
                   isImporting={!!importing[op.id]}
                   importedId={imported[op.id]}
                   onImport={() => handleImport(op)}
-                  onOpen={() => goToCollection(imported[op.id])}
+                  docTypes={importedDocs[op.id]}
+                  onOpen={() => goToCollection(imported[op.id], importedDocs[op.id])}
                 />
               ))}
             </div>
@@ -208,7 +222,8 @@ export default function ImportarGoalfyPage() {
                   isImporting={false}
                   importedId={imported[op.id]}
                   onImport={() => {}}
-                  onOpen={() => goToCollection(imported[op.id])}
+                  docTypes={importedDocs[op.id]}
+                  onOpen={() => goToCollection(imported[op.id], importedDocs[op.id])}
                 />
               ))}
             </div>
@@ -233,13 +248,14 @@ export default function ImportarGoalfyPage() {
 
 // ─── Card de operação ──────────────────────────────────────────────────────────
 function OperationCard({
-  op, isImporting, importedId, onImport, onOpen,
+  op, isImporting, importedId, onImport, onOpen, docTypes,
 }: {
   op: OperationWithStatus;
   isImporting: boolean;
   importedId?: string;
-  onImport: () => void;
-  onOpen: () => void;
+  onImport: () => void | Promise<void>;
+  onOpen: () => void | Promise<void>;
+  docTypes?: string[];
 }) {
   const justImported = !!importedId;
   const isAlreadyDone = op.already_imported && !justImported;
@@ -328,6 +344,22 @@ function OperationCard({
               <FileText size={10} /> {docLabel(d.type)}
             </span>
           ))}
+        </div>
+      )}
+
+      {/* ── Row 3: docs identificados após importação ── */}
+      {docTypes && docTypes.length > 0 && (
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #f1f5f9" }}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: "#3b82f6", margin: "0 0 6px" }}>
+            Documentos identificados no Goalfy:
+          </p>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {docTypes.map(t => (
+              <span key={t} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 600, padding: "3px 8px", borderRadius: 6, background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe" }}>
+                ✓ {docLabel(t)}
+              </span>
+            ))}
+          </div>
         </div>
       )}
 

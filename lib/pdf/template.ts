@@ -103,6 +103,13 @@ function decisionBg(decision: string): string {
   return "var(--r6)";
 }
 
+// ⚠️ TEMP: rating numérico + decisão (APROVADO/REPROVADO) escondidos do PDF/HTML
+// enquanto a avaliação automatizada está em calibração. Trocar para `false` quando
+// a nota voltar a ser confiável. Tela do app continua mostrando normalmente.
+const HIDE_AVALIACAO = true;
+const BANNER_CALIBRACAO = `<div style="display:inline-block;padding:8px 18px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(115,184,21,0.12);color:#73b815;border:1px solid rgba(115,184,21,0.3);letter-spacing:0.02em">Avaliação em calibração — siga pela análise quantitativa</div>`;
+const BANNER_CALIBRACAO_LIGHT = `<div style="display:inline-block;padding:6px 14px;border-radius:5px;font-size:10px;font-weight:600;background:#f8fafc;color:#64748b;border:1px solid #e2e8f0">Avaliação em calibração</div>`;
+
 // ─── Page header wrapper ───────────────────────────────────────────────────────
 function page(content: string, pageNum: number, date: string): string {
   return `
@@ -540,6 +547,7 @@ body{font-family:'DM Sans',sans-serif;font-size:var(--fs-body);background:#fff;c
 .inf{font-size:var(--fs-body);color:var(--x5);margin-bottom:12px}
 .inf b{color:var(--x9)}
 .badge{display:inline-block;padding:3px 10px;border-radius:4px;font-size:var(--fs-label);font-weight:700;text-transform:uppercase}
+.badge-manual{display:inline-block;font-size:11px;color:#2563eb;background:#eff6ff;padding:2px 8px;border-radius:4px;margin-bottom:6px;font-weight:600}
 .badge.red{background:var(--r6);color:#fff}
 .badge.green{background:var(--g6);color:#fff}
 .badge.amber{background:var(--a5);color:#fff}
@@ -648,7 +656,7 @@ function pageCapa(params: PDFReportParams, date: string): string {
     <div style="font-size:12px;font-family:'JetBrains Mono',monospace;color:rgba(255,255,255,0.4);margin-top:10px">CNPJ: ${fmtCnpj(cnpj?.cnpj)}</div>
 
     <!-- Score principal -->
-    ${params.scoreV2 ? (() => {
+    ${HIDE_AVALIACAO ? `<div style="margin-top:36px">${BANNER_CALIBRACAO}</div>` : (params.scoreV2 ? (() => {
       const v2 = params.scoreV2!;
       const ratingCores: Record<string, string> = { A:"#16a34a", B:"#65a30d", C:"#d97706", D:"#ea580c", E:"#dc2626", F:"#991b1b" };
       const v2cor = ratingCores[v2.rating] ?? "#6b7280";
@@ -674,7 +682,7 @@ function pageCapa(params: PDFReportParams, date: string): string {
       </div>
       <div style="font-size:12px;font-weight:700;color:${sc}">${esc(ratingLabel)}</div>
       <div style="padding:6px 22px;border-radius:5px;font-size:12px;font-weight:700;background:${decBg};color:#fff;letter-spacing:0.03em;white-space:nowrap">${fmtDecision(params.decision)}</div>
-    </div>`}
+    </div>`)}
 
     <!-- Comitê -->
     ${params.committeMembers ? `<div style="margin-top:24px;font-size:10px;color:rgba(255,255,255,0.3)">Comitê: ${esc(params.committeMembers)}</div>` : ""}
@@ -934,8 +942,12 @@ function pageSintese(params: PDFReportParams, date: string): string {
       </div>`;
     } else {
       const curtoPrazo = scr.carteiraCurtoPrazo ?? scr.carteiraAVencer;
+      const periodoLabel = scr.periodoReferencia ? `Atual (${esc(scr.periodoReferencia)})` : "Valor";
+      const sandboxNote = d.scrSandboxSemHistorico
+        ? `<div class="ifs-note" style="font-style:italic;color:var(--x5);margin-top:4px">Comparativo histórico requer credenciais de produção DataBox360.</div>`
+        : "";
       scrTable = `<table class="scr-tbl">
-        <thead><tr><th>Métrica</th><th>Valor</th></tr></thead>
+        <thead><tr><th>Métrica</th><th>${periodoLabel}</th></tr></thead>
         <tbody>
           <tr><td>Curto Prazo</td><td>${fmtMoneyAbr(curtoPrazo)}</td></tr>
           <tr><td>Longo Prazo</td><td>${fmtMoneyAbr(scr.carteiraLongoPrazo)}</td></tr>
@@ -946,7 +958,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
           <tr class="total"><td>Total Dívidas</td><td>${fmtMoneyAbr(scr.totalDividasAtivas)}</td></tr>
         </tbody>
       </table>
-      <div class="ifs-note">Instituições financeiras: ${fmt(scr.qtdeInstituicoes)} · Operações: ${fmt(scr.qtdeOperacoes)}</div>`;
+      <div class="ifs-note">Instituições financeiras: ${fmt(scr.qtdeInstituicoes)} · Operações: ${fmt(scr.qtdeOperacoes)}</div>${sandboxNote}`;
     }
   }
 
@@ -982,15 +994,15 @@ function pageSintese(params: PDFReportParams, date: string): string {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const toS = (val: any): string => Array.isArray(val) ? val.join(", ") : (val == null ? "" : String(val));
   const v_ = (val: unknown) => { const s = toS(val).trim(); return s || "—"; };
-  const vMoney = (val: unknown) => { const s = toS(val).trim(); return s ? fmtMoneyAbr(s) : "—"; };
+  const vMoney = (val: unknown) => { const s = toS(val).trim(); return s ? fmtMoney(s) : "—"; };
   const vDias  = (val: unknown) => { const s = toS(val).trim(); return s ? `${s} dias` : "—"; };
   const pleitoRows: Array<[string, string]> = [
     ["Limite Global",                    vMoney(rv?.limiteTotal)],
     ["Tranche Limite Global",            vMoney(rv?.tranche)],
     ["Limite Convencional",              vMoney(rv?.limiteConvencional)],
     ["Limite Comissária",                vMoney(rv?.limiteComissaria)],
-    ["Limite por Sacado (20 a 30%)",     vMoney(rv?.limitePorSacado)],
-    ["Limite Principais Sacados (30 a 40%)", vMoney(rv?.limitePrincipaisSacados)],
+    ["Limite Sacados Pulverizados",      vMoney(rv?.limitePorSacado)],
+    ["Limite Principais Sacados",        vMoney(rv?.limitePrincipaisSacados)],
     ["Taxa Convencional",                v_(rv?.taxaConvencional)],
     ["Taxa Comissária",                  v_(rv?.taxaComissaria)],
     ["Boleto",                           vMoney(rv?.valorCobrancaBoleto)],
@@ -1030,12 +1042,14 @@ function pageSintese(params: PDFReportParams, date: string): string {
     <div class="ana-col a"><div class="ana-h">Alertas</div>${alertsArr.map(a=>`<div class="ana-item">${esc(a)}</div>`).join("") || '<div class="ana-item" style="color:var(--x4)">—</div>'}</div>
   </div>`;
 
-  // Percepção
-  const resumo = params.resumoExecutivo || (typeof params.aiAnalysis?.parecer === "object" ? params.aiAnalysis.parecer.resumoExecutivo : "") || "";
+  // Percepção — prioridade: texto manual do analista > resumo gerado pela IA
+  const isManualPerc = !!(params.observacoes?.trim());
+  const resumo = params.observacoes?.trim() || params.resumoExecutivo || (typeof params.aiAnalysis?.parecer === "object" ? params.aiAnalysis.parecer.resumoExecutivo : "") || "";
   const percHtml = `${stitle("Percepção do analista")}
   <div class="perc">
+    ${isManualPerc ? `<span class="badge-manual">&#9998; Percep&ccedil;&atilde;o do Analista</span>` : ""}
     <div class="perc-text" style="text-align:justify">${esc(resumo) || "—"}</div>
-    <div class="perc-rec">Recomendação: <span class="dec" style="background:${decBg};font-size:10px">${fmtDecision(params.decision)}</span></div>
+    ${HIDE_AVALIACAO ? "" : `<div class="perc-rec">Recomendação: <span class="dec" style="background:${decBg};font-size:10px">${fmtDecision(params.decision)}</span></div>`}
   </div>`;
 
   // Map/address — Street View 360° (4 ângulos) + mapa aéreo + link interativo
@@ -1105,12 +1119,13 @@ function pageSintese(params: PDFReportParams, date: string): string {
         ${rv?.responsavelVisita ? `<div style="font-size:11px;color:var(--x5);margin-top:4px">Gerente: <b style="color:var(--x7)">${esc(rv.responsavelVisita)}</b></div>` : ""}
       </div>
       <div class="rat">
+        ${HIDE_AVALIACAO ? BANNER_CALIBRACAO_LIGHT : `
         <div class="rat-c" style="border-color:${sb}">
           <div class="rat-n" style="color:${sc}">${score.toFixed(1)}</div>
           <div class="rat-d">/10</div>
         </div>
         <div class="rat-l" style="color:${sc}">${ratingLabel}</div>
-        <div class="dec" style="background:${decBg}">${fmtDecision(params.decision)}</div>
+        <div class="dec" style="background:${decBg}">${fmtDecision(params.decision)}</div>`}
       </div>
     </div>
 
@@ -1137,7 +1152,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
       <thead><tr><th>Sócio</th><th>CPF/CNPJ</th><th>Qualificação</th><th>Part.</th><th>Patrim. Líq. / Renda Est.</th></tr></thead>
       <tbody>${socRows || `<tr><td colspan="5" style="color:var(--x4);text-align:center">—</td></tr>`}</tbody>
     </table>
-    <div class="soc-extra">Capital Social: <b>${fmtMoney(capitalSocial)}</b> · Grupo Econômico: <b>${d.grupoEconomico?.empresas?.length > 0 ? d.grupoEconomico.empresas.length + " empresa(s) identificada(s)" : "Não identificado"}</b></div>
+    <div class="soc-extra">Grupo Econômico: <b>${d.grupoEconomico?.empresas?.length > 0 ? d.grupoEconomico.empresas.length + " empresa(s) identificada(s)" : "Não identificado"}</b></div>
 
     <!-- 5c. Alertas KYC sócios (óbito / CPF irregular) -->
     ${(() => {
@@ -1210,6 +1225,10 @@ function pageSintese(params: PDFReportParams, date: string): string {
            Possível parentesco entre sócios: ${ge.parentescosDetectados!.map((p: {socio1:string;socio2:string;sobrenomeComum:string}) => `<b>${esc(p.socio1)}</b> e <b>${esc(p.socio2)}</b> (sobrenome <i>${esc(p.sobrenomeComum)}</i>)`).join("; ")}</div>`
         : "";
 
+      const scrSandboxNote = d.grupoEconomicoScrSandbox
+        ? `<div style="font-size:10px;color:var(--x5);font-style:italic;margin-top:6px">SCR Total das empresas vinculadas requer credenciais de produção DataBox360.</div>`
+        : "";
+
       return `${stitle("Grupo econômico dos sócios")}
       <div class="ge-block">
         <div class="ge-header">
@@ -1218,6 +1237,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
         </div>
         ${socioBlocks}
         ${alertaParentesco}
+        ${scrSandboxNote}
       </div>`;
     })()}
 
@@ -1338,7 +1358,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
 
 
 // ─── Parecer Preliminar (última página) ───────────────────────────────────────
-function pageParecer(params: PDFReportParams, date: string): string {
+function pageParecer(params: PDFReportParams, date: string, pageNum = 10): string {
   const ai = params.aiAnalysis;
   const parecer = ai?.parecer;
   const resumo = params.resumoExecutivo ||
@@ -1353,14 +1373,14 @@ function pageParecer(params: PDFReportParams, date: string): string {
   // Pleito info for the pending state
   const cl = params.creditLimit;
   const pleitoSummary = cl ? `
-    <div class="istrip c4" style="margin-top:20px">
-      <div class="icell ${cl.classificacao === "APROVADO" ? "success" : cl.classificacao === "CONDICIONAL" ? "warn" : "danger"}">
+    <div class="istrip ${HIDE_AVALIACAO ? "c2" : "c4"}" style="margin-top:20px">
+      ${HIDE_AVALIACAO ? "" : `<div class="icell ${cl.classificacao === "APROVADO" ? "success" : cl.classificacao === "CONDICIONAL" ? "warn" : "danger"}">
         <div class="l">Decisão</div>
         <div class="v sm ${cl.classificacao === "APROVADO" ? "green" : cl.classificacao === "CONDICIONAL" ? "" : "red"}">${esc(cl.classificacao ?? "—")}</div>
-      </div>
+      </div>`}
       <div class="icell"><div class="l">Limite Aprovado</div><div class="v sm mono">${cl.limiteAjustado ? "R$\u00a0" + cl.limiteAjustado.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}) : "—"}</div></div>
       <div class="icell"><div class="l">Prazo</div><div class="v">${cl.prazo ? cl.prazo + " dias" : "—"}</div></div>
-      <div class="icell"><div class="l">Score</div><div class="v" style="color:${sc}">${score > 0 ? score.toFixed(1) : "—"}</div></div>
+      ${HIDE_AVALIACAO ? "" : `<div class="icell"><div class="l">Score</div><div class="v" style="color:${sc}">${score > 0 ? score.toFixed(1) : "—"}</div></div>`}
     </div>` : "";
 
   let content = "";
@@ -1375,24 +1395,44 @@ function pageParecer(params: PDFReportParams, date: string): string {
         <div style="font-size:13px;font-weight:700;color:var(--n9);margin-bottom:8px">Resumo Executivo</div>
         <div style="font-size:12px;color:var(--x7);line-height:1.7;text-align:justify">${esc(resumo) || "—"}</div>
       </div>
-      <div style="text-align:center;min-width:100px">
+      ${HIDE_AVALIACAO ? `<div style="text-align:center;min-width:100px;align-self:center">${BANNER_CALIBRACAO_LIGHT}</div>` : `<div style="text-align:center;min-width:100px">
         <div style="width:72px;height:72px;border-radius:50%;border:3px solid ${sb};display:flex;flex-direction:column;align-items:center;justify-content:center;margin:0 auto 6px">
           <div style="font-size:26px;font-weight:700;color:${sc};line-height:1">${score.toFixed(1)}</div>
           <div style="font-size:10px;color:var(--x4)">/10</div>
         </div>
         <div style="display:inline-block;padding:4px 14px;border-radius:4px;font-size:10px;font-weight:700;background:${decBg2};color:#fff">${fmtDecision(params.decision)}</div>
-      </div>
+      </div>`}
     </div>
     ${params.observacoes ? `${stitle("Observações")}
     <div class="perc"><div class="perc-text">${esc(params.observacoes)}</div></div>` : ""}
     `;
   }
 
-  const totalPages = 12;
-  return page(`${stitle("Parecer Preliminar")}${content}`, totalPages, date);
+  return page(`${stitle("Parecer Preliminar")}${content}`, pageNum, date);
 }
 
-// ─── Page 6: Parâmetros (Limite de Crédito) ──────────────────────────────────
+// ─── Page 4: Divisor — Avaliação Estratégica de Crédito ──────────────────────
+function pageDivisorAvaliacaoEstrategica(): string {
+  return `
+<div class="page" style="background:var(--n8);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0;position:relative;overflow:hidden;min-height:700px">
+  <!-- Barra verde no topo -->
+  <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#73b815,rgba(115,184,21,0.2))"></div>
+
+  <!-- Conteúdo central -->
+  <div style="display:flex;flex-direction:column;align-items:center;gap:20px;text-align:center;padding:0 60px">
+    <div style="width:48px;height:2px;background:#73b815;border-radius:2px"></div>
+    <div style="font-size:11px;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:0.22em;font-weight:600">Relatório de Crédito</div>
+    <div style="font-size:32px;font-weight:800;color:#fff;line-height:1.2;max-width:480px">Avalia&ccedil;&atilde;o Estrat&eacute;gica de Cr&eacute;dito</div>
+    <div style="width:48px;height:2px;background:#73b815;border-radius:2px"></div>
+    <div style="font-size:10px;color:rgba(255,255,255,0.2);text-transform:uppercase;letter-spacing:0.15em;margin-top:8px">capital<span style="color:#73b815">finan&ccedil;as</span></div>
+  </div>
+
+  <!-- Barra verde no rodapé -->
+  <div style="position:absolute;bottom:0;left:0;right:0;height:3px;background:linear-gradient(90deg,rgba(115,184,21,0.2),#73b815)"></div>
+</div>`;
+}
+
+// ─── Page 5: Parâmetros (Limite de Crédito) ──────────────────────────────────
 function pageParametros(params: PDFReportParams, date: string): string {
   const content = `
     ${params.creditLimit ? `${stitle("Limite de Crédito Calculado")}
@@ -1429,7 +1469,7 @@ function pageParametros(params: PDFReportParams, date: string): string {
     </div>`}` : '<div style="color:var(--x4);font-size:12px;padding:20px;text-align:center">Limite de crédito não calculado</div>'}
   `;
 
-  return page(content, 6, date);
+  return page(content, 5, date);
 }
 
 // ─── Page 7: Faturamento Detalhado ────────────────────────────────────────────
@@ -1481,7 +1521,7 @@ function pageFaturamento(params: PDFReportParams, date: string): string {
     ${fmmAnualHtml}
   `;
 
-  return page(content, 7, date);
+  return page(content, 6, date);
 }
 
 // ─── Page 9: SCR + DRE ───────────────────────────────────────────────────────
@@ -1691,7 +1731,7 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
     })()}
   `;
 
-  return page(content, 8, date);
+  return page(content, 7, date);
 }
 
 // ─── SCR variation helper ──────────────────────────────────────────────────────
@@ -1840,7 +1880,7 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
   }
 
   const content = `${scrSection}`;
-  return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de SCR não disponíveis</div>`, 9, date);
+  return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de SCR não disponíveis</div>`, 8, date);
 }
 
 // ─── Page 10: DRE + Balanço + ABC ────────────────────────────────────────────
@@ -2004,7 +2044,7 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
   }
 
   const content = `${dreSection}${balSection}${abcSection}`;
-  return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de DRE/balanço/ABC não disponíveis</div>`, 10, date);
+  return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de DRE/balanço/ABC não disponíveis</div>`, 9, date);
 }
 
 // ─── Page 11: IR Sócios + Visita ───────────────────────────────────────────────
@@ -2138,7 +2178,7 @@ function pageIRVisita(params: PDFReportParams, date: string): string {
   }
 
   const content = `${irSection}${historicoSection}${visitaSection}`;
-  return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de IR/Visita não disponíveis</div>`, 11, date);
+  return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de IR/Visita não disponíveis</div>`, 10, date);
 }
 
 // ─── Page 2: Checklist de Documentos ─────────────────────────────────────────
@@ -2383,11 +2423,11 @@ function pageScoreV2(params: PDFReportParams, date: string): string {
   }).join("");
 
   const content = `
-    ${stitle("Score de Crédito V2 — Capital Finanças")}
+    ${stitle(HIDE_AVALIACAO ? "Análise por Pilares — Conformidade" : "Score de Crédito V2 — Capital Finanças")}
 
     <!-- Score hero + tabela resumo -->
-    <div style="display:flex;align-items:flex-start;gap:20px;margin-bottom:18px">
-      <!-- Círculo de rating -->
+    <div style="${HIDE_AVALIACAO ? "margin-bottom:18px" : "display:flex;align-items:flex-start;gap:20px;margin-bottom:18px"}">
+      ${HIDE_AVALIACAO ? "" : `<!-- Círculo de rating -->
       <div style="text-align:center;flex-shrink:0;min-width:100px">
         <div style="width:84px;height:84px;border-radius:50%;border:4px solid ${ratingCor};background:${ratingBg};display:flex;flex-direction:column;align-items:center;justify-content:center;margin:0 auto 6px">
           <div style="font-size:30px;font-weight:900;color:${ratingCor};line-height:1">${s.score_final.toFixed(0)}</div>
@@ -2398,10 +2438,10 @@ function pageScoreV2(params: PDFReportParams, date: string): string {
         </div>
         <div style="font-size:9px;font-weight:700;color:${ratingCor};text-transform:uppercase;letter-spacing:0.08em">${esc(ratingLbl)}</div>
         <div style="font-size:8.5px;color:#94a3b8;margin-top:2px">Política ${esc(s.versao_politica)}</div>
-      </div>
+      </div>`}
 
       <!-- Tabela de pilares -->
-      <div style="flex:1;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+      <div style="${HIDE_AVALIACAO ? "" : "flex:1;"}border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
         <table style="width:100%;border-collapse:collapse">
           <thead>
             <tr style="background:#163269">
@@ -2414,13 +2454,13 @@ function pageScoreV2(params: PDFReportParams, date: string): string {
           </thead>
           <tbody>
             ${pilaresRows}
-            <tr style="background:#eef3ff;border-top:2px solid #c7d2fe">
+            ${HIDE_AVALIACAO ? "" : `<tr style="background:#eef3ff;border-top:2px solid #c7d2fe">
               <td style="padding:8px 10px;font-size:11px;font-weight:800;color:#1e3a8a">SCORE FINAL</td>
               <td style="padding:8px 10px;font-size:10px;font-weight:700;color:#374151;text-align:center">100%</td>
               <td style="padding:8px 10px;text-align:center;color:#94a3b8">—</td>
               <td style="padding:8px 10px;font-size:14px;font-weight:900;color:${ratingCor};text-align:center;font-family:'JetBrains Mono',monospace">${s.score_final.toFixed(1)}</td>
               <td style="padding:8px 10px"></td>
-            </tr>
+            </tr>`}
           </tbody>
         </table>
       </div>
@@ -2457,10 +2497,12 @@ export function gerarHtmlRelatorio(params: PDFReportParams): { html: string; hea
   const date = now.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
 
   const scorePageHtml = pageScoreV2(params, date);
+  const totalPages = 11 + (scorePageHtml ? 1 : 0); // 11 sem score, 12 com score
   const pages = [
     pageCapa(params, date),
     pageChecklist(params, date),
     pageSintese(params, date),
+    pageDivisorAvaliacaoEstrategica(),
     pageParametros(params, date),
     pageFaturamento(params, date),
     pageProtestosProcessos(params, date),
@@ -2468,7 +2510,7 @@ export function gerarHtmlRelatorio(params: PDFReportParams): { html: string; hea
     pageBalancoABC(params, date),
     pageIRVisita(params, date),
     ...(scorePageHtml ? [scorePageHtml] : []),
-    pageParecer(params, date),
+    pageParecer(params, date, totalPages),
   ].join("\n");
 
   const html = `<!DOCTYPE html>

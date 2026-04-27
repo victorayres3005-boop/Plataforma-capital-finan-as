@@ -35,8 +35,10 @@ export async function middleware(request: NextRequest) {
     },
   );
 
-  // 3. getUser() — also refreshes token if needed
-  const { data: { user } } = await supabase.auth.getUser();
+  // 3. getSession() lê do cookie (sem rede) — evita timeout no Edge.
+  // getUser() (valida com servidor) fica nas rotas individuais que precisam.
+  const { data: { session } } = await supabase.auth.getSession();
+  const user = session?.user ?? null;
 
   // 4. Check if route is public
   const isPublic = PUBLIC_ROUTES.some((route) => pathname.startsWith(route));

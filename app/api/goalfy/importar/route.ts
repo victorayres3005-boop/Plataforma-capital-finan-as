@@ -57,9 +57,20 @@ export async function POST(req: Request) {
       }
 
       try {
-        const fileRes = await fetch(urlStr, {
-          headers: goalfyApiKey ? { "Authorization": `Token ${goalfyApiKey}` } : {},
-        });
+        // Arquivo da Goalfy: POST /api/files/download com { filePath, filename }
+        // Se a URL já for http completa, faz GET direto; caso contrário usa o endpoint da Goalfy
+        const isFullUrl = urlStr.startsWith("http://") || urlStr.startsWith("https://");
+        const GOALFY_BASE = process.env.GOALFY_BASE_URL || "https://api.goalfy.com.br";
+        const fileRes = isFullUrl
+          ? await fetch(urlStr, { headers: goalfyApiKey ? { "Authorization": `Token ${goalfyApiKey}` } : {} })
+          : await fetch(`${GOALFY_BASE}/api/files/download`, {
+              method: "POST",
+              headers: {
+                "Authorization": `Token ${goalfyApiKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ filePath: urlStr, filename: doc.filename }),
+            });
 
         if (!fileRes.ok) {
           console.warn(`[goalfy/importar] falha ao baixar ${doc.filename}: ${fileRes.status}`);

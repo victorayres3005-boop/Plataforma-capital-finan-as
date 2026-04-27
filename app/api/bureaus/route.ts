@@ -1,4 +1,4 @@
-export const maxDuration = 60;
+export const maxDuration = 300;
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
@@ -13,6 +13,7 @@ import { consultarEmpresa as consultarAssertiva, consultarSocios as consultarSoc
 import { mergeBureauResults } from "@/lib/bureaus/merger";
 import { enrichProcessosWithDataJud } from "@/lib/bureaus/datajud";
 import { cacheGet, cacheSet, cacheClear, cacheClearAll, cacheSize } from "@/lib/bureaus/cache";
+import { consultarSCREmpresa, consultarSCRSocios, consultarSCRGrupoEconomico } from "@/lib/bureaus/databox360";
 import type { ExtractedData } from "@/types";
 import type { CreditHubResult } from "@/lib/bureaus/credithub";
 import { createClient } from "@supabase/supabase-js";
@@ -39,6 +40,15 @@ async function consultarCreditHubComCache(cnpj: string, rawDataFromClient?: unkn
     console.log(`[bureaus] Credit Hub cache MISS — consultado e armazenado no Supabase para ${cnpjNum}`);
   }
   return result;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`[bureaus] timeout: ${label} excedeu ${ms}ms`)), ms)
+    ),
+  ]);
 }
 
 export async function POST(req: NextRequest) {
@@ -72,49 +82,37 @@ export async function POST(req: NextRequest) {
       }
     });
 
-    // Fonte 3: BigDataCorp — sempre consultado para enriquecer sócios (pode ter dados mais completos que o documento)
-    let bdcPreFetch = await consultarBigDataCorp(cnpj);
-    if (bdcPreFetch?.success) {
-      const sociosBDC = (bdcPreFetch.qsaEnrichment?.quadroSocietario ?? [])
-        .filter(s => s.cpfCnpj && s.cpfCnpj.replace(/\D/g, "").length === 11);
-      let novos = 0;
-      sociosBDC.forEach(s => {
-        const cpfNum = s.cpfCnpj.replace(/\D/g, "");
-        if (!cpfsVistos.has(cpfNum)) {
-          cpfsVistos.add(cpfNum);
-          sociosParaGrupo.push({ nome: s.nome, cpfCnpj: s.cpfCnpj });
-          novos++;
-        }
-      });
-      if (novos > 0) {
-        console.log(`[bureaus] Grupo econômico: ${novos} sócio(s) PF adicionado(s) via BigDataCorp`);
-      }
-    }
-
+    // Sócios via BDC serão adicionados após o bloco paralelo (não bloqueiam mais o início)
     console.log(`[bureaus] Grupo econômico: ${sociosParaGrupo.length} sócio(s) PF — ${sociosIR.length} via IR, ${sociosQSA.length} via QSA`);
 
     const cpfsParaBDC = sociosParaGrupo.map(s => s.cpfCnpj);
-
     const assertivaSociosInput = sociosParaGrupo.map(s => ({ cpf: s.cpfCnpj, nome: s.nome }));
 
-    const [credithub, serasa, spc, quod, grupoEconomico, brasilapi, sancoes, bigdatacorp, bdcSocios, assertivaEmpresa, assertivaSocios] = await Promise.allSettled([
-      consultarCreditHubComCache(cnpj, creditHubRaw),
-      consultarSerasa(cnpj),
-      consultarSPC(cnpj),
-      consultarQuod(cnpj),
-      consultarGrupoEconomicoSocios(sociosParaGrupo, cnpj),
-      consultarBrasilApi(cnpj),
-      consultarSancoes(cnpj, sociosParaGrupo),
-      bdcPreFetch ? Promise.resolve(bdcPreFetch) : consultarBigDataCorp(cnpj),
-      consultarBDCSocios(cpfsParaBDC),
-      consultarAssertiva(cnpj),
-      consultarSociosAssertiva(assertivaSociosInput),
+    // Todas as consultas em paralelo — BDC empresa agora participa do mesmo bloco
+    // 90s cobre o pior caso: token DataBox360 (40s × 2 tentativas) + chamada SCR (15s)
+    const BUREAU_TIMEOUT = 90_000;
+    const [credithub, serasa, spc, quod, grupoEconomico, brasilapi, sancoes, bigdatacorp, bdcSocios, assertivaEmpresa, assertivaSocios, db360Empresa, db360Socios] = await Promise.allSettled([
+      withTimeout(consultarCreditHubComCache(cnpj, creditHubRaw), BUREAU_TIMEOUT, "credithub"),
+      withTimeout(consultarSerasa(cnpj), BUREAU_TIMEOUT, "serasa"),
+      withTimeout(consultarSPC(cnpj), BUREAU_TIMEOUT, "spc"),
+      withTimeout(consultarQuod(cnpj), BUREAU_TIMEOUT, "quod"),
+      withTimeout(consultarGrupoEconomicoSocios(sociosParaGrupo, cnpj), BUREAU_TIMEOUT, "grupo-economico"),
+      withTimeout(consultarBrasilApi(cnpj), BUREAU_TIMEOUT, "brasilapi"),
+      withTimeout(consultarSancoes(cnpj, sociosParaGrupo), BUREAU_TIMEOUT, "sancoes"),
+      withTimeout(consultarBigDataCorp(cnpj), BUREAU_TIMEOUT, "bigdatacorp-empresa"),
+      withTimeout(consultarBDCSocios(cpfsParaBDC), BUREAU_TIMEOUT, "bigdatacorp-socios"),
+      withTimeout(consultarAssertiva(cnpj), BUREAU_TIMEOUT, "assertiva-empresa"),
+      withTimeout(consultarSociosAssertiva(assertivaSociosInput), BUREAU_TIMEOUT, "assertiva-socios"),
+      withTimeout(consultarSCREmpresa(cnpj), BUREAU_TIMEOUT, "databox360-empresa"),
+      withTimeout(consultarSCRSocios(sociosParaGrupo), BUREAU_TIMEOUT, "databox360-socios"),
     ]);
 
     const grupoEconomicoResult = grupoEconomico.status === "fulfilled" ? grupoEconomico.value : undefined;
     const brasilapiResult      = brasilapi.status      === "fulfilled" ? brasilapi.value      : undefined;
     const sancoesResult        = sancoes.status        === "fulfilled" ? sancoes.value        : undefined;
     let bigdatacorpResult      = bigdatacorp.status    === "fulfilled" ? bigdatacorp.value    : undefined;
+    const db360EmpresaResult   = db360Empresa.status   === "fulfilled" ? db360Empresa.value   : undefined;
+    const db360SociosResult    = db360Socios.status    === "fulfilled" ? db360Socios.value    : undefined;
 
     // Mescla dados de KYC dos sócios no resultado da empresa
     if (bigdatacorpResult && bdcSocios.status === "fulfilled") {
@@ -141,10 +139,47 @@ export async function POST(req: NextRequest) {
       assertivaResult = { ...assertivaResult, socios: assertivaSocios.value };
     }
 
+    // Fallback: se QSA/IR vieram vazios mas BDC retornou sócios PF, faz 2ª rodada
+    // para Assertiva PF e DataBox360 SCR sócios (não bloqueia o início — só roda no edge case)
+    let db360SociosFallback: typeof db360SociosResult = undefined;
+    if (bigdatacorpResult?.qsaEnrichment?.quadroSocietario?.length) {
+      const sociosBDC = bigdatacorpResult.qsaEnrichment.quadroSocietario
+        .filter(s => s.cpfCnpj && s.cpfCnpj.replace(/\D/g, "").length === 11)
+        .filter(s => !cpfsVistos.has(s.cpfCnpj.replace(/\D/g, "")))
+        .map(s => ({ nome: s.nome, cpfCnpj: s.cpfCnpj }));
+
+      if (sociosBDC.length > 0) {
+        console.log(`[bureaus] Fallback BDC: ${sociosBDC.length} sócio(s) PF não estavam em QSA/IR — consultando Assertiva PF + SCR`);
+        const [assertivaSociosBDC, db360SociosBDC] = await Promise.allSettled([
+          withTimeout(consultarSociosAssertiva(sociosBDC.map(s => ({ cpf: s.cpfCnpj, nome: s.nome }))), BUREAU_TIMEOUT, "assertiva-socios-fallback"),
+          withTimeout(consultarSCRSocios(sociosBDC), BUREAU_TIMEOUT, "databox360-socios-fallback"),
+        ]);
+
+        if (assertivaSociosBDC.status === "fulfilled" && assertivaSociosBDC.value.length > 0) {
+          const novos = assertivaSociosBDC.value;
+          const existentes = assertivaResult?.socios ?? [];
+          assertivaResult = { ...(assertivaResult ?? { success: true, mock: false }), socios: [...existentes, ...novos] };
+          console.log(`[bureaus] Fallback Assertiva: ${novos.length} sócio(s) adicionados`);
+        }
+        if (db360SociosBDC.status === "fulfilled" && db360SociosBDC.value.length > 0) {
+          db360SociosFallback = db360SociosBDC.value;
+          console.log(`[bureaus] Fallback DataBox360: ${db360SociosFallback.length} sócio(s) com SCR`);
+        }
+      }
+    }
+
+    // Mescla SCR sócios primário + fallback
+    const db360SociosMerged = [
+      ...(db360SociosResult ?? []),
+      ...(db360SociosFallback ?? []),
+    ];
+
     console.log(`[bureaus] BrasilAPI: ${brasilapiResult?.success ? "ok" : brasilapiResult?.error || "erro"}`);
     console.log(`[bureaus] Sanções: ${sancoesResult?.mock ? "sem chave API" : sancoesResult?.success ? `${sancoesResult.totalSancoes} sanção(ões)` : sancoesResult?.error || "erro"}`);
     console.log(`[bureaus] BigDataCorp: ${bigdatacorpResult?.mock ? "sem credenciais" : bigdatacorpResult?.success ? "ok" : bigdatacorpResult?.error || "erro"}`);
     console.log(`[bureaus] Assertiva: ${assertivaResult?.mock ? "sem credenciais" : assertivaResult?.success ? "ok" : assertivaResult?.error || "erro"}`);
+    console.log(`[bureaus] DataBox360 SCR empresa: ${db360EmpresaResult?.mock ? "sem chave API" : db360EmpresaResult?.scr ? "ok" : "sem dados"}`);
+    console.log(`[bureaus] DataBox360 SCR sócios: ${db360SociosMerged.length} sócio(s) consultado(s)`);
 
     const results = {
       credithub: credithub.status === "fulfilled"
@@ -157,6 +192,7 @@ export async function POST(req: NextRequest) {
       sancoes:     sancoesResult,
       bigdatacorp: bigdatacorpResult,
       assertiva:   assertivaResult,
+      databox360:  db360EmpresaResult?.mock ? undefined : { empresa: db360EmpresaResult, socios: db360SociosMerged },
     };
 
     const bureausConsultados = [
@@ -188,6 +224,44 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // SCR para empresas do grupo econômico — busca total de dívidas via DataBox360
+    // Sandbox detection: se múltiplas empresas retornam totais idênticos, esconde a coluna
+    if (merged.grupoEconomico?.empresas?.length && !db360EmpresaResult?.mock) {
+      const cnpjsGrupo = merged.grupoEconomico.empresas
+        .map(e => (e.cnpj ?? "").replace(/\D/g, ""))
+        .filter(c => c.length === 14);
+
+      if (cnpjsGrupo.length > 0) {
+        try {
+          const scrGrupo = await withTimeout(
+            consultarSCRGrupoEconomico(cnpjsGrupo),
+            BUREAU_TIMEOUT,
+            "databox360-grupo",
+          );
+          console.log(`[bureaus] DataBox360 SCR grupo econômico: ${scrGrupo.length}/${cnpjsGrupo.length} empresa(s) com SCR`);
+
+          // Detecta sandbox: 2+ empresas com totalDividas idêntico = mock
+          const totaisUnicos = new Set(scrGrupo.map(s => s.totalDividas));
+          const isSandbox = scrGrupo.length >= 2 && totaisUnicos.size === 1;
+
+          if (isSandbox) {
+            console.log(`[bureaus] DataBox360 grupo econômico: sandbox detectado (totais idênticos) — coluna SCR oculta`);
+            merged.grupoEconomicoScrSandbox = true;
+          } else {
+            // Popula scrTotal nos itens correspondentes
+            const scrMap = new Map(scrGrupo.map(s => [s.cnpj, s.totalDividas]));
+            merged.grupoEconomico.empresas = merged.grupoEconomico.empresas.map(emp => {
+              const cnpjNum = (emp.cnpj ?? "").replace(/\D/g, "");
+              const total = scrMap.get(cnpjNum);
+              return total ? { ...emp, scrTotal: total } : emp;
+            });
+          }
+        } catch (err) {
+          console.warn(`[bureaus] DataBox360 grupo econômico falhou:`, err instanceof Error ? err.message : err);
+        }
+      }
+    }
+
     console.log("[bureaus] Credit Hub:", results.credithub?.success ? "ok" : results.credithub?.error);
     console.log("[bureaus] Consultados:", bureausConsultados);
 
@@ -200,11 +274,13 @@ export async function POST(req: NextRequest) {
         const numSociosPF = (data?.qsa?.quadroSocietario ?? [])
           .filter((s: { cpfCnpj?: string }) => s.cpfCnpj && s.cpfCnpj.replace(/\D/g, "").length === 11).length;
         const bureau_calls = {
-          credithub:     results.credithub?.success && !results.credithub?.mock ? 1 : 0,
-          assertiva_pj:  results.assertiva?.success && !results.assertiva?.mock  ? 1 : 0,
-          assertiva_pf:  results.assertiva?.success && !results.assertiva?.mock  ? numSociosPF : 0,
-          bdc_empresa:   results.bigdatacorp?.success && !results.bigdatacorp?.mock ? 1 : 0,
-          bdc_socio:     results.bigdatacorp?.success && !results.bigdatacorp?.mock ? numSociosPF : 0,
+          credithub:            results.credithub?.success && !results.credithub?.mock ? 1 : 0,
+          assertiva_pj:         results.assertiva?.success && !results.assertiva?.mock  ? 1 : 0,
+          assertiva_pf:         results.assertiva?.success && !results.assertiva?.mock  ? numSociosPF : 0,
+          bdc_empresa:          results.bigdatacorp?.success && !results.bigdatacorp?.mock ? 1 : 0,
+          bdc_socio:            results.bigdatacorp?.success && !results.bigdatacorp?.mock ? numSociosPF : 0,
+          databox360_empresa:   !db360EmpresaResult?.mock && db360EmpresaResult?.scr ? 1 : 0,
+          databox360_socio:     db360SociosMerged.length,
         };
         await sb.from("api_usage_logs").insert({
           collection_id: collection_id ?? null,
@@ -238,6 +314,11 @@ export async function POST(req: NextRequest) {
           parentescosDetectados: results.bigdatacorp?.parentescosDetectados,
         },
         assertiva: { success: results.assertiva?.success, mock: results.assertiva?.mock, error: results.assertiva?.error },
+        databox360: {
+          empresa: db360EmpresaResult?.mock ? null : !!db360EmpresaResult?.scr,
+          socios: db360SociosMerged.length,
+          mock: db360EmpresaResult?.mock ?? true,
+        },
       },
     });
   } catch (err) {
