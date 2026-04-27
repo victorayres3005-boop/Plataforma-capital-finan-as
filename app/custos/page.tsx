@@ -92,11 +92,13 @@ const MONTHS = [
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function fmtBRL(val: number): string {
-  return val.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const safe = (typeof val === "number" && isFinite(val)) ? val : 0;
+  return safe.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
 function fmtUSD(val: number): string {
-  return "$" + val.toFixed(4);
+  const safe = (typeof val === "number" && isFinite(val)) ? val : 0;
+  return "$" + safe.toFixed(4);
 }
 
 function fmtDate(iso: string): string {
@@ -104,15 +106,20 @@ function fmtDate(iso: string): string {
   return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
+function safeNum(v: unknown): number {
+  const n = Number(v);
+  return isFinite(n) ? n : 0;
+}
+
 function calcCustoBureau(calls: BureauCalls, prices: BureauPrices): number {
   return (
-    calls.credithub            * prices.credithub_empresa +
-    calls.assertiva_pj         * prices.assertiva_pj +
-    calls.assertiva_pf         * prices.assertiva_pf +
-    calls.bdc_empresa          * prices.bdc_empresa +
-    calls.bdc_socio            * prices.bdc_socio +
-    (calls.databox360_empresa ?? 0) * prices.databox360_empresa +
-    (calls.databox360_socio   ?? 0) * prices.databox360_socio
+    safeNum(calls.credithub)           * safeNum(prices.credithub_empresa) +
+    safeNum(calls.assertiva_pj)        * safeNum(prices.assertiva_pj) +
+    safeNum(calls.assertiva_pf)        * safeNum(prices.assertiva_pf) +
+    safeNum(calls.bdc_empresa)         * safeNum(prices.bdc_empresa) +
+    safeNum(calls.bdc_socio)           * safeNum(prices.bdc_socio) +
+    safeNum(calls.databox360_empresa)  * safeNum(prices.databox360_empresa) +
+    safeNum(calls.databox360_socio)    * safeNum(prices.databox360_socio)
   );
 }
 
@@ -167,9 +174,13 @@ function PriceInput({
   label: string; value: number; onChange: (v: number) => void; prefix?: string;
 }) {
   const decimals = prefix === "R$" ? 2 : 4;
-  const [local, setLocal] = useState(value.toFixed(decimals));
+  const safeVal = (typeof value === "number" && isFinite(value)) ? value : 0;
+  const [local, setLocal] = useState(safeVal.toFixed(decimals));
 
-  useEffect(() => { setLocal(value.toFixed(decimals)); }, [value, decimals]);
+  useEffect(() => {
+    const sv = (typeof value === "number" && isFinite(value)) ? value : 0;
+    setLocal(sv.toFixed(decimals));
+  }, [value, decimals]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
@@ -213,7 +224,14 @@ export default function CustosPage() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) { const p = JSON.parse(raw) as Partial<BureauPrices>; const merged = { ...DEFAULT_PRICES, ...p }; setPrices(merged); setDraftPrices(merged); }
+      if (raw) {
+        const p = JSON.parse(raw) as Record<string, unknown>;
+        const merged = { ...DEFAULT_PRICES };
+        (Object.keys(DEFAULT_PRICES) as (keyof BureauPrices)[]).forEach(k => {
+          if (typeof p[k] === "number" && isFinite(p[k] as number)) merged[k] = p[k] as number;
+        });
+        setPrices(merged); setDraftPrices(merged);
+      }
     } catch { /* ignore */ }
   }, []);
 
@@ -250,7 +268,8 @@ export default function CustosPage() {
     const rows: AnalysisRow[] = [];
 
     groups.forEach((g, key) => {
-      const ref = g.geminiLog ?? g.bureauLog!;
+      const ref = g.geminiLog ?? g.bureauLog;
+      if (!ref) return;
       const bureauCalls: BureauCalls = g.bureauLog?.bureau_calls ?? estimateBureauCalls(!!g.geminiLog);
       const geminiTokens = (g.geminiLog?.input_tokens && g.geminiLog.input_tokens > 0)
         ? { input: g.geminiLog.input_tokens, output: g.geminiLog.output_tokens ?? 0, model: g.geminiLog.model ?? "" }
