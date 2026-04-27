@@ -465,6 +465,8 @@ export function renderSintese(ctx: PdfCtx): void {
           totalAssetsRange?: string; hasObitIndication?: boolean;
           processosTotal?: number; rendaPresumida?: string;
           estimatedIncomeRange?: string;
+          scoreAssertivaPF?: number;
+          validacaoIdentidade?: "ok" | "alerta" | "reprovado";
         };
         if (plRaw !== undefined) {
           const plNum  = parseMoneyToNumber(plRaw);
@@ -502,6 +504,9 @@ export function renderSintese(ctx: PdfCtx): void {
         if (sAny.isCurrentlyOnCollection) drawBadge("NEGATIVADO", P.a1, P.a5);
         if (sAny.financialRiskLevel) drawBadge(`RISCO ${sAny.financialRiskLevel}`, P.n0, P.n8);
         if ((sAny.processosTotal ?? 0) > 0) drawBadge(`${sAny.processosTotal} PROC.`, P.a1, P.a5);
+        if ((sAny.scoreAssertivaPF ?? 0) > 0) drawBadge(`SCORE ${sAny.scoreAssertivaPF}`, P.n0, P.n8);
+        if (sAny.validacaoIdentidade === "reprovado") drawBadge("ID REPROVADA", P.r1, P.r6);
+        else if (sAny.validacaoIdentidade === "alerta") drawBadge("ID ALERTA", P.a1, P.a5);
         doc.setDrawColor(...P.x1); doc.setLineWidth(0.15);
         doc.line(sx+2, ry+rh, sx+socW-2, ry+rh);
       });

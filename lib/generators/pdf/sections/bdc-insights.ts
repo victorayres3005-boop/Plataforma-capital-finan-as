@@ -72,11 +72,57 @@ export function renderBdcInsights(ctx: PdfCtx): void {
   const hasLawDist    = !!(data.bdcLawsuitsDistribution?.totalLawsuits);
   const sociosComPGFN = (data.qsa?.quadroSocietario ?? []).filter(s => (s.pgfnTotalDebts ?? 0) > 0);
   const sociosComProc = (data.qsa?.quadroSocietario ?? []).filter(s => (s.processosTotal ?? 0) > 0);
-  const hasConsultas  = !!(data.assertivaConsultas?.total);
-  const hasAssertProt = !!(data.assertivaProtestos?.qtd);
+  const hasConsultas   = !!(data.assertivaConsultas?.total);
+  const hasAssertProt  = !!(data.assertivaProtestos?.qtd);
+  const scorePJ        = data.cnpj?.scoreAssertivaPJ;
+  const negAssertiva   = data.cnpj?.negativacoesAssertiva;
+  const hasAssertScore = (scorePJ ?? 0) > 0;
 
   if (!hasInterests && !hasLawDist && sociosComPGFN.length === 0 &&
-      sociosComProc.length === 0 && !hasConsultas && !hasAssertProt) return;
+      sociosComProc.length === 0 && !hasConsultas && !hasAssertProt && !hasAssertScore) return;
+
+  // ══════════════════════════════════════════════════════════════════
+  // 0. Score de Crédito — Assertiva PJ
+  // ══════════════════════════════════════════════════════════════════
+  if (hasAssertScore) {
+    checkPageBreak(ctx, 30);
+    stitle(ctx, "Score de Crédito — Assertiva PJ");
+
+    const hasNeg = (negAssertiva ?? 0) >= 0 && negAssertiva !== undefined;
+    const kpiW   = hasNeg ? (CW - 3) / 2 : CW;
+    const kpiH   = 16;
+    const yS     = pos.y;
+
+    const lvl = scorePJ! >= 700 ? "bom" : scorePJ! >= 400 ? "mod" : "ruim";
+    const scoreBg:  [number,number,number] = lvl === "bom" ? P.g0 : lvl === "mod" ? P.a0 : P.r0;
+    const scoreFg:  [number,number,number] = lvl === "bom" ? P.g6 : lvl === "mod" ? P.a5 : P.r6;
+    const scoreBdr: [number,number,number] = lvl === "bom" ? P.g1 : lvl === "mod" ? P.a1 : P.r1;
+
+    doc.setFillColor(...scoreBg); doc.setDrawColor(...scoreBdr); doc.setLineWidth(0.25);
+    doc.roundedRect(ML, yS, kpiW, kpiH, 2, 2, "FD");
+    doc.setFont("helvetica","bold"); doc.setFontSize(5); doc.setTextColor(...P.x4);
+    doc.text("SCORE ASSERTIVA PJ  (0–1000)", ML + 3, yS + 5);
+    doc.setFont("helvetica","bold"); doc.setFontSize(12); doc.setTextColor(...scoreFg);
+    doc.text(String(scorePJ), ML + kpiW / 2, yS + 13, { align: "center" });
+
+    if (hasNeg) {
+      const nx = ML + kpiW + 3;
+      const negBg:  [number,number,number] = (negAssertiva ?? 0) > 0 ? P.r0 : P.g0;
+      const negFg:  [number,number,number] = (negAssertiva ?? 0) > 0 ? P.r6 : P.g6;
+      const negBdr: [number,number,number] = (negAssertiva ?? 0) > 0 ? P.r1 : P.g1;
+      doc.setFillColor(...negBg); doc.setDrawColor(...negBdr);
+      doc.roundedRect(nx, yS, kpiW, kpiH, 2, 2, "FD");
+      doc.setFont("helvetica","bold"); doc.setFontSize(5); doc.setTextColor(...P.x4);
+      doc.text("NEGATIVAÇÕES ASSERTIVA", nx + 3, yS + 5);
+      doc.setFont("helvetica","bold"); doc.setFontSize(12); doc.setTextColor(...negFg);
+      doc.text(String(negAssertiva ?? 0), nx + kpiW / 2, yS + 13, { align: "center" });
+    }
+
+    pos.y = yS + kpiH + 3;
+    doc.setFont("helvetica","normal"); doc.setFontSize(5.5); doc.setTextColor(...P.x4);
+    doc.text("Assertiva Score  ·  700+ = baixo risco  ·  400–699 = moderado  ·  < 400 = alto risco", ML, pos.y);
+    pos.y += 7;
+  }
 
   // ══════════════════════════════════════════════════════════════════
   // 1. Comportamento de Crédito (interests_and_behaviors)

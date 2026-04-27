@@ -195,7 +195,6 @@ export async function consultarSocios(cpfs: string[]): Promise<BigDataCorpSocios
               "basic_data{Name,TaxIdStatus,BirthDate,MotherName,HasObitIndication}",
               "business_relationships.limit(20)",
               "financial_risk",
-              "financial_data",
               "collections",
               "government_debtors",
               "processes",

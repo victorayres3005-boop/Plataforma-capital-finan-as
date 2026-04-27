@@ -107,8 +107,8 @@ function decisionBg(decision: string): string {
 // enquanto a avaliação automatizada está em calibração. Trocar para `false` quando
 // a nota voltar a ser confiável. Tela do app continua mostrando normalmente.
 const HIDE_AVALIACAO = true;
-const BANNER_CALIBRACAO = `<div style="display:inline-block;padding:8px 18px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(115,184,21,0.12);color:#73b815;border:1px solid rgba(115,184,21,0.3);letter-spacing:0.02em">Avaliação em calibração — siga pela análise quantitativa</div>`;
-const BANNER_CALIBRACAO_LIGHT = `<div style="display:inline-block;padding:6px 14px;border-radius:5px;font-size:10px;font-weight:600;background:#f8fafc;color:#64748b;border:1px solid #e2e8f0">Avaliação em calibração</div>`;
+const BANNER_CALIBRACAO = `<div style="display:inline-block;padding:8px 18px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(115,184,21,0.12);color:#73b815;border:1px solid rgba(115,184,21,0.3);letter-spacing:0.02em">Rating em calibração — siga pela análise quantitativa</div>`;
+const BANNER_CALIBRACAO_LIGHT = `<div style="display:inline-block;padding:6px 14px;border-radius:5px;font-size:10px;font-weight:600;background:#f8fafc;color:#64748b;border:1px solid #e2e8f0">Rating em calibração</div>`;
 
 // ─── Page header wrapper ───────────────────────────────────────────────────────
 function page(content: string, pageNum: number, date: string): string {
@@ -805,7 +805,17 @@ function pageSintese(params: PDFReportParams, date: string): string {
     const cpfBadge = cpfStatus && cpfStatus !== "REGULAR"
       ? `<span style="display:inline-block;margin-left:5px;padding:1px 5px;background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;border-radius:3px;font-size:8.5px;font-weight:700;letter-spacing:0.05em;vertical-align:middle">CPF ${esc(cpfStatus.replace(/_/g, " "))}</span>`
       : "";
-    return `<tr><td><b>${esc(s.nome)}</b>${obitBadge}${cpfBadge}</td><td style="font-family:'JetBrains Mono',monospace;font-size:11px">${fmtCpf(cpfRaw)}</td><td>${esc(cleanQual)}</td><td style="color:var(--x4)">${fmt(part)}</td><td>${pl}</td></tr>`;
+    const scorePFVal = (s as any).scoreAssertivaPF as number | undefined;
+    const scorePFBadge = (scorePFVal ?? 0) > 0
+      ? `<span style="display:inline-block;margin-left:5px;padding:1px 5px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:3px;font-size:8.5px;font-weight:700;letter-spacing:0.05em;vertical-align:middle">SCORE ${scorePFVal}</span>`
+      : "";
+    const validacao = (s as any).validacaoIdentidade as string | undefined;
+    const validacaoBadge = validacao === "reprovado"
+      ? `<span style="display:inline-block;margin-left:5px;padding:1px 5px;background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;border-radius:3px;font-size:8.5px;font-weight:700;letter-spacing:0.05em;vertical-align:middle">ID REPROVADA</span>`
+      : validacao === "alerta"
+        ? `<span style="display:inline-block;margin-left:5px;padding:1px 5px;background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;border-radius:3px;font-size:8.5px;font-weight:700;letter-spacing:0.05em;vertical-align:middle">ID ALERTA</span>`
+        : "";
+    return `<tr><td><b>${esc(s.nome)}</b>${obitBadge}${cpfBadge}${scorePFBadge}${validacaoBadge}</td><td style="font-family:'JetBrains Mono',monospace;font-size:11px">${fmtCpf(cpfRaw)}</td><td>${esc(cleanQual)}</td><td style="color:var(--x4)">${fmt(part)}</td><td>${pl}</td></tr>`;
   }).join("");
 
   // SCR cards
@@ -1243,6 +1253,17 @@ function pageSintese(params: PDFReportParams, date: string): string {
 
     <!-- 6. Risco Consolidado -->
     ${stitle("Risco consolidado")}
+    ${(() => {
+      const sPJ = cnpj?.scoreAssertivaPJ;
+      const neg = cnpj?.negativacoesAssertiva;
+      if (!(sPJ ?? 0)) return "";
+      const lvl = (sPJ ?? 0) >= 700 ? "g" : (sPJ ?? 0) >= 400 ? "a" : "r";
+      const scoreStyle = `color:var(--${lvl}6);font-weight:700`;
+      return `<div style="display:flex;gap:8px;margin-bottom:8px">
+        <div class="scr-card" style="flex:1"><div class="l">Score Assertiva PJ</div><div class="v" style="${scoreStyle}">${sPJ}</div><div class="sub">0–1000 · Assertiva Score</div></div>
+        ${(neg ?? 0) >= 0 && neg !== undefined ? `<div class="scr-card" style="flex:1"><div class="l">Negativações</div><div class="v" style="color:${neg > 0 ? "var(--r6)" : "var(--g6)"};font-weight:700">${neg}</div><div class="sub">Assertiva Score</div></div>` : ""}
+      </div>`;
+    })()}
     <div class="risk-section">
       <div class="scr-strip">
         <div class="scr-card"><div class="l">SCR Total</div><div class="v mono">${fmtMoneyAbr(totalDivida)}</div></div>
