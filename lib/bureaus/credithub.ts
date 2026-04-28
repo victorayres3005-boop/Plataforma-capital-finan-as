@@ -38,6 +38,8 @@ export interface CreditHubResult {
   qsaEnrichment?: QSAData;
   cnpjEnrichment?: CreditHubEnrichment;
   grupoEconomicoEnrichment?: GrupoEconomicoData;
+  pefin?: PefinReginData;
+  refin?: PefinReginData;
   error?: string;
 }
 
@@ -257,10 +259,15 @@ function parseProtestos(d: any): ProtestosData {
 
   console.log(`[credithub][protestos] vigentes=${vigentesQtd} regularizados=${regularizados.length} detalhes=${todosUniq.length}`);
 
+  // Detecta protestos de natureza fiscal (impostos, governo, autarquias)
+  const FISCAL_RE = /receita\s*federal|inss|pgfn|pgm|pgm|prefeitura|municipio|secretaria\s*da?\s*fazenda|secretaria\s*estadual|sefaz|sefin|estado\s*de|governo\s*do|tribunal\s*de\s*contas|dívida\s*ativa|cda\b|fisco|tribut|imposto|iss\b|iptu\b|ipva\b|irpj\b|csll\b|cofins|pis\b|simples\s*nacional|das\b|carf\b|antt\b|anatel\b|ibama\b|anvisa\b|autarqu/i;
+
   const detalhes: ProtestosData["detalhes"] = todosUniq.map((p) => {
     const credorDisplay = p.cartorioNome
       ? [p.cartorioNome, p.municipio, p.uf].filter(Boolean).join(" — ")
       : [p.municipio, p.uf].filter(Boolean).join(" / ") || "—";
+    const credorParaDeteccao = `${p.nomeCedente} ${p.nomeApresentante} ${p.cartorioNome}`;
+    const tipoCredor: "fiscal" | "cartorio" = FISCAL_RE.test(credorParaDeteccao) ? "fiscal" : "cartorio";
     return {
       data:         p.data,
       credor:       credorDisplay,
@@ -272,15 +279,28 @@ function parseProtestos(d: any): ProtestosData {
       especie:      "",
       numero:       "",
       dataVencimento: "",
+      tipoCredor,
     };
   });
 
+  // Totais fiscais
+  const vigFiscais = vigentes.filter(p => {
+    const c = `${p.nomeCedente} ${p.nomeApresentante} ${p.cartorioNome}`;
+    return FISCAL_RE.test(c);
+  });
+  const fiscaisValorTotal = vigFiscais.reduce((s, p) => s + p.valor, 0);
+  if (vigFiscais.length > 0) {
+    console.log(`[credithub][protestos] fiscais: ${vigFiscais.length} protestos R$ ${fmtBRL(fiscaisValorTotal)}`);
+  }
+
   return {
-    vigentesQtd:      String(vigentesQtd),
-    vigentesValor:    fmtBRL(vigentesValor),
-    regularizadosQtd: String(regularizados.length),
+    vigentesQtd:        String(vigentesQtd),
+    vigentesValor:      fmtBRL(vigentesValor),
+    regularizadosQtd:   String(regularizados.length),
     regularizadosValor: fmtBRL(regularizadosValor),
     detalhes,
+    fiscaisQtd:   vigFiscais.length > 0 ? String(vigFiscais.length) : undefined,
+    fiscaisValor: vigFiscais.length > 0 ? fmtBRL(fiscaisValorTotal) : undefined,
   };
 }
 
@@ -1445,6 +1465,13 @@ export async function consultarCreditHub(cnpj: string, rawDataFromClient?: unkno
     }
   }
 
+  // PEFIN / REFIN — consulta paralela ao IRQL (best-effort, não bloqueia)
+  const pefinRefinResult = await consultarPefinRefin(cnpjNum).catch(() => ({ pefin: undefined, refin: undefined }));
+  const pefin = pefinRefinResult.pefin;
+  const refin = pefinRefinResult.refin;
+  if (pefin) console.log(`[credithub] PEFIN: ${pefin.qtd} registros R$ ${pefin.valor.toLocaleString("pt-BR")}`);
+  if (refin) console.log(`[credithub] REFIN: ${refin.qtd} registros R$ ${refin.valor.toLocaleString("pt-BR")}`);
+
   return {
     success: true,
     mock: false,
@@ -1454,6 +1481,8 @@ export async function consultarCreditHub(cnpj: string, rawDataFromClient?: unkno
     historicoConsultas: parseHistoricoConsultas(d),
     cnpjEnrichment: parseCNPJEnrichment(d),
     qsaEnrichment: parseQSAEnrichment(d),
+    pefin,
+    refin,
     score: {
       consultadoEm: new Date().toISOString(),
       protestosIntegrados: true,

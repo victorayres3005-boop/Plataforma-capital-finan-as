@@ -246,6 +246,7 @@ export interface ProtestoDetalhe {
   municipio?: string;
   uf?: string;
   dataVencimento?: string;
+  tipoCredor?: "fiscal" | "cartorio"; // fiscal = gov/imposto; cartorio = comercial
 }
 
 export interface ProtestosData {
@@ -254,6 +255,8 @@ export interface ProtestosData {
   regularizadosQtd: string;
   regularizadosValor: string;
   detalhes: ProtestoDetalhe[];
+  fiscaisQtd?: string;   // subset: protestos de impostos/gov
+  fiscaisValor?: string;
 }
 
 // ─── Processos Judiciais ───

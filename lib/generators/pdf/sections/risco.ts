@@ -134,8 +134,16 @@ export function renderRisco(ctx: PdfCtx): void {
   const regQtd = parseInt(protestos?.regularizadosQtd || "0") || 0;
   const vigValN = parseMoneyToNumber(protestos?.vigentesValor || "0");
   const regValN = parseMoneyToNumber(protestos?.regularizadosValor || "0");
+  const fiscQtd = parseInt(protestos?.fiscaisQtd || "0") || 0;
+  const fiscValN = parseMoneyToNumber(protestos?.fiscaisValor || "0");
+  const pefin = data.pefin;
+  const refin = data.refin;
+  const pefinQtd = pefin?.qtd ?? 0;
+  const refinQtd = refin?.qtd ?? 0;
+  const pefinValN = pefin?.valor ?? 0;
+  const refinValN = refin?.valor ?? 0;
 
-  // KPI cards
+  // KPI cards — linha 1: cartório
   checkPageBreak(ctx, 22);
   {
     const CH = 18; const cw = (CW - GAP * 3) / 4; const y0 = pos.y;
@@ -143,7 +151,20 @@ export function renderRisco(ctx: PdfCtx): void {
     icell(ML+cw+GAP,       y0, cw, CH, "Vigentes R$",      mo(vigValN),     vigQtd>0?P.r0:P.g0, vigQtd>0?P.r1:P.g1, vigQtd>0?P.r6:P.x4);
     icell(ML+(cw+GAP)*2,   y0, cw, CH, "Regularizados",    String(regQtd),  regQtd>0?P.g0:P.x0, regQtd>0?P.g1:P.x1, regQtd>0?P.g6:P.x4);
     icell(ML+(cw+GAP)*3,   y0, cw, CH, "Regularizados R$", mo(regValN),     P.x0, P.x1, regValN>0?P.g6:P.x4);
+    pos.y = y0 + CH + 4;
+  }
+
+  // KPI cards — linha 2: fiscais + PEFIN + REFIN (só aparece quando há dados)
+  if (fiscQtd > 0 || pefinQtd > 0 || refinQtd > 0) {
+    checkPageBreak(ctx, 22);
+    const CH = 18; const cw = (CW - GAP * 3) / 4; const y0 = pos.y;
+    icell(ML,              y0, cw, CH, "Fiscais/Impostos", fiscQtd > 0 ? String(fiscQtd) : "—", fiscQtd>0?P.a0:P.x0, fiscQtd>0?P.a1:P.x1, fiscQtd>0?P.a5:P.x4);
+    icell(ML+cw+GAP,       y0, cw, CH, "Fiscais R$",       fiscQtd > 0 ? mo(fiscValN) : "—",   fiscQtd>0?P.a0:P.x0, fiscQtd>0?P.a1:P.x1, fiscQtd>0?P.a5:P.x4);
+    icell(ML+(cw+GAP)*2,   y0, cw, CH, "PEFIN (SPC)",      pefinQtd > 0 ? String(pefinQtd) : "—", pefinQtd>0?P.r0:P.x0, pefinQtd>0?P.r1:P.x1, pefinQtd>0?P.r6:P.x4);
+    icell(ML+(cw+GAP)*3,   y0, cw, CH, "REFIN (Serasa)",   refinQtd > 0 ? String(refinQtd) : "—", refinQtd>0?P.r0:P.x0, refinQtd>0?P.r1:P.x1, refinQtd>0?P.r6:P.x4);
     pos.y = y0 + CH + 5;
+  } else {
+    pos.y += 1;
   }
 
   // Group by creditor table

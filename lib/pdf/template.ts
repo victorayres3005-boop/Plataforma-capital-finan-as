@@ -1613,6 +1613,14 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
   const vigVal = prot?.vigentesValor ?? "0";
   const regQtd = numVal(prot?.regularizadosQtd ?? "0");
   const regVal = prot?.regularizadosValor ?? "0";
+  const fiscQtd = numVal(prot?.fiscaisQtd ?? "0");
+  const fiscVal = prot?.fiscaisValor ?? "0";
+  const pefinData = params.data.pefin;
+  const refinData = params.data.refin;
+  const pefinQtd = pefinData?.qtd ?? 0;
+  const refinQtd = refinData?.qtd ?? 0;
+  const pefinVal = pefinData?.valor ?? 0;
+  const refinVal = refinData?.valor ?? 0;
 
   // Group credores
   const credorMap: Record<string, {qtd:number;valor:number;ultimo:string}> = {};
@@ -1715,12 +1723,40 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
 
   const content = `
     ${stitle("03 · Protestos")}
-    <div class="istrip c4" style="margin-bottom:14px">
+    <div class="istrip c4" style="margin-bottom:8px">
       <div class="icell ${vigQtd > 0 ? "danger" : "success"}"><div class="l">Vigentes (Qtd)</div><div class="v ${vigQtd > 0 ? "red" : "green"}">${vigQtd}</div></div>
       <div class="icell ${vigQtd > 0 ? "danger" : ""}"><div class="l">Vigentes (R$)</div><div class="v ${vigQtd > 0 ? "red" : "muted"} sm mono">${fmtMoney(vigVal)}</div></div>
       <div class="icell ${regQtd > 0 ? "success" : ""}"><div class="l">Regularizados (Qtd)</div><div class="v ${regQtd > 0 ? "green" : "muted"}">${regQtd}</div></div>
       <div class="icell"><div class="l">Regularizados (R$)</div><div class="v muted sm mono">${fmtMoney(regVal)}</div></div>
     </div>
+    ${(fiscQtd > 0 || pefinQtd > 0 || refinQtd > 0) ? `
+    <div class="istrip c4" style="margin-bottom:14px">
+      <div class="icell ${fiscQtd > 0 ? "warn" : ""}"><div class="l">Fiscais / Impostos</div><div class="v ${fiscQtd > 0 ? "" : "muted"}">${fiscQtd > 0 ? fiscQtd : "—"}</div>${fiscQtd > 0 ? `<div class="sub mono" style="font-size:10px;color:var(--a5)">${fmtMoney(fiscVal)}</div>` : ""}</div>
+      <div class="icell ${pefinQtd > 0 ? "danger" : ""}"><div class="l">PEFIN (SPC)</div><div class="v ${pefinQtd > 0 ? "red" : "muted"}">${pefinQtd > 0 ? pefinQtd : "—"}</div>${pefinQtd > 0 ? `<div class="sub mono" style="font-size:10px;color:var(--r6)">${fmtMoney(String(pefinVal))}</div>` : ""}</div>
+      <div class="icell ${refinQtd > 0 ? "danger" : ""}"><div class="l">REFIN (Serasa)</div><div class="v ${refinQtd > 0 ? "red" : "muted"}">${refinQtd > 0 ? refinQtd : "—"}</div>${refinQtd > 0 ? `<div class="sub mono" style="font-size:10px;color:var(--r6)">${fmtMoney(String(refinVal))}</div>` : ""}</div>
+      <div class="icell"><div class="l">Total Negativações</div><div class="v ${(pefinQtd+refinQtd) > 0 ? "red" : "muted"}">${pefinQtd + refinQtd > 0 ? pefinQtd + refinQtd : "—"}</div></div>
+    </div>` : ""}
+    ${fiscQtd > 0 ? `${stitle("Protestos Fiscais / Impostos")}
+    <table class="tbl" style="margin-bottom:12px">
+      <thead><tr><th>Data</th><th>Credor / Órgão</th><th class="r">Valor</th><th>Status</th></tr></thead>
+      <tbody>${(prot?.detalhes ?? []).filter(p => p.tipoCredor === "fiscal" && !p.regularizado).map(p =>
+        `<tr><td>${fmtDate(p.data)}</td><td class="b">${esc(p.credor || p.apresentante || "—")}</td><td class="r red">${fmtMoney(p.valor)}</td><td><span style="color:var(--a5)">Fiscal</span></td></tr>`
+      ).join("")}</tbody>
+    </table>` : ""}
+    ${pefinQtd > 0 ? `${stitle("PEFIN — Pendências SPC")}
+    <table class="tbl" style="margin-bottom:12px">
+      <thead><tr><th>Data</th><th>Credor</th><th class="r">Valor</th><th>Modalidade</th></tr></thead>
+      <tbody>${(pefinData?.lista ?? []).map((r: {data?:string;valor?:number;credor?:string;modalidade?:string;contrato?:string}) =>
+        `<tr><td>${fmtDate(r.data ?? "")}</td><td>${esc(r.credor ?? "—")}</td><td class="r red">${fmtMoney(String(r.valor ?? 0))}</td><td style="color:var(--x5)">${esc(r.modalidade ?? "—")}</td></tr>`
+      ).join("")}</tbody>
+    </table>` : ""}
+    ${refinQtd > 0 ? `${stitle("REFIN — Pendências Serasa")}
+    <table class="tbl" style="margin-bottom:12px">
+      <thead><tr><th>Data</th><th>Credor</th><th class="r">Valor</th><th>Modalidade</th></tr></thead>
+      <tbody>${(refinData?.lista ?? []).map((r: {data?:string;valor?:number;credor?:string;modalidade?:string;contrato?:string}) =>
+        `<tr><td>${fmtDate(r.data ?? "")}</td><td>${esc(r.credor ?? "—")}</td><td class="r red">${fmtMoney(String(r.valor ?? 0))}</td><td style="color:var(--x5)">${esc(r.modalidade ?? "—")}</td></tr>`
+      ).join("")}</tbody>
+    </table>` : ""}
     ${distTempProtRows ? `${stitle("Distribuição temporal")}
     <table class="tbl" style="margin-bottom:12px">
       <thead><tr><th>Período</th><th class="r">Qtd</th><th class="r">Valor</th></tr></thead>

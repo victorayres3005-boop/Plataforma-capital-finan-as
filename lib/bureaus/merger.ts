@@ -79,6 +79,10 @@ export function mergeBureauResults(
       merged.historicoConsultas = results.credithub.historicoConsultas;
     }
 
+    // PEFIN / REFIN
+    if (results.credithub.pefin) merged.pefin = results.credithub.pefin;
+    if (results.credithub.refin) merged.refin = results.credithub.refin;
+
     // Grupo econômico via CreditHub — somente PJ (CNPJ 14 dígitos)
     if (results.credithub.grupoEconomicoEnrichment) {
       const ge = results.credithub.grupoEconomicoEnrichment;
