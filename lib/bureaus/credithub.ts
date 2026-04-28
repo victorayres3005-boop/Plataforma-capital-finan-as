@@ -807,40 +807,54 @@ export function detectarParentesco(
 function parseEmpresasVinculadas(d: any, cpfSocio: string, nomeSocio: string): GrupoEconomicoData["empresas"] {
   // A API CreditHub pode retornar participações em diferentes campos — cobrimos todos os conhecidos
   const participacoes: any[] = [
-    ...(d?.participacoes          ?? []),
-    ...(d?.empresasVinculadas     ?? []),
-    ...(d?.empresas               ?? []),
-    ...(d?.socios                 ?? []),
-    ...(d?.participacoesSocietarias ?? []),
-    ...(d?.vinculos               ?? []),
-    ...(d?.quadroSocietario       ?? []),
-    ...(d?.empresasParticipadas   ?? []),
-    ...(d?.societario             ?? []),
+    ...(d?.participacoes              ?? []),
+    ...(d?.participacoesEmpresas      ?? []),  // campo real retornado pela API
+    ...(d?.empresasVinculadas         ?? []),
+    ...(d?.empresas                   ?? []),
+    ...(d?.socios                     ?? []),
+    ...(d?.participacoesSocietarias   ?? []),
+    ...(d?.vinculos                   ?? []),
+    ...(d?.quadroSocietario           ?? []),
+    ...(d?.empresasParticipadas       ?? []),
+    ...(d?.societario                 ?? []),
+    ...(d?.sociedades                 ?? []),
+    ...(d?.relacionamentos            ?? []),
   ];
 
-  // Log para identificar campos reais retornados pela API (útil durante debug)
-  if (participacoes.length === 0 && d && typeof d === "object") {
-    const keys = Object.keys(d);
-    const arrayKeys = keys.filter(k => Array.isArray((d as Record<string,unknown>)[k]));
-    if (arrayKeys.length > 0) {
+  // Log para diagnóstico
+  if (d && typeof d === "object") {
+    const arrayKeys = Object.keys(d).filter(k => Array.isArray((d as Record<string,unknown>)[k]));
+    if (participacoes.length === 0) {
       console.warn(`[credithub][grupo-economico] CPF ${cpfSocio.slice(0,3)}*** sem empresas nos campos mapeados. Arrays disponíveis: ${arrayKeys.join(", ")}`);
+    } else {
+      console.log(`[credithub][grupo-economico] CPF ${cpfSocio.slice(0,3)}*** ${participacoes.length} participações encontradas. Arrays disponíveis: ${arrayKeys.join(", ")}`);
+      if (participacoes[0]) {
+        console.log(`[credithub][grupo-economico] CPF ${cpfSocio.slice(0,3)}*** keys do 1º item: ${Object.keys(participacoes[0]).join(", ")}`);
+      }
     }
   }
 
   return participacoes
-    .filter((p: any) => p?.cnpj || p?.documento || p?.cnpjEmpresa)
-    .map((p: any) => ({
-      razaoSocial: p.razaoSocial ?? p.nome ?? p.nomeEmpresa ?? p.empresa ?? "—",
-      cnpj: ((p.cnpj ?? p.documento ?? p.cnpjEmpresa ?? "")).replace(/\D/g, ""),
-      relacao: p.qualificacao ?? p.relacao ?? p.tipo ?? p.tipoVinculo ?? "via Sócio",
-      scrTotal: "—",
-      protestos: "—",
-      processos: "—",
-      socioOrigem: nomeSocio,
-      cpfSocio,
-      participacao: p.participacao ?? p.percentual ?? p.percentualParticipacao ?? "",
-      situacao: (p.situacaoCadastral ?? p.situacao ?? p.situacaoEmpresa ?? "ATIVA").toUpperCase(),
-    }));
+    .filter((p: any) => p?.cnpj || p?.documento || p?.cnpjEmpresa || p?.cnpj_empresa || p?.cpf_cnpj)
+    .map((p: any) => {
+      const cnpjRaw = (p.cnpj ?? p.cnpjEmpresa ?? p.cnpj_empresa ?? p.documento ?? p.cpf_cnpj ?? "").replace(/\D/g, "");
+      const razao = p.razaoSocial ?? p.nomeEmpresa ?? p.nome ?? p.empresa ?? p.razao_social ?? p.nome_empresa ?? "—";
+      const relacao = p.qualificacao ?? p.tipoParticipacao ?? p.cargo ?? p.funcao ?? p.relacao ?? p.tipo ?? p.tipoVinculo ?? p.tipo_vinculo ?? "via Sócio";
+      const participacao = p.participacao ?? p.percentual ?? p.percentualParticipacao ?? p.percentual_participacao ?? p.quota ?? "";
+      const situacaoRaw = p.situacaoCadastral ?? p.situacao ?? p.situacaoEmpresa ?? p.status ?? p.situacao_cadastral ?? "ATIVA";
+      return {
+        razaoSocial: razao,
+        cnpj: cnpjRaw.length === 14 ? cnpjRaw : "",
+        relacao,
+        scrTotal: "—",
+        protestos: "—",
+        processos: "—",
+        socioOrigem: nomeSocio,
+        cpfSocio,
+        participacao: String(participacao),
+        situacao: String(situacaoRaw).toUpperCase(),
+      };
+    });
 }
 
 // ── Endpoint dedicado: GET /v1/grupo-economico/{documento} ──────────────────
