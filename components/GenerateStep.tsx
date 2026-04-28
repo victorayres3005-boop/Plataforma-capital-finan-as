@@ -1441,9 +1441,11 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   // ── Alerts (usa IA se disponível) ──
   const alerts: Alert[] = (() => {
     if (aiAnalysis && aiAnalysis.alertas.length > 0) {
+      const mapSev = (s: string): AlertSeverity =>
+        s === "ALTA" ? "CRÍTICO" : s === "MODERADA" ? "RESTRITIVO" : "OBSERVAÇÃO";
       return aiAnalysis.alertas.map(a => ({
         message: a.descricao,
-        severity: a.severidade as AlertSeverity,
+        severity: mapSev(a.severidade),
         impacto: a.impacto,
       }));
     }
@@ -1500,6 +1502,11 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
   // ── Fund parameter validation ──
   const fundValidation = validarContraParametros(data, activeValidationSettings);
+
+  // ── Alavancagem (escopo do componente para passar ao relatório) ──
+  const _alavFmm = parseMoney(data.faturamento?.fmm12m || data.faturamento?.mediaAno || "");
+  const _alavDivida = parseMoney(data.scr?.totalDividasAtivas || "");
+  const alavancagem = _alavFmm > 0 && _alavDivida > 0 ? _alavDivida / _alavFmm : 0;
 
   // ── Credit Limit Result ──
   const creditLimit: CreditLimitResult = (() => {
@@ -1755,6 +1762,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         pontosFortes, pontosFracos, perguntasVisita, resumoExecutivo,
         companyAge, protestosVigentes, vencidosSCR, vencidas, prejuizosVal,
         dividaAtiva, atraso, riskScore: riskScore as "alto" | "medio" | "baixo", decisionColor, decisionBg, decisionBorder,
+        alavancagem: alavancagem > 0 ? alavancagem : undefined,
         observacoes: analystNotes.trim() || undefined,
         streetViewBase64,
         streetView90Base64,
@@ -1840,6 +1848,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           pontosFortes, pontosFracos, perguntasVisita, resumoExecutivo,
           companyAge, protestosVigentes, vencidosSCR, vencidas, prejuizosVal,
           dividaAtiva, atraso, riskScore, decisionColor, decisionBg, decisionBorder,
+          alavancagem: alavancagem > 0 ? alavancagem : undefined,
           observacoes: analystNotes.trim() || undefined,
           fundValidation, creditLimit,
           committeMembers: committeMembers.trim() || undefined,
@@ -2140,6 +2149,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         data, aiAnalysis, decision: fresh.decisao, finalRating: fresh.rating, alerts, alertsHigh,
         pontosFortes, pontosFracos, perguntasVisita, resumoExecutivo,
         companyAge, vencidosSCR, vencidas, prejuizosVal, protestosVigentes,
+        alavancagem: alavancagem > 0 ? alavancagem : undefined,
       });
       const blob = new Blob([htmlContent], { type: "text/html;charset=utf-8" });
       triggerDownload(blob, `capital-financas-${safeName}-${dateStr}.html`);

@@ -94,9 +94,11 @@ export interface QSASocio {
   processosPassivo?:    number;
   processosAtivo?:      number;
   processosValorTotal?: string;
+  ultimoProcessoData?:  string; // data do processo mais recente (YYYY-MM-DD)
   // Assertiva — protestos e renda presumida do sócio PF
   protestosSocioQtd?:   number;
   protestosSocioValor?: number;
+  ultimoProtestoData?:  string; // data do protesto mais recente (YYYY-MM-DD)
   rendaPresumida?:      string; // renda mensal estimada pela Assertiva (ex: "R$ 5.430,00")
 }
 
@@ -229,6 +231,7 @@ export interface SCRData {
   tipoPessoa?: "PF" | "PJ";
   semDados?: boolean;
   fonteBureau?: string;
+  urlRelatorio?: string;  // URL de auditoria retornada pelo DataBox360
 }
 
 // ─── Protestos ───
@@ -336,6 +339,9 @@ export interface ProcessosData {
   poloAtivoQtd?: string;   // empresa no polo ATIVO (autora/exequente)
   poloPassivoQtd?: string; // empresa no polo PASSIVO (ré/executada)
   temFalencia?: boolean;   // pedido de falência identificado
+  // Status dos processos (Credit Hub)
+  arquivadosQtd?: string;     // processos arquivados/encerrados
+  interrompidosQtd?: string;  // processos suspensos/interrompidos
   // Análise analítica (Credit Hub)
   dividasQtd?: string;
   dividasValor?: string;
@@ -606,10 +612,22 @@ export interface ParentescoDetectado {
   sobrenomeComum: string;
 }
 
+export interface SocioKycCreditHub {
+  cpf: string;
+  processosTotal?: number;
+  processosAtivo?: number;
+  processosPassivo?: number;
+  processosValorTotal?: string;
+  ultimoProcessoData?: string;
+  protestosQtd?: number;
+  ultimoProtestoData?: string;
+}
+
 export interface GrupoEconomicoData {
   empresas: EmpresaGrupo[];
   alertaParentesco?: boolean;
   parentescosDetectados?: ParentescoDetectado[];
+  sociosKyc?: SocioKycCreditHub[];
 }
 
 export interface SCRSocioData {
@@ -717,6 +735,20 @@ export interface SancoesData {
   dataConsulta: string;
 }
 
+export interface PefinReginData {
+  qtd: number;
+  valor: number;
+  dataUltimo?: string;
+  credorUltimo?: string;
+  lista: Array<{
+    data?: string;
+    valor?: number;
+    credor?: string;
+    modalidade?: string;
+    contrato?: string;
+  }>;
+}
+
 // ─── Dados extraídos consolidados ───
 export interface ExtractedData {
   cnpj: CNPJData;
@@ -778,6 +810,8 @@ export interface ExtractedData {
     ultima:   string;
     recentes: Array<{ consultante: string; data: string }>;
   };
+  pefin?: PefinReginData;
+  refin?: PefinReginData;
 }
 
 // ─── Histórico de Operações ───

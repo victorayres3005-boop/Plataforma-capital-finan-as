@@ -269,7 +269,7 @@ export function renderRisco(ctx: PdfCtx): void {
   const total   = passivo + ativo;
   const temFal  = processos?.temFalencia || processos?.temRJ;
 
-  // KPI cards
+  // KPI cards — linha 1: visão polo
   checkPageBreak(ctx, 22);
   {
     const CH = 18; const cw = (CW - GAP * 3) / 4; const y0 = pos.y;
@@ -278,6 +278,20 @@ export function renderRisco(ctx: PdfCtx): void {
     icell(ML+(cw+GAP)*2,   y0, cw, CH, "Polo Ativo",    String(ativo),   P.x0, P.x1, P.x7);
     icell(ML+(cw+GAP)*3,   y0, cw, CH, "Falência/RJ",   temFal ? "Sim" : "Não", temFal?P.r0:P.g0, temFal?P.r1:P.g1, temFal?P.r6:P.g6);
     pos.y = y0 + CH + 5;
+  }
+
+  // KPI cards — linha 2: distribuição por status (só aparece quando há dados)
+  const arquivados   = parseInt(processos?.arquivadosQtd   || "0") || 0;
+  const interrompidos = parseInt(processos?.interrompidosQtd || "0") || 0;
+  const andamento    = parseInt(processos?.ativosTotal      || "0") || 0;
+  if (arquivados > 0 || interrompidos > 0) {
+    checkPageBreak(ctx, 22);
+    const CH2 = 16; const cw2 = (CW - GAP * 3) / 4; const y0 = pos.y;
+    icell(ML,              y0, cw2, CH2, "Em Andamento",  String(andamento),    P.x0, P.x1, P.x7);
+    icell(ML+cw2+GAP,      y0, cw2, CH2, "Arquivados",    String(arquivados),   P.x0, P.x1, P.x5);
+    icell(ML+(cw2+GAP)*2,  y0, cw2, CH2, "Interrompidos", String(interrompidos), P.a0, P.a1, P.a5);
+    icell(ML+(cw2+GAP)*3,  y0, cw2, CH2, "Outros",        String(Math.max(0, total - andamento - arquivados - interrompidos)), P.x0, P.x1, P.x5);
+    pos.y = y0 + CH2 + 5;
   }
 
   // Distribution by type (prop bars)
@@ -533,16 +547,14 @@ export function renderRisco(ctx: PdfCtx): void {
   // SEÇÃO 09b — PROCESSOS & PROTESTOS DOS SÓCIOS
   // ════════════════════════════════════════════════════════════════════════════
   {
-    const sociosComRisco = (data.qsa?.quadroSocietario ?? []).filter(s =>
-      ((s as any).processosTotal ?? 0) > 0 || ((s as any).protestosSocioQtd ?? 0) > 0
-    );
-    if (sociosComRisco.length > 0) {
+    const todosSocios = (data.qsa?.quadroSocietario ?? []).filter(s => s.nome);
+    if (todosSocios.length > 0) {
       checkPageBreak(ctx, 14);
       pos.y += 4;
       stitle("09b · Sócios — Processos & Protestos");
 
-      const RH = 9; const HH = 9;
-      const TH = HH + sociosComRisco.length * RH + 2;
+      const RH = 12; const HH = 9;
+      const TH = HH + todosSocios.length * RH + 2;
       checkPageBreak(ctx, TH + 4);
       const cols9b = [
         { label: "Sócio",       x: 4,          align: "left"  as const },
@@ -557,26 +569,54 @@ export function renderRisco(ctx: PdfCtx): void {
       doc.roundedRect(ML, y0b, CW, TH, 2, 2, "FD");
       tableHeader(y0b, cols9b, HH);
 
-      sociosComRisco.forEach((s: any, i) => {
+      const fmtDataCurta = (d: string | undefined) => {
+        if (!d) return "";
+        const m = d.match(/^(\d{4})-(\d{2})/);
+        return m ? `${m[2]}/${m[1]}` : d.slice(0, 7);
+      };
+
+      todosSocios.forEach((s: any, i) => {
         const ry = y0b + HH + i * RH;
         if (i % 2 !== 0) { doc.setFillColor(...P.x0); doc.rect(ML, ry, CW, RH, "F"); }
         const nm = (s.nome || "").length > 24 ? (s.nome || "").slice(0, 22) + "…" : (s.nome || "");
         doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(...P.x7);
-        doc.text(nm, ML + 4, ry + 6);
+        doc.text(nm, ML + 4, ry + 5);
+        // Sub-texto: datas dos últimos processo e protesto
+        const dpProc = fmtDataCurta(s.ultimoProcessoData);
+        const dpProt = fmtDataCurta(s.ultimoProtestoData);
+        const subDate = [dpProc ? `proc ${dpProc}` : "", dpProt ? `prot ${dpProt}` : ""].filter(Boolean).join(" · ");
+        if (subDate) {
+          doc.setFont("helvetica","normal"); doc.setFontSize(5); doc.setTextColor(...P.x4);
+          doc.text(subDate, ML + 4, ry + 9.5);
+        }
+
+        const temCPF  = (s.cpfCnpj ?? "").replace(/\D/g, "").length === 11;
+        const semDados = !temCPF || (s.processosTotal === undefined && s.protestosSocioQtd === undefined);
+        const ndLabel = temCPF ? "N/D" : "PJ";
+
         const protQtd = s.protestosSocioQtd ?? 0;
-        doc.setTextColor(...(protQtd > 0 ? P.r6 : P.g6)); doc.setFont("helvetica","bold");
-        doc.text(String(protQtd), ML + CW * 0.38, ry + 6, { align: "right" });
+        doc.setTextColor(...(semDados ? P.x4 : protQtd > 0 ? P.r6 : P.g6));
+        doc.setFont("helvetica", semDados ? "normal" : "bold"); doc.setFontSize(semDados ? 5.5 : 6.5);
+        doc.text(semDados ? ndLabel : String(protQtd), ML + CW * 0.38, ry + 7, { align: "right" });
+
         const valProt = s.protestosSocioValor ?? 0;
-        doc.setTextColor(...(valProt > 0 ? P.r6 : P.x4)); doc.setFont("helvetica","normal");
-        doc.text(valProt > 0 ? mo(valProt) : "—", ML + CW * 0.52, ry + 6, { align: "right" });
+        doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
+        doc.setTextColor(...(valProt > 0 ? P.r6 : P.x4));
+        doc.text(semDados ? "—" : (valProt > 0 ? mo(valProt) : "—"), ML + CW * 0.52, ry + 7, { align: "right" });
+
         const procTotal = s.processosTotal ?? 0;
-        doc.setTextColor(...(procTotal > 0 ? P.r6 : P.g6)); doc.setFont("helvetica","bold");
-        doc.text(String(procTotal), ML + CW * 0.65, ry + 6, { align: "right" });
+        doc.setTextColor(...(semDados ? P.x4 : procTotal > 0 ? P.r6 : P.g6));
+        doc.setFont("helvetica", semDados ? "normal" : "bold"); doc.setFontSize(semDados ? 5.5 : 6.5);
+        doc.text(semDados ? ndLabel : String(procTotal), ML + CW * 0.65, ry + 7, { align: "right" });
+
         const procPassivo = s.processosPassivo ?? 0;
+        doc.setFont("helvetica","normal"); doc.setFontSize(6.5);
         doc.setTextColor(...(procPassivo > 0 ? P.r6 : P.x4));
-        doc.text(String(procPassivo), ML + CW * 0.78, ry + 6, { align: "right" });
-        doc.setFont("helvetica","normal"); doc.setTextColor(...P.x5);
-        doc.text(s.processosValorTotal ?? "—", ML + CW - 2, ry + 6, { align: "right" });
+        doc.text(semDados ? "—" : String(procPassivo), ML + CW * 0.78, ry + 7, { align: "right" });
+
+        doc.setTextColor(...P.x5);
+        doc.text(semDados ? "—" : (s.processosValorTotal ?? "—"), ML + CW - 2, ry + 7, { align: "right" });
+
         doc.setDrawColor(...P.x1); doc.setLineWidth(0.15);
         doc.line(ML + 2, ry + RH, ML + CW - 2, ry + RH);
       });

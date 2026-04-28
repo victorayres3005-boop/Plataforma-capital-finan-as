@@ -784,6 +784,57 @@ export function renderSintese(ctx: PdfCtx): void {
   }
 
   // ════════════════════════════════════════════════════════════════════════════
+  // B4b — PEFIN (Boa Vista/SCPC) + REFIN (Serasa)
+  // ════════════════════════════════════════════════════════════════════════════
+  {
+    const pefin = data.pefin;
+    const refin  = data.refin;
+
+    checkPageBreak(ctx, 30);
+    stitle("PEFIN & REFIN — Pendências Financeiras");
+    const y0  = pos.y;
+    const H   = 22;
+    const hw  = (CW - GAP) / 2;
+
+    const drawPR = (bx: number, label: string, fonte: string, d: typeof pefin) => {
+      const hasData = d !== undefined;
+      const qtd    = d?.qtd ?? 0;
+      const vlr    = d?.valor ?? 0;
+      const hasNeg = qtd > 0;
+      const bg:  [number,number,number] = hasNeg ? P.r0 : P.g0;
+      const bd:  [number,number,number] = hasNeg ? P.r1 : P.g1;
+      const numC:[number,number,number] = hasNeg ? P.r6 : P.g6;
+      card(bx, y0, hw, H, bg, bd);
+      // Label
+      doc.setFont("helvetica","bold"); doc.setFontSize(7.5); doc.setTextColor(...P.n9);
+      doc.text(label, bx + 4, y0 + 6);
+      // Fonte
+      doc.setFont("helvetica","normal"); doc.setFontSize(5.5); doc.setTextColor(...P.x5);
+      doc.text(fonte, bx + 4, y0 + 10);
+      // Número grande à direita
+      doc.setFont("helvetica","bold"); doc.setFontSize(18); doc.setTextColor(...numC);
+      doc.text(hasData ? String(qtd) : "—", bx + hw - 4, y0 + 15, { align: "right" });
+      // Sub
+      if (hasData) {
+        if (vlr > 0) {
+          doc.setFont("helvetica","normal"); doc.setFontSize(5.5); doc.setTextColor(...P.x5);
+          doc.text(mo(vlr) + " total", bx + 4, y0 + H - 2.5);
+        } else {
+          doc.setFont("helvetica","bold"); doc.setFontSize(5.5); doc.setTextColor(...P.g6);
+          doc.text("Sem pendências", bx + 4, y0 + H - 2.5);
+        }
+      } else {
+        doc.setFont("helvetica","normal"); doc.setFontSize(5.5); doc.setTextColor(...P.x4);
+        doc.text("Não consultado", bx + 4, y0 + H - 2.5);
+      }
+    };
+
+    drawPR(ML,          "PEFIN", "Boa Vista / SCPC", pefin);
+    drawPR(ML + hw + GAP, "REFIN", "Serasa",          refin);
+    pos.y = y0 + H + 5;
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
   // B6 — Faturamento (gráfico barras 12 meses)
   // ════════════════════════════════════════════════════════════════════════════
   {

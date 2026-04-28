@@ -3,7 +3,7 @@ import type {
   ProtestosData, ProcessosData, BureauScore,
   ProcessoItem, DistribuicaoTemporal, DistribuicaoPorFaixa,
   CCFData, HistoricoConsultaItem, QSAData,
-  GrupoEconomicoData, ParentescoDetectado,
+  GrupoEconomicoData, ParentescoDetectado, PefinReginData, SocioKycCreditHub,
 } from "@/types";
 import { protestosSave, protestosLoad, processosSave, processosLoad, ccfSave, ccfLoad } from "@/lib/bureaus/cache";
 
@@ -323,6 +323,18 @@ function parseProcessos(d: any): ProcessosData {
     return !s || /ativo|andamento|distribuido|pendente|em curso|conhecimento|execu[çc]/i.test(s + " " + f);
   }).length;
 
+  const arquivados = processos.filter(p => {
+    const s = String(p.status ?? p.situacao ?? p.situacao_processo ?? p.situacaoProcesso ?? "").toLowerCase();
+    const f = String(p.fase_processual ?? p.faseProcessual ?? p.fase ?? "").toLowerCase();
+    return /arquivado|encerrado|extinto|baixado/i.test(s + " " + f);
+  }).length;
+
+  const interrompidos = processos.filter(p => {
+    const s = String(p.status ?? p.situacao ?? p.situacao_processo ?? p.situacaoProcesso ?? "").toLowerCase();
+    const f = String(p.fase_processual ?? p.faseProcessual ?? p.fase ?? "").toLowerCase();
+    return /interrompido|suspenso|sobrestado|paralisado/i.test(s + " " + f);
+  }).length;
+
   // ── Polo processual: identifica se a empresa é autora (polo ativo) ou ré (polo passivo) ──
   // Usa o nome da empresa (razaoSocial) para encontrar o envolvido correto
   const razaoSocial = String(d?.razaoSocial ?? d?.razao_social ?? "").toUpperCase().trim();
@@ -523,7 +535,7 @@ function parseProcessos(d: any): ProcessosData {
     })
     .slice(0, 10);
 
-  console.log(`[credithub] processos polo ativo=${poloAtivoQtd} polo passivo=${poloPassivoQtd} falência=${temFalencia}`);
+  console.log(`[credithub] processos polo ativo=${poloAtivoQtd} polo passivo=${poloPassivoQtd} arquivados=${arquivados} interrompidos=${interrompidos} falência=${temFalencia}`);
 
   return {
     passivosTotal: String(processos.length + dividas.length),
@@ -533,6 +545,8 @@ function parseProcessos(d: any): ProcessosData {
     temFalencia,
     poloAtivoQtd: String(poloAtivoQtd),
     poloPassivoQtd: String(poloPassivoQtd),
+    arquivadosQtd: arquivados > 0 ? String(arquivados) : undefined,
+    interrompidosQtd: interrompidos > 0 ? String(interrompidos) : undefined,
     distribuicao,
     bancarios: [],
     fiscais: [],
@@ -895,12 +909,13 @@ async function consultarGrupoEconomicoDedicado(
   return [];
 }
 
-// Consulta CreditHub por CPF de sócio para obter empresas vinculadas
+// Consulta CreditHub por CPF de sócio para obter empresas vinculadas + kyc (processos/protestos)
 // Usa o mesmo endpoint /simples/{key}/{cpf} com retry para lidar com push=true
-async function consultarCreditHubPorCPF(cpf: string, nomeSocio: string): Promise<GrupoEconomicoData["empresas"]> {
-  if (!CREDITHUB_API_URL || !CREDITHUB_API_KEY) return [];
+async function consultarCreditHubPorCPF(cpf: string, nomeSocio: string): Promise<{ empresas: GrupoEconomicoData["empresas"]; kyc: SocioKycCreditHub }> {
+  const emptyKyc: SocioKycCreditHub = { cpf };
+  if (!CREDITHUB_API_URL || !CREDITHUB_API_KEY) return { empresas: [], kyc: emptyKyc };
   const cpfNum = cpf.replace(/\D/g, "");
-  if (cpfNum.length !== 11) return [];
+  if (cpfNum.length !== 11) return { empresas: [], kyc: emptyKyc };
 
   const url = `${CREDITHUB_API_URL}/simples/${CREDITHUB_API_KEY}/${cpfNum}`;
   const MAX_ATTEMPTS = 5;
@@ -923,13 +938,13 @@ async function consultarCreditHubPorCPF(cpf: string, nomeSocio: string): Promise
           continue;
         }
         console.warn(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** timeout após ${MAX_ATTEMPTS} tentativas`);
-        return [];
+        return { empresas: [], kyc: emptyKyc };
       }
 
       if (!res.ok) {
         // 500 sem push="true" = erro real, não transiente — não adianta retry
         console.warn(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** status ${res.status}: ${text.slice(0,100)}`);
-        return [];
+        return { empresas: [], kyc: emptyKyc };
       }
 
       let raw: any;
@@ -937,7 +952,7 @@ async function consultarCreditHubPorCPF(cpf: string, nomeSocio: string): Promise
         raw = JSON.parse(text);
       } catch {
         console.warn(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** resposta não é JSON: ${text.slice(0,100)}`);
-        return [];
+        return { empresas: [], kyc: emptyKyc };
       }
 
       const d = raw?.data ?? raw;
@@ -959,8 +974,30 @@ async function consultarCreditHubPorCPF(cpf: string, nomeSocio: string): Promise
         if (!vistos.has(key)) { vistos.add(key); todas.push(emp); }
       }
 
-      console.log(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** total empresas: diretas=${empresasDirectas.length} rfb=${empresaRFB.length}`);
-      return todas;
+      // Extrai processos e protestos do sócio para KYC
+      const proc = parseProcessos(d);
+      const prot = parseProtestos(d);
+
+      // Data mais recente: top10Recentes já está ordenado do mais novo ao mais antigo
+      const ultimoProcessoData = proc.top10Recentes?.find(p => p.data)?.data || undefined;
+      // Protestos: ordena por data descrescente e pega o mais recente
+      const ultimoProtestoData = prot.detalhes.length > 0
+        ? [...prot.detalhes].sort((a, b) => (b.data ?? "").localeCompare(a.data ?? "")).find(p => p.data)?.data
+        : undefined;
+
+      const kyc: SocioKycCreditHub = {
+        cpf: cpfNum,
+        processosTotal:     Number(proc.passivosTotal) || undefined,
+        processosAtivo:     Number(proc.poloAtivoQtd)  || undefined,
+        processosPassivo:   Number(proc.poloPassivoQtd) || undefined,
+        processosValorTotal: proc.valorTotalEstimado || undefined,
+        ultimoProcessoData,
+        protestosQtd:       Number(prot.vigentesQtd) || undefined,
+        ultimoProtestoData,
+      };
+
+      console.log(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** total empresas: diretas=${empresasDirectas.length} rfb=${empresaRFB.length} | processos=${kyc.processosTotal ?? 0} protestos=${kyc.protestosQtd ?? 0}`);
+      return { empresas: todas, kyc };
 
     } catch (err: unknown) {
       console.warn(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** tentativa ${attempt} exception:`, String(err instanceof Error ? err.message : err));
@@ -968,7 +1005,7 @@ async function consultarCreditHubPorCPF(cpf: string, nomeSocio: string): Promise
     }
   }
 
-  return [];
+  return { empresas: [], kyc: emptyKyc };
 }
 
 // ── Opção D: extrai empresas dos processos judiciais do sócio ────────────────
@@ -1195,13 +1232,18 @@ export async function consultarGrupoEconomicoSocios(
 
   const cnpjPrincipalNorm = (cnpjEmpresaPrincipal ?? "").replace(/\D/g, "");
 
-  // Consultas paralelas por CPF — usa endpoint dedicado /v1/grupo-economico primeiro;
-  // se retornar vazio, cai no fallback /simples que extrai via processos/QSA.
+  // Consultas paralelas por CPF:
+  // - endpoint dedicado /v1/grupo-economico para empresas (prioritário)
+  // - /simples/{cpf} para empresas (fallback) + kyc (processos/protestos) sempre
   const resultados = await Promise.allSettled(
     sociosPF.map(async s => {
-      const dedicado = await consultarGrupoEconomicoDedicado(s.cpfCnpj, s.nome);
-      if (dedicado.length > 0) return dedicado;
-      return consultarCreditHubPorCPF(s.cpfCnpj, s.nome);
+      const [dedicado, cpfResult] = await Promise.all([
+        consultarGrupoEconomicoDedicado(s.cpfCnpj, s.nome),
+        consultarCreditHubPorCPF(s.cpfCnpj, s.nome),
+      ]);
+      // Empresas: dedicado tem prioridade; fallback para cpfResult
+      const empresas = dedicado.length > 0 ? dedicado : cpfResult.empresas;
+      return { empresas, kyc: cpfResult.kyc };
     })
   );
 
@@ -1210,10 +1252,18 @@ export async function consultarGrupoEconomicoSocios(
   const SITUACOES_INATIVAS = ["BAIXADA", "INAPTA", "SUSPENSA", "CANCELADA", "NULA"];
   const chaveVista = new Set<string>();
   const empresas: GrupoEconomicoData["empresas"] = [];
+  const sociosKyc: SocioKycCreditHub[] = [];
 
   resultados.forEach(r => {
     if (r.status !== "fulfilled") return;
-    r.value.forEach(emp => {
+    const { empresas: emps, kyc } = r.value;
+
+    // Coleta kyc se teve dados relevantes
+    if (kyc && (kyc.processosTotal || kyc.protestosQtd)) {
+      sociosKyc.push(kyc);
+    }
+
+    emps.forEach(emp => {
       if (cnpjPrincipalNorm && emp.cnpj && emp.cnpj === cnpjPrincipalNorm) return;
 
       // Exclui somente quando a situação é confirmada como inativa
@@ -1233,7 +1283,7 @@ export async function consultarGrupoEconomicoSocios(
   // Não bloqueia o retorno em caso de falha — erros são silenciados por Promise.allSettled.
   const empresasEnriquecidas = await enriquecerEmpresasGrupoEconomico(empresas);
 
-  return { empresas: empresasEnriquecidas, alertaParentesco, parentescosDetectados };
+  return { empresas: empresasEnriquecidas, alertaParentesco, parentescosDetectados, sociosKyc: sociosKyc.length > 0 ? sociosKyc : undefined };
 }
 
 // ─── Consulta principal ─────────────────────────────────────────────────────
@@ -1396,4 +1446,79 @@ export async function consultarCreditHub(cnpj: string, rawDataFromClient?: unkno
       processosIntegrados: true,
     },
   };
+}
+
+// ─── PEFIN / REFIN via IRQL ─────────────────────────────────────────────────
+
+function parseIRQLRows(xml: string): Array<Record<string, string>> {
+  const rows: Array<Record<string, string>> = [];
+  const rowPat = /<ROW[^>]*>([\s\S]*?)<\/ROW>/gi;
+  let rm;
+  while ((rm = rowPat.exec(xml)) !== null) {
+    const row: Record<string, string> = {};
+    const fPat = /<([A-Z_0-9]+)[^>]*>([^<]*)<\/\1>/gi;
+    let fm;
+    while ((fm = fPat.exec(rm[1])) !== null) {
+      row[fm[1]] = fm[2].trim();
+    }
+    if (Object.keys(row).length > 0) rows.push(row);
+  }
+  return rows;
+}
+
+function pickField(row: Record<string, string>, ...keys: string[]): string | undefined {
+  for (const k of keys) if (row[k]) return row[k];
+  return undefined;
+}
+
+function rowsToPefinData(rows: Array<Record<string, string>>): PefinReginData {
+  const lista = rows.map(r => ({
+    data:      pickField(r, "DATA_OCORRENCIA", "DATA", "DT_INCLUSAO", "DT_OCORRENCIA", "DATA_ENTRADA"),
+    valor:     parseMoneyRobust(pickField(r, "VALOR", "VL_TOTAL", "VALOR_TOTAL", "VL_OCORRENCIA", "VALOR_OCORRENCIA") ?? "0"),
+    credor:    pickField(r, "NOME_CREDOR", "CREDOR", "NOME_EMPRESA", "INFORMANTE", "ORIGEM"),
+    modalidade: pickField(r, "MODALIDADE", "TIPO", "NATUREZA", "TIPO_OCORRENCIA", "DESCRICAO"),
+    contrato:  pickField(r, "CONTRATO", "NUMERO_CONTRATO", "NUM_CONTRATO", "REFERENCIA"),
+  }));
+  const total  = lista.reduce((s, r) => s + (r.valor ?? 0), 0);
+  const sorted = [...lista].sort((a, b) => (b.data ?? "").localeCompare(a.data ?? ""));
+  return {
+    qtd:          lista.length,
+    valor:        total,
+    dataUltimo:   sorted[0]?.data,
+    credorUltimo: sorted[0]?.credor,
+    lista,
+  };
+}
+
+export async function consultarPefinRefin(cnpj: string): Promise<{ pefin?: PefinReginData; refin?: PefinReginData }> {
+  if (!CREDITHUB_API_KEY) return {};
+  const cnpjNum = cnpj.replace(/\D/g, "");
+  const IRQL = "https://irql.credithub.com.br";
+  const qPefin = encodeURIComponent(`USING 'SCPCNET' SELECT FROM 'PROTESTOS'.'SCPCNET' WHERE 'DOCUMENTO' = ${cnpjNum}`);
+  const qRefin = encodeURIComponent(`SELECT FROM 'PROTESTOS'.'SERASA' WHERE 'DOCUMENTO' = ${cnpjNum}`);
+
+  const [pefinR, refinR] = await Promise.allSettled([
+    fetch(`${IRQL}/?q=${qPefin}&apiKey=${CREDITHUB_API_KEY}`, { cache: "no-store", signal: AbortSignal.timeout(15000) }),
+    fetch(`${IRQL}/?q=${qRefin}&apiKey=${CREDITHUB_API_KEY}`, { cache: "no-store", signal: AbortSignal.timeout(15000) }),
+  ]);
+
+  let pefin: PefinReginData | undefined;
+  let refin:  PefinReginData | undefined;
+
+  if (pefinR.status === "fulfilled") {
+    try {
+      const xml  = await pefinR.value.text();
+      const rows = parseIRQLRows(xml);
+      pefin = rowsToPefinData(rows);
+    } catch { /* silencioso */ }
+  }
+  if (refinR.status === "fulfilled") {
+    try {
+      const xml  = await refinR.value.text();
+      const rows = parseIRQLRows(xml);
+      refin = rowsToPefinData(rows);
+    } catch { /* silencioso */ }
+  }
+
+  return { pefin, refin };
 }

@@ -4,7 +4,7 @@ import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useState, useEffect, useRef } from "react";
 import Sidebar from "./Sidebar";
 
-const NO_SHELL_ROUTES = ["/login", "/auth"];
+const NO_SHELL_ROUTES = ["/login", "/auth", "/v2"];
 const COLLAPSED_KEY   = "cf_sidebar_collapsed";
 
 
@@ -105,7 +105,7 @@ function ShellInner({ children }: { children: React.ReactNode }) {
       />
       <div
         id="cf-right-col"
-        className="flex flex-col flex-1 min-w-0 overflow-y-auto transition-all duration-300"
+        className="flex flex-col flex-1 min-w-0 overflow-y-auto"
         style={{ marginLeft: 0 }}
       >
         <PageContent pathname={pathname}>

@@ -355,6 +355,20 @@ export default function HomePage() {
     } catch { /* ignore */ }
   }, []);
 
+  // Detecta ?nova=true vindo do botão "Nova Coleta" da sidebar
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get("nova") === "true") {
+        url.searchParams.delete("nova");
+        window.history.replaceState({}, "", url.toString());
+        setShowDashboard(false);
+        setStep("upload");
+      }
+    } catch { /* ignore */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Persistir estado de navegação sempre que mudar
   useEffect(() => {
     saveNavState(step, showDashboard);

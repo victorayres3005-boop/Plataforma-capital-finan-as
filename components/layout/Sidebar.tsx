@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
-  Home, Plus, Clock, Settings, HelpCircle, Activity, ClipboardList, Zap, ReceiptText,
-  ChevronLeft, ChevronRight,
+  Home, Plus, Clock, Settings, HelpCircle, Activity, ClipboardList, Zap, ReceiptText, BarChart2,
+  ChevronLeft, ChevronRight, LogOut,
   type LucideIcon,
 } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
 type SidebarProps = {
   collapsed: boolean;
@@ -61,7 +62,8 @@ const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
       { icon: Clock,         label: "Histórico",    href: "/historico" },
       { icon: Activity,      label: "Em Andamento", href: "/operacoes" },
       { icon: ClipboardList, label: "Pareceres",    href: "/pareceres" },
-      { icon: ReceiptText,  label: "Custos",        href: "/custos" },
+      { icon: BarChart2,     label: "Métricas",     href: "/metricas" },
+      { icon: ReceiptText,   label: "Custos",       href: "/custos" },
     ],
   },
   {
@@ -92,6 +94,13 @@ export default function Sidebar({
   showDashboard, isInsideColeta,
 }: SidebarProps) {
   const pathname = usePathname();
+  const router   = useRouter();
+
+  async function handleLogout() {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push("/login");
+  }
 
   const isActive = (href: string, action?: "dashboard" | "coleta") => {
     if (action === "dashboard") return pathname === "/" && showDashboard && !isInsideColeta;
@@ -260,31 +269,76 @@ export default function Sidebar({
         ))}
       </nav>
 
-      {/* Expand button — visível apenas quando collapsed */}
-      {collapsed && (
-        <div style={{ padding: "12px 6px", borderTop: "1px solid rgba(255,255,255,0.08)", flexShrink: 0 }}>
+      {/* Rodapé — expand (collapsed) ou logout (expanded) */}
+      <div style={{ padding: collapsed ? "12px 6px" : "12px 10px", borderTop: "1px solid rgba(255,255,255,0.08)", flexShrink: 0, display: "flex", flexDirection: "column", gap: "6px" }}>
+        {collapsed ? (
+          <>
+            <button
+              onClick={onToggleCollapse}
+              title="Expandir menu"
+              style={{
+                width: "100%", display: "flex", alignItems: "center", justifyContent: "center",
+                padding: "8px 0", borderRadius: "8px",
+                background: "rgba(255,255,255,0.06)", border: "none", cursor: "pointer",
+                color: "rgba(255,255,255,0.5)", transition: "background 0.15s, color 0.15s",
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.14)";
+                (e.currentTarget as HTMLElement).style.color = "#fff";
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.06)";
+                (e.currentTarget as HTMLElement).style.color = "rgba(255,255,255,0.5)";
+              }}
+            >
+              <ChevronRight size={16} />
+            </button>
+            <button
+              onClick={handleLogout}
+              title="Sair da conta"
+              style={{
+                width: "100%", display: "flex", alignItems: "center", justifyContent: "center",
+                padding: "8px 0", borderRadius: "8px",
+                background: "rgba(255,255,255,0.06)", border: "none", cursor: "pointer",
+                color: "rgba(255,255,255,0.4)", transition: "background 0.15s, color 0.15s",
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLElement).style.background = "rgba(220,38,38,0.18)";
+                (e.currentTarget as HTMLElement).style.color = "#fca5a5";
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.06)";
+                (e.currentTarget as HTMLElement).style.color = "rgba(255,255,255,0.4)";
+              }}
+            >
+              <LogOut size={15} />
+            </button>
+          </>
+        ) : (
           <button
-            onClick={onToggleCollapse}
-            title="Expandir menu"
+            onClick={handleLogout}
+            title="Sair da conta"
             style={{
-              width: "100%", display: "flex", alignItems: "center", justifyContent: "center",
-              padding: "8px 0", borderRadius: "8px",
-              background: "rgba(255,255,255,0.06)", border: "none", cursor: "pointer",
-              color: "rgba(255,255,255,0.5)", transition: "background 0.15s, color 0.15s",
+              width: "100%", display: "flex", alignItems: "center", gap: "9px",
+              padding: "8px 10px 8px 8px", borderRadius: "8px",
+              background: "rgba(255,255,255,0.04)", border: "none", cursor: "pointer",
+              color: "rgba(255,255,255,0.45)", fontSize: "13px", fontWeight: 400,
+              transition: "background 0.15s, color 0.15s",
             }}
             onMouseEnter={e => {
-              (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.14)";
-              (e.currentTarget as HTMLElement).style.color = "#fff";
+              (e.currentTarget as HTMLElement).style.background = "rgba(220,38,38,0.18)";
+              (e.currentTarget as HTMLElement).style.color = "#fca5a5";
             }}
             onMouseLeave={e => {
-              (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.06)";
-              (e.currentTarget as HTMLElement).style.color = "rgba(255,255,255,0.5)";
+              (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.04)";
+              (e.currentTarget as HTMLElement).style.color = "rgba(255,255,255,0.45)";
             }}
           >
-            <ChevronRight size={16} />
+            <LogOut size={15} style={{ flexShrink: 0 }} />
+            Sair da conta
           </button>
-        </div>
-      )}
+        )}
+      </div>
     </aside>
   );
 }

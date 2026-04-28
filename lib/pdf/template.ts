@@ -796,7 +796,17 @@ function pageSintese(params: PDFReportParams, date: string): string {
       : rendaAss
         ? `<span style="color:var(--a5);font-size:10px" title="Renda mensal presumida — Assertiva (sem IR enviado)">~${fmtMoneyAbr(rendaAss)}<span style="font-size:8px;color:var(--x4)">/mês est.</span></span>`
         : (incomeRange || assetsRange)
-          ? `<span style="color:var(--x4);font-size:10px" title="Faixa estimada — BigDataCorp (sem IR enviado)">${esc(incomeRange ?? assetsRange ?? "—")}</span>`
+          ? (() => {
+              const SM_2026 = 1518;
+              const raw = (incomeRange ?? assetsRange ?? "").toUpperCase().replace(/\s+/g, " ").trim();
+              const m = raw.match(/^(\d+)\s*[AaÀà]\s*(\d+)\s*SM/);
+              if (m) {
+                const min = Math.round(parseInt(m[1]) * SM_2026 / 1000);
+                const max = Math.round(parseInt(m[2]) * SM_2026 / 1000);
+                return `<span style="font-weight:600;color:var(--x7)">R$ ${min}k – R$ ${max}k</span><br><span style="font-size:9px;color:var(--x4)">BDC · faixa estimada (sem IR)</span>`;
+              }
+              return `<span style="color:var(--x4);font-size:10px">${esc(raw)}</span><br><span style="font-size:9px;color:var(--x4)">BDC · faixa estimada</span>`;
+            })()
           : "—";
     const obitBadge = (s as any).hasObitIndication
       ? `<span style="display:inline-block;margin-left:5px;padding:1px 5px;background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;border-radius:3px;font-size:8.5px;font-weight:700;letter-spacing:0.05em;vertical-align:middle">ÓBITO</span>`
@@ -1202,7 +1212,13 @@ function pageSintese(params: PDFReportParams, date: string): string {
       };
 
       const socioBlocks = Object.entries(porSocio).map(([socio, emps]) => {
-        const rows = emps.map(e => {
+        const empsAtivas = emps.filter(e => {
+          const cnpjNum = (e.cnpj ?? "").replace(/\D/g, "");
+          const isAtiva = (e.situacao ?? "").toUpperCase().includes("ATIVA");
+          return cnpjNum.length === 14 && isAtiva;
+        });
+        if (empsAtivas.length === 0) return "";
+        const rows = empsAtivas.map(e => {
           const cnpjFmt = e.cnpj ? e.cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5") : "—";
           const sitCls = sitClass(e.situacao ?? "");
           const hasSCR = e.scrTotal && e.scrTotal !== "—";
@@ -1222,7 +1238,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
 
         return `<div class="ge-socio-hdr">
           <span style="font-size:14px">👤</span> Via sócio: ${esc(socio)}
-          <span style="font-weight:500;color:var(--n8);margin-left:auto">${emps.length} empresa${emps.length > 1 ? "s" : ""}</span>
+          <span style="font-weight:500;color:var(--n8);margin-left:auto">${empsAtivas.length} empresa${empsAtivas.length > 1 ? "s" : ""}</span>
         </div>
         <table class="ge-tbl">
           <thead><tr><th>Razão Social</th><th>CNPJ</th><th>Situação</th><th>SCR</th><th style="text-align:center">Prot.</th><th style="text-align:center">Proc.</th><th style="text-align:right">Valor Proc.</th></tr></thead>
@@ -1303,22 +1319,31 @@ function pageSintese(params: PDFReportParams, date: string): string {
         </div>
       </div>
       ${(() => {
-        const sociosComRisco = (d.qsa?.quadroSocietario ?? []).filter((s: any) =>
-          (s.processosTotal ?? 0) > 0 || (s.protestosSocioQtd ?? 0) > 0
-        );
-        if (!sociosComRisco.length) return "";
-        const rows = sociosComRisco.map((s: any) => {
+        const todosSocios = (d.qsa?.quadroSocietario ?? []).filter((s: any) => s.nome);
+        if (!todosSocios.length) return "";
+        const rows = todosSocios.map((s: any) => {
+          const temCPF  = (s.cpfCnpj ?? "").replace(/\D/g, "").length === 11;
           const temProt = (s.protestosSocioQtd ?? 0) > 0;
           const temProc = (s.processosTotal ?? 0) > 0;
+          const semDados = !temCPF || (s.processosTotal === undefined && s.protestosSocioQtd === undefined);
           const val = s.protestosSocioValor ?? 0;
           const valStr = val > 0 ? `R$ ${val.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : "—";
+          const nd = `<span style="color:var(--x4);font-size:10px">${temCPF ? "N/D" : "PJ"}</span>`;
+          const fmtDC = (d: string | undefined) => {
+            if (!d) return "";
+            const m = d.match(/^(\d{4})-(\d{2})/);
+            return m ? `${m[2]}/${m[1]}` : d.slice(0, 7);
+          };
+          const dpProc = fmtDC(s.ultimoProcessoData);
+          const dpProt = fmtDC(s.ultimoProtestoData);
+          const subDates = [dpProc ? `proc ${dpProc}` : "", dpProt ? `prot ${dpProt}` : ""].filter(Boolean).join(" · ");
           return `<tr>
-            <td><b>${esc(s.nome)}</b></td>
-            <td style="text-align:center;font-weight:700;color:${temProt ? "var(--r6)" : "var(--g6)"}">${s.protestosSocioQtd ?? 0}</td>
-            <td style="text-align:right;color:${temProt ? "var(--r6)" : "var(--x4)"}" class="mono">${valStr}</td>
-            <td style="text-align:center;font-weight:700;color:${temProc ? "var(--r6)" : "var(--g6)"}">${s.processosTotal ?? 0}</td>
-            <td style="text-align:center;color:${(s.processosPassivo ?? 0) > 0 ? "var(--r6)" : "var(--x7)"}">${s.processosPassivo ?? 0}</td>
-            <td style="text-align:right;color:var(--x5);font-size:var(--fs-tag)" class="mono">${s.processosValorTotal ?? "—"}</td>
+            <td><b>${esc(s.nome)}</b>${subDates ? `<br><span style="font-size:10px;color:var(--x4)">${subDates}</span>` : ""}</td>
+            <td style="text-align:center;font-weight:700;color:${temProt ? "var(--r6)" : "var(--g6)"}">${semDados ? nd : (s.protestosSocioQtd ?? 0)}</td>
+            <td style="text-align:right;color:${temProt ? "var(--r6)" : "var(--x4)"}" class="mono">${semDados ? "—" : valStr}</td>
+            <td style="text-align:center;font-weight:700;color:${temProc ? "var(--r6)" : "var(--g6)"}">${semDados ? nd : (s.processosTotal ?? 0)}</td>
+            <td style="text-align:center;color:${(s.processosPassivo ?? 0) > 0 ? "var(--r6)" : "var(--x7)"}">${semDados ? "—" : (s.processosPassivo ?? 0)}</td>
+            <td style="text-align:right;color:var(--x5);font-size:var(--fs-tag)" class="mono">${semDados ? "—" : (s.processosValorTotal ?? "—")}</td>
           </tr>`;
         }).join("");
         return `<div style="margin-top:10px">
@@ -1340,6 +1365,39 @@ function pageSintese(params: PDFReportParams, date: string): string {
         <div class="label" style="font-size:var(--fs-label);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--x4);margin-bottom:4px">CCF — Cheques Sem Fundo</div>
         ${ccfBlock}
       </div>
+      ${(() => {
+        const pefin = d.pefin;
+        const refin  = d.refin;
+        const card2 = (label: string, fonte: string, data: typeof pefin) => {
+          const qtd = data?.qtd ?? 0;
+          const vlr = data?.valor ?? 0;
+          const hasData = data !== undefined;
+          const hasNeg = qtd > 0;
+          const borderColor = hasNeg ? "var(--r1)" : "var(--g1)";
+          const bg = hasNeg ? "var(--r0)" : "var(--g0)";
+          const numColor = hasNeg ? "var(--r6)" : "var(--g6)";
+          const sub = !hasData
+            ? `<div style="font-size:var(--fs-label);color:var(--x4);margin-top:3px">Não consultado</div>`
+            : vlr > 0
+              ? `<div style="font-size:var(--fs-label);color:var(--r6);margin-top:3px">${fmtMoneyAbr(vlr)} total</div>`
+              : `<div style="font-size:var(--fs-label);color:var(--g6);font-weight:600;margin-top:3px">Sem pendências</div>`;
+          return `<div style="background:${bg};border:1px solid ${borderColor};border-radius:6px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center">
+            <div>
+              <div style="font-size:var(--fs-label);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--x5)">${esc(label)}</div>
+              <div style="font-size:var(--fs-tag);color:var(--x4);margin-top:1px">${esc(fonte)}</div>
+              ${sub}
+            </div>
+            <div style="font-size:22px;font-weight:700;color:${numColor};min-width:28px;text-align:right">${hasData ? qtd : "—"}</div>
+          </div>`;
+        };
+        return `<div style="margin-top:8px">
+          <div class="label" style="font-size:var(--fs-label);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--x4);margin-bottom:6px">PEFIN &amp; REFIN — Pendências Financeiras</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            ${card2("PEFIN", "Boa Vista / SCPC", pefin)}
+            ${card2("REFIN", "Serasa", refin)}
+          </div>
+        </div>`;
+      })()}
       <div style="margin-top:10px">${alertsHtml}</div>
     </div>
 
@@ -1929,7 +1987,10 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
         <div class="sub">${fmt(scr.qtdeInstituicoes)} IFs · ${fmt(scr.qtdeOperacoes)} ops</div>
       </div>
     </div>
-    <div class="inf">Período anterior: <b>${esc(scrPeriodoAnt)}</b> · Período atual: <b>${esc(scrPeriodoAtual)}</b></div>
+    <div class="inf" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
+      <span>Período anterior: <b>${esc(scrPeriodoAnt)}</b> · Período atual: <b>${esc(scrPeriodoAtual)}</b></span>
+      ${scr.urlRelatorio ? `<a href="${esc(scr.urlRelatorio)}" target="_blank" rel="noopener noreferrer" style="font-size:11px;font-weight:600;color:var(--n8);text-decoration:none;display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid var(--n1);border-radius:4px;background:var(--n0)">🔗 Ver consulta DataBox360</a>` : ""}
+    </div>
     <table class="tbl">
       <thead><tr><th>Métrica</th><th>Categoria</th><th class="r">${esc(scrPeriodoAnt)}</th><th class="r">${esc(scrPeriodoAtual)}</th><th class="r">Var.</th></tr></thead>
       <tbody>${scrRows}</tbody>

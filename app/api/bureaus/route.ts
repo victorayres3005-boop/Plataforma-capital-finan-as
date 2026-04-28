@@ -2,7 +2,7 @@ export const maxDuration = 300;
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
-import { consultarCreditHub, consultarGrupoEconomicoSocios } from "@/lib/bureaus/credithub";
+import { consultarCreditHub, consultarGrupoEconomicoSocios, consultarPefinRefin } from "@/lib/bureaus/credithub";
 import { consultarSerasa } from "@/lib/bureaus/serasa";
 import { consultarSPC } from "@/lib/bureaus/spc";
 import { consultarQuod } from "@/lib/bureaus/quod";
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
     // Todas as consultas em paralelo — BDC empresa agora participa do mesmo bloco
     // 90s cobre o pior caso: token DataBox360 (40s × 2 tentativas) + chamada SCR (15s)
     const BUREAU_TIMEOUT = 90_000;
-    const [credithub, serasa, spc, quod, grupoEconomico, brasilapi, sancoes, bigdatacorp, bdcSocios, assertivaEmpresa, assertivaSocios, db360Empresa, db360Socios] = await Promise.allSettled([
+    const [credithub, serasa, spc, quod, grupoEconomico, brasilapi, sancoes, bigdatacorp, bdcSocios, assertivaEmpresa, assertivaSocios, db360Empresa, db360Socios, pefinRefin] = await Promise.allSettled([
       withTimeout(consultarCreditHubComCache(cnpj, creditHubRaw), BUREAU_TIMEOUT, "credithub"),
       withTimeout(consultarSerasa(cnpj), BUREAU_TIMEOUT, "serasa"),
       withTimeout(consultarSPC(cnpj), BUREAU_TIMEOUT, "spc"),
@@ -105,6 +105,7 @@ export async function POST(req: NextRequest) {
       withTimeout(consultarSociosAssertiva(assertivaSociosInput), BUREAU_TIMEOUT, "assertiva-socios"),
       withTimeout(consultarSCREmpresa(cnpj), BUREAU_TIMEOUT, "databox360-empresa"),
       withTimeout(consultarSCRSocios(sociosParaGrupo), BUREAU_TIMEOUT, "databox360-socios"),
+      withTimeout(consultarPefinRefin(cnpj), BUREAU_TIMEOUT, "credithub-pefin-refin"),
     ]);
 
     const grupoEconomicoResult = grupoEconomico.status === "fulfilled" ? grupoEconomico.value : undefined;
@@ -204,6 +205,12 @@ export async function POST(req: NextRequest) {
 
     const merged = mergeBureauResults(data, results);
 
+    // PEFIN + REFIN (CreditHub IRQL)
+    if (pefinRefin.status === "fulfilled") {
+      if (pefinRefin.value.pefin) merged.pefin = pefinRefin.value.pefin;
+      if (pefinRefin.value.refin) merged.refin = pefinRefin.value.refin;
+    }
+
     // Enriquece processos com status do DataJud (CNJ)
     if (merged.processos?.top10Valor?.length || merged.processos?.top10Recentes?.length) {
       const allProcs = [
@@ -240,9 +247,9 @@ export async function POST(req: NextRequest) {
           );
           console.log(`[bureaus] DataBox360 SCR grupo econômico: ${scrGrupo.length}/${cnpjsGrupo.length} empresa(s) com SCR`);
 
-          // Detecta sandbox: 2+ empresas com totalDividas idêntico = mock
+          // Detecta sandbox: retorno vazio OU 2+ empresas com totalDividas idêntico = mock
           const totaisUnicos = new Set(scrGrupo.map(s => s.totalDividas));
-          const isSandbox = scrGrupo.length >= 2 && totaisUnicos.size === 1;
+          const isSandbox = scrGrupo.length === 0 || (scrGrupo.length >= 2 && totaisUnicos.size === 1);
 
           if (isSandbox) {
             console.log(`[bureaus] DataBox360 grupo econômico: sandbox detectado (totais idênticos) — coluna SCR oculta`);

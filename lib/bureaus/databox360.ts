@@ -192,6 +192,35 @@ function mapearSCRData(raw: any, documento: string): SCRData {
   const docNum = documento.replace(/\D/g, "");
   const tipoPessoa = docNum.length === 11 ? "PF" : "PJ";
 
+  // URL de auditoria — DataBox360 retorna no final do JSON para verificação dos dados
+  const urlRelatorio: string | undefined =
+    raw?.url           ??
+    raw?.link          ??
+    raw?.urlRelatorio  ??
+    raw?.linkConsulta  ??
+    raw?.urlConsulta   ??
+    raw?.consulta?.url ??
+    raw?.consulta?.link ??
+    undefined;
+  if (urlRelatorio) {
+    console.log(`[databox360] URL de auditoria: ${urlRelatorio}`);
+  } else {
+    // Log completo para identificar o campo correto
+    console.log(`[databox360] chaves do raw: ${Object.keys(raw ?? {}).join(", ")}`);
+    console.log(`[databox360] chaves do raw.consulta: ${Object.keys(raw?.consulta ?? {}).join(", ")}`);
+    // Loga todos os valores do raw que são strings e parecem URL
+    for (const [k, v] of Object.entries(raw ?? {})) {
+      if (typeof v === "string" && (v.startsWith("http") || v.startsWith("www"))) {
+        console.log(`[databox360] campo string URL no raw: ${k} = ${v}`);
+      }
+    }
+    for (const [k, v] of Object.entries(raw?.consulta ?? {})) {
+      if (typeof v === "string" && (v.startsWith("http") || v.startsWith("www"))) {
+        console.log(`[databox360] campo string URL no raw.consulta: ${k} = ${v}`);
+      }
+    }
+  }
+
   return {
     periodoReferencia:   periodoRef,
     carteiraAVencer:     fmtBRL(carteiraVencer),
@@ -228,6 +257,7 @@ function mapearSCRData(raw: any, documento: string): SCRData {
       creditosALiberar:     fmtBRL(Number(carteira.creditosaLiberar ?? 0)),
     },
     semDados: totalCarteira === 0 && qtdeInst === 0,
+    urlRelatorio: urlRelatorio || undefined,
   };
 }
 

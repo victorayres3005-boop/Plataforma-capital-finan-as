@@ -28,6 +28,18 @@ export function SectionSCR({ data, anterior, set, setMod, addMod, removeMod, set
       accentColor={qualityAccent(quality.score)} expanded={expanded} onToggle={onToggle}
       badge={<span style={{ fontSize: "10px", fontWeight: 700, padding: "2px 8px", borderRadius: "99px", background: quality.score === "good" ? "#dcfce7" : quality.score === "warning" ? "#fef9c3" : "#fee2e2", color: quality.score === "good" ? "#15803d" : quality.score === "warning" ? "#92400e" : "#991b1b" }}>{quality.pct}%</span>}>
       <div className="space-y-5">
+        {data.urlRelatorio && (
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <a
+              href={data.urlRelatorio}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontSize: "11px", fontWeight: 600, color: "#203b88", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "4px", padding: "4px 10px", border: "1px solid #c7d3f0", borderRadius: "6px", background: "#eef2fb" }}
+            >
+              🔗 Ver consulta original DataBox360
+            </a>
+          </div>
+        )}
         {data.semHistorico && (
           <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
             <span className="text-blue-500 mt-0.5">ℹ</span>

@@ -132,7 +132,7 @@ export function renderSCR(ctx: PdfCtx): void {
     const s = meses.reduce((acc, m) => acc + parseMoneyToNumber(m.valor||"0"), 0);
     return meses.length > 0 ? s / meses.length : 0;
   })();
-  const alav = fmm12m > 0 ? n(scr.totalDividasAtivas) / fmm12m : 0;
+  const alav = ctx.params.alavancagem ?? (fmm12m > 0 ? n(scr.totalDividasAtivas) / fmm12m : 0);
   const alavAnt = (hasAnt && fmm12m > 0) ? n(scrAnt!.totalDividasAtivas) / fmm12m : null;
 
   const rows: SCRRow[] = [

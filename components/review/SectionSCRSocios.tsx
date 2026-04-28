@@ -116,7 +116,7 @@ export function SectionSCRSocios({ socios, expanded, onToggle, quality }: Props)
                     const limVal    = parseBR(atual?.limiteCredito);
                     const semDivida = respAtiva === 0 && prejVal > 0;
                     return (
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "10px" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: "10px" }}>
                         <div title={semDivida ? "Crédito baixado para prejuízo — sem dívida ativa em cobrança" : undefined}>
                           <Metric
                             label="Resp. Ativa"
@@ -139,6 +139,12 @@ export function SectionSCRSocios({ socios, expanded, onToggle, quality }: Props)
                           label="A Vencer"
                           value={fmtBRL(atual?.carteiraAVencer)}
                           variation={anterior ? fmtVar(atual?.carteiraAVencer, anterior.carteiraAVencer) : undefined}
+                        />
+                        <Metric
+                          label="Vencidos"
+                          value={parseBR(atual?.vencidos) > 0 ? fmtBRL(atual?.vencidos) : "—"}
+                          variation={anterior ? fmtVar(atual?.vencidos, anterior.vencidos) : undefined}
+                          danger={parseBR(atual?.vencidos) > 0}
                         />
                         <Metric
                           label="Limite"

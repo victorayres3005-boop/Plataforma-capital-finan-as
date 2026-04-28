@@ -1408,7 +1408,7 @@ async function uploadToGeminiFilesWithRotation(buffer: Buffer, mimeType: string,
   throw lastErr instanceof Error ? lastErr : new Error("Todas as chaves Gemini falharam no Files API upload");
 }
 
-async function callGemini(prompt: string, content: string | { mimeType: string; base64: string } | { mimeType: string; fileUri: string }, maxOutputTokens = 2048, thinkingBudget = 0): Promise<string> {
+async function callGemini(prompt: string, content: string | { mimeType: string; base64: string } | { mimeType: string; fileUri: string }, maxOutputTokens = 2048, thinkingBudget = 0, perAttemptMsOverride = 0): Promise<string> {
   // Estrutura otimizada para o caching implicito do Gemini 2.5:
   // o PROMPT (estatico, ~400 linhas no CONTRATO) vai PRIMEIRO em uma part isolada,
   // e o conteudo dinamico vai depois. Quando a mesma extracao se repete (mesmo
@@ -1429,10 +1429,11 @@ async function callGemini(prompt: string, content: string | { mimeType: string; 
   const rotatedKeys = [...GEMINI_API_KEYS.slice(startIdx), ...GEMINI_API_KEYS.slice(0, startIdx)];
   // Hobby plan: 52s outer timeout. Para binário: 1 tentativa × 40s = 40s + upload (~8s) = 48s, cabe.
   // Texto: 1 tentativa × 20s ou 2 × 15s para pequeno (cabe em 52s).
+  // perAttemptMsOverride > 0: docType pediu timeout maior (ex: ir_socio → 30s) — usa 1 tentativa.
   const isBinaryContent = typeof content === "object";
   const isLargeContent  = typeof content === "string" && content.length > 20000;
-  const MAX_ATTEMPTS = isBinaryContent ? 1 : 2;
-  const perAttemptMs  = isBinaryContent ? 40000 : isLargeContent ? 20000 : 15000;
+  const MAX_ATTEMPTS = perAttemptMsOverride > 0 ? 1 : (isBinaryContent ? 1 : 2);
+  const perAttemptMs  = perAttemptMsOverride > 0 ? perAttemptMsOverride : (isBinaryContent ? 40000 : isLargeContent ? 20000 : 15000);
   const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
   keyLoop: for (const apiKey of rotatedKeys) {
     for (const model of GEMINI_MODELS) {
@@ -1578,6 +1579,7 @@ async function callAI(
   maxOutputTokens = 2048,
   fileBuffer?: Buffer,
   thinkingBudget = 0,
+  perAttemptMsOverride = 0,
 ): Promise<string> {
   // Para PDFs com imagem (> 500KB): usa Gemini Files API (fileUri) em vez de inline base64.
   // Abaixo de 500KB vai inline — elimina latência e 503 do upload. Acima, Files API é mais estável.
@@ -1605,7 +1607,7 @@ async function callAI(
 
   const aiCall = async (): Promise<string> => {
     try {
-      return await callGemini(prompt, resolvedContent, maxOutputTokens, thinkingBudget);
+      return await callGemini(prompt, resolvedContent, maxOutputTokens, thinkingBudget, perAttemptMsOverride);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (imageContent || OPENROUTER_API_KEYS.length === 0) throw err;
@@ -3230,7 +3232,7 @@ async function processExtract(
       const maxChars: Record<string, number> = {
         cnpj: 4000, qsa: 6000, faturamento: 20000, scr: 15000,
         protestos: 8000, processos: 12000, grupoEconomico: 8000,
-        dre: 30000, balanco: 30000, ir_socio: 25000,
+        dre: 30000, balanco: 30000, ir_socio: 15000,
         curva_abc: 60000,
         // relatorio_visita / contrato → modo visual, não chegam aqui
       };
@@ -3285,6 +3287,13 @@ async function processExtract(
     };
     const _thinkingBudget = thinkingBudgetMap[docType] ?? 256;
 
+    // Documentos que precisam de mais tempo por tentativa (texto longo + estrutura densa).
+    // Override > 0 → callGemini usa 1 tentativa com esse timeout em vez de 2 × 15s.
+    const perAttemptMsMap: Record<string, number> = {
+      ir_socio: 30000,  // DIRPF pode ter 100+ linhas de bens/rendimentos — 30s por tentativa
+    };
+    const _perAttemptMsOverride = perAttemptMsMap[docType] ?? 0;
+
     const stream = new ReadableStream({
       async start(controller) {
         const keepalive = setInterval(() => _send(controller, "keepalive", { ts: Date.now() }), 5000);
@@ -3298,7 +3307,7 @@ async function processExtract(
           _send(controller, "status", { message: "Processando documento...", inputMode, textLen: _textContent.length, docType: _docType });
 
           try {
-            const aiResponse = await callAI(_prompt, _textContent, _imageContent, _maxOutputTokens, _imageContent ? _buffer : undefined, _thinkingBudget);
+            const aiResponse = await callAI(_prompt, _textContent, _imageContent, _maxOutputTokens, _imageContent ? _buffer : undefined, _thinkingBudget, _perAttemptMsOverride);
             _rawAiResponse = aiResponse;
             console.log(`[extract] AI response length: ${aiResponse.length}`);
             console.log(`[extract] AI raw response (first 1000 chars):`, aiResponse.substring(0, 1000));

@@ -107,6 +107,37 @@ export function renderParecerSection(ctx: PdfCtx): void {
     pos.y += BH + 6;
   }
 
+  // ── Alertas da IA ─────────────────────────────────────────────────────────
+  const allAlerts = params.alerts ?? [];
+  if (allAlerts.length > 0) {
+    checkPageBreak(ctx, allAlerts.length * 10 + 6);
+    stitle("Alertas");
+    allAlerts.forEach(alert => {
+      const isCrit = alert.severity === "CRÍTICO";
+      const isMod  = alert.severity === "RESTRITIVO";
+      const bg:    [number,number,number] = isCrit ? P.r0  : isMod ? P.a0  : [240, 249, 255];
+      const bd:    [number,number,number] = isCrit ? P.r1  : isMod ? P.a1  : [186, 230, 253];
+      const lc:    [number,number,number] = isCrit ? P.r6  : isMod ? P.a5  : [14, 116, 144];
+      const label  = isCrit ? "CRÍTICO" : isMod ? "MODERADO" : "OBSERVAÇÃO";
+      const msgLines = doc.splitTextToSize(alert.message, CW - 28) as string[];
+      const AH = Math.max(8, msgLines.length * 4.5 + 5);
+      checkPageBreak(ctx, AH + 3);
+      doc.setFillColor(...bg); doc.setDrawColor(...bd); doc.setLineWidth(0.25);
+      doc.roundedRect(ML, pos.y, CW, AH, 2, 2, "FD");
+      doc.setFillColor(...lc);
+      doc.rect(ML, pos.y + 2, 3, AH - 4, "F");
+      const lw = doc.getTextWidth(label) + 4;
+      doc.setFillColor(...bd);
+      doc.roundedRect(ML + 6, pos.y + (AH - 4.5) / 2, lw, 4.5, 1, 1, "F");
+      doc.setFont("helvetica", "bold"); doc.setFontSize(5.5); doc.setTextColor(...lc);
+      doc.text(label, ML + 8, pos.y + AH / 2 + 1);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(6.5); doc.setTextColor(...P.x7);
+      doc.text(msgLines, ML + lw + 10, pos.y + AH / 2 - (msgLines.length - 1) * 2 + 1);
+      pos.y += AH + 2;
+    });
+    pos.y += 3;
+  }
+
   // Verifica se há conteúdo real para exibir
   const texto = (resumoExecutivo || "").trim();
   const pfList = pontosFortes.slice(0, 6);

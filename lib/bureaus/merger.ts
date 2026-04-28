@@ -93,6 +93,35 @@ export function mergeBureauResults(
         alertaParentesco: ge.alertaParentesco,
         parentescosDetectados: ge.parentescosDetectados,
       };
+
+      // KYC dos sócios via Credit Hub: enriquece QSA com processos/protestos
+      // Só preenche campos que o BDC não populou (BDC tem prioridade)
+      if (ge.sociosKyc?.length) {
+        const kycMap = new Map(ge.sociosKyc.map(k => [k.cpf.replace(/\D/g, ""), k]));
+        const baseQSA = merged.qsa ?? data.qsa;
+        if (baseQSA?.quadroSocietario.length) {
+          merged.qsa = {
+            ...baseQSA,
+            quadroSocietario: baseQSA.quadroSocietario.map(s => {
+              const cpfNum = (s.cpfCnpj ?? "").replace(/\D/g, "");
+              if (cpfNum.length !== 11) return s;
+              const kyc = kycMap.get(cpfNum);
+              if (!kyc) return s;
+              return {
+                ...s,
+                // BDC tem prioridade; Credit Hub preenche quando BDC não tem
+                processosTotal:      s.processosTotal      ?? kyc.processosTotal,
+                processosAtivo:      s.processosAtivo      ?? kyc.processosAtivo,
+                processosPassivo:    s.processosPassivo     ?? kyc.processosPassivo,
+                processosValorTotal: s.processosValorTotal  ?? kyc.processosValorTotal,
+                ultimoProcessoData:  s.ultimoProcessoData   ?? kyc.ultimoProcessoData,
+                protestosSocioQtd:   s.protestosSocioQtd   ?? kyc.protestosQtd,
+                ultimoProtestoData:  s.ultimoProtestoData   ?? kyc.ultimoProtestoData,
+              };
+            }),
+          };
+        }
+      }
     }
 
     // Enriquecer CNPJ com dados do Credit Hub (apenas campos vazios)
