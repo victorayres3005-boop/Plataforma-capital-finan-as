@@ -104,6 +104,16 @@ export function SectionSCRSocios({ socios, expanded, onToggle, quality }: Props)
                         {atual?.periodoReferencia || "—"}
                         {anterior?.periodoReferencia ? ` × ${anterior.periodoReferencia}` : ""}
                       </span>
+                      {atual?.urlRelatorio && (
+                        <a
+                          href={atual.urlRelatorio}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ fontSize: "11px", fontWeight: 600, color: "#203b88", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "4px", padding: "3px 8px", border: "1px solid #c7d3f0", borderRadius: "6px", background: "#eef2fb", whiteSpace: "nowrap" }}
+                        >
+                          🔗 Ver DataBox360
+                        </a>
+                      )}
                     </div>
                   </div>
                 </div>
