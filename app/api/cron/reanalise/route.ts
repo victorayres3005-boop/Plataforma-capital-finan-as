@@ -6,12 +6,13 @@ import { createClient } from "@supabase/supabase-js";
 const CRON_SECRET = process.env.CRON_SECRET || "";
 
 export async function GET(request: Request) {
-  // Verificar header de autorização do Vercel Cron
-  if (CRON_SECRET) {
-    const authHeader = request.headers.get("authorization");
-    if (authHeader !== `Bearer ${CRON_SECRET}`) {
-      return new Response("Unauthorized", { status: 401 });
-    }
+  // Fail-closed: sem CRON_SECRET configurado, ninguém roda (impede trigger não autorizado)
+  if (!CRON_SECRET) {
+    return new Response("CRON_SECRET não configurado", { status: 503 });
+  }
+  const authHeader = request.headers.get("authorization");
+  if (authHeader !== `Bearer ${CRON_SECRET}`) {
+    return new Response("Unauthorized", { status: 401 });
   }
 
   const supabase = createClient(

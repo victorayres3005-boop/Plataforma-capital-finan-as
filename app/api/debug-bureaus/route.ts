@@ -2,10 +2,18 @@ export const maxDuration = 60;
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
+import { createServerSupabase } from "@/lib/supabase/server";
 
 // GET /api/debug-bureaus?cnpj=XX&bureau=assertiva|bdc&cpf=YY
 // Faz chamada real e retorna JSON bruto — usado para confirmar endpoints e campos
 export async function GET(req: NextRequest) {
+  // Auth — chamadas reais geram custo em $
+  const authSb = await createServerSupabase();
+  const { data: { user } } = await authSb.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  }
+
   const cnpj   = req.nextUrl.searchParams.get("cnpj")?.replace(/\D/g, "") || "00000000000191";
   const bureau = req.nextUrl.searchParams.get("bureau") || "assertiva";
   const cpf    = req.nextUrl.searchParams.get("cpf")?.replace(/\D/g, "") || "";

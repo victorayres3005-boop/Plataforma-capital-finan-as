@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { gerarHtmlRelatorio } from "@/lib/pdf/template";
 import type { PDFReportParams } from "@/lib/generators/pdf";
+import { createServerSupabase } from "@/lib/supabase/server";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -37,6 +38,13 @@ async function getBrowser() {
 }
 
 export async function POST(req: NextRequest) {
+  // Auth — Chromium gasta tempo de função; bloqueia abuso anônimo
+  const authSb = await createServerSupabase();
+  const { data: { user } } = await authSb.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  }
+
   let browser;
   try {
     const dados: PDFReportParams = await req.json();

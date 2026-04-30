@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { useAuth } from "@/lib/useAuth";
@@ -48,12 +48,14 @@ export default function PerfilPage() {
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [avatarSuccess, setAvatarSuccess] = useState(false);
 
-  // Load user data once
-  if (user && !profileLoaded) {
-    setFullName(user.user_metadata?.full_name || "");
-    setAvatarUrl(user.user_metadata?.avatar_url || null);
-    setProfileLoaded(true);
-  }
+  // Load user data once — useEffect evita setState durante render
+  useEffect(() => {
+    if (user && !profileLoaded) {
+      setFullName(user.user_metadata?.full_name || "");
+      setAvatarUrl(user.user_metadata?.avatar_url || null);
+      setProfileLoaded(true);
+    }
+  }, [user, profileLoaded]);
 
   const handleSaveProfile = async () => {
     if (!fullName.trim()) { toast.error("Digite seu nome"); return; }
@@ -180,10 +182,12 @@ export default function PerfilPage() {
     );
   }
 
-  if (!user) {
-    router.push("/login");
-    return null;
-  }
+  // Redirect via useEffect (router.push em render é anti-padrão)
+  useEffect(() => {
+    if (!authLoading && !user) router.push("/login");
+  }, [authLoading, user, router]);
+
+  if (!user) return null;
 
   return (
     <div className="min-h-screen bg-cf-bg flex flex-col">

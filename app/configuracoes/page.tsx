@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, SlidersHorizontal } from "lucide-react";
 import { useAuth } from "@/lib/useAuth";
@@ -9,6 +10,10 @@ export default function ConfiguracoesPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
 
+  useEffect(() => {
+    if (!authLoading && !user) router.push("/login");
+  }, [authLoading, user, router]);
+
   if (authLoading) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#F5F7FB" }}>
@@ -16,7 +21,7 @@ export default function ConfiguracoesPage() {
       </div>
     );
   }
-  if (!user) { router.push("/login"); return null; }
+  if (!user) return null;
 
   return (
     <div style={{ minHeight: "100vh", background: "#F5F7FB", display: "flex", flexDirection: "column" }}>

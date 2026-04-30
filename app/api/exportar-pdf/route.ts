@@ -2,11 +2,19 @@ import Chromium from "@sparticuz/chromium-min";
 import puppeteer from "puppeteer-core";
 import { gerarHtmlRelatorio } from "@/lib/pdf/template";
 import type { PDFReportParams } from "@/lib/generators/pdf";
+import { createServerSupabase } from "@/lib/supabase/server";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  // Auth — Chromium gasta tempo de função; bloqueia abuso anônimo
+  const authSb = await createServerSupabase();
+  const { data: { user } } = await authSb.auth.getUser();
+  if (!user) {
+    return Response.json({ error: "Não autenticado" }, { status: 401 });
+  }
+
   const chromiumUrl = process.env.CHROMIUM_URL;
   if (!chromiumUrl) {
     return new Response(

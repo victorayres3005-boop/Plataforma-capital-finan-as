@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 import { createClient } from "@supabase/supabase-js";
+import { createServerSupabase } from "@/lib/supabase/server";
 
 /**
  * GET /api/debug-extraction?collectionId=XXX
@@ -9,6 +10,13 @@ import { createClient } from "@supabase/supabase-js";
  * Used to debug when values look wrong in the report.
  */
 export async function GET(req: Request) {
+  // Auth — endpoint expõe extracted_data sensível (IR, SCR, sócios)
+  const authSb = await createServerSupabase();
+  const { data: { user } } = await authSb.auth.getUser();
+  if (!user) {
+    return Response.json({ error: "Não autenticado" }, { status: 401 });
+  }
+
   const url = new URL(req.url);
   const collectionId = url.searchParams.get("collectionId");
   if (!collectionId) {

@@ -1,6 +1,8 @@
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+import { createServerSupabase } from "@/lib/supabase/server";
+
 /**
  * Diagnostic endpoint — tests CreditHub with multiple strategies
  * to find what works. Returns all attempts + results.
@@ -8,8 +10,18 @@ export const maxDuration = 60;
  * Usage: GET /api/ch-diag?cnpj=06241040000101
  */
 export async function GET(req: Request) {
+  // Auth — endpoint dispara chamadas reais ao CreditHub
+  const authSb = await createServerSupabase();
+  const { data: { user } } = await authSb.auth.getUser();
+  if (!user) {
+    return Response.json({ error: "Não autenticado" }, { status: 401 });
+  }
+
   const cnpj = new URL(req.url).searchParams.get("cnpj") || "06241040000101";
-  const KEY = process.env.CREDITHUB_API_KEY || "9d3b1f096fe2b4c5ba9855d286c92d38";
+  const KEY = process.env.CREDITHUB_API_KEY;
+  if (!KEY) {
+    return Response.json({ error: "CREDITHUB_API_KEY não configurada" }, { status: 500 });
+  }
   const cnpjNum = cnpj.replace(/\D/g, "");
 
   const strategies = [

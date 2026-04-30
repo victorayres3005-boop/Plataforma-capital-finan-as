@@ -95,6 +95,7 @@ async function fetchTribunalBatch(
         _source: ["numeroProcesso", "classe", "grau", "orgaoJulgador", "assuntos",
                   "dataAjuizamento", "dataHoraUltimaAtualizacao", "movimentos"],
       }),
+      signal: AbortSignal.timeout(20_000), // 20s — tribunais lentos não podem estourar Vercel
     });
 
     if (!res.ok) return result;
@@ -105,7 +106,7 @@ async function fetchTribunalBatch(
       result.set(src.numeroProcesso, src);
     }
   } catch {
-    // DataJud indisponível — retorna vazio silenciosamente
+    // DataJud indisponível ou timeout — retorna vazio silenciosamente
   }
 
   return result;

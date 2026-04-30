@@ -7,6 +7,7 @@
  * REMOVER em produção quando não for mais necessário.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { createServerSupabase } from "@/lib/supabase/server";
 
 const CREDITHUB_API_URL = process.env.CREDITHUB_API_URL || "";
 const CREDITHUB_API_KEY = process.env.CREDITHUB_API_KEY || "";
@@ -38,6 +39,13 @@ async function fetchCreditHub(url: string): Promise<{ ok: boolean; status: numbe
 }
 
 export async function GET(req: NextRequest) {
+  // Auth — chamadas reais ao CreditHub geram custo + privacidade
+  const authSb = await createServerSupabase();
+  const { data: { user } } = await authSb.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  }
+
   const cpf = req.nextUrl.searchParams.get("cpf") ?? "";
   const mode = req.nextUrl.searchParams.get("mode") ?? "simples";
   const cpfNum = cpf.replace(/\D/g, "");

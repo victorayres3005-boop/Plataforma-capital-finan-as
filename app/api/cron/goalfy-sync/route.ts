@@ -6,11 +6,13 @@ import { syncGoalfyCards } from "@/lib/goalfy/sync";
 const CRON_SECRET = process.env.CRON_SECRET || "";
 
 export async function GET(req: Request) {
-  if (CRON_SECRET) {
-    const auth = req.headers.get("authorization");
-    if (auth !== `Bearer ${CRON_SECRET}`) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  // Fail-closed: sem CRON_SECRET, ninguém roda
+  if (!CRON_SECRET) {
+    return Response.json({ error: "CRON_SECRET não configurado" }, { status: 503 });
+  }
+  const auth = req.headers.get("authorization");
+  if (auth !== `Bearer ${CRON_SECRET}`) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {

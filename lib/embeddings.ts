@@ -33,6 +33,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body,
+        signal: AbortSignal.timeout(15_000), // 15s — Gemini outage não pode travar a função
       });
       if (!res.ok) {
         const bodyText = await res.text().catch(() => "");

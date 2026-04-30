@@ -78,10 +78,11 @@ function ShellInner({ children }: { children: React.ReactNode }) {
   const showDashboard  = pathname === "/" && !isInsideColeta;
 
   function goToDashboard() {
+    try { sessionStorage.removeItem("cf_nav_state"); } catch {/* */}
     if (pathname === "/") {
-      try { sessionStorage.removeItem("cf_nav_state"); } catch {/* */}
+      // já em "/" — limpa querystring (resume/step) e recarrega dados sem dropar SPA state
       window.history.replaceState({}, "", "/");
-      window.location.reload();
+      router.refresh();
     } else {
       router.push("/");
     }

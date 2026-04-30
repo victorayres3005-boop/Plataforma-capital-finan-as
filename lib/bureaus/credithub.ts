@@ -558,7 +558,8 @@ function parseProcessos(d: any): ProcessosData {
   console.log(`[credithub] processos polo ativo=${poloAtivoQtd} polo passivo=${poloPassivoQtd} arquivados=${arquivados} interrompidos=${interrompidos} falência=${temFalencia}`);
 
   return {
-    passivosTotal: String(processos.length + dividas.length),
+    // Total de PROCESSOS (não somar dividas — são entidades distintas; o valor agregado vai em valorTotalEstimado)
+    passivosTotal: String(processos.length),
     ativosTotal: String(ativos),
     valorTotalEstimado: fmtBRL(valorProcessos + valorDividas),
     temRJ,
@@ -660,10 +661,15 @@ function parseCCF(d: any): CCFData {
       motivo: b.motivo ?? "",
     };
   });
-  const historico: CCFData["historico"] = (ccf.historico ?? []).map((h: any) => ({
-    quantidade: Number(h.quantidade ?? 0),
-    dataConsulta: h.dataConsulta ?? "",
-  }));
+  const historico: CCFData["historico"] = (ccf.historico ?? [])
+    .map((h: any) => ({
+      quantidade: Number(h.quantidade ?? 0),
+      dataConsulta: h.dataConsulta ?? "",
+    }))
+    // Garante ordem cronológica DECRESCENTE (mais recente primeiro) — API pode chegar em qualquer ordem
+    .sort((a: { dataConsulta: string }, b: { dataConsulta: string }) =>
+      String(b.dataConsulta).localeCompare(String(a.dataConsulta))
+    );
   // Tendência: compara mais recente vs ~6 meses atrás
   let tendenciaVariacao: number | undefined;
   let tendenciaLabel: string | undefined;
