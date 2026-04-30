@@ -381,6 +381,7 @@ export interface DataBox360EmpresaGrupoResult {
   totalDividas: string;       // formatado BRL
   carteiraVencer: string;
   carteiraVencido: string;
+  prejuizos: string;
   qtdeOperacoes: number;
 }
 
@@ -415,6 +416,7 @@ export async function consultarSCRGrupoEconomico(
         totalDividas:    fmtBRL(total),
         carteiraVencer:  scr.carteiraAVencer ?? "R$ 0,00",
         carteiraVencido: scr.vencidos ?? "R$ 0,00",
+        prejuizos:       scr.prejuizos ?? "R$ 0,00",
         qtdeOperacoes:   Number(scr.qtdeOperacoes ?? 0),
       };
     })

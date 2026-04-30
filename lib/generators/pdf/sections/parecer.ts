@@ -6,6 +6,8 @@
 import type { PdfCtx } from "../context";
 import { newPage, drawHeader, checkPageBreak, drawJustifiedText } from "../helpers";
 
+const HIDE_AVALIACAO = true;
+
 const P = {
   n9:  [12,  27,  58]  as [number,number,number],
   n8:  [19,  41,  82]  as [number,number,number],
@@ -87,22 +89,24 @@ export function renderParecerSection(ctx: PdfCtx): void {
     doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...P.wh);
     doc.text("PARECER PRELIMINAR", ML + 5 + nw + 7, pos.y + BH - 1);
 
-    // Badge decisão (direita) + score
-    const sR  = 5;
-    const sCx = ML + CW - sR - 4;
-    const sCy = pos.y + BH/2 + 1;
-    doc.setDrawColor(...scoreColor); doc.setLineWidth(1.5);
-    doc.circle(sCx, sCy, sR, "S");
-    doc.setFont("courier","bold"); doc.setFontSize(7); doc.setTextColor(...scoreColor);
-    doc.text(score.toFixed(1), sCx, sCy + 1.5, { align: "center" });
+    // Badge decisão (direita) + score — ocultos enquanto avaliação está em calibração
+    if (!HIDE_AVALIACAO) {
+      const sR  = 5;
+      const sCx = ML + CW - sR - 4;
+      const sCy = pos.y + BH/2 + 1;
+      doc.setDrawColor(...scoreColor); doc.setLineWidth(1.5);
+      doc.circle(sCx, sCy, sR, "S");
+      doc.setFont("courier","bold"); doc.setFontSize(7); doc.setTextColor(...scoreColor);
+      doc.text(score.toFixed(1), sCx, sCy + 1.5, { align: "center" });
 
-    doc.setFont("helvetica","bold"); doc.setFontSize(6.5);
-    const dlbl = dec;
-    const dw   = doc.getTextWidth(dlbl) + 8;
-    doc.setFillColor(...decBg);
-    doc.roundedRect(sCx - sR - dw - 5, pos.y + BH/2 - 2.5, dw, 6, 1.5, 1.5, "F");
-    doc.setTextColor(...decColor);
-    doc.text(dlbl, sCx - sR - dw/2 - 5, pos.y + BH/2 + 2, { align: "center" });
+      doc.setFont("helvetica","bold"); doc.setFontSize(6.5);
+      const dlbl = dec;
+      const dw   = doc.getTextWidth(dlbl) + 8;
+      doc.setFillColor(...decBg);
+      doc.roundedRect(sCx - sR - dw - 5, pos.y + BH/2 - 2.5, dw, 6, 1.5, 1.5, "F");
+      doc.setTextColor(...decColor);
+      doc.text(dlbl, sCx - sR - dw/2 - 5, pos.y + BH/2 + 2, { align: "center" });
+    }
 
     pos.y += BH + 6;
   }

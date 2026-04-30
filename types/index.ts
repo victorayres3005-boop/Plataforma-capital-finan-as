@@ -467,6 +467,7 @@ export interface IRSocioData {
   bensVeiculos: string;
   aplicacoesFinanceiras: string;
   outrosBens: string;
+  participacoesSocietarias?: string;
   totalBensDireitos: string;
   dividasOnus: string;
   patrimonioLiquido: string;
@@ -600,6 +601,9 @@ export interface EmpresaGrupo {
   cnpj: string;
   relacao: string;  // "via Sócio", "Controlada", "Coligada"
   scrTotal: string;
+  scrVencidos?: string;  // carteira vencida SCR (DataBox360)
+  scrAVencer?: string;   // carteira a vencer SCR (DataBox360)
+  scrPrejuizos?: string; // prejuízos SCR (DataBox360)
   protestos: string;
   processos: string;
   valorProcessos?: string; // valor total estimado dos processos (BDC)
@@ -852,6 +856,8 @@ export interface CollectionDocument {
   filename: string;
   extracted_data: Record<string, unknown>;
   uploaded_at: string;
+  blob_url?: string;
+  status?: string;
 }
 
 export interface DocumentCollection {
@@ -865,7 +871,7 @@ export interface DocumentCollection {
   company_name: string | null;
   cnpj: string | null;
   rating: number | null;
-  decisao: 'APROVADO' | 'APROVACAO_CONDICIONAL' | 'PENDENTE' | 'REPROVADO' | null;
+  decisao: 'APROVADO' | 'APROVACAO_CONDICIONAL' | 'PENDENTE' | 'REPROVADO' | 'QUESTIONAMENTO' | null;
   fmm_12m: number | null;
   ai_analysis?: Record<string, unknown> | null;
   observacoes?: string | null;

@@ -8,6 +8,8 @@ import type { PdfCtx } from "../context";
 import { newPage, drawHeader, checkPageBreak, drawSpacer, fmtBR, parseMoneyToNumber, drawJustifiedText } from "../helpers";
 import { recomputeSCRTotals } from "@/lib/hydrateFromCollection";
 
+const HIDE_AVALIACAO = true;
+
 // ── Utilitários ───────────────────────────────────────────────────────────────
 function sortMes(ms: Array<{ mes: string; valor: string }>) {
   const key = (s: string) => {
@@ -307,8 +309,8 @@ export function renderSintese(ctx: PdfCtx): void {
   {
     checkPageBreak(ctx, 42);
     const y0    = pos.y;
-    const RATEW = 44;
-    const compW = CW - RATEW - GAP;
+    const RATEW = HIDE_AVALIACAO ? 0 : 44;
+    const compW = CW - (HIDE_AVALIACAO ? 0 : RATEW + GAP);
 
     // Razão social
     doc.setFont("helvetica", "bold");
@@ -357,25 +359,26 @@ export function renderSintese(ctx: PdfCtx): void {
     if (cnae)       cx += badge(`CNAE ${cnae}`, cx, chipsY, P.x1, P.x7);
     void cx;
 
-    // Rating circle
-    const rCx = ML + compW + RATEW/2;
-    const rCy  = y0 + 13;
-    const rR   = 10;
-    doc.setDrawColor(...P.x2); doc.setLineWidth(2.5); doc.circle(rCx, rCy, rR, "S");
-    doc.setDrawColor(...scoreColor); doc.setLineWidth(2); doc.circle(rCx, rCy, rR, "S");
-    doc.setFont("helvetica","bold"); doc.setFontSize(14); doc.setTextColor(...scoreColor);
-    doc.text(score.toFixed(1), rCx, rCy+2.5, {align:"center"});
-    doc.setFont("helvetica","normal"); doc.setFontSize(5); doc.setTextColor(...P.x5);
-    doc.text("Rating Capital", rCx, rCy+7.5, {align:"center"});
+    // Rating circle + Decision badge — ocultos enquanto avaliação está em calibração
+    if (!HIDE_AVALIACAO) {
+      const rCx = ML + compW + RATEW/2;
+      const rCy  = y0 + 13;
+      const rR   = 10;
+      doc.setDrawColor(...P.x2); doc.setLineWidth(2.5); doc.circle(rCx, rCy, rR, "S");
+      doc.setDrawColor(...scoreColor); doc.setLineWidth(2); doc.circle(rCx, rCy, rR, "S");
+      doc.setFont("helvetica","bold"); doc.setFontSize(14); doc.setTextColor(...scoreColor);
+      doc.text(score.toFixed(1), rCx, rCy+2.5, {align:"center"});
+      doc.setFont("helvetica","normal"); doc.setFontSize(5); doc.setTextColor(...P.x5);
+      doc.text("Rating Capital", rCx, rCy+7.5, {align:"center"});
 
-    // Decision badge
-    const dlbl = dec;
-    doc.setFont("helvetica","bold"); doc.setFontSize(6.5);
-    const dw = doc.getTextWidth(dlbl)+9;
-    doc.setFillColor(...decBg);
-    doc.roundedRect(rCx-dw/2, rCy+10, dw, 5.5, 1.5, 1.5, "F");
-    doc.setTextColor(...decColor);
-    doc.text(dlbl, rCx, rCy+14, {align:"center"});
+      const dlbl = dec;
+      doc.setFont("helvetica","bold"); doc.setFontSize(6.5);
+      const dw = doc.getTextWidth(dlbl)+9;
+      doc.setFillColor(...decBg);
+      doc.roundedRect(rCx-dw/2, rCy+10, dw, 5.5, 1.5, 1.5, "F");
+      doc.setTextColor(...decColor);
+      doc.text(dlbl, rCx, rCy+14, {align:"center"});
+    }
 
     pos.y = chipsY + 6;
     divider();

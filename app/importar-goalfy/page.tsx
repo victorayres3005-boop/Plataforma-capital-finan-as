@@ -5,24 +5,28 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/useAuth";
 import {
   Zap, RefreshCw, Loader2, FileText, Building2,
-  CheckCircle2, AlertTriangle, ChevronRight,
-  Settings, User, Calendar, Files,
+  AlertTriangle, ArrowRight, Clock, Link2,
+  Sparkles, Copy, Check, ChevronDown, ChevronUp,
+  CheckCircle2, User,
 } from "lucide-react";
 import type { GoalfyOperation } from "@/app/api/goalfy/listar/route";
 
 type OperationWithStatus = GoalfyOperation & { already_imported: boolean };
+type ImportPhase = "idle" | "downloading" | "extracting" | "done" | "error";
 
 const DOC_TYPE_LABEL: Record<string, string> = {
-  contrato_social:   "Contrato Social",
-  scr:               "SCR",
-  balanco:           "Balanço",
-  dre:               "DRE",
-  faturamento:       "Faturamento",
-  qsa:               "QSA",
-  ir_socio:          "IR Sócio",
-  relatorio_visita:  "Rel. Visita",
-  protestos:         "Protestos",
-  processos:         "Processos",
+  contrato_social:  "Contrato Social",
+  scr:              "SCR",
+  balanco:          "Balanço",
+  dre:              "DRE",
+  faturamento:      "Faturamento",
+  qsa:              "QSA",
+  ir_socio:         "IR Sócio",
+  relatorio_visita: "Rel. Visita",
+  protestos:        "Protestos",
+  processos:        "Processos",
+  curva_abc:        "Curva ABC",
+  outro:            "Outro",
 };
 
 function docLabel(type: string) {
@@ -39,6 +43,30 @@ function timeAgo(iso: string) {
   return `há ${d} dias`;
 }
 
+function companyInitials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(w => w.length > 2)
+    .slice(0, 2)
+    .map(w => w[0].toUpperCase())
+    .join("") || name.slice(0, 2).toUpperCase();
+}
+
+// Paleta de cores para os avatares por inicial
+const AVATAR_COLORS: [string, string][] = [
+  ["#1a2f6b", "#e8efff"],
+  ["#065f46", "#d1fae5"],
+  ["#7c3aed", "#ede9fe"],
+  ["#b45309", "#fef3c7"],
+  ["#0e7490", "#cffafe"],
+  ["#be123c", "#ffe4e6"],
+];
+
+function avatarColor(name: string): [string, string] {
+  const idx = name.charCodeAt(0) % AVATAR_COLORS.length;
+  return AVATAR_COLORS[idx];
+}
+
 export default function ImportarGoalfyPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -46,12 +74,16 @@ export default function ImportarGoalfyPage() {
   const [operations, setOperations]   = useState<OperationWithStatus[]>([]);
   const [loading, setLoading]         = useState(true);
   const [syncing, setSyncing]         = useState(false);
-  const [isMock, setIsMock]           = useState(false);
-  const [setupRequired, setSetupRequired] = useState(false);
+  const [lastSync, setLastSync]       = useState<Date | null>(null);
   const [error, setError]             = useState<string | null>(null);
-  const [importing, setImporting]     = useState<Record<string, boolean>>({});
-  const [imported, setImported]       = useState<Record<string, string>>({});  // opId → collectionId
-  const [importedDocs, setImportedDocs] = useState<Record<string, string[]>>({}); // opId → doc_types
+  const [importPhase, setImportPhase] = useState<Record<string, ImportPhase>>({});
+  const [imported, setImported]       = useState<Record<string, string>>({});
+  const [copied, setCopied]           = useState(false);
+  const [doneOpen, setDoneOpen]       = useState(false);
+
+  const webhookUrl = typeof window !== "undefined"
+    ? `${window.location.origin}/api/goalfy/receber`
+    : "https://plataformacapital.vercel.app/api/goalfy/receber";
 
   const fetchList = useCallback(async () => {
     setError(null);
@@ -60,8 +92,7 @@ export default function ImportarGoalfyPage() {
       if (!res.ok) throw new Error("Falha ao buscar operações");
       const json = await res.json() as { operations: OperationWithStatus[]; mock: boolean; setup_required?: boolean };
       setOperations(json.operations);
-      setIsMock(json.mock);
-      setSetupRequired(!!json.setup_required);
+      setLastSync(new Date());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erro desconhecido");
     }
@@ -76,20 +107,17 @@ export default function ImportarGoalfyPage() {
   async function handleSync() {
     setSyncing(true);
     try {
-      const res = await fetch("/api/goalfy/sync", { method: "POST" });
-      const json = await res.json() as { success?: boolean; synced?: number; total?: number; error?: string };
-      if (!res.ok || !json.success) {
-        console.warn("[goalfy sync]", json.error);
-      } else {
-        console.log(`[goalfy sync] ${json.synced}/${json.total} cards`);
-      }
+      await fetch("/api/goalfy/sync", { method: "POST" });
     } catch { /* silencioso */ }
     await fetchList();
     setSyncing(false);
   }
 
   async function handleImport(op: OperationWithStatus) {
-    setImporting(prev => ({ ...prev, [op.id]: true }));
+    setImportPhase(p => ({ ...p, [op.id]: "downloading" }));
+    await new Promise(r => setTimeout(r, 800));
+    setImportPhase(p => ({ ...p, [op.id]: "extracting" }));
+
     try {
       const res = await fetch("/api/goalfy/importar", {
         method: "POST",
@@ -98,145 +126,204 @@ export default function ImportarGoalfyPage() {
       });
       const json = await res.json() as { success?: boolean; collection_id?: string; error?: string };
       if (!res.ok || !json.success) throw new Error(json.error ?? "Erro ao importar");
-      const docTypes = op.documents.map(d => d.type).filter(t => t && t !== "outro");
-      setImportedDocs(prev => ({ ...prev, [op.id]: docTypes }));
       setImported(prev => ({ ...prev, [op.id]: json.collection_id! }));
+      setImportPhase(p => ({ ...p, [op.id]: "done" }));
       setOperations(prev => prev.map(o => o.id === op.id ? { ...o, already_imported: true } : o));
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Erro ao importar operação");
-    } finally {
-      setImporting(prev => ({ ...prev, [op.id]: false }));
+      setImportPhase(p => ({ ...p, [op.id]: "error" }));
+      setTimeout(() => setImportPhase(p => ({ ...p, [op.id]: "idle" })), 3000);
+      console.error(e);
     }
   }
 
-  function goToCollection(collectionId: string, docTypes?: string[]) {
-    const highlight = docTypes?.filter(Boolean).join(",");
-    router.push(`/?resume=${collectionId}${highlight ? `&highlight=${highlight}` : ""}`);
+  function goToCollection(collectionId: string) {
+    router.push(`/?resume=${collectionId}`);
   }
 
-  const pending  = operations.filter(o => !o.already_imported);
-  const done     = operations.filter(o =>  o.already_imported);
+  const pending = operations.filter(o => !o.already_imported);
+  const done    = operations.filter(o =>  o.already_imported);
 
   if (authLoading || loading) {
     return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#F5F7FB" }}>
-        <Loader2 size={24} style={{ animation: "spin 1s linear infinite", color: "#203b88" }} />
+      <div className="min-h-screen flex items-center justify-center bg-cf-bg">
+        <Loader2 size={24} className="animate-spin text-cf-navy" />
       </div>
     );
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: "#F5F7FB" }}>
-      <main style={{ maxWidth: "920px", margin: "0 auto", padding: "32px 24px" }}>
+    <div className="min-h-screen bg-cf-bg">
+      <main style={{ maxWidth: 860, margin: "0 auto", padding: "32px 20px" }}>
 
-        {/* ── Header ── */}
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "24px", flexWrap: "wrap", gap: 12 }}>
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 10, background: "linear-gradient(135deg, #1a2f6b, #203b88)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Zap size={18} style={{ color: "#a8d96b" }} />
+        {/* ── Header ─────────────────────────────────────────────────────── */}
+        <div className="mb-6">
+          <div className="flex items-start justify-between gap-4 flex-wrap mb-4">
+            <div className="flex items-center gap-3">
+              <div style={{
+                width: 44, height: 44, borderRadius: 13,
+                background: "linear-gradient(135deg,#1a2f6b,#2d4fad)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                flexShrink: 0, boxShadow: "0 2px 8px rgba(26,47,107,0.25)",
+              }}>
+                <Zap size={21} color="#a8d96b" />
               </div>
-              <h1 style={{ fontSize: 20, fontWeight: 700, color: "#0f172a", margin: 0 }}>Importar do Goalfy</h1>
-              {pending.length > 0 && (
-                <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#fffbeb", color: "#d97706", border: "1px solid #fde68a" }}>
-                  {pending.length} nova{pending.length !== 1 ? "s" : ""}
-                </span>
-              )}
+              <div>
+                <h1 className="text-xl font-bold text-cf-text-1 leading-tight">Importar do Goalfy</h1>
+                <p className="text-xs text-cf-text-3 mt-0.5">Operações recebidas automaticamente via webhook</p>
+              </div>
             </div>
-            <p style={{ fontSize: 13, color: "#64748b", margin: 0 }}>
-              Operações lançadas pelos gerentes na Goalfy prontas para análise
-            </p>
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-white text-cf-navy border border-cf-border hover:bg-cf-bg transition-colors disabled:opacity-50"
+            >
+              <RefreshCw size={14} className={syncing ? "animate-spin" : ""} />
+              {syncing ? "Sincronizando..." : "Sincronizar"}
+            </button>
           </div>
-          <button
-            onClick={handleSync}
-            disabled={syncing}
-            style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 18px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: syncing ? "not-allowed" : "pointer", background: "white", color: "#203b88", border: "1px solid #d1dcf0", transition: "all 0.15s" }}
-          >
-            <RefreshCw size={14} style={{ animation: syncing ? "spin 1s linear infinite" : "none" }} />
-            {syncing ? "Sincronizando..." : "Sincronizar"}
-          </button>
+
+          {/* Painel de métricas rápidas */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-white rounded-xl border border-cf-border px-4 py-3">
+              <div className="text-[11px] font-semibold text-cf-text-3 uppercase tracking-wide mb-1">Pendentes</div>
+              <div className="flex items-end gap-2">
+                <span className="text-2xl font-bold" style={{ color: pending.length > 0 ? "#d97706" : "#94a3b8" }}>
+                  {pending.length}
+                </span>
+                {pending.length > 0 && (
+                  <span className="text-[11px] font-semibold text-amber-500 mb-0.5">aguardando análise</span>
+                )}
+              </div>
+            </div>
+            <div className="bg-white rounded-xl border border-cf-border px-4 py-3">
+              <div className="text-[11px] font-semibold text-cf-text-3 uppercase tracking-wide mb-1">Analisadas</div>
+              <div className="flex items-end gap-2">
+                <span className="text-2xl font-bold text-cf-text-1">{done.length}</span>
+                {done.length > 0 && (
+                  <span className="text-[11px] font-semibold text-green-600 mb-0.5">concluídas</span>
+                )}
+              </div>
+            </div>
+            <div className="bg-white rounded-xl border border-cf-border px-4 py-3">
+              <div className="text-[11px] font-semibold text-cf-text-3 uppercase tracking-wide mb-1">Última sync</div>
+              <div className="text-sm font-semibold text-cf-text-2">
+                {lastSync ? lastSync.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "—"}
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* ── Banner: configuração da automação Goalfy ── */}
-        {(isMock || setupRequired || operations.length === 0) && !error && (
-          <div style={{ display: "flex", gap: 12, padding: "16px 18px", borderRadius: 10, background: "#f0f4ff", border: "1px solid #c7d7f5", marginBottom: 20 }}>
-            <Settings size={18} style={{ color: "#203b88", flexShrink: 0, marginTop: 1 }} />
-            <div style={{ flex: 1 }}>
-              <p style={{ fontSize: 13, fontWeight: 700, color: "#1e3a8a", margin: "0 0 6px" }}>
-                Configure a automação na Goalfy para receber operações aqui
-              </p>
-              <p style={{ fontSize: 12, color: "#3b5db8", margin: "0 0 8px" }}>
-                No painel da Goalfy, crie uma <strong>Automação</strong> com o gatilho "Card criado" (ou "Card entrou em fase") e configure a ação <strong>Webhook HTTP</strong> apontando para a URL abaixo:
-              </p>
-              <code style={{ display: "block", background: "#dde8fa", color: "#1e3a8a", padding: "8px 12px", borderRadius: 6, fontSize: 12, fontWeight: 700, wordBreak: "break-all", marginBottom: 6 }}>
-                {typeof window !== "undefined" ? window.location.origin : "https://seuapp.vercel.app"}/api/goalfy/receber
-              </code>
-              <p style={{ fontSize: 11, color: "#64748b", margin: 0 }}>
-                Campos recomendados no payload: <code>razaoSocial</code>, <code>cnpj</code>, <code>gerente</code>, <code>documentos</code>
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* ── Erro ── */}
+        {/* ── Erro global ────────────────────────────────────────────────── */}
         {error && (
-          <div style={{ display: "flex", gap: 12, padding: "14px 18px", borderRadius: 10, background: "#fef2f2", border: "1px solid #fecaca", marginBottom: 20 }}>
-            <AlertTriangle size={18} style={{ color: "#dc2626", flexShrink: 0 }} />
-            <p style={{ fontSize: 13, color: "#dc2626", margin: 0 }}>{error}</p>
+          <div className="flex items-center gap-3 p-4 rounded-xl bg-red-50 border border-red-200 mb-5">
+            <AlertTriangle size={16} className="text-red-500 flex-shrink-0" />
+            <p className="text-sm text-red-600">{error}</p>
           </div>
         )}
 
-        {/* ── Operações pendentes ── */}
+        {/* ── Webhook URL ─────────────────────────────────────────────────── */}
+        <div className="bg-white rounded-xl border border-cf-border p-4 mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <Link2 size={13} className="text-cf-navy" />
+            <span className="text-sm font-semibold text-cf-text-1">URL do Webhook</span>
+            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">Configure na Goalfy</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 text-xs bg-cf-bg text-cf-navy font-mono px-3 py-2.5 rounded-lg border border-cf-border truncate">
+              {webhookUrl}
+            </code>
+            <button
+              onClick={async () => {
+                await navigator.clipboard.writeText(webhookUrl).catch(() => {});
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }}
+              className="flex items-center gap-1.5 px-3 py-2.5 rounded-lg text-xs font-semibold border transition-colors"
+              style={copied
+                ? { background: "#f0fdf4", color: "#16a34a", borderColor: "#bbf7d0" }
+                : { background: "white", color: "#203b88", borderColor: "#d1dcf0" }}
+            >
+              {copied ? <Check size={13} /> : <Copy size={13} />}
+              {copied ? "Copiado!" : "Copiar"}
+            </button>
+          </div>
+          <p className="text-[11px] text-cf-text-3 mt-2">
+            Na Goalfy: Automações → Webhook HTTP → Cole a URL acima → Método POST
+          </p>
+        </div>
+
+        {/* ── Pendentes ───────────────────────────────────────────────────── */}
         {pending.length > 0 && (
-          <section style={{ marginBottom: 28 }}>
-            <p style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
-              Aguardando importação · {pending.length}
-            </p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <section className="mb-6">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-[11px] font-bold text-cf-text-3 uppercase tracking-widest">Aguardando análise</span>
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">
+                {pending.length}
+              </span>
+            </div>
+            <div className="flex flex-col gap-3">
               {pending.map(op => (
                 <OperationCard
                   key={op.id}
                   op={op}
-                  isImporting={!!importing[op.id]}
+                  phase={importPhase[op.id] ?? "idle"}
                   importedId={imported[op.id]}
                   onImport={() => handleImport(op)}
-                  docTypes={importedDocs[op.id]}
-                  onOpen={() => goToCollection(imported[op.id], importedDocs[op.id])}
+                  onOpen={() => goToCollection(imported[op.id])}
                 />
               ))}
             </div>
           </section>
         )}
 
-        {/* ── Já importadas ── */}
+        {/* ── Já analisadas — accordion ──────────────────────────────────── */}
         {done.length > 0 && (
           <section>
-            <p style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
-              Já importadas · {done.length}
-            </p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {done.map(op => (
-                <OperationCard
-                  key={op.id}
-                  op={op}
-                  isImporting={false}
-                  importedId={imported[op.id]}
-                  onImport={() => {}}
-                  docTypes={importedDocs[op.id]}
-                  onOpen={() => goToCollection(imported[op.id], importedDocs[op.id])}
-                />
-              ))}
-            </div>
+            <button
+              onClick={() => setDoneOpen(o => !o)}
+              className="flex items-center gap-2 mb-3 group w-full text-left"
+            >
+              <span className="text-[11px] font-bold text-cf-text-3 uppercase tracking-widest group-hover:text-cf-text-2 transition-colors">
+                Já analisadas
+              </span>
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-green-50 text-green-600 border border-green-200">
+                {done.length}
+              </span>
+              <span className="ml-auto text-cf-text-3 group-hover:text-cf-text-2 transition-colors">
+                {doneOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </span>
+            </button>
+
+            {doneOpen && (
+              <div className="flex flex-col gap-2">
+                {done.map(op => (
+                  <OperationCard
+                    key={op.id}
+                    op={op}
+                    phase="done"
+                    importedId={imported[op.id]}
+                    onImport={() => {}}
+                    onOpen={() => imported[op.id] ? goToCollection(imported[op.id]) : undefined}
+                  />
+                ))}
+              </div>
+            )}
           </section>
         )}
 
-        {/* ── Empty ── */}
+        {/* ── Empty state ─────────────────────────────────────────────────── */}
         {operations.length === 0 && !error && (
-          <div style={{ textAlign: "center", padding: "60px 24px", background: "white", borderRadius: 12, border: "1px solid #e2e8f0" }}>
-            <Zap size={36} style={{ color: "#cbd5e1", margin: "0 auto 12px", display: "block" }} />
-            <p style={{ fontSize: 14, fontWeight: 600, color: "#64748b", margin: "0 0 4px" }}>Nenhuma operação disponível</p>
-            <p style={{ fontSize: 12, color: "#94a3b8", margin: 0 }}>
-              Quando os gerentes lançarem documentos na Goalfy, eles aparecerão aqui.
+          <div className="flex flex-col items-center justify-center py-16 bg-white rounded-xl border border-cf-border text-center">
+            <div style={{
+              width: 56, height: 56, borderRadius: 16,
+              background: "linear-gradient(135deg,#f1f5f9,#e8efff)",
+              display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16,
+            }}>
+              <Zap size={26} color="#94a3b8" />
+            </div>
+            <p className="text-sm font-semibold text-cf-text-2 mb-1">Nenhuma operação recebida ainda</p>
+            <p className="text-xs text-cf-text-3 max-w-xs leading-relaxed">
+              Configure o webhook na Goalfy com a URL acima. Quando um card for criado, ele aparece aqui automaticamente.
             </p>
           </div>
         )}
@@ -246,123 +333,169 @@ export default function ImportarGoalfyPage() {
   );
 }
 
-// ─── Card de operação ──────────────────────────────────────────────────────────
+// ── Card de operação ──────────────────────────────────────────────────────────
 function OperationCard({
-  op, isImporting, importedId, onImport, onOpen, docTypes,
+  op, phase, importedId, onImport, onOpen,
 }: {
   op: OperationWithStatus;
-  isImporting: boolean;
+  phase: ImportPhase;
   importedId?: string;
-  onImport: () => void | Promise<void>;
-  onOpen: () => void | Promise<void>;
-  docTypes?: string[];
+  onImport: () => void;
+  onOpen: () => void;
 }) {
-  const justImported = !!importedId;
-  const isAlreadyDone = op.already_imported && !justImported;
+  const isAlreadyDone = op.already_imported && phase !== "done";
+  const justDone      = phase === "done" || (op.already_imported && !!importedId);
+  const isActive      = phase === "downloading" || phase === "extracting";
+  const isError       = phase === "error";
+
+  const [fg, bg] = avatarColor(op.company_name);
+  const initials  = companyInitials(op.company_name);
+
+  // Cor da borda esquerda por status
+  const leftBorderColor = isError
+    ? "#ef4444"
+    : justDone || isAlreadyDone
+    ? "#22c55e"
+    : isActive
+    ? "#3b82f6"
+    : "#203b88";
 
   return (
-    <div style={{
-      background: "white",
-      borderRadius: 12,
-      border: `1px solid ${isAlreadyDone ? "#e2e8f0" : justImported ? "#bbf7d0" : "#e2e8f0"}`,
-      padding: "18px 20px",
-      boxShadow: "0 1px 4px rgba(0,0,0,0.03)",
-      opacity: isAlreadyDone ? 0.75 : 1,
-      transition: "opacity 0.2s",
-    }}>
+    <div
+      className="bg-white rounded-xl border border-cf-border transition-all overflow-hidden"
+      style={{
+        borderLeft: `3.5px solid ${leftBorderColor}`,
+        boxShadow: isActive
+          ? "0 0 0 3px rgba(59,130,246,0.07), 0 1px 4px rgba(0,0,0,0.05)"
+          : "0 1px 3px rgba(0,0,0,0.04)",
+      }}
+    >
+      <div className="p-4">
+        {/* Linha 1: avatar + info + botão */}
+        <div className="flex items-center gap-3">
 
-      {/* ── Row 1: empresa + status + botão ── */}
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
-
-        <div style={{ width: 40, height: 40, borderRadius: 10, background: isAlreadyDone ? "#f1f5f9" : "#f0f4ff", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <Building2 size={18} style={{ color: isAlreadyDone ? "#94a3b8" : "#203b88" }} />
-        </div>
-
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
-            <span style={{ fontSize: 15, fontWeight: 700, color: "#0f172a" }}>{op.company_name}</span>
-            {isAlreadyDone && (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#f0fdf4", color: "#16a34a" }}>
-                <CheckCircle2 size={11} /> Importada
-              </span>
-            )}
-            {justImported && (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#f0fdf4", color: "#16a34a" }}>
-                <CheckCircle2 size={11} /> Importada agora
-              </span>
-            )}
+          {/* Avatar com iniciais */}
+          <div style={{
+            width: 42, height: 42, borderRadius: 12, flexShrink: 0,
+            background: isAlreadyDone ? "#f1f5f9" : bg,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontWeight: 800, fontSize: 14, letterSpacing: "-0.02em",
+            color: isAlreadyDone ? "#94a3b8" : fg,
+          }}>
+            {initials}
           </div>
 
-          {/* Meta */}
-          <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: "#64748b" }}>
-              <Building2 size={11} /> {op.cnpj || "CNPJ não informado"}
-            </span>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: "#64748b" }}>
-              <User size={11} /> {op.manager_name}
-            </span>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: "#64748b" }}>
-              <Calendar size={11} /> {timeAgo(op.created_at)}
-            </span>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: "#64748b" }}>
-              <Files size={11} /> {op.document_count} doc{op.document_count !== 1 ? "s" : ""}
-            </span>
+          {/* Info */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className="text-[14px] font-bold text-cf-text-1 truncate leading-tight">
+                {op.company_name}
+              </span>
+              {(isAlreadyDone || justDone) && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-green-50 text-green-600 border border-green-200 flex-shrink-0">
+                  <CheckCircle2 size={9} /> Analisada
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              {op.cnpj && (
+                <span className="inline-flex items-center gap-1 text-[11px] text-cf-text-3">
+                  <Building2 size={9} /> {op.cnpj}
+                </span>
+              )}
+              {op.manager_name && (
+                <span className="inline-flex items-center gap-1 text-[11px] text-cf-text-3">
+                  <User size={9} /> {op.manager_name}
+                </span>
+              )}
+              <span className="inline-flex items-center gap-1 text-[11px] text-cf-text-3">
+                <Clock size={9} /> {timeAgo(op.created_at)}
+              </span>
+            </div>
+          </div>
+
+          {/* Botão de ação */}
+          <div className="flex-shrink-0">
+            {justDone && importedId ? (
+              <button
+                onClick={onOpen}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-90"
+                style={{ background: "linear-gradient(135deg,#1a2f6b,#203b88)" }}
+              >
+                <ArrowRight size={14} /> Abrir análise
+              </button>
+            ) : isAlreadyDone ? (
+              <button
+                onClick={onOpen}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-cf-navy bg-cf-bg border border-cf-border hover:bg-white transition-colors"
+              >
+                <ArrowRight size={12} /> Ver análise
+              </button>
+            ) : isActive ? (
+              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-blue-50 text-blue-600 border border-blue-100">
+                <Loader2 size={14} className="animate-spin" />
+                {phase === "downloading" ? "Baixando..." : "Extraindo..."}
+              </div>
+            ) : isError ? (
+              <button
+                onClick={onImport}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors"
+              >
+                <AlertTriangle size={14} /> Tentar novamente
+              </button>
+            ) : (
+              <button
+                onClick={onImport}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-90"
+                style={{ background: "linear-gradient(135deg,#1a2f6b,#203b88)" }}
+              >
+                <Sparkles size={14} /> Analisar
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Botão */}
-        <div style={{ flexShrink: 0 }}>
-          {justImported ? (
-            <button
-              onClick={onOpen}
-              style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 16px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", background: "#203b88", color: "white", border: "none" }}
-            >
-              <FileText size={14} /> Abrir análise <ChevronRight size={13} />
-            </button>
-          ) : isAlreadyDone ? (
-            <span style={{ fontSize: 12, color: "#94a3b8" }}>já importada</span>
-          ) : (
-            <button
-              onClick={onImport}
-              disabled={isImporting}
-              style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 16px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: isImporting ? "not-allowed" : "pointer", background: isImporting ? "#e2e8f0" : "#203b88", color: isImporting ? "#94a3b8" : "white", border: "none", transition: "all 0.15s" }}
-            >
-              {isImporting
-                ? <><Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Importando...</>
-                : <><Zap size={14} /> Importar <ChevronRight size={13} /></>
-              }
-            </button>
-          )}
-        </div>
-      </div>
+        {/* Barra de progresso */}
+        {isActive && (
+          <div className="mt-3 pt-3 border-t border-cf-border">
+            <div className="flex items-center gap-3">
+              <div className="flex-1 h-1.5 rounded-full bg-blue-100 overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-700"
+                  style={{
+                    width: phase === "downloading" ? "35%" : "80%",
+                    background: "linear-gradient(90deg,#3b82f6,#6366f1)",
+                  }}
+                />
+              </div>
+              <span className="text-[11px] text-blue-600 font-medium whitespace-nowrap">
+                {phase === "downloading"
+                  ? `Baixando ${op.document_count} arquivo${op.document_count !== 1 ? "s" : ""}...`
+                  : "Extraindo com IA..."}
+              </span>
+            </div>
+          </div>
+        )}
 
-      {/* ── Row 2: tipos de documento ── */}
-      {op.documents.length > 0 && (
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 14, paddingTop: 12, borderTop: "1px solid #f1f5f9" }}>
-          {op.documents.map(d => (
-            <span key={d.id} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 600, padding: "3px 8px", borderRadius: 6, background: "#f0f4ff", color: "#203b88", border: "1px solid #dce8f8" }}>
-              <FileText size={10} /> {docLabel(d.type)}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* ── Row 3: docs identificados após importação ── */}
-      {docTypes && docTypes.length > 0 && (
-        <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #f1f5f9" }}>
-          <p style={{ fontSize: 11, fontWeight: 700, color: "#3b82f6", margin: "0 0 6px" }}>
-            Documentos identificados no Goalfy:
-          </p>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {docTypes.map(t => (
-              <span key={t} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 600, padding: "3px 8px", borderRadius: 6, background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe" }}>
-                ✓ {docLabel(t)}
+        {/* Chips de documentos */}
+        {op.documents.length > 0 && !isActive && (
+          <div className="flex gap-1.5 flex-wrap mt-3 pt-3 border-t border-cf-border">
+            {op.documents.map(d => (
+              <span
+                key={d.id}
+                className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md"
+                style={{
+                  background: isAlreadyDone ? "#f8fafc" : "#f0f4ff",
+                  color: isAlreadyDone ? "#94a3b8" : "#203b88",
+                  border: `1px solid ${isAlreadyDone ? "#e2e8f0" : "#dce8f8"}`,
+                }}
+              >
+                <FileText size={9} /> {docLabel(d.type)}
               </span>
             ))}
           </div>
-        </div>
-      )}
-
+        )}
+      </div>
     </div>
   );
 }

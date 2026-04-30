@@ -388,7 +388,7 @@ export default function HomePage() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "finished" | "in_progress">("all");
-  const [decisaoFilter, setDecisaoFilter] = useState<"all" | "APROVADO" | "APROVACAO_CONDICIONAL" | "PENDENTE" | "REPROVADO">("all");
+  const [decisaoFilter, setDecisaoFilter] = useState<"all" | "APROVADO" | "APROVACAO_CONDICIONAL" | "PENDENTE" | "REPROVADO" | "QUESTIONAMENTO">("all");
   const [resumingCollection, setResumingCollection] = useState(false);
   const [dashPeriodo, setDashPeriodo] = useState<"7d" | "30d" | "90d">("30d");
   const [localDraft, setLocalDraft] = useState<{ form: ExtractedData; savedAt: string } | null>(null);
@@ -671,18 +671,7 @@ export default function HomePage() {
           ══════════════════════════════════════════════ */}
       {showDashboard ? (
         /* Hero compacto — dashboard */
-        <div style={{ background: "linear-gradient(135deg, #060d24 0%, #0f1f5c 45%, #162d6e 100%)", position: "relative", overflow: "hidden" }}>
-          {/* grade decorativa */}
-          <div style={{
-            position: "absolute", inset: 0, opacity: 0.04,
-            backgroundImage: "linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px)",
-            backgroundSize: "40px 40px",
-            pointerEvents: "none",
-          }} />
-          {/* brilho verde canto direito */}
-          <div style={{ position: "absolute", top: "-60px", right: "-40px", width: 280, height: 280, borderRadius: "50%", background: "radial-gradient(circle, rgba(115,184,21,0.18) 0%, transparent 70%)", pointerEvents: "none" }} />
-          {/* brilho azul canto esquerdo */}
-          <div style={{ position: "absolute", bottom: "-80px", left: "10%", width: 240, height: 240, borderRadius: "50%", background: "radial-gradient(circle, rgba(42,77,181,0.35) 0%, transparent 70%)", pointerEvents: "none" }} />
+        <div style={{ background: "#0a1232", position: "relative", overflow: "hidden" }}>
 
           <div style={{ position: "relative", maxWidth: 1152, margin: "0 auto", padding: "40px 32px 48px", textAlign: "center" }}>
             {/* Badge CVM */}
@@ -878,45 +867,57 @@ export default function HomePage() {
               </div>
             )}
 
-            {/* ── Hero Banner ── */}
+            {/* ══ NOVO DESIGN — CABEÇALHO + KPIs ══ */}
             {(() => {
               const heroName = user ? (user.user_metadata?.full_name || user.email?.split("@")[0] || "").split(" ")[0] : "Bem-vindo";
               const totalColetas2 = filtered.length;
               const finalizadasFilt2 = filtered.filter(c => c.status === "finished").length;
               const empresas2 = new Set(filtered.map(c => c.company_name || c.label).filter(Boolean)).size;
-              const heroStats = [
-                { label: "Coletas no período", value: String(totalColetas2), sub: `${empresas2} empresa${empresas2 !== 1 ? "s" : ""}`, color: "white" },
-                { label: "Análises concluídas", value: String(finalizadasFilt2), sub: metricas.totalFinalizadas === 0 ? "sem finalizadas" : `${metricas.porDecisao.aprovado} aprovadas`, color: "#a3d96b" },
-                { label: "Taxa de aprovação", value: metricas.totalFinalizadas === 0 ? "—" : `${metricas.taxaAprovacao}%`, sub: metricas.totalFinalizadas === 0 ? "sem dados ainda" : `${metricas.porDecisao.reprovado} recusadas`, color: metricas.taxaAprovacao >= 60 ? "#a3d96b" : metricas.taxaAprovacao >= 30 ? "#fbbf24" : "#f87171" },
-                ...(metricas.totalComRating > 0 ? [{ label: "Rating médio", value: `${metricas.ratingMedio.toFixed(1).replace(".", ",")}/10`, sub: `${metricas.totalComRating} com score`, color: metricas.ratingMedio >= 8 ? "#a3d96b" : metricas.ratingMedio >= 5 ? "#fbbf24" : "#f87171" }] : []),
-              ];
               const handleNovaColeta = () => { setShowDashboard(false); setStep("upload"); setExtractedData(defaultData); setResumedDocs(undefined); setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] }); setLocalDraft(null); try { localStorage.removeItem(DRAFT_KEY); } catch {/**/} setCollectionId(null); try { const url = new URL(window.location.href); url.searchParams.delete("resume"); url.searchParams.delete("step"); window.history.replaceState({}, "", url.toString()); } catch {/**/} };
-              return (
-                <div style={{
-                  background: "linear-gradient(135deg, #080f2e 0%, #122149 40%, #1a3068 100%)",
-                  borderRadius: 22, padding: "28px 32px 26px", marginBottom: 24,
-                  position: "relative", overflow: "hidden",
-                  boxShadow: "0 12px 40px rgba(8,15,46,0.4)",
-                }}>
-                  {/* decoração de fundo */}
-                  <div style={{ position: "absolute", right: -60, top: -60, width: 280, height: 280, borderRadius: "50%", background: "rgba(115,184,21,0.06)", pointerEvents: "none" }} />
-                  <div style={{ position: "absolute", left: "40%", bottom: -100, width: 250, height: 250, borderRadius: "50%", background: "rgba(32,59,136,0.25)", pointerEvents: "none" }} />
-                  <div style={{ position: "absolute", right: 80, top: 20, width: 6, height: 6, borderRadius: "50%", background: "rgba(115,184,21,0.5)", pointerEvents: "none" }} />
-                  <div style={{ position: "absolute", right: 160, top: 50, width: 4, height: 4, borderRadius: "50%", background: "rgba(255,255,255,0.2)", pointerEvents: "none" }} />
 
-                  {/* linha superior: saudação + controles + CTA */}
-                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+              const kpis = [
+                {
+                  value: loadingCollections ? "—" : String(totalColetas2),
+                  label: "Coletas no período",
+                  sub: `${empresas2} empresa${empresas2 !== 1 ? "s" : ""}`,
+                  accent: "#203b88",
+                },
+                {
+                  value: loadingCollections ? "—" : String(finalizadasFilt2),
+                  label: "Análises concluídas",
+                  sub: `${metricas.porDecisao.aprovado} aprovadas`,
+                  accent: "#5a9110",
+                },
+                {
+                  value: loadingCollections ? "—" : metricas.totalFinalizadas === 0 ? "—" : `${metricas.taxaAprovacao}%`,
+                  label: "Taxa de aprovação",
+                  sub: `${metricas.porDecisao.reprovado} recusadas`,
+                  accent: metricas.taxaAprovacao >= 60 ? "#5a9110" : metricas.taxaAprovacao >= 30 ? "#d97706" : "#dc2626",
+                },
+                ...(metricas.totalComRating > 0 ? [{
+                  value: loadingCollections ? "—" : `${metricas.ratingMedio.toFixed(1).replace(".", ",")}`,
+                  label: "Rating médio",
+                  sub: `${metricas.totalComRating} com score`,
+                  accent: metricas.ratingMedio >= 8 ? "#5a9110" : metricas.ratingMedio >= 5 ? "#d97706" : "#dc2626",
+                }] : []),
+              ];
+
+              return (
+                <>
+                  {/* Cabeçalho limpo */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
                     <div>
-                      <p style={{ fontSize: 24, fontWeight: 900, color: "white", margin: 0, lineHeight: 1.15, letterSpacing: "-0.3px" }}>
-                        Olá, {heroName} 👋
-                      </p>
-                      <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginTop: 6, fontWeight: 500, letterSpacing: "0.02em" }}>
-                        Capital Finanças · Central de análise de crédito
+                      <h1 style={{ fontSize: 22, fontWeight: 800, color: "#0f172a", margin: 0, letterSpacing: "-0.3px" }}>
+                        Olá, {heroName}
+                      </h1>
+                      <p style={{ fontSize: 12, color: "#94a3b8", margin: "4px 0 0", fontWeight: 500 }}>
+                        {new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })}
+                        {metricas.emAnalise > 0 && <span style={{ color: "#d97706", fontWeight: 600 }}> · {metricas.emAnalise} em andamento</span>}
                       </p>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                       {/* filtro de data */}
-                      <div style={{ display: "flex", gap: 2, background: "rgba(255,255,255,0.07)", borderRadius: 10, padding: 3 }}>
+                      <div style={{ display: "flex", gap: 1, background: "#f1f5f9", borderRadius: 7, padding: 2 }}>
                         {([
                           { key: "hoje", label: "Hoje" },
                           { key: "7dias", label: "7d" },
@@ -925,115 +926,103 @@ export default function HomePage() {
                         ] as { key: typeof dateFilter; label: string }[]).map(f =>
                           f.key === "custom" ? (
                             <button key="custom" onClick={() => setDateFilter("custom")} style={{
-                              display: "flex", alignItems: "center", padding: "5px 10px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, transition: "all 0.15s",
-                              background: dateFilter === "custom" ? "rgba(255,255,255,0.16)" : "transparent",
-                              color: dateFilter === "custom" ? "white" : "rgba(255,255,255,0.45)", minHeight: "auto",
+                              display: "flex", alignItems: "center", padding: "5px 9px", borderRadius: 5, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, transition: "all 0.12s",
+                              background: dateFilter === "custom" ? "white" : "transparent",
+                              color: dateFilter === "custom" ? "#0f172a" : "#64748b", minHeight: "auto",
+                              boxShadow: dateFilter === "custom" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
                             }}><Calendar size={11} /></button>
                           ) : (
                             <button key={f.key} onClick={() => setDateFilter(f.key)} style={{
-                              padding: "5px 13px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700, transition: "all 0.15s",
-                              background: dateFilter === f.key ? "rgba(255,255,255,0.16)" : "transparent",
-                              color: dateFilter === f.key ? "white" : "rgba(255,255,255,0.45)", minHeight: "auto",
+                              padding: "5px 12px", borderRadius: 5, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700, transition: "all 0.12s",
+                              background: dateFilter === f.key ? "white" : "transparent",
+                              color: dateFilter === f.key ? "#0f172a" : "#64748b", minHeight: "auto",
+                              boxShadow: dateFilter === f.key ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
                             }}>{f.label}</button>
                           )
                         )}
                       </div>
                       {dateFilter === "custom" && (
                         <input type="date" value={customDate} onChange={e => setCustomDate(e.target.value)}
-                          style={{ padding: "5px 10px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.08)", color: "white", fontSize: 11 }} />
+                          style={{ padding: "5px 10px", borderRadius: 7, border: "1px solid #e2e8f0", background: "white", color: "#0f172a", fontSize: 11 }} />
                       )}
-                      {/* busca */}
                       <div style={{ position: "relative" }}>
-                        <Search size={12} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "rgba(255,255,255,0.35)" }} />
-                        <input
-                          type="text" value={searchQuery}
+                        <Search size={12} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#94a3b8" }} />
+                        <input type="text" value={searchQuery}
                           onChange={e => { setSearchQuery(e.target.value); setListaLimit(10); }}
                           placeholder="Buscar empresa..."
-                          style={{ paddingLeft: 30, paddingRight: 12, paddingTop: 7, paddingBottom: 7, borderRadius: 9, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.07)", color: "white", fontSize: 11, width: 155, outline: "none" }}
+                          style={{ paddingLeft: 30, paddingRight: 12, paddingTop: 7, paddingBottom: 7, borderRadius: 7, border: "1px solid #e2e8f0", background: "white", color: "#0f172a", fontSize: 11, width: 150, outline: "none" }}
                         />
                       </div>
-                      {/* CTA Nova Coleta */}
                       <button onClick={handleNovaColeta} style={{
-                        display: "inline-flex", alignItems: "center", gap: 6,
-                        padding: "7px 16px", borderRadius: 10, border: "none", cursor: "pointer",
-                        background: "linear-gradient(135deg, #73b815, #5a9110)",
-                        color: "white", fontSize: 12, fontWeight: 800,
-                        boxShadow: "0 3px 12px rgba(115,184,21,0.4)", minHeight: "auto",
-                        letterSpacing: "0.01em",
+                        display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px",
+                        borderRadius: 7, border: "none", cursor: "pointer", background: "#203b88",
+                        color: "white", fontSize: 12, fontWeight: 700, minHeight: "auto",
                       }}>
-                        <Plus size={14} /> Nova Coleta
+                        <Plus size={13} /> Nova Coleta
                       </button>
                     </div>
                   </div>
 
-                  {/* stats row com separadores */}
-                  <div style={{ display: "flex", gap: 0, marginTop: 26, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 22 }}>
-                    {heroStats.map((s, idx) => (
-                      <div key={s.label} style={{
-                        flex: 1, paddingRight: 24,
-                        borderRight: idx < heroStats.length - 1 ? "1px solid rgba(255,255,255,0.08)" : "none",
-                        marginRight: idx < heroStats.length - 1 ? 24 : 0,
+                  {/* KPIs */}
+                  <div style={{ display: "grid", gridTemplateColumns: `repeat(${kpis.length}, 1fr)`, gap: 10, marginBottom: 20 }}>
+                    {kpis.map((k, i) => (
+                      <div key={i} style={{
+                        background: "white", borderRadius: 8, padding: "16px 20px",
+                        border: "1px solid #e2e8f0", borderBottom: `3px solid ${k.accent}`,
                       }}>
                         {loadingCollections
-                          ? <div style={{ width: 56, height: 36, background: "rgba(255,255,255,0.1)", borderRadius: 8, marginBottom: 8 }} />
-                          : <p style={{ fontSize: 36, fontWeight: 900, color: s.color, margin: 0, lineHeight: 1, letterSpacing: "-0.5px" }}>{s.value}</p>
+                          ? <div style={{ width: 48, height: 30, background: "#f1f5f9", borderRadius: 4, marginBottom: 8 }} />
+                          : <p style={{ fontSize: 30, fontWeight: 800, color: "#0f172a", margin: "0 0 4px", lineHeight: 1, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.5px" }}>{k.value}</p>
                         }
-                        <p style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 6, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em" }}>{s.label}</p>
-                        {!loadingCollections && <p style={{ fontSize: 11, color: "rgba(255,255,255,0.28)", marginTop: 2 }}>{s.sub}</p>}
+                        <p style={{ fontSize: 10, fontWeight: 700, color: "#64748b", margin: 0, textTransform: "uppercase", letterSpacing: "0.08em" }}>{k.label}</p>
+                        <p style={{ fontSize: 10, color: "#94a3b8", margin: "3px 0 0" }}>{k.sub}</p>
                       </div>
                     ))}
                   </div>
-                </div>
+
+                  {/* Decisões — linha horizontal única */}
+                  {metricas.totalFinalizadas > 0 && (
+                    <div style={{ background: "white", borderRadius: 8, border: "1px solid #e2e8f0", padding: "12px 20px", marginBottom: 20, display: "flex", alignItems: "center", gap: 0 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em", marginRight: 20, whiteSpace: "nowrap" }}>Decisões</span>
+                      {[
+                        { label: "Aprovadas",    value: metricas.porDecisao.aprovado,                      color: "#16a34a" },
+                        { label: "Condicionais", value: metricas.porDecisao.condicional,                   color: "#7c3aed" },
+                        { label: "Em Análise",   value: metricas.porDecisao.pendente + metricas.emAnalise, color: "#d97706" },
+                        { label: "Recusadas",    value: metricas.porDecisao.reprovado,                     color: "#dc2626" },
+                      ].map((d, i, arr) => (
+                        <div key={d.label} style={{
+                          display: "flex", alignItems: "center", gap: 8, flex: 1,
+                          paddingLeft: i > 0 ? 20 : 0,
+                          borderLeft: i > 0 ? "1px solid #f1f5f9" : "none",
+                        }}>
+                          <span style={{ width: 8, height: 8, borderRadius: "50%", background: d.color, flexShrink: 0 }} />
+                          <span style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{d.value}</span>
+                          <span style={{ fontSize: 10, color: "#94a3b8", fontWeight: 600 }}>{d.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
               );
             })()}
 
-            {/* ── Decisões em cards coloridos ── */}
-            {metricas.totalFinalizadas > 0 && (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 28 }}>
-                {[
-                  { label: "Aprovadas",    value: metricas.porDecisao.aprovado,                      icon: <CheckCircle2 size={18} />, bg: "linear-gradient(135deg, #16a34a, #22c55e)", shadow: "rgba(22,163,74,0.3)" },
-                  { label: "Condicionais", value: metricas.porDecisao.condicional,                   icon: <AlertCircle size={18} />,  bg: "linear-gradient(135deg, #7c3aed, #8b5cf6)", shadow: "rgba(124,58,237,0.3)" },
-                  { label: "Em Análise",   value: metricas.porDecisao.pendente + metricas.emAnalise, icon: <Clock size={18} />,        bg: "linear-gradient(135deg, #d97706, #f59e0b)", shadow: "rgba(217,119,6,0.3)" },
-                  { label: "Recusadas",    value: metricas.porDecisao.reprovado,                     icon: <XCircle size={18} />,      bg: "linear-gradient(135deg, #dc2626, #ef4444)", shadow: "rgba(220,38,38,0.3)" },
-                ].map(d => (
-                  <div key={d.label} style={{
-                    background: d.bg, borderRadius: 16, padding: "18px 20px",
-                    boxShadow: `0 4px 20px ${d.shadow}`, color: "white",
-                    display: "flex", flexDirection: "column", gap: 4,
-                  }}>
-                    {loadingCollections
-                      ? <div style={{ width: 40, height: 32, background: "rgba(255,255,255,0.2)", borderRadius: 6 }} />
-                      : <p style={{ fontSize: 32, fontWeight: 900, margin: 0, lineHeight: 1 }}>{d.value}</p>
-                    }
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, color: "rgba(255,255,255,0.8)" }}>
-                      {d.icon}
-                      <span style={{ fontSize: 12, fontWeight: 600 }}>{d.label}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
             {/* Dashboard de gráficos */}
             {collections.length > 0 && (
-              <div style={{ marginBottom: 32, background: "#f8fafc", borderRadius: 20, padding: "20px 20px", border: "1px solid #e8edf5" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ width: 4, height: 20, background: "linear-gradient(180deg, #192f5d, #73b815)", borderRadius: 2 }} />
-                    <div>
-                      <h3 style={{ fontSize: 15, fontWeight: 800, color: "#0f172a", margin: 0 }}>Performance & Gráficos</h3>
-                      <p style={{ fontSize: 11, color: "#94a3b8", margin: 0 }}>Análise do período selecionado</p>
-                    </div>
+              <div style={{ marginBottom: 28 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ width: 3, height: 16, background: "#203b88", borderRadius: 2 }} />
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>Painel de Crédito</span>
+                    <span style={{ fontSize: 11, color: "#94a3b8" }}>— período selecionado</span>
                   </div>
-                  <div style={{ display: "flex", gap: 3, background: "#f1f5f9", borderRadius: 10, padding: 3 }}>
+                  <div style={{ display: "flex", gap: 2, background: "#f1f5f9", borderRadius: 8, padding: 2 }}>
                     {(["7d", "30d", "90d"] as const).map(pp => (
                       <button key={pp} onClick={() => setDashPeriodo(pp)} style={{
-                        padding: "5px 12px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700, transition: "all 0.15s", minHeight: "auto",
-                        background: dashPeriodo === pp ? "#192f5d" : "transparent",
+                        padding: "4px 11px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700, transition: "all 0.15s", minHeight: "auto",
+                        background: dashPeriodo === pp ? "#0a1232" : "transparent",
                         color: dashPeriodo === pp ? "white" : "#6b7280",
-                        boxShadow: dashPeriodo === pp ? "0 1px 4px rgba(25,47,93,0.3)" : "none",
                       }}>
-                        {pp === "7d" ? "7d" : pp === "30d" ? "30d" : "90d"}
+                        {pp}
                       </button>
                     ))}
                   </div>
@@ -1041,7 +1030,7 @@ export default function HomePage() {
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
                   {/* Área: evolução de coletas */}
-                  <div className="lg:col-span-2 bg-white rounded-2xl border border-[#e5e7eb] p-5" style={{ boxShadow: "0 1px 8px rgba(0,0,0,0.04)" }}>
+                  <div className="lg:col-span-2 bg-white rounded-lg border border-[#e2e8f0] p-5" style={{ boxShadow: "0 1px 8px rgba(0,0,0,0.04)" }}>
                     <div className="flex items-center justify-between mb-4">
                       <div>
                         <p className="text-[12px] font-bold text-[#0f172a]">Evolução de Coletas</p>
@@ -1068,7 +1057,7 @@ export default function HomePage() {
                   </div>
 
                   {/* Donut: distribuição de decisões */}
-                  <div className="bg-white rounded-2xl border border-[#e5e7eb] p-5" style={{ boxShadow: "0 1px 8px rgba(0,0,0,0.04)" }}>
+                  <div className="bg-white rounded-lg border border-[#e2e8f0] p-5" style={{ boxShadow: "0 1px 8px rgba(0,0,0,0.04)" }}>
                     <p className="text-[12px] font-bold text-[#0f172a] mb-0.5">Decisões</p>
                     <p className="text-[10px] text-cf-text-4 mb-2">Distribuição das finalizadas</p>
                     {metricas.totalFinalizadas > 0 ? (() => {
@@ -1127,7 +1116,7 @@ export default function HomePage() {
                 </div>
 
                 {/* Bar chart: coletas por semana (aprovadas vs total) */}
-                <div className="bg-white rounded-2xl border border-[#e5e7eb] p-5" style={{ boxShadow: "0 1px 8px rgba(0,0,0,0.04)" }}>
+                <div className="bg-white rounded-lg border border-[#e2e8f0] p-5" style={{ boxShadow: "0 1px 8px rgba(0,0,0,0.04)" }}>
                   <div className="flex items-center justify-between mb-4">
                     <div>
                       <p className="text-[12px] font-bold text-[#0f172a]">Coletas por Semana</p>
@@ -1154,7 +1143,7 @@ export default function HomePage() {
 
                 {/* Distribuição de Rating */}
                 {metricas.totalComRating > 0 && (
-                  <div className="bg-white rounded-2xl border border-[#e5e7eb] p-5" style={{ boxShadow: "0 1px 8px rgba(0,0,0,0.04)" }}>
+                  <div className="bg-white rounded-lg border border-[#e2e8f0] p-5" style={{ boxShadow: "0 1px 8px rgba(0,0,0,0.04)" }}>
                     <div className="flex items-center justify-between mb-5">
                       <div>
                         <p className="text-[12px] font-bold text-[#0f172a]">Distribuição de Rating</p>
@@ -1207,7 +1196,7 @@ export default function HomePage() {
                     ? { fg: "#92400e", bg: "#fef3c7", border: "#fde68a" }
                     : { fg: "#991b1b", bg: "#fee2e2", border: "#fecaca" };
                   return (
-                    <div className="bg-white rounded-2xl border border-[#e5e7eb] mt-4" style={{ padding: "18px 18px 14px" }}>
+                    <div className="bg-white rounded-lg border border-[#e2e8f0] mt-4" style={{ padding: "18px 18px 14px" }}>
                       {/* Header */}
                       <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center gap-2">
@@ -1320,6 +1309,7 @@ export default function HomePage() {
                   { key: "APROVACAO_CONDICIONAL", label: "Condicional" },
                   { key: "PENDENTE", label: "Pendente" },
                   { key: "REPROVADO", label: "Reprovado" },
+                  { key: "QUESTIONAMENTO", label: "Questionamento" },
                 ] as { key: typeof decisaoFilter; label: string }[]).map(f => (
                   <button key={f.key} onClick={() => { setDecisaoFilter(f.key); setListaLimit(10); }}
                     style={{
@@ -1369,7 +1359,7 @@ export default function HomePage() {
               <OnboardingTooltip id="nova-coleta" message="Clique aqui para iniciar a analise de um novo cedente. Voce vai fazer upload dos documentos e a IA cuida do resto." position="bottom" isSeen={isTooltipSeen("nova-coleta")} onSeen={() => markTooltipSeen("nova-coleta")}>
                 <button
                   onClick={() => { setShowDashboard(false); setStep("upload"); setExtractedData(defaultData); setResumedDocs(undefined); setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] }); setLocalDraft(null); try { localStorage.removeItem(DRAFT_KEY); } catch {/**/} setCollectionId(null); try { const url = new URL(window.location.href); url.searchParams.delete("resume"); url.searchParams.delete("step"); window.history.replaceState({}, "", url.toString()); } catch {/**/} }}
-                  style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "12px 28px", borderRadius: "12px", background: "linear-gradient(135deg, #192f5d 0%, #203b88 100%)", color: "white", fontSize: "14px", fontWeight: 700, border: "none", cursor: "pointer", boxShadow: "0 4px 16px rgba(32,59,136,0.3)", marginBottom: "32px", width: "100%" }}
+                  style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "12px 28px", borderRadius: "8px", background: "#203b88", color: "white", fontSize: "14px", fontWeight: 700, border: "none", cursor: "pointer", boxShadow: "none", marginBottom: "32px", width: "100%" }}
                 >
                   <Plus size={18} /> Nova Coleta de Documentos
                 </button>
@@ -1397,7 +1387,7 @@ export default function HomePage() {
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ width: 4, height: 20, background: "linear-gradient(180deg, #192f5d, #73b815)", borderRadius: 2 }} />
+                    <div style={{ width: 3, height: 20, background: "#203b88", borderRadius: 2 }} />
                     <div>
                       <h3 style={{ fontSize: 15, fontWeight: 800, color: "#0f172a", margin: 0 }}>
                         {dateFilter === "hoje" ? "Coletas de Hoje" : dateFilter === "7dias" ? "Últimos 7 dias" : dateFilter === "custom" ? "Data selecionada" : "Últimas Coletas"}
@@ -1410,15 +1400,23 @@ export default function HomePage() {
                     <OnboardingTooltip id="nova-coleta" message="Clique aqui para iniciar a analise de um novo cedente." position="bottom" isSeen={isTooltipSeen("nova-coleta")} onSeen={() => markTooltipSeen("nova-coleta")}>
                       <button
                         onClick={() => { setShowDashboard(false); setStep("upload"); setExtractedData(defaultData); setResumedDocs(undefined); setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] }); setLocalDraft(null); try { localStorage.removeItem(DRAFT_KEY); } catch {/**/} setCollectionId(null); try { const url = new URL(window.location.href); url.searchParams.delete("resume"); url.searchParams.delete("step"); window.history.replaceState({}, "", url.toString()); } catch {/**/} }}
-                        style={{ display: "inline-flex", alignItems: "center", gap: "5px", padding: "6px 14px", borderRadius: "8px", background: "linear-gradient(135deg, #192f5d 0%, #203b88 100%)", color: "white", fontSize: "12px", fontWeight: 700, border: "none", cursor: "pointer", boxShadow: "0 2px 8px rgba(32,59,136,0.25)", minHeight: "auto" }}
+                        style={{ display: "inline-flex", alignItems: "center", gap: "5px", padding: "6px 14px", borderRadius: "8px", background: "#203b88", color: "white", fontSize: "12px", fontWeight: 700, border: "none", cursor: "pointer", boxShadow: "none", minHeight: "auto" }}
                       >
                         <Plus size={13} /> Nova Coleta
                       </button>
                     </OnboardingTooltip>
                   </div>
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {visibleGroups.map((group) => {
+                {/* Tabela */}
+                <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden", background: "white" }}>
+                  {/* Cabeçalho da tabela */}
+                  <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 80px 60px 100px 110px 80px", gap: 0, padding: "8px 16px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0" }}>
+                    {["Empresa", "CNPJ", "Data", "Docs", "FMM/mês", "Decisão", ""].map((h, i) => (
+                      <div key={i} style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", textAlign: i >= 2 ? "center" : "left" }}>{h}</div>
+                    ))}
+                  </div>
+                <div>
+                  {visibleGroups.map((group, rowIdx) => {
                     const col = group.best;
                     const isMulti = group.items.length > 1;
                     const isExpanded = expandedGroups.has(group.key);
@@ -1431,109 +1429,81 @@ export default function HomePage() {
                       : col.decisao === "REPROVADO" ? "#dc2626"
                       : col.decisao === "APROVACAO_CONDICIONAL" ? "#7c3aed"
                       : col.status === "in_progress" ? "#d97706" : "#94a3b8";
-                    const decisaoBg = col.decisao === "APROVADO" ? "#f0fdf4"
-                      : col.decisao === "REPROVADO" ? "#fff1f2"
-                      : col.decisao === "APROVACAO_CONDICIONAL" ? "#f5f3ff"
-                      : col.status === "in_progress" ? "#fffbeb" : "#f8fafc";
                     const decisaoLabel = col.decisao === "APROVACAO_CONDICIONAL" ? "Condicional"
                       : col.decisao === "APROVADO" ? "Aprovado"
                       : col.decisao === "REPROVADO" ? "Recusado"
                       : "Em andamento";
-                    const decisaoIcon = col.decisao === "APROVADO" ? <CheckCircle2 size={11} />
-                      : col.decisao === "REPROVADO" ? <XCircle size={11} />
-                      : col.decisao === "APROVACAO_CONDICIONAL" ? <AlertCircle size={11} />
-                      : <Clock size={11} />;
                     const companyInitial = (col.company_name || col.label || "?").charAt(0).toUpperCase();
+                    const fmmFmt = col.fmm_12m ? `R$ ${Number(col.fmm_12m).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}` : "—";
+                    const cnpjFmt = col.cnpj ? col.cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5") : "—";
                     return (
-                      <div key={group.key} style={{ borderRadius: 12, border: "1px solid #e8edf5", background: "white", overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-                        {/* Main row */}
-                        <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, cursor: "default", transition: "background 0.15s", borderLeft: `3px solid ${decisaoColor}` }}
-                          onMouseEnter={e => (e.currentTarget.style.background = "#fafbff")}
-                          onMouseLeave={e => (e.currentTarget.style.background = "white")}
+                      <div key={group.key} style={{ borderBottom: rowIdx < visibleGroups.length - 1 ? "1px solid #f1f5f9" : "none" }}>
+                        {/* Linha principal */}
+                        <div style={{
+                          display: "grid", gridTemplateColumns: "2fr 1fr 80px 60px 100px 110px 80px",
+                          gap: 0, padding: "10px 16px", alignItems: "center",
+                          background: rowIdx % 2 === 1 ? "#fafbfc" : "white",
+                          borderLeft: `3px solid ${decisaoColor}`,
+                          transition: "background 0.1s",
+                        }}
+                          onMouseEnter={e => (e.currentTarget.style.background = "#f0f4ff")}
+                          onMouseLeave={e => (e.currentTarget.style.background = rowIdx % 2 === 1 ? "#fafbfc" : "white")}
                         >
-                          {/* Avatar */}
-                          <div style={{
-                            flexShrink: 0, width: 38, height: 38, borderRadius: 10,
-                            background: "linear-gradient(135deg, #192f5d, #203b88)",
-                            display: "flex", alignItems: "center", justifyContent: "center",
-                          }}>
-                            <span style={{ fontSize: 14, fontWeight: 900, color: "white", letterSpacing: "-0.5px" }}>{companyInitial}</span>
+                          {/* Empresa */}
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                            <div style={{ flexShrink: 0, width: 28, height: 28, borderRadius: 5, background: "#0a1232", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                              <span style={{ fontSize: 11, fontWeight: 800, color: "white" }}>{companyInitial}</span>
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                              <p style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {col.company_name || col.label || "Sem identificação"}
+                              </p>
+                              {col.observacoes && <p style={{ fontSize: 10, color: "#94a3b8", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{col.observacoes}</p>}
+                            </div>
+                            {isMulti && <span style={{ fontSize: 10, fontWeight: 600, color: "#64748b", flexShrink: 0 }}>{group.items.length}×</span>}
+                          </div>
+                          {/* CNPJ */}
+                          <div style={{ fontSize: 11, color: "#64748b", fontFamily: "monospace", whiteSpace: "nowrap" }}>{cnpjFmt}</div>
+                          {/* Data */}
+                          <div style={{ fontSize: 11, color: "#64748b", textAlign: "center" }}>{group.date}</div>
+                          {/* Docs */}
+                          <div style={{ fontSize: 11, color: "#64748b", textAlign: "center" }}>{col.documents?.length || 0}</div>
+                          {/* FMM */}
+                          <div style={{ fontSize: 11, fontWeight: col.fmm_12m ? 600 : 400, color: col.fmm_12m ? "#0f172a" : "#cbd5e1", textAlign: "center", fontFamily: "monospace" }}>{fmmFmt}</div>
+                          {/* Decisão */}
+                          <div style={{ textAlign: "center" }}>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 4, color: decisaoColor, background: `${decisaoColor}12`, border: `1px solid ${decisaoColor}30` }}>
+                              <span style={{ width: 5, height: 5, borderRadius: "50%", background: decisaoColor, flexShrink: 0 }} />
+                              {decisaoLabel}
+                            </span>
                           </div>
 
-                          {/* info principal */}
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                              <p style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 300 }}>{col.company_name || col.label || "Sem identificação"}</p>
-                              {isMulti && (
-                                <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 600, padding: "1px 7px", borderRadius: 99, background: "#f1f5f9", color: "#64748b", flexShrink: 0, border: "1px solid #e2e8f0" }}>
-                                  <RotateCcw size={9} /> {group.items.length}x
-                                </span>
-                              )}
-                              {col.fund_status && (() => {
-                                const fs = col.fund_status;
-                                const fsColor = fs.status === "ok" ? "#16a34a" : fs.status === "warning" ? "#d97706" : "#dc2626";
-                                const fsBg = fs.status === "ok" ? "#f0fdf4" : fs.status === "warning" ? "#fffbeb" : "#fff1f2";
-                                const fsBorder = fs.status === "ok" ? "#bbf7d0" : fs.status === "warning" ? "#fde68a" : "#fecaca";
-                                const FsIcon = fs.status === "ok" ? CheckCircle2 : fs.status === "warning" ? AlertCircle : XCircle;
-                                const fsLabel = fs.status === "ok" ? `${fs.pass_count}/${fs.total} ok` : fs.status === "warning" ? `${fs.warn_count} atenção` : `${fs.fail_count} reprov.`;
-                                return (
-                                  <span title={`Política do Fundo${fs.preset_name ? ` (${fs.preset_name})` : ""}: ${fs.pass_count} aprovados, ${fs.warn_count} atenção, ${fs.fail_count} reprovados`}
-                                    style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 99, background: fsBg, color: fsColor, border: `1px solid ${fsBorder}`, flexShrink: 0, whiteSpace: "nowrap", cursor: "default" }}>
-                                    <FsIcon size={9} /> {fsLabel}
-                                  </span>
-                                );
-                              })()}
-                            </div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                              {col.cnpj && <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: "#94a3b8", fontFamily: "monospace" }}><Hash size={9} />{col.cnpj}</span>}
-                              <span style={{ color: "#cbd5e1", fontSize: 10 }}>·</span>
-                              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: "#94a3b8" }}><Calendar size={9} />{group.date}</span>
-                              <span style={{ color: "#cbd5e1", fontSize: 10 }}>·</span>
-                              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: "#94a3b8" }}><FileText size={9} />{col.documents?.length || 0} docs</span>
-                              {col.fmm_12m && <><span style={{ color: "#cbd5e1", fontSize: 10 }}>·</span><span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: "#94a3b8" }}><DollarSign size={9} />R$ {Number(col.fmm_12m).toLocaleString("pt-BR", { minimumFractionDigits: 0 })}/mês</span></>}
-                              {col.observacoes && <><span style={{ color: "#cbd5e1", fontSize: 10 }}>·</span><span style={{ fontSize: 11, color: "#b0bac9", fontStyle: "italic", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 180 }}>{col.observacoes}</span></>}
-                            </div>
-                          </div>
-
-                          {/* Badge decisão */}
-                          <span style={{
-                            display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700,
-                            padding: "4px 11px", borderRadius: 99, flexShrink: 0,
-                            background: decisaoBg, color: decisaoColor,
-                            border: `1px solid ${decisaoColor}33`,
-                          }}>
-                            {decisaoIcon} {decisaoLabel}
-                          </span>
-
-                          {/* ações */}
-                          <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                          {/* Ações */}
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
                             {col.status === "in_progress" && (
                               <button onClick={() => handleResumeCollection(col.id)} style={{
-                                display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700,
-                                padding: "5px 12px", borderRadius: 8, border: "none", cursor: "pointer",
-                                background: "#192f5d", color: "white", minHeight: "auto",
+                                display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700,
+                                padding: "4px 10px", borderRadius: 5, border: "none", cursor: "pointer",
+                                background: "#0a1232", color: "white", minHeight: "auto",
                               }}>
-                                <RefreshCw size={10} /> Retomar
+                                <RefreshCw size={9} /> Retomar
                               </button>
                             )}
                             <a href={`/historico?highlight=${col.id}`} style={{
-                              width: 28, height: 28, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center",
-                              color: "#94a3b8", textDecoration: "none", background: "#f8fafc", border: "1px solid #e8edf5",
+                              width: 26, height: 26, borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center",
+                              color: "#94a3b8", textDecoration: "none", border: "1px solid #e2e8f0",
                             }}
-                              onMouseEnter={e => { e.currentTarget.style.color = "#203b88"; e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#bfdbfe"; }}
-                              onMouseLeave={e => { e.currentTarget.style.color = "#94a3b8"; e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#e8edf5"; }}
+                              onMouseEnter={e => { e.currentTarget.style.color = "#203b88"; e.currentTarget.style.borderColor = "#203b88"; }}
+                              onMouseLeave={e => { e.currentTarget.style.color = "#94a3b8"; e.currentTarget.style.borderColor = "#e2e8f0"; }}
                             >
-                              <ArrowRight size={12} />
+                              <ArrowRight size={11} />
                             </a>
                             {isMulti && (
                               <button onClick={toggleGroup} style={{
-                                width: 28, height: 28, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center",
-                                color: "#94a3b8", background: "#f8fafc", border: "1px solid #e8edf5", cursor: "pointer", minHeight: "auto",
-                              }}
-                                onMouseEnter={e => { e.currentTarget.style.color = "#203b88"; e.currentTarget.style.background = "#eff6ff"; e.currentTarget.style.borderColor = "#bfdbfe"; }}
-                                onMouseLeave={e => { e.currentTarget.style.color = "#94a3b8"; e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#e8edf5"; }}
-                              >
-                                <ChevronDown size={12} style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
+                                width: 26, height: 26, borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center",
+                                color: "#94a3b8", background: "transparent", border: "1px solid #e2e8f0", cursor: "pointer", minHeight: "auto",
+                              }}>
+                                <ChevronDown size={11} style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
                               </button>
                             )}
                           </div>
@@ -1596,14 +1566,15 @@ export default function HomePage() {
                       </div>
                     );
                   })}
-                </div>
+                </div>{/* fim rows */}
+                </div>{/* fim tabela */}
                 {hasMore && (
                   <button
                     onClick={() => setListaLimit(prev => prev + 10)}
-                    className="mt-3 w-full text-xs font-semibold text-cf-navy hover:text-cf-green py-2.5 border border-cf-border rounded-xl bg-white hover:bg-cf-bg transition-colors"
+                    className="mt-2 w-full text-xs font-semibold text-cf-navy hover:text-cf-green py-2.5 border border-cf-border rounded-lg bg-white hover:bg-cf-bg transition-colors"
                     style={{ minHeight: "auto" }}
                   >
-                    Ver mais ({groups.length - listaLimit} restantes)
+                    Carregar mais ({groups.length - listaLimit} restantes)
                   </button>
                 )}
               </div>

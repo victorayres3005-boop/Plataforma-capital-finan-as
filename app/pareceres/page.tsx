@@ -7,11 +7,11 @@ import { useAuth } from "@/lib/useAuth";
 import {
   Loader2, ClipboardList, FileText, Building2, CheckCircle2,
   Clock, XCircle, AlertTriangle, ChevronRight, BarChart3,
-  TrendingUp, DollarSign, ArrowLeft, Download,
+  TrendingUp, DollarSign, ArrowLeft, Download, HelpCircle,
 } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
-type DecisaoComite = "APROVADO" | "APROVACAO_CONDICIONAL" | "REPROVADO" | "PENDENTE";
+type DecisaoComite = "APROVADO" | "APROVACAO_CONDICIONAL" | "REPROVADO" | "PENDENTE" | "QUESTIONAMENTO";
 type RatingV2 = "A" | "B" | "C" | "D" | "E" | "F";
 
 interface Parecer {
@@ -41,13 +41,14 @@ interface PendingCollection {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
-type FilterValue = "todos" | "APROVADO" | "APROVACAO_CONDICIONAL" | "REPROVADO" | "PENDENTE" | "pendentes";
+type FilterValue = "todos" | "APROVADO" | "APROVACAO_CONDICIONAL" | "REPROVADO" | "PENDENTE" | "QUESTIONAMENTO" | "pendentes";
 
 const DECISAO_CONFIG: Record<DecisaoComite, { label: string; color: string; bg: string; border: string; Icon: React.ElementType }> = {
   APROVADO:              { label: "Aprovado",          color: "#16a34a", bg: "#f0fdf4", border: "#86efac", Icon: CheckCircle2 },
   APROVACAO_CONDICIONAL: { label: "Condicional",       color: "#7c3aed", bg: "#f5f3ff", border: "#c4b5fd", Icon: AlertTriangle },
   PENDENTE:              { label: "Em Análise",        color: "#d97706", bg: "#fffbeb", border: "#fcd34d", Icon: Clock },
   REPROVADO:             { label: "Reprovado",         color: "#dc2626", bg: "#fef2f2", border: "#fca5a5", Icon: XCircle },
+  QUESTIONAMENTO:        { label: "Questionamento",    color: "#0891b2", bg: "#ecfeff", border: "#a5f3fc", Icon: HelpCircle },
 };
 
 const V2_CONFIG: Record<RatingV2, { color: string; bg: string; label: string }> = {
@@ -148,9 +149,10 @@ export default function ParecerPage() {
   }, [user, authLoading, router]);
 
   // ── Computed stats ──────────────────────────────────────────────────────────
-  const aprovados    = pareceres.filter(p => p.decisao_comite === "APROVADO").length;
-  const condicionais = pareceres.filter(p => p.decisao_comite === "APROVACAO_CONDICIONAL").length;
-  const reprovados   = pareceres.filter(p => p.decisao_comite === "REPROVADO").length;
+  const aprovados        = pareceres.filter(p => p.decisao_comite === "APROVADO").length;
+  const condicionais     = pareceres.filter(p => p.decisao_comite === "APROVACAO_CONDICIONAL").length;
+  const reprovados       = pareceres.filter(p => p.decisao_comite === "REPROVADO").length;
+  const questionamentos  = pareceres.filter(p => p.decisao_comite === "QUESTIONAMENTO").length;
 
   const limiteTotal = pareceres
     .filter(p => p.decisao_comite === "APROVADO" || p.decisao_comite === "APROVACAO_CONDICIONAL")
@@ -209,11 +211,12 @@ export default function ParecerPage() {
   };
 
   const FILTERS: { value: FilterValue; label: string }[] = [
-    { value: "todos",              label: `Todos (${pareceres.length + pending.length})` },
-    { value: "APROVADO",           label: `Aprovados (${aprovados})` },
+    { value: "todos",                 label: `Todos (${pareceres.length + pending.length})` },
+    { value: "APROVADO",              label: `Aprovados (${aprovados})` },
     { value: "APROVACAO_CONDICIONAL", label: `Condicionais (${condicionais})` },
-    { value: "REPROVADO",          label: `Reprovados (${reprovados})` },
-    { value: "pendentes",          label: `Sem Parecer (${pending.length})` },
+    { value: "REPROVADO",             label: `Reprovados (${reprovados})` },
+    { value: "QUESTIONAMENTO",        label: `Questionamentos (${questionamentos})` },
+    { value: "pendentes",             label: `Sem Parecer (${pending.length})` },
   ];
 
   return (
@@ -305,7 +308,7 @@ export default function ParecerPage() {
                 <span style={{ fontSize: 12, fontWeight: 700, color: "#0f172a" }}>Funil de Decisões</span>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {(["APROVADO","APROVACAO_CONDICIONAL","REPROVADO","PENDENTE"] as DecisaoComite[]).map(d => {
+                {(["APROVADO","APROVACAO_CONDICIONAL","REPROVADO","PENDENTE","QUESTIONAMENTO"] as DecisaoComite[]).map(d => {
                   const cfg = DECISAO_CONFIG[d];
                   const count = pareceres.filter(p => p.decisao_comite === d).length;
                   const pct = pareceres.length > 0 ? Math.round((count / pareceres.length) * 100) : 0;

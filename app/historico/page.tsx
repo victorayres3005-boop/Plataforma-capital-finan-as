@@ -110,10 +110,11 @@ const DOC_ICON_STYLE: Record<string, { color: string; bg: string }> = {
 function getStatusDisplay(col: DocumentCollection): { label: string; bg: string; color: string; border: string } {
   if (col.status !== "finished") return { label: "Em andamento", bg: "#FEF3C7", color: "#D97706", border: "#FDE68A" };
   switch (col.decisao) {
-    case "APROVADO":              return { label: "Aprovado",    bg: "#DCFCE7", color: "#16A34A", border: "#86EFAC" };
-    case "APROVACAO_CONDICIONAL": return { label: "Condicional", bg: "#EDE9FE", color: "#7C3AED", border: "#C4B5FD" };
-    case "REPROVADO":             return { label: "Reprovado",   bg: "#FEE2E2", color: "#DC2626", border: "#FCA5A5" };
-    default:                      return { label: "Pendente",    bg: "#F1F5F9", color: "#6B7280", border: "#E2E8F0" };
+    case "APROVADO":              return { label: "Aprovado",        bg: "#DCFCE7", color: "#16A34A", border: "#86EFAC" };
+    case "APROVACAO_CONDICIONAL": return { label: "Condicional",     bg: "#EDE9FE", color: "#7C3AED", border: "#C4B5FD" };
+    case "REPROVADO":             return { label: "Reprovado",       bg: "#FEE2E2", color: "#DC2626", border: "#FCA5A5" };
+    case "QUESTIONAMENTO":        return { label: "Questionamento",  bg: "#ECFEFF", color: "#0891B2", border: "#A5F3FC" };
+    default:                      return { label: "Pendente",        bg: "#F1F5F9", color: "#6B7280", border: "#E2E8F0" };
   }
 }
 
@@ -562,7 +563,6 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
                 { k: "limiteCredito", l: "Limite de Crédito" },
                 { k: "concentracaoSacado", l: "Concentração/Sacado" },
                 { k: "garantias", l: "Garantias" },
-                { k: "prazoRevisao", l: "Prazo de Revisão" },
               ]},
               { label: "Taxas", items: [
                 { k: "taxaConvencional", l: "Taxa Convencional" },
@@ -1039,9 +1039,9 @@ function GroupCard({ group, userName, userId, highlightId, onDelete, onDeleteAll
         const colB = group.cols.find(c => c.id === compareIds[1]);
         const fmtDate = (d: string) => new Date(d).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" });
         const fmtFmm = (v: number | null | undefined) => v ? `R$ ${(v / 1000).toFixed(0)}K` : "—";
-        const decBg: Record<string, string> = { APROVADO: "#DCFCE7", REPROVADO: "#FEE2E2", APROVACAO_CONDICIONAL: "#EDE9FE" };
-        const decColor: Record<string, string> = { APROVADO: "#16A34A", REPROVADO: "#DC2626", APROVACAO_CONDICIONAL: "#7C3AED" };
-        const decLabel: Record<string, string> = { APROVADO: "Aprovado", REPROVADO: "Reprovado", APROVACAO_CONDICIONAL: "Condicional", PENDENTE: "Pendente" };
+        const decBg: Record<string, string> = { APROVADO: "#DCFCE7", REPROVADO: "#FEE2E2", APROVACAO_CONDICIONAL: "#EDE9FE", QUESTIONAMENTO: "#ECFEFF" };
+        const decColor: Record<string, string> = { APROVADO: "#16A34A", REPROVADO: "#DC2626", APROVACAO_CONDICIONAL: "#7C3AED", QUESTIONAMENTO: "#0891B2" };
+        const decLabel: Record<string, string> = { APROVADO: "Aprovado", REPROVADO: "Reprovado", APROVACAO_CONDICIONAL: "Condicional", PENDENTE: "Pendente", QUESTIONAMENTO: "Questionamento" };
         const CompareCol = ({ col }: { col: DocumentCollection | undefined }) => !col ? null : (
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ fontSize: 11, color: "#9CA3AF", margin: "0 0 10px" }}>{fmtDate(col.created_at)}</p>
@@ -1610,7 +1610,7 @@ function HistoricoContent() {
                   <div>
                     <p className="text-[10px] font-semibold text-[#9CA3AF] uppercase tracking-widest mb-2">Decisão</p>
                     <div className="flex gap-1.5 flex-wrap">
-                      {[{ v: "APROVADO", l: "Aprovado" }, { v: "APROVACAO_CONDICIONAL", l: "Condicional" }, { v: "REPROVADO", l: "Reprovado" }, { v: "PENDENTE", l: "Pendente" }].map(d => (
+                      {[{ v: "APROVADO", l: "Aprovado" }, { v: "APROVACAO_CONDICIONAL", l: "Condicional" }, { v: "REPROVADO", l: "Reprovado" }, { v: "PENDENTE", l: "Pendente" }, { v: "QUESTIONAMENTO", l: "Questionamento" }].map(d => (
                         <button key={d.v} onClick={() => setFilterDecisao(filterDecisao === d.v ? "" : d.v)}
                           className="text-[11px] px-2.5 py-1 rounded-full border transition-colors"
                           style={filterDecisao === d.v ? { background: "#203b88", color: "white", borderColor: "#203b88" } : { borderColor: "#E2E8F0", color: "#6B7280" }}>

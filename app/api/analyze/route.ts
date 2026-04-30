@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { FundSettings, ExtractedData } from "@/types";
 import { DEFAULT_FUND_SETTINGS } from "@/types";
-import type { ScoreResult, RespostaCriterio } from "@/types/politica-credito";
+import type { ScoreResult, RespostaCriterio, ConfiguracaoPolitica } from "@/types/politica-credito";
+import { mergeComDefaults, DEFAULT_POLITICA_V2 } from "@/lib/politica-credito/defaults";
 
 import { createClient } from "@supabase/supabase-js";
 import { generateEmbedding, buildEmbeddingText } from "@/lib/embeddings";
@@ -415,32 +416,24 @@ Critérios para [INFO] — severidade "INFO":
 
 === SCORE E DECISÃO ===
 
-A plataforma adota EXCLUSIVAMENTE a Política de Crédito V2 com 5 pilares:
-  1. Estrutura da Operação (peso 35%)
-  2. Risco e Compliance (peso 25%)
-  3. Perfil da Empresa (peso 15%)
-  4. Saúde Financeira (peso 15%)
-  5. Sócios e Governança (peso 10%)
+A plataforma adota EXCLUSIVAMENTE a Política de Crédito V2. A política completa (critérios, pesos, parâmetros e faixas de rating) está no bloco "--- POLÍTICA DE CRÉDITO ---" acima.
 
-SE o bloco "--- SCORE V2 ---" foi fornecido acima pelo analista:
-→ O rating oficial já foi calculado. Retorne "rating": {{SCORE_V2_SCALED}} (score V2 ÷ 10).
-→ NÃO recalcule o score. Use exatamente o valor fornecido.
-→ Decisão obrigatória pelas faixas V2:
+O Score V2 da Política é SEMPRE o rating oficial desta operação — foi calculado pelo sistema e está no bloco "--- SCORE V2 ---".
+Retorne "rating": {{SCORE_V2_SCALED}} (score V2 ÷ 10) — NÃO recalcule, NÃO ajuste, NÃO estime.
+
+Decisão obrigatória pelas faixas da política:
    Rating A ou B (Score V2 ≥ 80) → APROVADO
    Rating C ou D (Score V2 60–79) → APROVACAO_CONDICIONAL
    Rating E (Score V2 50–59) → PENDENTE
    Rating F (Score V2 < 50) → REPROVADO
-→ Eliminatório absoluto prevalece sobre o score: se CCF, SCR vencido/prejuízo, RJ ou alavancagem acima do máximo forem detectados, aplique REPROVADO mesmo que o Score V2 seja alto.
 
-SE NÃO há Score V2 disponível ({{SCORE_V2_SCALED}} = —, sem bloco acima):
-→ Estime um score 0–10 avaliando os dados segundo os 5 pilares V2 acima.
-→ Retorne "rating" com o valor calculado por você.
-→ Use as faixas: ≥8.0 → APROVADO | 6.0–7.9 → APROVACAO_CONDICIONAL | 5.0–5.9 → PENDENTE | <5.0 → REPROVADO
+Eliminatório absoluto prevalece sobre o score: se CCF, SCR vencido/prejuízo, RJ ou alavancagem acima do máximo da política forem detectados, aplique REPROVADO mesmo que o Score V2 seja alto.
 
-Seu papel em ambos os casos:
-1. Gerar o texto narrativo do parecer comentando os 5 pilares com dados concretos
+Seu papel:
+1. Gerar o texto narrativo do parecer comentando cada critério dos 5 pilares com dados concretos
 2. Identificar e listar todos os alertas cabíveis
-3. Confirmar ou ajustar a decisão seguindo as regras acima
+3. Aplicar critérios eliminatórios quando presentes
+NÃO calcule nem ajuste o score — o Score V2 é fonte única e imutável do rating.
 
 === ANÁLISE COMPLEMENTAR FIDC ===
 
@@ -455,12 +448,6 @@ TIPO DE RECEBÍVEL: Com base no CNAE e objeto social, identifique o tipo predomi
   Mencione o tipo no parecer e seu impacto no risco operacional do fundo.
 
 PRAZO MÉDIO DOS RECEBÍVEIS: Se o cedente opera em setor de prazo curto (varejo, distribuição: 30–45 dias) vs. longo (construção, agro, governo: 90–180 dias), ajuste o prazoMaximo nos parâmetros operacionais de acordo.
-
-Decisão baseada exclusivamente no Rating V2 da Política do Fundo:
-— Rating A ou B (Score V2 ≥ 80 pts) → APROVADO (salvo eliminatório absoluto)
-— Rating C ou D (Score V2 60–79 pts) → APROVACAO_CONDICIONAL
-— Rating E (Score V2 50–59 pts) → PENDENTE
-— Rating F (Score V2 < 50 pts) → REPROVADO
 
 === DECISÃO ===
 
@@ -544,8 +531,7 @@ Você receberá um bloco "COBERTURA DOCUMENTAL" indicando quais documentos estã
 NÍVEL PRELIMINAR (cobertura < 45%) — apenas bureaus e CNPJ:
 - Base da análise: dados de bureau (Serasa, SCR, CreditHub) + informações cadastrais
 - O SCR e o score de bureau são os principais indicadores de risco
-- Gere rating entre 3.0 e 7.5 (nunca acima de 7.5 sem dados financeiros próprios)
-- ratingConfianca deve refletir a limitação: máximo 55%
+- ratingConfianca: máximo 55% — reflita a limitação da cobertura documental
 - Seja explícito no resumoExecutivo: "Análise baseada exclusivamente em dados de bureau"
 - impactoDocsFaltantes: liste os documentos que mais aumentariam a confiança
 
@@ -554,7 +540,7 @@ NÍVEL BÁSICO (cobertura 45–65%) — CNPJ + SCR + Faturamento:
 - FMM 12M é o principal indicador de capacidade operacional
 - Alavancagem SCR vs FMM é o principal indicador de risco
 - ratingConfianca: 55–72%
-- Gere rating completo mas destaque limitações no textoCompleto
+- Destaque limitações no textoCompleto
 
 NÍVEL PADRÃO (cobertura 65–85%) — inclui DRE ou Balanço:
 - Análise financeira estruturada possível
@@ -566,6 +552,8 @@ NÍVEL COMPLETO (cobertura > 85%) — documentação plena:
 - Análise sem restrições
 - ratingConfianca: 88–100%
 - Comportamento padrão
+
+IMPORTANTE: O rating e a decisão vêm EXCLUSIVAMENTE do Score V2 da Política de Crédito — independente do nível de cobertura. O ratingConfianca reflete apenas a qualidade documental, nunca altera o score.
 
 COMPENSAÇÕES quando docs financeiros estão ausentes:
 - Sem DRE → use FMM 12M como proxy de receita; alavancagem SCR como proxy de endividamento
@@ -1376,6 +1364,103 @@ INSTRUÇÕES PARA USO DO SCORE V2:
 }
 
 // ─────────────────────────────────────────
+// Carrega a Política de Crédito do banco
+// ─────────────────────────────────────────
+async function loadPoliticaServidor(userId: string): Promise<ConfiguracaoPolitica> {
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!supabaseKey || !process.env.NEXT_PUBLIC_SUPABASE_URL) {
+    console.warn("[analyze] loadPoliticaServidor: env Supabase ausente — usando DEFAULT_POLITICA_V2");
+    return DEFAULT_POLITICA_V2;
+  }
+  try {
+    const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, supabaseKey);
+    const { data, error } = await sb
+      .from("politica_credito_config")
+      .select("*")
+      .eq("user_id", userId)
+      .order("atualizado_em", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      console.warn(`[analyze] loadPoliticaServidor: erro Supabase: ${error.message} — usando DEFAULT_POLITICA_V2`);
+      return DEFAULT_POLITICA_V2;
+    }
+    if (!data) {
+      console.log(`[analyze] loadPoliticaServidor: nenhuma política para user ${userId} — usando DEFAULT_POLITICA_V2`);
+      return DEFAULT_POLITICA_V2;
+    }
+    console.log(`[analyze] loadPoliticaServidor: política carregada para user ${userId}`);
+    return mergeComDefaults(data as Record<string, unknown>);
+  } catch (err) {
+    console.error("[analyze] loadPoliticaServidor: exceção:", err instanceof Error ? err.message : err);
+    return DEFAULT_POLITICA_V2;
+  }
+}
+
+// ─────────────────────────────────────────
+// Serializa a Política completa para o prompt
+// ─────────────────────────────────────────
+function buildPoliticaBlock(politica: ConfiguracaoPolitica): string {
+  const pe = politica.parametros_elegibilidade;
+  const pesoMap: Record<string, number> = {
+    perfil_empresa:    politica.pesos_pilares.perfil_empresa,
+    saude_financeira:  politica.pesos_pilares.saude_financeira,
+    risco_compliance:  politica.pesos_pilares.risco_compliance,
+    socios_governanca: politica.pesos_pilares.socios_governanca,
+    estrutura_operacao:politica.pesos_pilares.estrutura_operacao,
+  };
+
+  const pilaresStr = politica.pilares.map(pilar => {
+    const peso = pesoMap[pilar.id] ?? 0;
+    const criteriosStr = pilar.criterios.map(c => {
+      const opcoesStr = c.opcoes.map(o => `      → ${o.label}: ${o.pontos} pts${o.descricao ? ` (${o.descricao})` : ""}`).join("\n");
+      const modStr = c.modificadores?.length
+        ? "\n    Modificadores: " + c.modificadores.map(m => `${m.label} ×${m.multiplicador}`).join(", ")
+        : "";
+      return `  [${c.id}] ${c.nome} (máx ${c.pontos_maximos} pts)${c.obrigatorio ? " — obrigatório" : ""}${modStr}\n${opcoesStr}`;
+    }).join("\n");
+    return `PILAR: ${pilar.nome} | Peso: ${peso}% | Máx: ${pilar.pontos_totais} pts\n${criteriosStr}`;
+  }).join("\n\n");
+
+  const faixasStr = politica.faixas_rating
+    .map(f => `  ${f.rating} (${f.score_minimo}–${f.score_maximo} pts): ${f.interpretacao} — ${f.leitura_risco}`)
+    .join("\n");
+
+  return `\n\n--- POLÍTICA DE CRÉDITO (PARÂMETROS COMPLETOS) ---
+
+PESOS DOS PILARES:
+  Estrutura da Operação: ${pesoMap.estrutura_operacao}%
+  Risco e Compliance: ${pesoMap.risco_compliance}%
+  Perfil da Empresa: ${pesoMap.perfil_empresa}%
+  Saúde Financeira: ${pesoMap.saude_financeira}%
+  Sócios e Governança: ${pesoMap.socios_governanca}%
+
+CRITÉRIOS E PONTUAÇÃO POR PILAR:
+${pilaresStr}
+
+FAIXAS DE RATING:
+${faixasStr}
+
+PARÂMETROS DE ELEGIBILIDADE (LIMITES DO FUNDO):
+  FMM mínimo: R$ ${pe.fmm_minimo?.toLocaleString("pt-BR") ?? "—"}
+  Constituição mínima: ${pe.tempo_constituicao_minimo_anos ?? "—"} anos
+  Alavancagem saudável: até ${pe.alavancagem_saudavel ?? "—"}x FMM
+  Alavancagem máxima: até ${pe.alavancagem_maxima ?? "—"}x FMM (eliminatório acima disto)
+  SCR vencidos máx: ${pe.scr_vencidos_max_pct ?? "—"}%
+  Protestos máx: ${pe.protestos_max ?? "—"}
+  Processos passivos máx: ${pe.processos_passivos_max ?? "—"}
+  Concentração máx por sacado: ${pe.concentracao_max_sacado ?? "—"}%
+  Aceita RJ homologada: ${pe.aceita_recuperacao_judicial_homologada ? "sim" : "não"}
+  Aceita débitos outros fundos: ${pe.aceita_com_debitos_outros_fundos ? "sim" : "não"}
+  Prazo máximo aprovado: ${pe.prazo_maximo_aprovado ?? "—"} dias
+  Prazo máximo condicional: ${pe.prazo_maximo_condicional ?? "—"} dias
+  Fator limite base: ${pe.fator_limite_base ?? "—"}x FMM
+
+Estes parâmetros são os únicos critérios de avaliação desta operação.
+--- FIM POLÍTICA DE CRÉDITO ---\n`;
+}
+
+// ─────────────────────────────────────────
 // HANDLER
 // ─────────────────────────────────────────
 export async function POST(request: NextRequest) {
@@ -1390,8 +1475,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Nenhum provedor de IA configurado." }, { status: 500 });
     }
 
-    // ──── Settings do fundo (defaults se não enviados) ────
-    const settings: FundSettings = { ...DEFAULT_FUND_SETTINGS, ...(body.settings || {}) };
+    // ──── Política de Crédito — fonte única de verdade ────
+    const userId = body.user_id as string | undefined;
+    const politica = userId ? await loadPoliticaServidor(userId) : DEFAULT_POLITICA_V2;
+    const pe = politica.parametros_elegibilidade;
+
+    // ──── Settings derivados da política (não de body.settings) ────
+    const settings: FundSettings = {
+      ...DEFAULT_FUND_SETTINGS,
+      ...(body.settings || {}),
+      fmm_minimo:             pe.fmm_minimo               ?? DEFAULT_FUND_SETTINGS.fmm_minimo,
+      idade_minima_anos:      pe.tempo_constituicao_minimo_anos ?? DEFAULT_FUND_SETTINGS.idade_minima_anos,
+      alavancagem_saudavel:   pe.alavancagem_saudavel      ?? DEFAULT_FUND_SETTINGS.alavancagem_saudavel,
+      alavancagem_maxima:     pe.alavancagem_maxima        ?? DEFAULT_FUND_SETTINGS.alavancagem_maxima,
+      protestos_max:          pe.protestos_max             ?? DEFAULT_FUND_SETTINGS.protestos_max,
+      processos_passivos_max: pe.processos_passivos_max    ?? DEFAULT_FUND_SETTINGS.processos_passivos_max,
+      scr_vencidos_max_pct:   pe.scr_vencidos_max_pct      ?? DEFAULT_FUND_SETTINGS.scr_vencidos_max_pct,
+      concentracao_max_sacado:pe.concentracao_max_sacado   ?? DEFAULT_FUND_SETTINGS.concentracao_max_sacado,
+      fator_limite_base:      pe.fator_limite_base         ?? DEFAULT_FUND_SETTINGS.fator_limite_base,
+      prazo_maximo_aprovado:  pe.prazo_maximo_aprovado     ?? DEFAULT_FUND_SETTINGS.prazo_maximo_aprovado,
+      prazo_maximo_condicional:pe.prazo_maximo_condicional ?? DEFAULT_FUND_SETTINGS.prazo_maximo_condicional,
+      revisao_aprovado_dias:  pe.revisao_aprovado_dias     ?? DEFAULT_FUND_SETTINGS.revisao_aprovado_dias,
+      revisao_condicional_dias:pe.revisao_condicional_dias ?? DEFAULT_FUND_SETTINGS.revisao_condicional_dias,
+    };
 
     // ──── Validação dos dados de entrada ────
     // Bloqueia apenas se CNPJ não puder ser identificado (mínimo absoluto)
@@ -1607,6 +1713,7 @@ export async function POST(request: NextRequest) {
     const _preReq = preReq; const _alav = alav;
     const _alertas = alertasDeterministicos; const _body = body;
     const _settings = settings; const _cacheKey = cacheKey;
+    const _politica = politica;
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -1707,18 +1814,41 @@ Dívida total SCR: R$ ${_alav.totalDivida.toLocaleString("pt-BR", { minimumFract
           console.log(`[analyze] Cobertura: ${cobertura.cobertura}% docs + ${cobertura.chBonus}pts CH = ${cobertura.coberturaEfetiva}% efetiva | Nível: ${cobertura.nivel} | Confiança base: ${cobertura.confiancaBase}% | CH sinais: ${cobertura.chSinais.map(s => s.chave).join(",")||"nenhum"}`);
 
           // Fase 1+2: injeta exemplos do comitê (vetorial se possível, divergência como fallback)
-          const userId = _body.user_id as string | undefined;
+          const _userId = _body.user_id as string | undefined;
           const currentSnapshot: Record<string, unknown> = {
             indicadores: { idadeEmpresa: String(_preReq.idadeAnos) + " anos", alavancagem: alav.label },
           };
-          const fewShotBlock = userId ? await getFewShotExamples(userId, currentSnapshot) : "";
-          const scoreV2 = _body.scoreV2 as ScoreResult | undefined;
-          const scoreV2Respostas = _body.scoreV2Respostas as RespostaCriterio[] | undefined;
+          const fewShotBlock = _userId ? await getFewShotExamples(_userId, currentSnapshot) : "";
+
+          // ── Score V2 — sempre presente (auto-score se analista não preencheu) ──
+          let scoreV2 = _body.scoreV2 as ScoreResult | undefined;
+          let scoreV2Respostas = _body.scoreV2Respostas as RespostaCriterio[] | undefined;
+          if (scoreV2) {
+            console.log(`[analyze] Score V2 recebido do frontend: ${scoreV2.score_final?.toFixed(1)} pts → Rating ${scoreV2.rating}`);
+          } else {
+            try {
+              const { autoPreencherScore } = await import("@/lib/politica-credito/auto-score");
+              const resultado = autoPreencherScore(_body.data as ExtractedData, _politica, []);
+              scoreV2 = resultado.score;
+              scoreV2Respostas = resultado.respostas;
+              console.log(`[analyze] Score V2 auto-calculado: ${scoreV2.score_final.toFixed(1)} pts → Rating ${scoreV2.rating}`);
+            } catch (err) {
+              console.error("[analyze] auto-score FALHOU — Gemini receberá rating='—' e prompt rígido:", err instanceof Error ? err.stack : err);
+            }
+          }
+          if (!scoreV2) {
+            console.warn("[analyze] ATENÇÃO: scoreV2 indisponível — Score V2 ausente do prompt, Gemini sem âncora de rating");
+          }
+
           const scoreV2Block = scoreV2 ? buildScoreV2Block(scoreV2, scoreV2Respostas) : "";
           const scoreV2Scaled = scoreV2?.score_final != null
             ? (scoreV2.score_final / 10).toFixed(1)
             : "—";
-          const dynamicPrompt = (basePrompt + coberturaBlock + (fewShotBlock || "") + scoreV2Block)
+
+          // ── Política de Crédito completa — injetada no prompt ──
+          const politicaBlock = buildPoliticaBlock(_politica);
+
+          const dynamicPrompt = (basePrompt + politicaBlock + coberturaBlock + (fewShotBlock || "") + scoreV2Block)
             .replace(/\{\{SCORE_V2_SCALED\}\}/g, scoreV2Scaled);
 
           const sintesePrompt = PROMPT_SINTESE(_body.data as ExtractedData, _settings, _preReq);

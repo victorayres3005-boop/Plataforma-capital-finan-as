@@ -11,7 +11,7 @@ import type { AutoScoreResultado } from "@/lib/politica-credito/auto-score";
 import {
   ArrowLeft, CheckCircle2, Clock, XCircle, AlertTriangle,
   Loader2, DollarSign, Calendar, Users, Shield, RefreshCw, FileText,
-  Percent, TrendingUp, Landmark, Package, Send, AlertCircle,
+  Percent, TrendingUp, Landmark, Package, Send, AlertCircle, HelpCircle,
 } from "lucide-react";
 import { ScoreSection } from "@/components/score/ScoreSection";
 import { toast } from "sonner";
@@ -36,7 +36,7 @@ function Logo({ height = 26 }: { height?: number }) {
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────
-type DecisaoValue = "APROVADO" | "APROVACAO_CONDICIONAL" | "PENDENTE" | "REPROVADO";
+type DecisaoValue = "APROVADO" | "APROVACAO_CONDICIONAL" | "PENDENTE" | "REPROVADO" | "QUESTIONAMENTO";
 
 const DECISOES: {
   value: DecisaoValue;
@@ -82,6 +82,15 @@ const DECISOES: {
     lightBg: "#fff1f2",
     border: "#fca5a5",
     Icon: XCircle,
+  },
+  {
+    value: "QUESTIONAMENTO",
+    label: "Questionamento",
+    sub: "Análise em questionamento — aguarda esclarecimentos",
+    color: "#0891b2",
+    lightBg: "#ecfeff",
+    border: "#a5f3fc",
+    Icon: HelpCircle,
   },
 ];
 
@@ -742,7 +751,7 @@ const ratingIsAnalista = ratingAnalista != null;
       const hoje = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
       const esc = (s: string) => (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-      const decLabel: Record<string, string> = { APROVADO: "APROVADO", APROVACAO_CONDICIONAL: "APROVAÇÃO CONDICIONAL", PENDENTE: "EM ANÁLISE", REPROVADO: "REPROVADO" };
+      const decLabel: Record<string, string> = { APROVADO: "APROVADO", APROVACAO_CONDICIONAL: "APROVAÇÃO CONDICIONAL", PENDENTE: "EM ANÁLISE", REPROVADO: "REPROVADO", QUESTIONAMENTO: "QUESTIONAMENTO" };
       const comiteLabel: Record<string, string> = { conforme_pleito: "Conforme Pleito", com_modificacoes: "Aprovado com Modificações", condicionado: "Condicionado" };
 
       // Cores alinhadas ao design system do relatório de síntese (template.ts):
@@ -785,7 +794,6 @@ const ratingIsAnalista = ratingAnalista != null;
       if (limiteCredito) cond.push({ label: "Limite de Crédito", value: limiteCredito });
       if (concentracao) cond.push({ label: "Concentração máx/sacado", value: concentracao });
       if (garantias) cond.push({ label: "Garantias", value: garantias });
-      if (prazoRevisao) cond.push({ label: "Prazo de Revisão", value: prazoRevisao });
 
       // Logo SVG inline — mesma marca do relatório de síntese, versão clara para header.
       const logoSvg = (whiteFill: boolean) => {
@@ -1240,6 +1248,15 @@ const ratingIsAnalista = ratingAnalista != null;
               );
             })}
           </div>
+
+          {decisao === "QUESTIONAMENTO" && (
+            <div style={{ marginTop: 14, background: "#ecfeff", border: "1px solid #a5f3fc", borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "flex-start", gap: 10 }}>
+              <HelpCircle size={15} style={{ color: "#0891b2", flexShrink: 0, marginTop: 1 }} />
+              <p style={{ fontSize: 12, color: "#0e7490", margin: 0, lineHeight: 1.5 }}>
+                <strong>Status: Questionamento.</strong> Os parâmetros operacionais abaixo são <strong>opcionais</strong> — preencha apenas o que já foi discutido. Você pode confirmar o parecer deixando os demais campos em branco.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* ── Rating do Comitê ── */}
@@ -1451,7 +1468,6 @@ const ratingIsAnalista = ratingAnalista != null;
                 <InputField label="Limite de Crédito" value={limiteCredito} onChange={setLimiteCredito} placeholder="ex: R$ 150.000" icon={DollarSign} hint="Sugestão IA" format="currency" />
                 <InputField label="Concentração por Sacado" value={concentracao} onChange={setConcentracao} placeholder="ex: até 25%" icon={Users} format="percent" />
                 <InputField label="Garantias" value={garantias} onChange={setGarantias} placeholder="ex: Aval dos sócios" icon={Shield} />
-                <InputField label="Prazo de Revisão" value={prazoRevisao} onChange={setPrazoRevisao} placeholder="ex: 180 dias" icon={RefreshCw} format="days" />
               </div>
 
               {/* Taxas */}

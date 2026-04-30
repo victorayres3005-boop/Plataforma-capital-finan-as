@@ -200,7 +200,8 @@ export function renderSocios(ctx: PdfCtx): void {
     const somaCat = parseMoneyToNumber(ir.bensImoveis || "0")
       + parseMoneyToNumber(ir.bensVeiculos || "0")
       + parseMoneyToNumber(ir.aplicacoesFinanceiras || "0")
-      + parseMoneyToNumber(ir.outrosBens || "0");
+      + parseMoneyToNumber(ir.outrosBens || "0")
+      + parseMoneyToNumber(ir.participacoesSocietarias || "0");
     const totalDec = parseMoneyToNumber(ir.totalBensDireitos || "0");
     if (somaCat > 0 && totalDec > 0) {
       const diff = Math.abs(totalDec - somaCat);

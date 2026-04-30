@@ -255,12 +255,19 @@ export async function POST(req: NextRequest) {
             console.log(`[bureaus] DataBox360 grupo econômico: sandbox detectado (totais idênticos) — coluna SCR oculta`);
             merged.grupoEconomicoScrSandbox = true;
           } else {
-            // Popula scrTotal nos itens correspondentes
-            const scrMap = new Map(scrGrupo.map(s => [s.cnpj, s.totalDividas]));
+            // Popula scrTotal + vencidos + aVencer + prejuizos nos itens correspondentes
+            const scrMap = new Map(scrGrupo.map(s => [s.cnpj, s]));
             merged.grupoEconomico.empresas = merged.grupoEconomico.empresas.map(emp => {
               const cnpjNum = (emp.cnpj ?? "").replace(/\D/g, "");
-              const total = scrMap.get(cnpjNum);
-              return total ? { ...emp, scrTotal: total } : emp;
+              const s = scrMap.get(cnpjNum);
+              if (!s) return emp;
+              return {
+                ...emp,
+                scrTotal:    s.totalDividas,
+                scrVencidos: s.carteiraVencido !== "R$ 0,00" ? s.carteiraVencido : undefined,
+                scrAVencer:  s.carteiraVencer  !== "R$ 0,00" ? s.carteiraVencer  : undefined,
+                scrPrejuizos: s.prejuizos      !== "R$ 0,00" ? s.prejuizos       : undefined,
+              };
             });
           }
         } catch (err) {

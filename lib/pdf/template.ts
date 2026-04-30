@@ -1222,6 +1222,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
           const cnpjFmt = e.cnpj ? e.cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5") : "—";
           const sitCls = sitClass(e.situacao ?? "");
           const hasSCR = e.scrTotal && e.scrTotal !== "—";
+          const hasVenc = !!e.scrVencidos;
           const hasProt = e.protestos && e.protestos !== "—";
           const hasProc = e.processos && e.processos !== "—";
           const hasVal  = e.valorProcessos && e.valorProcessos !== "—";
@@ -1230,6 +1231,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
             <td class="mono">${cnpjFmt}</td>
             <td><span class="ge-badge ${sitCls}">${esc(e.situacao ?? "—")}</span></td>
             <td class="mono" style="color:${hasSCR ? "var(--n9)" : "var(--x4)"}">${hasSCR ? fmtMoneyAbr(e.scrTotal) : "—"}</td>
+            <td class="mono" style="text-align:right;color:${hasVenc ? "var(--r6)" : "var(--x4)"};font-weight:${hasVenc ? "700" : "400"}">${hasVenc ? fmtMoneyAbr(e.scrVencidos) : "—"}</td>
             <td style="text-align:center;color:${hasProt && e.protestos !== "0" ? "var(--r6)" : "var(--g6)"};font-weight:600">${hasProt ? e.protestos : "—"}</td>
             <td style="text-align:center;color:${hasProc && e.processos !== "0" ? "var(--r6)" : "var(--g6)"};font-weight:600">${hasProc ? e.processos : "—"}</td>
             <td class="mono" style="color:${hasVal && e.valorProcessos !== "R$ 0,00" ? "var(--r6)" : "var(--x4)"};font-size:var(--fs-tag)">${hasVal ? esc(e.valorProcessos!) : "—"}</td>
@@ -1241,7 +1243,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
           <span style="font-weight:500;color:var(--n8);margin-left:auto">${empsAtivas.length} empresa${empsAtivas.length > 1 ? "s" : ""}</span>
         </div>
         <table class="ge-tbl">
-          <thead><tr><th>Razão Social</th><th>CNPJ</th><th>Situação</th><th>SCR</th><th style="text-align:center">Prot.</th><th style="text-align:center">Proc.</th><th style="text-align:right">Valor Proc.</th></tr></thead>
+          <thead><tr><th>Razão Social</th><th>CNPJ</th><th>Situação</th><th>SCR Total</th><th style="text-align:right;color:var(--r6)">Vencidos</th><th style="text-align:center">Prot.</th><th style="text-align:center">Proc.</th><th style="text-align:right">Valor Proc.</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>`;
       }).join("");
@@ -2256,9 +2258,18 @@ function pageIRVisita(params: PDFReportParams, date: string): string {
           <div class="icell"><div class="l">Apl. Financeiras</div><div class="v sm mono">${fmtMoneyAbr(ir.aplicacoesFinanceiras)}</div></div>
           <div class="icell ${ir.coerenciaComEmpresa ? "success" : "warn"}"><div class="l">Coerência c/ empresa</div><div class="v ${ir.coerenciaComEmpresa ? "green" : ""} sm">${ir.coerenciaComEmpresa ? "Sim" : "Verificar"}</div></div>
         </div>
+        ${(() => {
+          const quotasVal = (ir as { participacoesSocietarias?: string }).participacoesSocietarias || (ir as { outrosBens?: string }).outrosBens;
+          if (!quotasVal || numVal(quotasVal) <= 0) return "";
+          return `<div class="istrip c4" style="margin-bottom:8px">
+            <div class="icell" style="border:1px solid var(--n1);background:var(--n0)"><div class="l" style="color:var(--n7);font-weight:700">Quotas Societárias</div><div class="v sm mono" style="color:var(--n8);font-weight:700">${fmtMoneyAbr(quotasVal)}</div></div>
+            <div class="icell" style="grid-column:span 3"><div class="l" style="color:var(--x4)">Participações em sociedades declaradas no Grupo 03 da DIRPF</div></div>
+          </div>`;
+        })()}
         ${!ir.debitosEmAberto ? `<div class="alert ok" style="margin:0"><span class="atag">OK</span> Sem débitos com a Receita Federal</div>` : `<div class="alert alta" style="margin:0"><span class="atag">ALTA</span> Débitos em aberto: ${esc(ir.descricaoDebitos ?? "")}</div>`}
         ${(() => {
-          const soma = numVal(bensImoveis) + numVal(bensVeiculos) + numVal(ir.aplicacoesFinanceiras) + numVal((ir as { outrosBens?: string }).outrosBens ?? "0");
+          const quotasV = numVal((ir as { participacoesSocietarias?: string }).participacoesSocietarias ?? (ir as { outrosBens?: string }).outrosBens ?? "0");
+          const soma = numVal(bensImoveis) + numVal(bensVeiculos) + numVal(ir.aplicacoesFinanceiras) + quotasV;
           const total = numVal(ir.totalBensDireitos);
           if (soma <= 0 || total <= 0) return "";
           const maxV = Math.max(soma, total);

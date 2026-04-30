@@ -2275,10 +2275,11 @@ function adaptIRNew(raw: Record<string, unknown>): Partial<IRSocioData> {
     .filter(b => grupos.includes(_s(b.grupo).padStart(2, "0")))
     .reduce((sum, b) => sum + numOr(b.valor_atual), 0);
 
-  const bensImoveisN   = sumByGrupo(["01"]);
-  const bensVeiculosN  = sumByGrupo(["02"]);
-  const aplicacoesN    = sumByGrupo(["04", "05", "06", "07"]);
-  const outrosBensN    = sumByGrupo(["03"]);
+  const bensImoveisN          = sumByGrupo(["01"]);
+  const bensVeiculosN         = sumByGrupo(["02"]);
+  const participacoesN        = sumByGrupo(["03"]);
+  const aplicacoesN           = sumByGrupo(["04", "05", "06", "07"]);
+  const outrosBensN           = 0; // grupos 08+ raramente preenchidos; grupo 03 agora em participacoesSocietarias
 
   const totalBensN = numOr(evo.bens_direitos_ano_atual);
   const dividasN   = numOr(evo.dividas_ano_atual);
@@ -2326,6 +2327,7 @@ function adaptIRNew(raw: Record<string, unknown>): Partial<IRSocioData> {
     bensVeiculos: _fmtMoneyBRNoPrefix(bensVeiculosN),
     aplicacoesFinanceiras: _fmtMoneyBRNoPrefix(aplicacoesN),
     outrosBens: _fmtMoneyBRNoPrefix(outrosBensN),
+    participacoesSocietarias: participacoesN > 0 ? _fmtMoneyBRNoPrefix(participacoesN) : undefined,
     totalBensDireitos: _fmtMoneyBRNoPrefix(totalBensN),
     dividasOnus: _fmtMoneyBRNoPrefix(dividasN),
     patrimonioLiquido: _fmtMoneyBRNoPrefix(totalBensN - dividasN),
@@ -2827,6 +2829,8 @@ function fillIRSocioDefaults(data: Partial<IRSocioData>): IRSocioData {
   const bensVeiculos       = sanitizeMoney(data.bensVeiculos);
   const aplicacoes         = sanitizeMoney(data.aplicacoesFinanceiras);
   const outrosBens         = sanitizeMoney(data.outrosBens);
+  // participacoesSocietarias: novo campo (grupo 03). Dados antigos usam outrosBens para isso.
+  const participacoes      = sanitizeMoney(data.participacoesSocietarias);
   const dividasOnus        = sanitizeMoney(data.dividasOnus);
 
   // Reconciliação de totalBensDireitos.
@@ -2835,7 +2839,7 @@ function fillIRSocioDefaults(data: Partial<IRSocioData>): IRSocioData {
   // significativa, usamos o MAIOR dos dois — parte-se da premissa de que o menor está
   // incompleto (o agregador raramente inventa valor, mas frequentemente perde itens).
   const totalDoc   = parseMoney(data.totalBensDireitos);
-  const totalCalc  = parseMoney(bensImoveis) + parseMoney(bensVeiculos) + parseMoney(aplicacoes) + parseMoney(outrosBens);
+  const totalCalc  = parseMoney(bensImoveis) + parseMoney(bensVeiculos) + parseMoney(aplicacoes) + parseMoney(outrosBens) + parseMoney(participacoes);
   const maxTotal   = Math.max(totalDoc, totalCalc);
   const diverges   = totalDoc > 0 && totalCalc > 0 && Math.abs(totalDoc - totalCalc) > maxTotal * 0.05;
   if (diverges) {
@@ -2872,6 +2876,7 @@ function fillIRSocioDefaults(data: Partial<IRSocioData>): IRSocioData {
     bensVeiculos,
     aplicacoesFinanceiras: aplicacoes,
     outrosBens,
+    ...(parseMoney(participacoes) > 0 ? { participacoesSocietarias: participacoes } : {}),
     totalBensDireitos: totalBens,
     dividasOnus,
     patrimonioLiquido: plFinal,
