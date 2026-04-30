@@ -2,7 +2,8 @@
 const nextConfig = {
   eslint: { ignoreDuringBuilds: true },
   compiler: {
-    removeConsole: process.env.NODE_ENV === "production" ? { exclude: ["error", "warn"] } : false,
+    // logs preservados em prod p/ debug operacional (Victor olha DevTools/Vercel direto)
+    removeConsole: false,
   },
   webpack: (config, { isServer }) => {
     if (isServer) {
