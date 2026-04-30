@@ -1642,9 +1642,55 @@ function parseJSON<T>(raw: string): T {
   try {
     return JSON.parse(cleaned);
   } catch (err) {
+    // Recovery — quando Gemini trunca o output em meio a array (ex: maxOutputTokens estourado),
+    // tenta recuperar fechando o JSON no último item completo. Salva extrações parciais
+    // em vez de retornar objeto vazio.
+    const recovered = tryRecoverTruncatedJSON<T>(cleaned);
+    if (recovered) {
+      console.warn("[parseJSON] JSON truncado — recuperado parcialmente. Erro original:", (err as Error).message);
+      return recovered;
+    }
     console.error("[parseJSON] Falha ao parsear resposta da IA:", (err as Error).message, "| raw (primeiros 500 chars):", raw.slice(0, 500));
     // Retorna objeto vazio ao invés de crash — fillXxxDefaults vai preencher campos padrão
     return {} as T;
+  }
+}
+
+/**
+ * Tenta recuperar JSON truncado pelo modelo cortando no último objeto completo.
+ * Estratégia: encontra a última posição onde a string termina em "}" (fechando
+ * um item de array) e fecha tudo (`]` para arrays abertos + `}` final).
+ *
+ * Funciona pra schemas comuns onde o corte ocorre no meio de um array de objetos
+ * (curva_abc_clientes, faturamento_por_mes, anos[], etc.).
+ */
+function tryRecoverTruncatedJSON<T>(s: string): T | null {
+  // Acha o último "}" que fecha um item de objeto (não a chave externa do JSON)
+  const lastObjClose = s.lastIndexOf("}");
+  if (lastObjClose < 0) return null;
+  let candidate = s.slice(0, lastObjClose + 1);
+
+  // Conta chaves/colchetes pendentes
+  let openBraces = 0, openBrackets = 0;
+  let inString = false, escape = false;
+  for (let i = 0; i < candidate.length; i++) {
+    const c = candidate[i];
+    if (escape) { escape = false; continue; }
+    if (c === "\\") { escape = true; continue; }
+    if (c === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (c === "{") openBraces++;
+    else if (c === "}") openBraces--;
+    else if (c === "[") openBrackets++;
+    else if (c === "]") openBrackets--;
+  }
+  // Fecha colchetes (arrays) e chaves (objetos) pendentes na ordem correta
+  candidate += "]".repeat(Math.max(0, openBrackets)) + "}".repeat(Math.max(0, openBraces));
+
+  try {
+    return JSON.parse(candidate) as T;
+  } catch {
+    return null;
   }
 }
 
@@ -3279,7 +3325,7 @@ async function processExtract(
       cnpj: 4096, qsa: 4096, grupoEconomico: 4096, protestos: 4096,
       faturamento: 8192, scr: 8192, processos: 8192,
       dre: 8192, balanco: 8192,
-      contrato: 8192, curva_abc: 10000, ir_socio: 8192, relatorio_visita: 8192,
+      contrato: 8192, curva_abc: 32000, ir_socio: 8192, relatorio_visita: 8192,
     };
     const _maxOutputTokens = maxOutputTokensMap[docType] ?? 2048;
 
