@@ -3296,6 +3296,7 @@ async function processExtract(
     // Override > 0 → callGemini usa 1 tentativa com esse timeout em vez de 2 × 15s.
     const perAttemptMsMap: Record<string, number> = {
       ir_socio: 30000,  // DIRPF pode ter 100+ linhas de bens/rendimentos — 30s por tentativa
+      curva_abc: 45000, // Curva ABC pode ter 500+ clientes; texto 40k+ chars + saída 10k tokens — 45s
     };
     const _perAttemptMsOverride = perAttemptMsMap[docType] ?? 0;
 
