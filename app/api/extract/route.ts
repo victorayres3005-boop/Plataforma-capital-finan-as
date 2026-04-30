@@ -3195,6 +3195,11 @@ async function processExtract(
     // ou quando pdf-parse não conseguiu extrair texto útil (PDF escaneado).
     const VISUAL_ONLY_TYPES = ["contrato", "relatorio_visita"];
     const hasUsefulText = rawPdfText.trim().length > 200 && /\d/.test(rawPdfText);
+    // Documentos grandes (>25k chars) caem pra visual — Gemini não engole o texto inteiro
+    // como prompt, em vez disso lê páginas via Files API (mais robusto quando Gemini está lento).
+    const LARGE_TEXT_FALLBACK_VISUAL = ["curva_abc", "faturamento"];
+    const isLargeText = rawPdfText.length > 25000;
+    const shouldFallbackToVisual = LARGE_TEXT_FALLBACK_VISUAL.includes(docType) && isLargeText;
 
     if (isImage) {
       imageContent = { mimeType, base64: buffer.toString("base64") };
@@ -3204,6 +3209,11 @@ async function processExtract(
         imageContent = { mimeType: "application/pdf", base64: buffer.toString("base64") };
         textContent = "";
         console.log(`[extract] ${docType} — modo visual (tipo requer leitura visual)`);
+      } else if (shouldFallbackToVisual) {
+        // Texto muito grande (>25k chars) — modo texto trava no prompt; cai pra visual
+        imageContent = { mimeType: "application/pdf", base64: buffer.toString("base64") };
+        textContent = "";
+        console.log(`[extract] ${docType} — modo visual (fallback: texto grande, ${rawPdfText.length} chars)`);
       } else if (hasUsefulText) {
         // PDF digital com texto útil → modo texto rápido (cabe em ~5-8s)
         textContent = rawPdfText;
