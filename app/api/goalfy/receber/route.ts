@@ -9,13 +9,16 @@ const WEBHOOK_SECRET = process.env.GOALFY_WEBHOOK_SECRET || "";
 
 export async function POST(req: Request) {
   try {
-    // Fail-closed: sem GOALFY_WEBHOOK_SECRET configurado, ninguém posta (era aberto antes)
-    if (!WEBHOOK_SECRET) {
-      return Response.json({ error: "GOALFY_WEBHOOK_SECRET não configurado" }, { status: 503 });
-    }
-    const { searchParams } = new URL(req.url);
-    if (searchParams.get("secret") !== WEBHOOK_SECRET) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    // Verificação OPCIONAL de secret. Quando GOALFY_WEBHOOK_SECRET estiver setado,
+    // a URL configurada na Goalfy precisa terminar em ?secret=<valor>.
+    // Sem o env, o webhook fica aberto — recomendado configurar para evitar abuso.
+    if (WEBHOOK_SECRET) {
+      const { searchParams } = new URL(req.url);
+      if (searchParams.get("secret") !== WEBHOOK_SECRET) {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
+    } else {
+      console.warn("[goalfy/receber] GOALFY_WEBHOOK_SECRET não configurado — webhook está ABERTO. Configure pra evitar abuso.");
     }
 
     const body = await req.json().catch(() => ({}));
