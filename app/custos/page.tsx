@@ -7,6 +7,8 @@ import {
   ChevronDown, ChevronUp, Save, Info, AlertCircle,
   RefreshCw, Calendar, FileText, DollarSign,
 } from "lucide-react";
+import { fmtBRL, fmtDate, safeNum } from "@/lib/formatters";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface BureauPrices {
@@ -94,24 +96,9 @@ const MONTHS = [
 ];
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
-function fmtBRL(val: number): string {
-  const safe = (typeof val === "number" && isFinite(val)) ? val : 0;
-  return safe.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
 function fmtUSD(val: number): string {
   const safe = (typeof val === "number" && isFinite(val)) ? val : 0;
   return "$" + safe.toFixed(4);
-}
-
-function fmtDate(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
-}
-
-function safeNum(v: unknown): number {
-  const n = Number(v);
-  return isFinite(n) ? n : 0;
 }
 
 function calcCustoBureau(calls: BureauCalls, prices: BureauPrices): number {
@@ -357,7 +344,9 @@ export default function CustosPage() {
   }
 
   return (
-    <div style={{ padding: "28px 32px", maxWidth: "1200px", margin: "0 auto" }}>
+    <div style={{ padding: "20px 32px 28px", maxWidth: "1200px", margin: "0 auto" }}>
+
+      <Breadcrumb items={[{ label: "Custos", current: true }]} className="mb-4" />
 
       {/* Header */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "24px", gap: "16px", flexWrap: "wrap" }}>

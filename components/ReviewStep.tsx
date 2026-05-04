@@ -15,6 +15,9 @@ import { SectionBalanco } from "./review/SectionBalanco";
 import { SectionCurvaABC } from "./review/SectionCurvaABC";
 import { SectionIRSocios } from "./review/SectionIRSocios";
 import { SectionRelatorioVisita } from "./review/SectionRelatorioVisita";
+import { SectionProtestos } from "./review/SectionProtestos";
+import { SectionProcessos } from "./review/SectionProcessos";
+import { SectionGrupoEconomico } from "./review/SectionGrupoEconomico";
 
 export const DRAFT_KEY = "cf_review_draft_v2";
 
@@ -82,7 +85,7 @@ export default function ReviewStep({ data, onComplete, onBack, onDataChange }: R
       faturamento: qFat.score !== "good",
       scr: qScr.score !== "good" || qFat.score === "error",
       dre: false, balanco: false, curvaABC: false, irSocios: false, relatorioVisita: false,
-      scrSocios: false,
+      scrSocios: false, protestos: false, processos: false, grupoEconomico: false,
     };
     if (typeof window === "undefined") return defaults;
     try {
@@ -395,6 +398,9 @@ export default function ReviewStep({ data, onComplete, onBack, onDataChange }: R
       {form.curvaABC && <SectionCurvaABC data={form.curvaABC} setField={setCurvaABCField} setCliente={setCurvaABCCliente} addCliente={addCurvaABCCliente} removeCliente={removeCurvaABCCliente} expanded={open.curvaABC} onToggle={() => toggle("curvaABC")} />}
       {form.irSocios !== undefined && <SectionIRSocios data={form.irSocios!} set={setIRSocio} add={addIRSocio} remove={removeIRSocio} expanded={open.irSocios} onToggle={() => toggle("irSocios")} />}
       {form.relatorioVisita && <SectionRelatorioVisita data={form.relatorioVisita} set={setVisita} setLista={setVisitaLista} addLista={addVisitaLista} removeLista={removeVisitaLista} expanded={open.relatorioVisita} onToggle={() => toggle("relatorioVisita")} />}
+      <SectionProtestos data={form.protestos} expanded={open.protestos} onToggle={() => toggle("protestos")} />
+      <SectionProcessos data={form.processos} expanded={open.processos} onToggle={() => toggle("processos")} />
+      <SectionGrupoEconomico data={form.grupoEconomico} expanded={open.grupoEconomico} onToggle={() => toggle("grupoEconomico")} />
 
       {/* Spacer sections já estão com pb-20 no container */}
 

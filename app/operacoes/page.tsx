@@ -11,20 +11,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/lib/useAuth";
-
-// ── Logo ──
-function Logo() {
-  return (
-    <svg width="180" height="24" viewBox="0 0 451 58" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Capital Finanças">
-      <circle cx="31" cy="27" r="22" stroke="#203b88" strokeWidth="4.5" fill="none" />
-      <circle cx="31" cy="49" r="4.5" fill="#203b88" />
-      <text x="66" y="46" fontFamily="'Open Sans', Arial, sans-serif" fontWeight="700" fontSize="38" letterSpacing="-0.5">
-        <tspan fill="#203b88">capital</tspan>
-        <tspan fill="#a8d96b">finanças</tspan>
-      </text>
-    </svg>
-  );
-}
+import Logo from "@/components/Logo";
+import { fmtBRL, fmtCNPJ, fmtDate } from "@/lib/formatters";
 
 // ── Helpers ──
 const STATUS_LABEL: Record<OperacaoStatus, string> = {
@@ -41,19 +29,6 @@ const STATUS_STYLE: Record<OperacaoStatus, { bg: string; color: string; border: 
 };
 const MODALIDADES: OperacaoModalidade[] = ["duplicata", "CCB", "CRI", "NF", "LC", "outros"];
 
-function fmtBRL(v: number) {
-  return "R$ " + v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-function fmtCNPJ(s: string) {
-  const d = s.replace(/\D/g, "");
-  if (d.length !== 14) return s;
-  return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`;
-}
-function fmtDate(s?: string | null) {
-  if (!s) return "—";
-  const [y, m, d] = s.split("-");
-  return `${d}/${m}/${y}`;
-}
 
 // ── Empty form ──
 const EMPTY: Omit<Operacao, "id" | "user_id" | "created_at" | "updated_at"> = {
@@ -82,14 +57,29 @@ function OperacaoModal({
 }) {
   const [form, setForm] = useState(initial);
   const [saving, setSaving] = useState(false);
+  // Erros inline por campo — mostrados abaixo de cada input em vermelho.
+  const [errors, setErrors] = useState<{ cnpj?: string; company_name?: string; valor?: string; data_operacao?: string }>({});
 
-  const set = (k: string, v: unknown) => setForm(f => ({ ...f, [k]: v }));
+  const set = (k: string, v: unknown) => {
+    setForm(f => ({ ...f, [k]: v }));
+    // Limpa o erro do campo assim que o usuário começa a corrigir.
+    if (errors[k as keyof typeof errors]) setErrors(prev => ({ ...prev, [k]: undefined }));
+  };
+
+  const validate = () => {
+    const next: typeof errors = {};
+    if (!form.cnpj.trim()) next.cnpj = "CNPJ obrigatório";
+    else if (form.cnpj.replace(/\D/g, "").length !== 14) next.cnpj = "CNPJ deve ter 14 dígitos";
+    if (!form.company_name.trim()) next.company_name = "Empresa obrigatória";
+    if (!form.valor || form.valor <= 0) next.valor = "Valor deve ser maior que zero";
+    if (!form.data_operacao) next.data_operacao = "Data obrigatória";
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  };
 
   const handle = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.cnpj.trim()) { toast.error("CNPJ obrigatório"); return; }
-    if (!form.company_name.trim()) { toast.error("Empresa obrigatória"); return; }
-    if (!form.valor || form.valor <= 0) { toast.error("Valor inválido"); return; }
+    if (!validate()) return;
     setSaving(true);
     try { await onSave(form); } finally { setSaving(false); }
   };
@@ -99,7 +89,9 @@ function OperacaoModal({
     borderRadius: "7px", fontSize: "13px", outline: "none",
     background: "#FAFBFC", color: "#1E293B",
   };
+  const errorInputStyle = { ...inputStyle, border: "1px solid #FCA5A5", background: "#FEF2F2" };
   const labelStyle = { fontSize: "11px", fontWeight: 700 as const, color: "#64748B", display: "block" as const, marginBottom: "4px", textTransform: "uppercase" as const, letterSpacing: ".04em" };
+  const errorMsgStyle = { fontSize: "11px", color: "#DC2626", marginTop: "4px", display: "block" as const };
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999, padding: "16px" }}>
@@ -115,11 +107,26 @@ function OperacaoModal({
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
             <div style={{ gridColumn: "1/-1" }}>
               <label style={labelStyle}>Empresa *</label>
-              <input style={inputStyle} value={form.company_name} onChange={e => set("company_name", e.target.value)} placeholder="Razão social" required />
+              <input
+                style={errors.company_name ? errorInputStyle : inputStyle}
+                value={form.company_name}
+                onChange={e => set("company_name", e.target.value)}
+                placeholder="Razão social"
+                aria-invalid={!!errors.company_name}
+              />
+              {errors.company_name && <span style={errorMsgStyle}>{errors.company_name}</span>}
             </div>
             <div>
               <label style={labelStyle}>CNPJ *</label>
-              <input style={inputStyle} value={form.cnpj} onChange={e => set("cnpj", e.target.value.replace(/\D/g, ""))} placeholder="00000000000000" maxLength={14} required />
+              <input
+                style={errors.cnpj ? errorInputStyle : inputStyle}
+                value={form.cnpj}
+                onChange={e => set("cnpj", e.target.value.replace(/\D/g, ""))}
+                placeholder="00000000000000"
+                maxLength={14}
+                aria-invalid={!!errors.cnpj}
+              />
+              {errors.cnpj && <span style={errorMsgStyle}>{errors.cnpj}</span>}
             </div>
             <div>
               <label style={labelStyle}>Nº da Operação</label>
@@ -127,7 +134,14 @@ function OperacaoModal({
             </div>
             <div>
               <label style={labelStyle}>Data da Operação *</label>
-              <input style={inputStyle} type="date" value={form.data_operacao} onChange={e => set("data_operacao", e.target.value)} required />
+              <input
+                style={errors.data_operacao ? errorInputStyle : inputStyle}
+                type="date"
+                value={form.data_operacao}
+                onChange={e => set("data_operacao", e.target.value)}
+                aria-invalid={!!errors.data_operacao}
+              />
+              {errors.data_operacao && <span style={errorMsgStyle}>{errors.data_operacao}</span>}
             </div>
             <div>
               <label style={labelStyle}>Data de Vencimento</label>
@@ -135,7 +149,17 @@ function OperacaoModal({
             </div>
             <div>
               <label style={labelStyle}>Valor (R$) *</label>
-              <input style={inputStyle} type="number" step="0.01" min="0" value={form.valor || ""} onChange={e => set("valor", parseFloat(e.target.value) || 0)} placeholder="0,00" required />
+              <input
+                style={errors.valor ? errorInputStyle : inputStyle}
+                type="number"
+                step="0.01"
+                min="0"
+                value={form.valor || ""}
+                onChange={e => set("valor", parseFloat(e.target.value) || 0)}
+                placeholder="0,00"
+                aria-invalid={!!errors.valor}
+              />
+              {errors.valor && <span style={errorMsgStyle}>{errors.valor}</span>}
             </div>
             <div>
               <label style={labelStyle}>Taxa a.m. (%)</label>

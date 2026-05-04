@@ -1,6 +1,10 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
+  // darkMode "class" — toggle via document.documentElement.classList.toggle('dark').
+  // Aplicado pragmaticamente: páginas Tailwind com dark: prefix; Sidebar/Topbar com
+  // inline styles ainda não convertidos (sessão dedicada).
+  darkMode: "class",
   content: [
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",

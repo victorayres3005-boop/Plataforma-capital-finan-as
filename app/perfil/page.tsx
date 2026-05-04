@@ -10,19 +10,10 @@ import {
   ArrowLeft, User, Mail, Lock, Camera, Loader2, Check, Shield, Eye, EyeOff,
 } from "lucide-react";
 import Link from "next/link";
+import Logo from "@/components/Logo";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
 
-function Logo({ light = false }: { light?: boolean }) {
-  const c = light ? "#ffffff" : "#203b88";
-  return (
-    <svg width="160" height="22" viewBox="0 0 451 58" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Capital Finanças">
-      <circle cx="31" cy="27" r="22" stroke={c} strokeWidth="4.5" fill="none" />
-      <circle cx="31" cy="49" r="4.5" fill={c} />
-      <text x="66" y="46" fontFamily="'Open Sans', Arial, sans-serif" fontWeight="700" fontSize="38" letterSpacing="-0.3">
-        <tspan fill={c}>capital</tspan><tspan fill="#73b815">finanças</tspan>
-      </text>
-    </svg>
-  );
-}
+// Logo local removido — usar `<Logo />` compartilhado.
 
 export default function PerfilPage() {
   const { user, loading: authLoading } = useAuth();
@@ -40,6 +31,9 @@ export default function PerfilPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPasswords, setShowPasswords] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
+  // Erros inline da seção de senha — exibidos abaixo dos campos.
+  const [pwdError, setPwdError] = useState<string | null>(null);
+  const [pwdConfirmError, setPwdConfirmError] = useState<string | null>(null);
 
   // Avatar upload
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
@@ -75,14 +69,21 @@ export default function PerfilPage() {
   };
 
   const handleChangePassword = async () => {
+    let hasError = false;
     if (!newPassword || newPassword.length < 6) {
-      toast.error("A nova senha deve ter no mínimo 6 caracteres");
-      return;
+      setPwdError("A nova senha deve ter no mínimo 6 caracteres");
+      hasError = true;
+    } else {
+      setPwdError(null);
     }
     if (newPassword !== confirmPassword) {
-      toast.error("As senhas não coincidem");
-      return;
+      setPwdConfirmError("As senhas não coincidem");
+      hasError = true;
+    } else {
+      setPwdConfirmError(null);
     }
+    if (hasError) return;
+
     setSavingPassword(true);
     try {
       const supabase = createClient();
@@ -91,6 +92,8 @@ export default function PerfilPage() {
       toast.success("Senha alterada com sucesso!");
       setNewPassword("");
       setConfirmPassword("");
+      setPwdError(null);
+      setPwdConfirmError(null);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao alterar senha");
     } finally {
@@ -200,10 +203,7 @@ export default function PerfilPage() {
       </header>
 
       <main className="flex-1 max-w-2xl mx-auto w-full px-5 sm:px-8 py-8 space-y-6">
-        {/* Back */}
-        <Link href="/" className="flex items-center gap-1.5 text-xs font-semibold text-cf-text-3 hover:text-cf-navy transition-colors" style={{ minHeight: "auto" }}>
-          <ArrowLeft size={13} /> Voltar ao painel
-        </Link>
+        <Breadcrumb items={[{ label: "Meu Perfil", current: true }]} />
 
         <h1 className="text-2xl font-bold text-cf-text-1">Meu Perfil</h1>
 
@@ -306,13 +306,40 @@ export default function PerfilPage() {
           <div className="space-y-3">
             <div>
               <label className="text-[11px] font-bold text-cf-text-3 uppercase tracking-widest block mb-1.5">Nova senha</label>
-              <input type={showPasswords ? "text" : "password"} value={newPassword} onChange={e => setNewPassword(e.target.value)}
-                placeholder="Digite a nova senha" className="input-field h-11" />
+              <input
+                type={showPasswords ? "text" : "password"}
+                value={newPassword}
+                onChange={e => { setNewPassword(e.target.value); if (pwdError) setPwdError(null); }}
+                onBlur={() => {
+                  if (newPassword && newPassword.length < 6) setPwdError("A nova senha deve ter no mínimo 6 caracteres");
+                }}
+                placeholder="Digite a nova senha"
+                className={`input-field h-11 ${pwdError ? "border-red-400 focus:ring-red-200 focus:border-red-400" : ""}`}
+                aria-invalid={!!pwdError}
+                aria-describedby={pwdError ? "pwd-error" : undefined}
+              />
+              {pwdError && <p id="pwd-error" className="text-xs text-red-600 mt-1">{pwdError}</p>}
+              {!pwdError && newPassword && newPassword.length >= 6 && (
+                <p className="text-xs text-cf-text-3 mt-1">
+                  {newPassword.length < 8 ? "Senha aceitável" : newPassword.length < 12 ? "Boa senha" : "Senha forte"}
+                </p>
+              )}
             </div>
             <div>
               <label className="text-[11px] font-bold text-cf-text-3 uppercase tracking-widest block mb-1.5">Confirmar nova senha</label>
-              <input type={showPasswords ? "text" : "password"} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
-                placeholder="Repita a nova senha" className="input-field h-11" />
+              <input
+                type={showPasswords ? "text" : "password"}
+                value={confirmPassword}
+                onChange={e => { setConfirmPassword(e.target.value); if (pwdConfirmError) setPwdConfirmError(null); }}
+                onBlur={() => {
+                  if (confirmPassword && confirmPassword !== newPassword) setPwdConfirmError("As senhas não coincidem");
+                }}
+                placeholder="Repita a nova senha"
+                className={`input-field h-11 ${pwdConfirmError ? "border-red-400 focus:ring-red-200 focus:border-red-400" : ""}`}
+                aria-invalid={!!pwdConfirmError}
+                aria-describedby={pwdConfirmError ? "pwd-confirm-error" : undefined}
+              />
+              {pwdConfirmError && <p id="pwd-confirm-error" className="text-xs text-red-600 mt-1">{pwdConfirmError}</p>}
             </div>
             <button onClick={handleChangePassword} disabled={savingPassword} className="btn-green h-10 text-sm">
               {savingPassword ? <Loader2 size={15} className="animate-spin" /> : <><Lock size={15} /> Alterar senha</>}

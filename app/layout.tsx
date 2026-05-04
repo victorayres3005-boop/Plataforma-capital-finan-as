@@ -48,6 +48,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             __html: `history.scrollRestoration = 'manual'; window.scrollTo(0, 0);`,
           }}
         />
+        {/* Tema dark/light: aplicado antes do React hidratar para evitar flash. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('cf_theme');var sys=window.matchMedia('(prefers-color-scheme: dark)').matches;var d=t==='dark'||(t!=='light'&&sys);if(d)document.documentElement.classList.add('dark');}catch(e){}})();`,
+          }}
+        />
       </head>
       <body className={`${openSans.variable} ${dmSans.variable} ${jetbrainsMono.variable} ${dmSans.className} antialiased`}>
         <LayoutShell>

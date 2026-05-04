@@ -2,6 +2,22 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Dark mode base — sobrescreve --bg e cores semânticas mais usadas.
+   Sidebar/Topbar com inline styles ainda não respeitam (sessão dedicada). */
+html.dark {
+  color-scheme: dark;
+  --bg:          #0f172a;
+  --surface:     #1e293b;
+  --surface-2:   #334155;
+  --border:      #334155;
+  --border-2:    #475569;
+  --text-1:      #f1f5f9;
+  --text-2:      #cbd5e1;
+  --text-3:      #94a3b8;
+  --text-4:      #64748b;
+}
+html.dark body { background: #0f172a; color: #f1f5f9; }
+
 /* ── Design tokens ── */
 :root {
   --navy:        #203b88;

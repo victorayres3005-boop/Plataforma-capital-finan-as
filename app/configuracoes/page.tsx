@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2, SlidersHorizontal } from "lucide-react";
 import { useAuth } from "@/lib/useAuth";
 import { PoliticaCreditoTab } from "@/components/politica/PoliticaCreditoTab";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
 
 export default function ConfiguracoesPage() {
   const { user, loading: authLoading } = useAuth();
@@ -56,7 +57,8 @@ export default function ConfiguracoesPage() {
         </div>
       </div>
 
-      <main style={{ flex: 1, maxWidth: "1200px", margin: "0 auto", width: "100%", padding: "28px 32px", boxSizing: "border-box" }}>
+      <main style={{ flex: 1, maxWidth: "1200px", margin: "0 auto", width: "100%", padding: "20px 32px 28px", boxSizing: "border-box" }}>
+        <Breadcrumb items={[{ label: "Política de Crédito", current: true }]} className="mb-4" />
         <PoliticaCreditoTab userId={user.id} />
       </main>
     </div>

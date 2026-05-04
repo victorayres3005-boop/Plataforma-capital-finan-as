@@ -5,10 +5,15 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/useAuth";
 import {
-  Loader2, ClipboardList, FileText, Building2, CheckCircle2,
+  ClipboardList, FileText, Building2, CheckCircle2,
   Clock, XCircle, AlertTriangle, ChevronRight, BarChart3,
   TrendingUp, DollarSign, ArrowLeft, Download, HelpCircle,
+  Search, ChevronLeft,
 } from "lucide-react";
+import { TableSkeleton } from "@/components/ui/skeleton";
+import { fmtBRL as fmtBRLBase } from "@/lib/formatters";
+
+const fmtBRL = (v: number | null) => fmtBRLBase(v, { maximumFractionDigits: 0 });
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type DecisaoComite = "APROVADO" | "APROVACAO_CONDICIONAL" | "REPROVADO" | "PENDENTE" | "QUESTIONAMENTO";
@@ -59,11 +64,6 @@ const V2_CONFIG: Record<RatingV2, { color: string; bg: string; label: string }> 
   E: { color: "#dc2626", bg: "#fef2f2", label: "Ruim" },
   F: { color: "#991b1b", bg: "#fff1f2", label: "Crítico" },
 };
-
-function fmtBRL(value: number | null): string {
-  if (!value) return "—";
-  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
-}
 
 // ── KPI Card ───────────────────────────────────────────────────────────────────
 function KpiCard({ label, value, sub, color, icon: Icon }: {
@@ -120,6 +120,12 @@ export default function ParecerPage() {
   const [pending, setPending] = useState<PendingCollection[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterValue>("todos");
+  const [search, setSearch] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 12;
+
+  // Reseta paginação quando filtro ou busca mudam — evita ficar preso em pg vazia.
+  useEffect(() => { setCurrentPage(1); }, [filter, search]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -176,11 +182,38 @@ export default function ParecerPage() {
     pareceres.filter(p => p.decisao_comite === filter).forEach(p => listItems.push({ type: "parecer", data: p }));
   }
 
+  // Aplica busca por empresa/CNPJ — case-insensitive, ignora pontuação no CNPJ.
+  const searchNorm = search.trim().toLowerCase();
+  const cnpjDigits = searchNorm.replace(/\D/g, "");
+  const filteredItems = searchNorm
+    ? listItems.filter(item => {
+        const name = (item.type === "parecer" ? item.data.razao_social : (item.data.company_name || item.data.label)) || "";
+        const cnpj = (item.data.cnpj || "").replace(/\D/g, "");
+        return name.toLowerCase().includes(searchNorm) || (cnpjDigits.length >= 3 && cnpj.includes(cnpjDigits));
+      })
+    : listItems;
+
+  // Paginação client-side — listas crescem com o tempo e queremos resposta instantânea.
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const pagedItems = filteredItems.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
   // ── Loading ─────────────────────────────────────────────────────────────────
   if (authLoading || loading) {
     return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f8fafc" }}>
-        <Loader2 size={24} style={{ animation: "spin 1s linear infinite", color: "#203b88" }} />
+      <div style={{ minHeight: "100vh", background: "#f8fafc" }}>
+        <main style={{ maxWidth: 960, margin: "0 auto", padding: "32px 24px 80px" }}>
+          <div className="h-8 w-1/3 animate-pulse rounded bg-slate-200 mb-6" />
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+            {[0, 1, 2, 3].map(i => (
+              <div key={i} className="h-24 rounded-xl bg-white border border-slate-200 p-4 animate-pulse">
+                <div className="h-3 w-1/2 rounded bg-slate-200 mb-3" />
+                <div className="h-6 w-2/3 rounded bg-slate-200" />
+              </div>
+            ))}
+          </div>
+          <TableSkeleton cols={4} rows={6} />
+        </main>
       </div>
     );
   }
@@ -334,37 +367,65 @@ export default function ParecerPage() {
           </div>
         )}
 
-        {/* ── Filters ── */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-          {FILTERS.map(f => (
-            <button
-              key={f.value}
-              onClick={() => setFilter(f.value)}
+        {/* ── Search + Filters ── */}
+        <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{
+            position: "relative", flex: "1 1 220px", maxWidth: 320, minWidth: 200,
+          }}>
+            <Search size={14} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#94a3b8" }} />
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Buscar por empresa ou CNPJ"
               style={{
-                padding: "6px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer",
-                background: filter === f.value ? "#203b88" : "white",
-                color: filter === f.value ? "white" : "#64748b",
-                border: `1px solid ${filter === f.value ? "#203b88" : "#e2e8f0"}`,
-                transition: "all 0.15s",
+                width: "100%", padding: "8px 12px 8px 34px", borderRadius: 8,
+                border: "1px solid #e2e8f0", fontSize: 13, color: "#0f172a",
+                background: "white", outline: "none",
               }}
-            >
-              {f.label}
-            </button>
-          ))}
+              aria-label="Buscar por empresa ou CNPJ"
+            />
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", flex: 1 }}>
+            {FILTERS.map(f => (
+              <button
+                key={f.value}
+                onClick={() => setFilter(f.value)}
+                style={{
+                  padding: "6px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                  background: filter === f.value ? "#203b88" : "white",
+                  color: filter === f.value ? "white" : "#64748b",
+                  border: `1px solid ${filter === f.value ? "#203b88" : "#e2e8f0"}`,
+                  transition: "all 0.15s",
+                }}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
         </div>
+        {searchNorm && (
+          <p style={{ fontSize: 11, color: "#94a3b8", margin: "0 0 12px" }}>
+            {filteredItems.length} resultado{filteredItems.length === 1 ? "" : "s"} para &ldquo;{search}&rdquo;
+          </p>
+        )}
 
         {/* ── List ── */}
-        {listItems.length === 0 ? (
+        {filteredItems.length === 0 ? (
           <div style={{ textAlign: "center", padding: "60px 24px", background: "white", borderRadius: 14, border: "1px solid #e2e8f0" }}>
             <ClipboardList size={36} style={{ color: "#cbd5e1", margin: "0 auto 12px", display: "block" }} />
             <p style={{ fontSize: 14, fontWeight: 600, color: "#64748b", margin: "0 0 4px" }}>Nenhum registro encontrado</p>
             <p style={{ fontSize: 12, color: "#94a3b8", margin: 0 }}>
-              {filter === "pendentes" ? "Todas as coletas finalizadas já têm parecer formal." : "Confirme pareceres nas análises para eles aparecerem aqui."}
+              {searchNorm
+                ? `Nenhum parecer corresponde à busca "${search}".`
+                : filter === "pendentes"
+                  ? "Todas as coletas finalizadas já têm parecer formal."
+                  : "Confirme pareceres nas análises para eles aparecerem aqui."}
             </p>
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {listItems.map((item, idx) => {
+            {pagedItems.map((item, idx) => {
               if (item.type === "pending") {
                 const c = item.data;
                 const name = c.company_name || c.label || "Empresa sem nome";
@@ -483,6 +544,45 @@ export default function ParecerPage() {
                 </div>
               );
             })}
+
+            {totalPages > 1 && (
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                gap: 12, marginTop: 12, padding: "10px 4px", flexWrap: "wrap",
+              }}>
+                <p style={{ fontSize: 12, color: "#64748b", margin: 0 }}>
+                  Página {safePage} de {totalPages} · {filteredItems.length} registro{filteredItems.length === 1 ? "" : "s"}
+                </p>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={safePage === 1}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 4, padding: "6px 12px",
+                      borderRadius: 8, fontSize: 12, fontWeight: 600,
+                      background: "white", color: safePage === 1 ? "#cbd5e1" : "#203b88",
+                      border: "1px solid #e2e8f0", cursor: safePage === 1 ? "not-allowed" : "pointer",
+                    }}
+                    aria-label="Página anterior"
+                  >
+                    <ChevronLeft size={13} /> Anterior
+                  </button>
+                  <button
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={safePage === totalPages}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 4, padding: "6px 12px",
+                      borderRadius: 8, fontSize: 12, fontWeight: 600,
+                      background: "white", color: safePage === totalPages ? "#cbd5e1" : "#203b88",
+                      border: "1px solid #e2e8f0", cursor: safePage === totalPages ? "not-allowed" : "pointer",
+                    }}
+                    aria-label="Próxima página"
+                  >
+                    Próxima <ChevronRight size={13} />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

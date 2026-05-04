@@ -14,7 +14,7 @@ export function useAuth() {
 
     supabase.auth.getUser().then(({ data }) => {
       if (mounted) {
-        setUser(data.user);
+        setUser(data?.user ?? null);
         setLoading(false);
       }
     }).catch(() => {

@@ -14,26 +14,13 @@ import {
   Percent, TrendingUp, Landmark, Package, Send, AlertCircle, HelpCircle,
 } from "lucide-react";
 import { ScoreSection } from "@/components/score/ScoreSection";
+import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { toast } from "sonner";
 import { Toaster } from "sonner";
-import { Download, ExternalLink } from "lucide-react";
+import { Download, ExternalLink, Link2, Copy } from "lucide-react";
 
-// ── Logo ──────────────────────────────────────────────────────────────────
-function Logo({ height = 26 }: { height?: number }) {
-  const blue = "#203b88";
-  const green = "#73b815";
-  const w = Math.round(height * 7.26);
-  return (
-    <svg width={w} height={height} viewBox="0 0 451 58" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="31" cy="27" r="22" stroke={blue} strokeWidth="4.5" fill="none" />
-      <circle cx="31" cy="49" r="4.5" fill={blue} />
-      <text x="66" y="46" fontFamily="'Open Sans', Arial, sans-serif" fontWeight="700" fontSize="38" letterSpacing="-0.3">
-        <tspan fill={blue}>capital</tspan>
-        <tspan fill={green}>finanças</tspan>
-      </text>
-    </svg>
-  );
-}
+// Logo local removido — não era usado, e o componente compartilhado existe em
+// @/components/Logo caso precisemos.
 
 // ── Types ─────────────────────────────────────────────────────────────────
 type DecisaoValue = "APROVADO" | "APROVACAO_CONDICIONAL" | "PENDENTE" | "REPROVADO" | "QUESTIONAMENTO";
@@ -219,13 +206,13 @@ function ParecerContent() {
   const [ticketMedio, setTicketMedio] = useState("");
 
   // Condições de cobrança
-  const [prazoRecompra, setPrazoRecompra] = useState("3 dias");
-  const [prazoCartorio, setPrazoCartorio] = useState("5 dias");
+  const [prazoRecompra, setPrazoRecompra] = useState("");
+  const [prazoCartorio, setPrazoCartorio] = useState("");
 
   // Prazos e Tranche
-  const [prazoMaximo, setPrazoMaximo] = useState("120 dias");
-  const [trancheValor, setTrancheValor] = useState("R$ 300.000,00");
-  const [tranchePrazo, setTranchePrazo] = useState("7 dias");
+  const [prazoMaximo, setPrazoMaximo] = useState("");
+  const [trancheValor, setTrancheValor] = useState("");
+  const [tranchePrazo, setTranchePrazo] = useState("");
 
   useEffect(() => {
     if (!id) { setLoading(false); return; }
@@ -746,6 +733,8 @@ const ratingIsAnalista = ratingAnalista != null;
   // ── Gerar PDF Decisão do Comitê ──
   const [generatingPdf, setGeneratingPdf] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [sharingPublic, setSharingPublic] = useState(false);
+  const [publicLink, setPublicLink] = useState<string | null>(null);
 
   const buildDecisaoHtml = (): string => {
       const hoje = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
@@ -1033,6 +1022,43 @@ const ratingIsAnalista = ratingAnalista != null;
     }
   };
 
+  // Compartilha o relatório como link público /r/<id>. Usa /api/share-report
+  // que persiste o HTML em shared_reports e retorna um id curto (10 chars).
+  const compartilharPublico = async () => {
+    if (publicLink) {
+      // Segundo clique: já temos o link, só re-copia.
+      try { await navigator.clipboard.writeText(publicLink); toast.success("Link copiado novamente"); } catch { toast.error("Falha ao copiar"); }
+      return;
+    }
+    setSharingPublic(true);
+    try {
+      if (autoSaveTimer.current) { clearTimeout(autoSaveTimer.current); autoSaveTimer.current = null; }
+      if (pendingSave.current) {
+        const saved = await doSave();
+        if (!saved) { toast.error("Salvamento pendente falhou — corrija os erros antes de gerar o link."); return; }
+      }
+      const html = buildDecisaoHtml();
+      const res = await fetch("/api/share-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ html, cnpj, company: companyName }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.id) {
+        throw new Error(json?.error || "Falha ao gerar link público");
+      }
+      const link = `${window.location.origin}/r/${json.id}`;
+      setPublicLink(link);
+      try { await navigator.clipboard.writeText(link); toast.success("Link público copiado para a área de transferência"); }
+      catch { toast.success("Link gerado: " + link); }
+    } catch (err) {
+      console.error("Erro ao compartilhar publicamente:", err);
+      toast.error(err instanceof Error ? err.message : "Erro ao gerar link público");
+    } finally {
+      setSharingPublic(false);
+    }
+  };
+
   const baixarPDF = async () => {
     setDownloadingPdf(true);
     try {
@@ -1147,7 +1173,15 @@ const ratingIsAnalista = ratingAnalista != null;
       </header>
 
       {/* ── Content ── */}
-      <main style={{ maxWidth: 880, margin: "0 auto", padding: "32px 24px 140px" }}>
+      <main style={{ maxWidth: 880, margin: "0 auto", padding: "20px 24px 140px" }}>
+
+        <Breadcrumb
+          items={[
+            { label: "Pareceres", href: "/pareceres" },
+            { label: companyName, current: true },
+          ]}
+          className="mb-4"
+        />
 
         {/* ── Hero Banner ── */}
         <div style={{
@@ -1465,7 +1499,6 @@ const ratingIsAnalista = ratingAnalista != null;
                 <p style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.1em", margin: 0 }}>Crédito e Garantias</p>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
-                <InputField label="Limite de Crédito" value={limiteCredito} onChange={setLimiteCredito} placeholder="ex: R$ 150.000" icon={DollarSign} hint="Sugestão IA" format="currency" />
                 <InputField label="Concentração por Sacado" value={concentracao} onChange={setConcentracao} placeholder="ex: até 25%" icon={Users} format="percent" />
                 <InputField label="Garantias" value={garantias} onChange={setGarantias} placeholder="ex: Aval dos sócios" icon={Shield} />
               </div>
@@ -1588,6 +1621,28 @@ const ratingIsAnalista = ratingAnalista != null;
               {generatingPdf
                 ? <><Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Abrindo...</>
                 : <><ExternalLink size={14} /> Ver HTML</>
+              }
+            </button>
+            <button
+              onClick={compartilharPublico}
+              disabled={!decisao || sharingPublic}
+              title={publicLink ? "Link gerado — clique para copiar de novo" : "Gerar link público para compartilhar com o comitê"}
+              style={{
+                display: "flex", alignItems: "center", gap: 7,
+                fontSize: 13, fontWeight: 600,
+                background: publicLink ? "#f0f9e0" : "none",
+                color: !decisao ? "#94a3b8" : (publicLink ? "#5a9010" : "#64748b"),
+                border: `1px solid ${!decisao ? "#e2e8f0" : (publicLink ? "#a8d96b" : "#cbd5e1")}`,
+                borderRadius: 8, padding: "9px 16px",
+                cursor: decisao ? "pointer" : "not-allowed",
+                transition: "all 0.2s",
+              }}
+            >
+              {sharingPublic
+                ? <><Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Gerando link...</>
+                : publicLink
+                  ? <><Copy size={14} /> Link copiado</>
+                  : <><Link2 size={14} /> Compartilhar link</>
               }
             </button>
             <button

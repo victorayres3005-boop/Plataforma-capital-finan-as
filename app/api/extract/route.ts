@@ -2193,6 +2193,91 @@ function adaptCurvaABCNew(raw: Record<string, unknown>): Partial<CurvaABCData> {
   };
 }
 
+// Parser direto de Curva ABC para evitar timeout Gemini em arquivos grandes (400+ clientes).
+// Extrai linhas de clientes via regex sem depender de IA.
+function directParseCurvaABC(text: string): {
+  clientes: Array<{ cliente: string; valor: number; percentual: number; classificacao: string }>;
+  periodoReferencia: string;
+  totalFaturado: number;
+} | null {
+  const lines = text.split('\n');
+
+  // Período de referência
+  let periodoReferencia = '';
+  const m1 = text.match(/per[íi]odo[^\n]{0,100}?(\d{2}\/\d{2}\/\d{4})[^\n]{0,60}?(\d{2}\/\d{2}\/\d{4})/i);
+  if (m1) {
+    periodoReferencia = `${m1[1]} a ${m1[2]}`;
+  } else {
+    const m2 = text.match(/de\s+(\d{2}\/\d{2}\/\d{4})\s+a\s+(\d{2}\/\d{2}\/\d{4})/i);
+    if (m2) periodoReferencia = `${m2[1]} a ${m2[2]}`;
+  }
+
+  // Total faturado: primeira linha que começa com TOTAL e contém valor monetário
+  let totalFaturado = 0;
+  for (const line of lines) {
+    if (/^\s*TOTAL\b/i.test(line.trim())) {
+      const m = line.match(/(\d{1,3}(?:\.\d{3})*,\d{2})/);
+      if (m) { totalFaturado = parseFloat(m[1].replace(/\./g, '').replace(',', '.')); break; }
+    }
+  }
+
+  // Padrões de linhas a ignorar
+  const SKIP = /^(TOTAL|CLIENTE|POSIÇÃO|POSICAO|NOME|SEQ|FATURA|RELAT|DATA|PER[IÍ]|EMITI|EMISS|={3,}|-{3,}|_{3,}|\*{3,})/i;
+  // CNPJ ou CPF embutido na linha
+  const DOC_ID = /\d{2}[.\-]\d{3}[.\-]\d{3}[\/\-]\d{4}[.\-]\d{2}|\d{3}\.\d{3}\.\d{3}-\d{2}/;
+
+  const clientes: Array<{ cliente: string; valor: number; percentual: number; classificacao: string }> = [];
+
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t || t.length < 8) continue;
+    if (SKIP.test(t)) continue;
+
+    // Extrair todos os valores monetários da linha (formato BRL com sep de milhar)
+    const brlMatches = Array.from(t.matchAll(/(\d{1,3}(?:\.\d{3})*,\d{2})/g));
+    if (brlMatches.length === 0) continue;
+
+    const brlVals = brlMatches.map(m => ({
+      str: m[1] as string,
+      n: parseFloat((m[1] as string).replace(/\./g, '').replace(',', '.')),
+      idx: m.index!,
+    }));
+
+    // Valor principal: o maior valor que tem separador de milhar (ponto) ou é > 100
+    const sigVals = brlVals.filter(v => v.str.includes('.') || v.n > 100);
+    if (sigVals.length === 0) continue;
+    const mainVal = sigVals.reduce((mx, v) => v.n > mx.n ? v : mx, sigVals[0]);
+
+    // Nome: tudo antes do valor principal (e antes do CNPJ/CPF se houver)
+    const docIdMatch = t.match(DOC_ID);
+    let nameEnd = mainVal.idx;
+    if (docIdMatch && docIdMatch.index !== undefined && docIdMatch.index < nameEnd) {
+      nameEnd = docIdMatch.index;
+    }
+    let nome = t.substring(0, nameEnd).trim();
+    nome = nome.replace(/^\d{1,4}\s+/, '').trim(); // remove número de sequência
+    nome = nome.replace(/[\s\-_.]+$/, '').trim();
+    if (!nome || nome.length < 2) continue;
+    if (/^\d+$/.test(nome)) continue;
+    if (nome.length > 80) nome = nome.substring(0, 80);
+
+    // Percentual: primeiro valor após o valor principal que seja ≤ 100
+    const afterVals = brlVals.filter(v => v.idx > mainVal.idx && v.n <= 100 && v.n > 0);
+    const pct = afterVals.length > 0 ? afterVals[0].n : 0;
+
+    // Classificação A/B/C no final da linha
+    const classMatch = t.match(/\b([ABC])\b\s*$/);
+    const classificacao = classMatch ? classMatch[1] : '';
+
+    clientes.push({ cliente: nome, valor: mainVal.n, percentual: pct, classificacao });
+  }
+
+  if (clientes.length < 5) return null;
+  if (totalFaturado === 0) totalFaturado = clientes.reduce((s, c) => s + c.valor, 0);
+
+  return { clientes, periodoReferencia, totalFaturado };
+}
+
 function adaptDRENew(raw: Record<string, unknown>): Partial<DREData> {
   const r = raw ?? {};
   const anosRaw = Array.isArray(r.anos) ? r.anos as Array<Record<string, unknown>> : [];
@@ -3240,10 +3325,14 @@ async function processExtract(
     // Visual é reservado para tipos onde layout/assinaturas importam (contrato, relatório de visita)
     // ou quando pdf-parse não conseguiu extrair texto útil (PDF escaneado).
     const VISUAL_ONLY_TYPES = ["contrato", "relatorio_visita"];
-    const hasUsefulText = rawPdfText.trim().length > 200 && /\d/.test(rawPdfText);
-    // Documentos grandes (>25k chars) caem pra visual — Gemini não engole o texto inteiro
-    // como prompt, em vez disso lê páginas via Files API (mais robusto quando Gemini está lento).
-    const LARGE_TEXT_FALLBACK_VISUAL = ["curva_abc", "faturamento"];
+    // PDF escaneado heurística: arquivo grande (>50KB) mas texto extraído muito escasso (<1500 chars)
+    // indica que pdf-parse só leu metadados/cabeçalho — o conteúdo real está em imagem.
+    const isLikelyScanned = buffer.length > 51200 && rawPdfText.trim().length < 1500;
+    const hasUsefulText = !isLikelyScanned && rawPdfText.trim().length > 200 && /\d/.test(rawPdfText);
+    // Fallback visual reservado apenas para faturamento com texto muito grande.
+    // curva_abc removida: maxChars=60k suporta PDFs grandes em modo texto, e modo visual
+    // falha silenciosamente (retorna clientes:[]) quando o PDF tem centenas de linhas.
+    const LARGE_TEXT_FALLBACK_VISUAL = ["faturamento"];
     const isLargeText = rawPdfText.length > 25000;
     const shouldFallbackToVisual = LARGE_TEXT_FALLBACK_VISUAL.includes(docType) && isLargeText;
 
@@ -3266,7 +3355,11 @@ async function processExtract(
         console.log(`[extract] ${docType}/${subformat} — modo TEXTO (${rawPdfText.length} chars, ${pdfParseMs}ms)`);
       } else {
         // PDF escaneado/sem texto útil → cai pro Gemini visual
-        console.log(`[extract] ${docType} — modo visual (texto insuficiente: ${rawPdfText.trim().length} chars)`);
+        if (isLikelyScanned) {
+          console.log(`[extract] ${docType} — modo visual (PDF escaneado detectado: ${rawPdfText.trim().length} chars em ${Math.round(buffer.length/1024)}KB)`);
+        } else {
+          console.log(`[extract] ${docType} — modo visual (texto insuficiente: ${rawPdfText.trim().length} chars)`);
+        }
         imageContent = { mimeType: "application/pdf", base64: buffer.toString("base64") };
         textContent = "";
       }
@@ -3300,6 +3393,22 @@ async function processExtract(
       textContent = textContent.substring(0, maxChars[docType] || 10000);
     }
 
+    // Curva ABC com texto grande (>15k chars): tenta parser direto antes de chamar Gemini.
+    // Parser direto extrai clientes via regex em <10ms, evitando timeout do modelo (400+ clientes
+    // geram 10k+ tokens de output, ultrapassam os 45s disponíveis no Hobby plan).
+    let _directCurvaABC: ReturnType<typeof directParseCurvaABC> | undefined;
+    if (docType === "curva_abc" && textContent.length > 15000) {
+      const dp = directParseCurvaABC(textContent);
+      if (dp && dp.clientes.length >= 5) {
+        _directCurvaABC = dp;
+        // Mantém só o cabeçalho para Gemini extrair periodo/total caso o parser direto falhe
+        // (não é usado quando bypass está ativo, mas fica disponível como fallback)
+        console.log(`[extract][curva_abc] Direct parse: ${dp.clientes.length} clientes, periodo="${dp.periodoReferencia}", total=${dp.totalFaturado}`);
+      } else {
+        console.log(`[extract][curva_abc] Direct parse insuficiente (${dp?.clientes.length ?? 0} clientes) — usando Gemini`);
+      }
+    }
+
     console.log(`[extract] ${fileName} | type=${docType} | ext=${ext} | textLen=${textContent.length} | hasImage=${!!imageContent}`);
 
     // ──── SSE stream — mantém conexão viva enquanto Gemini processa ────
@@ -3318,6 +3427,7 @@ async function processExtract(
     const _textContent = textContent;
     const _imageContent = imageContent;
     const _docType = docType;
+    const _directCurvaABCBypass = _directCurvaABC;
     const _cacheDocType = cacheDocType;
     const _isImage = isImage;
     const _buffer = buffer;
@@ -3368,6 +3478,15 @@ async function processExtract(
           const inputMode = _imageContent ? "binary" : "text";
           _send(controller, "status", { message: "Processando documento...", inputMode, textLen: _textContent.length, docType: _docType });
 
+          if (_docType === "curva_abc" && _directCurvaABCBypass && _directCurvaABCBypass.clientes.length >= 5) {
+            // Bypass: parser direto evitou timeout Gemini em arquivo com 400+ clientes
+            data = fillCurvaABCDefaults(adaptCurvaABCNew({
+              curva_abc_clientes: _directCurvaABCBypass.clientes,
+              total_faturado: _directCurvaABCBypass.totalFaturado,
+              periodo_referencia: _directCurvaABCBypass.periodoReferencia,
+            }) as Partial<CurvaABCData>);
+            console.log(`[extract][curva_abc] ${(data as CurvaABCData).clientes?.length ?? 0} clientes via parser direto — Gemini skipped`);
+          } else {
           try {
             const aiResponse = await callAI(_prompt, _textContent, _imageContent, _maxOutputTokens, _imageContent ? _buffer : undefined, _thinkingBudget, _perAttemptMsOverride);
             _rawAiResponse = aiResponse;
@@ -3563,6 +3682,7 @@ async function processExtract(
             });
             return;
           }
+          } // end else (AI path — skipped when curva_abc bypass active)
 
           const filled = countFilledFields(data);
           const scrAnteriorExtra = (data as SCRData & { _scrAnterior?: SCRData })._scrAnterior;

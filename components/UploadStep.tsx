@@ -315,7 +315,7 @@ export default function UploadStep({
   onDataChange,
   highlightKeys,
 }: {
-  onComplete: (data: ExtractedData, files: OriginalFiles) => void;
+  onComplete: (data: ExtractedData, files: OriginalFiles, processedDocs?: CollectionDocument[]) => void;
   resumedDocs?: CollectionDocument[];
   initialData?: ExtractedData;
   onDataChange?: (data: ExtractedData) => void;
@@ -388,6 +388,7 @@ export default function UploadStep({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const bureauTriggered = useRef(false);
+  const qsaBureauTriggered = useRef(false);
 
   // Auto-trigger bureaus when CNPJ is extracted
   useEffect(() => {
@@ -486,6 +487,49 @@ export default function UploadStep({
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [extracted.cnpj?.cnpj]);
+
+  // Re-call bureaus after QSA is extracted — SCR dos sócios precisa dos CPFs do QSA,
+  // que não estão disponíveis no momento do primeiro disparo (CNPJ extraído antes do QSA).
+  useEffect(() => {
+    if (qsaBureauTriggered.current) return;
+    if (bureauStatus !== "done") return;
+
+    const socios = extracted.qsa?.quadroSocietario ?? [];
+    const pfSocios = socios.filter(s => s.cpfCnpj?.replace(/\D/g, "").length === 11);
+    if (pfSocios.length === 0) return;
+
+    const scrJaPopulado = (extracted.scrSocios ?? []).length > 0;
+    if (scrJaPopulado) return;
+
+    qsaBureauTriggered.current = true;
+    const cnpj = extracted.cnpj?.cnpj;
+    if (!cnpj) return;
+
+    console.log(`[bureaus-qsa] QSA disponível (${pfSocios.length} sócios PF) após bureau inicial — re-consultando para SCR dos sócios`);
+
+    (async () => {
+      try {
+        const res = await fetch("/api/bureaus", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cnpj, data: extractedRef.current }),
+        });
+        if (!res.ok) {
+          console.warn(`[bureaus-qsa] HTTP ${res.status}`);
+          return;
+        }
+        const json = await res.json();
+        console.log(`[bureaus-qsa] resposta: success=${json.success} | scrSocios=${json.merged?.scrSocios?.length ?? 0}`);
+        if (json.success && json.merged?.scrSocios?.length > 0) {
+          setExtracted(prev => ({ ...prev, scrSocios: json.merged.scrSocios }));
+        }
+        if (json.bureaus) setBureauDetail(prev => ({ ...prev, ...json.bureaus }));
+      } catch (err) {
+        console.warn("[bureaus-qsa] erro na re-consulta:", err);
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bureauStatus, extracted.qsa?.quadroSocietario]);
 
   const processFiles = useCallback(async (type: DocKey, newFiles: File[]) => {
     // Add files to state and mark processing
@@ -1042,7 +1086,30 @@ export default function UploadStep({
       ir_socio: sections.ir_socio.files,
       relatorio_visita: sections.relatorio_visita.files,
     };
-    onComplete(extracted, files);
+
+    // Registra quais seções tinham arquivos extraídos para que page.tsx possa
+    // restaurar o estado correto ao voltar de review (sem depender de buildCollectionDocs
+    // que pula docs com extração vazia).
+    const DOC_KEY_TO_TYPE: Partial<Record<DocKey, CollectionDocument["type"]>> = {
+      cnpj: 'cnpj', qsa: 'qsa', contrato: 'contrato_social', faturamento: 'faturamento',
+      scr: 'scr_bacen', scrAnterior: 'scr_bacen', scr_socio: 'scr_bacen', scr_socio_anterior: 'scr_bacen',
+      dre: 'dre' as CollectionDocument["type"], balanco: 'balanco' as CollectionDocument["type"],
+      curva_abc: 'curva_abc' as CollectionDocument["type"], ir_socio: 'ir_socio' as CollectionDocument["type"],
+      relatorio_visita: 'relatorio_visita' as CollectionDocument["type"],
+    };
+    const now = new Date().toISOString();
+    const processedDocs: CollectionDocument[] = [];
+    for (const [key, section] of Object.entries(sections) as [DocKey, SectionState][]) {
+      if (section.processedCount === 0) continue;
+      const type = DOC_KEY_TO_TYPE[key];
+      if (!type) continue;
+      for (let i = 0; i < section.processedCount; i++) {
+        const filename = section.resumedFilenames?.[i] ?? section.files[i]?.name ?? `${key}.pdf`;
+        processedDocs.push({ type, filename, extracted_data: {}, uploaded_at: now });
+      }
+    }
+
+    onComplete(extracted, files, processedDocs);
   };
 
   const requiredSections = SECTIONS.filter(s => s.required);

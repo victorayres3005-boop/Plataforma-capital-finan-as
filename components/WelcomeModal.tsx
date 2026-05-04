@@ -1,5 +1,7 @@
 "use client";
 
+import Logo from "@/components/Logo";
+
 interface WelcomeModalProps {
   onClose: () => void;
 }
@@ -33,13 +35,7 @@ export default function WelcomeModal({ onClose }: WelcomeModalProps) {
         <div className="bg-hero-gradient px-8 py-8 text-center relative overflow-hidden">
           <div className="absolute inset-0 opacity-[0.04]" style={{ backgroundImage: "radial-gradient(circle, #ffffff 1px, transparent 1px)", backgroundSize: "20px 20px" }} />
           <div className="relative">
-            <svg width="160" height="22" viewBox="0 0 451 58" fill="none" xmlns="http://www.w3.org/2000/svg" className="mx-auto mb-4">
-              <circle cx="31" cy="27" r="22" stroke="#ffffff" strokeWidth="4.5" fill="none" />
-              <circle cx="31" cy="49" r="4.5" fill="#ffffff" />
-              <text x="66" y="46" fontFamily="'Open Sans', Arial, sans-serif" fontWeight="700" fontSize="38" letterSpacing="-0.3">
-                <tspan fill="#ffffff">capital</tspan><tspan fill="#a8d96b">financas</tspan>
-              </text>
-            </svg>
+            <Logo light height={22} className="mx-auto mb-4" />
             <h2 className="text-xl font-bold text-white">Bem-vindo a plataforma</h2>
             <p className="text-blue-200 text-sm mt-1">Veja como e simples analisar um cedente</p>
           </div>

@@ -41,3 +41,14 @@ next-env.d.ts
 
 .vercel
 .env*.local
+
+# Claude Code local settings (per-machine, não vai pro repo)
+.claude/settings.local.json
+.claude/worktrees/
+
+# Local installers / binários grandes que vieram pra raiz por engano
+*.exe
+# Lixo de path mal-formado tipo "C:\Temp..." que virou nome de arquivo
+C*Temp*.json
+.env.vercel.tmp
+supabase/.temp/

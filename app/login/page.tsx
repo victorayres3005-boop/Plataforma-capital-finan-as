@@ -64,13 +64,37 @@ function LoginContent() {
   const [loadingLogin, setLoadingLogin] = useState(false);
   const [loadingSignup, setLoadingSignup] = useState(false);
   const [loadingReset, setLoadingReset] = useState(false);
+  // Erros inline por campo — nulo = sem erro, string = mensagem visível.
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
   const router = useRouter();
   const searchParams = useSearchParams();
   const confirmMessage = searchParams.get("message");
 
+  // Define erros inline e retorna boolean — substitui o uso anterior de toast
+  // que só aparecia depois do submit e era fácil ignorar.
   const validateEmail = (): boolean => {
-    if (!email.trim()) { toast.error("Digite seu email."); return false; }
-    if (!EMAIL_REGEX.test(email)) { toast.error("Formato de email inválido."); return false; }
+    if (!email.trim()) { setEmailError("Digite seu email."); return false; }
+    if (!EMAIL_REGEX.test(email)) { setEmailError("Formato de email inválido."); return false; }
+    setEmailError(null);
+    return true;
+  };
+
+  const validatePassword = (): boolean => {
+    if (!password) { setPasswordError("Digite sua senha."); return false; }
+    if (mode === "signup" && password.length < 6) {
+      setPasswordError("A senha deve ter no mínimo 6 caracteres.");
+      return false;
+    }
+    setPasswordError(null);
+    return true;
+  };
+
+  const validateName = (): boolean => {
+    if (mode !== "signup") { setNameError(null); return true; }
+    if (!name.trim()) { setNameError("Digite seu nome."); return false; }
+    setNameError(null);
     return true;
   };
 
@@ -90,10 +114,13 @@ function LoginContent() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (mode === "reset") { handleReset(e); return; }
-    if (!validateEmail()) return;
+    // Roda todas as validações para mostrar todos os erros de uma vez —
+    // evita o "corrija um, descubra o próximo".
+    const ok = [validateName(), validateEmail(), validatePassword()].every(Boolean);
+    if (!ok) return;
 
     if (mode === "login") {
-      if (!password) { toast.error("Digite sua senha."); return; }
+      if (!password) { setPasswordError("Digite sua senha."); return; }
       try {
         await withMinDelay(async () => {
           const supabase = createClient();
@@ -112,8 +139,8 @@ function LoginContent() {
         toast.error(mapAuthError(err instanceof Error ? err : new Error(String(err))));
       }
     } else {
-      if (!name.trim()) { toast.error("Digite seu nome."); return; }
-      if (password.length < 6) { toast.error("A senha deve ter no mínimo 6 caracteres."); return; }
+      if (!name.trim()) { setNameError("Digite seu nome."); return; }
+      if (password.length < 6) { setPasswordError("A senha deve ter no mínimo 6 caracteres."); return; }
       try {
         await withMinDelay(async () => {
           const supabase = createClient();
@@ -245,9 +272,20 @@ function LoginContent() {
                   <label className="text-xs font-semibold text-cf-text-2 block mb-1.5">Nome completo</label>
                   <div className="relative">
                     <UserPlus size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-cf-text-4" />
-                    <input type="text" value={name} onChange={e => setName(e.target.value)}
-                      placeholder="Seu nome" className="input-field pl-10 h-11" />
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={e => { setName(e.target.value); if (nameError) setNameError(null); }}
+                      onBlur={validateName}
+                      placeholder="Seu nome"
+                      className={`input-field pl-10 h-11 ${nameError ? "border-red-400 focus:ring-red-200 focus:border-red-400" : ""}`}
+                      aria-invalid={!!nameError}
+                      aria-describedby={nameError ? "name-error" : undefined}
+                    />
                   </div>
+                  {nameError && (
+                    <p id="name-error" className="text-xs text-red-600 mt-1">{nameError}</p>
+                  )}
                 </div>
               )}
 
@@ -255,9 +293,21 @@ function LoginContent() {
                 <label className="text-xs font-semibold text-cf-text-2 block mb-1.5">E-mail</label>
                 <div className="relative">
                   <Mail size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-cf-text-4" />
-                  <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-                    placeholder="seu@email.com" className="input-field pl-10 h-11" autoComplete="email" />
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={e => { setEmail(e.target.value); if (emailError) setEmailError(null); }}
+                    onBlur={validateEmail}
+                    placeholder="seu@email.com"
+                    className={`input-field pl-10 h-11 ${emailError ? "border-red-400 focus:ring-red-200 focus:border-red-400" : ""}`}
+                    autoComplete="email"
+                    aria-invalid={!!emailError}
+                    aria-describedby={emailError ? "email-error" : undefined}
+                  />
                 </div>
+                {emailError && (
+                  <p id="email-error" className="text-xs text-red-600 mt-1">{emailError}</p>
+                )}
               </div>
 
               {mode !== "reset" && (
@@ -265,10 +315,26 @@ function LoginContent() {
                 <label className="text-xs font-semibold text-cf-text-2 block mb-1.5">Senha</label>
                 <div className="relative">
                   <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-cf-text-4" />
-                  <input type="password" value={password} onChange={e => setPassword(e.target.value)}
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={e => { setPassword(e.target.value); if (passwordError) setPasswordError(null); }}
+                    onBlur={validatePassword}
                     placeholder={mode === "signup" ? "Mínimo 6 caracteres" : "Sua senha"}
-                    className="input-field pl-10 h-11" autoComplete={mode === "login" ? "current-password" : "new-password"} />
+                    className={`input-field pl-10 h-11 ${passwordError ? "border-red-400 focus:ring-red-200 focus:border-red-400" : ""}`}
+                    autoComplete={mode === "login" ? "current-password" : "new-password"}
+                    aria-invalid={!!passwordError}
+                    aria-describedby={passwordError ? "password-error" : undefined}
+                  />
                 </div>
+                {passwordError && (
+                  <p id="password-error" className="text-xs text-red-600 mt-1">{passwordError}</p>
+                )}
+                {mode === "signup" && !passwordError && password && password.length >= 6 && (
+                  <p className="text-xs text-cf-text-3 mt-1">
+                    {password.length < 8 ? "Senha aceitável" : password.length < 12 ? "Boa senha" : "Senha forte"}
+                  </p>
+                )}
               </div>
               )}
 

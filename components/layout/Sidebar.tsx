@@ -8,6 +8,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import Logo from "@/components/Logo";
 
 type SidebarProps = {
   collapsed: boolean;
@@ -16,30 +17,13 @@ type SidebarProps = {
   onNewColeta: () => void;
   showDashboard: boolean;
   isInsideColeta: boolean;
+  // Quando true, ignora a media-query "hidden lg:flex" e força visibilidade.
+  // Usado pelo overlay mobile (drawer) renderizado em <lg.
+  forceVisible?: boolean;
 };
 
-function LogoFull({ height = 22 }: { height?: number }) {
-  const w = Math.round(height * 7.26);
-  return (
-    <svg width={w} height={height} viewBox="0 0 451 58" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Capital Finanças">
-      <circle cx="31" cy="27" r="22" stroke="#fff" strokeWidth="4.5" fill="none" />
-      <circle cx="31" cy="49" r="4.5" fill="#fff" />
-      <text x="66" y="46" fontFamily="'Open Sans', Arial, sans-serif" fontWeight="700" fontSize="38" letterSpacing="-0.3">
-        <tspan fill="#fff">capital</tspan>
-        <tspan fill="#a8d96b">finanças</tspan>
-      </text>
-    </svg>
-  );
-}
-
-function LogoIcon({ size = 26 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 62 62" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="31" cy="27" r="22" stroke="#fff" strokeWidth="4.5" fill="none" />
-      <circle cx="31" cy="49" r="4.5" fill="#fff" />
-    </svg>
-  );
-}
+// LogoFull/LogoIcon antigos foram substituídos pelo componente <Logo /> compartilhado
+// (variant "full"/"icon", light=true para fundo navy do sidebar).
 
 type NavItem = {
   icon: LucideIcon;
@@ -92,6 +76,7 @@ export default function Sidebar({
   collapsed, onToggleCollapse,
   onGoToDashboard, onNewColeta,
   showDashboard, isInsideColeta,
+  forceVisible = false,
 }: SidebarProps) {
   const pathname = usePathname();
   const router   = useRouter();
@@ -185,7 +170,7 @@ export default function Sidebar({
 
   return (
     <aside
-      className="hidden lg:flex flex-col flex-shrink-0"
+      className={forceVisible ? "flex flex-col flex-shrink-0" : "hidden lg:flex flex-col flex-shrink-0"}
       style={{
         width: collapsed ? 60 : 220,
         height: "100vh",
@@ -213,7 +198,7 @@ export default function Sidebar({
           style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center" }}
           title={collapsed ? "Expandir menu" : "Visão Geral"}
         >
-          {collapsed ? <LogoIcon size={26} /> : <LogoFull height={22} />}
+          {collapsed ? <Logo variant="icon" light height={26} /> : <Logo light height={22} />}
         </button>
 
         {/* Toggle chevron — só visível quando expandido */}

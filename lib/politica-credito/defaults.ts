@@ -446,7 +446,7 @@ export function mergeComDefaults(dbData: Record<string, unknown>): import("@/typ
 
   const pilaresMerged = pilaresDefault.map(defaultPilar => {
     const dbPilar = dbPilares.find(p => p.id === defaultPilar.id);
-    const todosVazios = dbPilar?.criterios.every(c => c.opcoes.length === 0);
+    const todosVazios = dbPilar?.criterios.every(c => (c.opcoes?.length ?? 0) === 0);
     return !dbPilar || todosVazios ? defaultPilar : dbPilar;
   });
 

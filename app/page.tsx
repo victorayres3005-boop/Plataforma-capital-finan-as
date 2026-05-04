@@ -12,7 +12,7 @@ import { ScoreSection } from "@/components/score/ScoreSection";
 import { useAuth } from "@/lib/useAuth";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
-import { AppStep, ExtractedData, DocumentCollection, Notification } from "@/types";
+import { AppStep, ExtractedData, DocumentCollection, Notification, CollectionDocument } from "@/types";
 import { hydrateFromCollection, defaultData } from "@/lib/hydrateFromCollection";
 import { buildCollectionDocs } from "@/lib/buildCollectionDocs";
 import { DRAFT_KEY } from "@/components/ReviewStep";
@@ -23,18 +23,8 @@ import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
-
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  const hours = Math.floor(diff / 3600000);
-  const days = Math.floor(diff / 86400000);
-  if (mins < 1) return "agora";
-  if (mins < 60) return `ha ${mins} min`;
-  if (hours < 24) return `ha ${hours}h`;
-  if (days === 1) return "ontem";
-  return `ha ${days} dias`;
-}
+import { timeAgo } from "@/lib/formatters";
+import Logo from "@/components/Logo";
 
 function calcularMetricasDashboard(collections: DocumentCollection[], periodoAnterior?: DocumentCollection[]) {
   const finalizadas = collections.filter(c => c.status === "finished");
@@ -119,21 +109,8 @@ function calcularMetricasDashboard(collections: DocumentCollection[], periodoAnt
 }
 
 
-function Logo({ light = false, height = 27 }: { light?: boolean; height?: number }) {
-  const blue = light ? "#ffffff" : "#203b88";
-  const green = light ? "#a8d96b" : "#73b815";
-  const w = Math.round(height * 7.26);
-  return (
-    <svg width={w} height={height} viewBox="0 0 451 58" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Capital Finanças">
-      <circle cx="31" cy="27" r="22" stroke={blue} strokeWidth="4.5" fill="none" />
-      <circle cx="31" cy="49" r="4.5" fill={blue} />
-      <text x="66" y="46" fontFamily="'Open Sans', Arial, sans-serif" fontWeight="700" fontSize="38" letterSpacing="-0.3">
-        <tspan fill={blue}>capital</tspan>
-        <tspan fill={green}>finanças</tspan>
-      </text>
-    </svg>
-  );
-}
+// Logo local foi removido — usar `<Logo />` de @/components/Logo
+// (variante padrão "full"; passe `light` para fundo navy/escuro).
 
 const stepLabels: Record<AppStep, string> = {
   upload: "Envio de Documentos",
@@ -206,6 +183,9 @@ export default function HomePage() {
   const insertInFlight = useRef(false);
   const dirtyData = useRef<ExtractedData | null>(null);
   const autoSaveRunning = useRef(false);
+  // Rastreia quais tipos de documento foram confirmados (upload ou retomada).
+  // Impede que buildCollectionDocs descarte docs com extração vazia no auto-save.
+  const confirmedDocsRef = useRef<CollectionDocument[]>([]);
 
   // Mínimo de documentos (tipos distintos) para criar uma coleta no banco.
   // Evita poluir o histórico com coletas abandonadas de 1-2 docs (testes,
@@ -220,7 +200,25 @@ export default function HomePage() {
       while (dirtyData.current) {
         const data = dirtyData.current;
         dirtyData.current = null;
-        const documents = buildCollectionDocs(data);
+        const freshDocs = buildCollectionDocs(data);
+        // Nunca descarta tipos confirmados (extrações vazias não devem apagar o registro do doc)
+        const confirmed = confirmedDocsRef.current;
+        const MULTI_INSTANCE = new Set(["scr_bacen", "ir_socio"]);
+        const freshTypeSet = new Set(freshDocs.map(d => d.type));
+        const freshKeySet  = new Set(freshDocs.map(d => `${d.type}:${d.filename}`));
+        const extra: CollectionDocument[] = [];
+        const seenSingle = new Set<string>();
+        for (const c of confirmed) {
+          if (MULTI_INSTANCE.has(c.type)) {
+            if (!freshKeySet.has(`${c.type}:${c.filename}`)) extra.push(c);
+          } else {
+            if (!freshTypeSet.has(c.type) && !seenSingle.has(c.type)) {
+              seenSingle.add(c.type);
+              extra.push(c);
+            }
+          }
+        }
+        const documents = [...freshDocs, ...extra];
         if (documents.length === 0) continue;
         try {
           const supabase = createClient();
@@ -464,7 +462,8 @@ export default function HomePage() {
       }
 
       setExtractedData(hydrated);
-      setResumedDocs(docs as import("@/types").CollectionDocument[]);
+      setResumedDocs(docs as CollectionDocument[]);
+      confirmedDocsRef.current = docs as CollectionDocument[];
       setCollectionId(collectionId); // setter unificado: atualiza state E ref
       setShowDashboard(false);
       // Se um step foi forçado (ex: voltar do parecer), usa ele; senão usa lógica padrão
@@ -538,7 +537,8 @@ export default function HomePage() {
 
   // ── Busca e realtime de coletas ──
   const fetchCollections = useCallback(async () => {
-    if (!user?.id) { setLoadingCollections(false); return; }
+    // Se auth ainda está carregando, preserva o skeleton — não marca loading=false prematuramente
+    if (!user?.id) { if (!authLoading) setLoadingCollections(false); return; }
     try {
       const supabase = createClient();
       const { data, error } = await supabase
@@ -556,7 +556,7 @@ export default function HomePage() {
     finally { setLoadingCollections(false); }
   // user?.id em vez de user — evita re-fetch quando o objeto muda mas o ID é o mesmo (refresh de token)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+  }, [user?.id, authLoading]);
 
   // Carrega na montagem e quando volta ao dashboard
   useEffect(() => {
@@ -671,42 +671,59 @@ export default function HomePage() {
           ══════════════════════════════════════════════ */}
       {showDashboard ? (
         /* Hero compacto — dashboard */
-        <div style={{ background: "#0a1232", position: "relative", overflow: "hidden" }}>
+        <div style={{
+          background: "linear-gradient(135deg, #0f1f5c 0%, #203b88 55%, #1a4fa8 100%)",
+          position: "relative",
+          overflow: "hidden",
+        }}>
+          {/* Glows decorativos */}
+          <div aria-hidden style={{
+            position: "absolute", top: "-45%", right: "-10%",
+            width: 620, height: 620, pointerEvents: "none",
+            background: "radial-gradient(circle, rgba(115,184,21,0.18) 0%, rgba(115,184,21,0) 60%)",
+          }} />
+          <div aria-hidden style={{
+            position: "absolute", bottom: "-55%", left: "-15%",
+            width: 720, height: 720, pointerEvents: "none",
+            background: "radial-gradient(circle, rgba(168,217,107,0.10) 0%, rgba(168,217,107,0) 65%)",
+          }} />
 
-          <div style={{ position: "relative", maxWidth: 1152, margin: "0 auto", padding: "40px 32px 48px", textAlign: "center" }}>
+          <div style={{ position: "relative", maxWidth: 1152, margin: "0 auto", padding: "48px 32px 56px", textAlign: "center" }}>
             {/* Badge CVM */}
-            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(115,184,21,0.15)", border: "1px solid rgba(115,184,21,0.4)", borderRadius: 999, padding: "5px 14px", marginBottom: 20 }}>
-              <Shield size={12} style={{ color: "#a3d96b", flexShrink: 0 }} />
-              <span style={{ fontSize: 11, fontWeight: 700, color: "#a3d96b", letterSpacing: "0.08em", textTransform: "uppercase" }}>FIDC Regulado pela CVM</span>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(115,184,21,0.14)", border: "1px solid rgba(168,217,107,0.35)", borderRadius: 999, padding: "6px 16px", marginBottom: 22, backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}>
+              <Shield size={12} style={{ color: "#a8d96b", flexShrink: 0 }} />
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#a8d96b", letterSpacing: "0.1em", textTransform: "uppercase" }}>FIDC Regulado pela CVM</span>
             </div>
 
             {/* Título */}
-            <h1 style={{ fontSize: 40, fontWeight: 900, color: "#ffffff", margin: "0 0 14px", lineHeight: 1.15, letterSpacing: "-0.5px" }}>
+            <h1 style={{ fontSize: 44, fontWeight: 900, color: "#ffffff", margin: "0 0 16px", lineHeight: 1.1, letterSpacing: "-0.8px" }}>
               Plataforma de{" "}
-              <span style={{ background: "linear-gradient(90deg, #73b815, #a8d96b)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+              <span style={{ background: "linear-gradient(90deg, #a8d96b, #73b815)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
                 Análise de Crédito
               </span>
             </h1>
 
             {/* Subtítulo */}
-            <p style={{ fontSize: 15, color: "rgba(255,255,255,0.55)", lineHeight: 1.7, margin: "0 auto 32px", maxWidth: 480, fontWeight: 400 }}>
+            <p style={{ fontSize: 16, color: "rgba(255,255,255,0.65)", lineHeight: 1.65, margin: "0 auto 36px", maxWidth: 520, fontWeight: 400 }}>
               Transforme documentos cadastrais e fiscais em pareceres de crédito completos, com dados consolidados em minutos.
             </p>
 
             {/* 3 feature pills */}
-            <div style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
               {[
                 { icon: <FileText size={12} />, label: "Extração automática com IA" },
                 { icon: <BarChart3 size={12} />, label: "Score de crédito V2" },
                 { icon: <Shield size={12} />, label: "Política de fundo configurável" },
               ].map(f => (
                 <div key={f.label} style={{
-                  display: "inline-flex", alignItems: "center", gap: 6,
-                  background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.14)",
-                  borderRadius: 999, padding: "7px 16px",
+                  display: "inline-flex", alignItems: "center", gap: 8,
+                  background: "rgba(255,255,255,0.06)",
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  borderRadius: 999, padding: "8px 18px",
+                  backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)",
                 }}>
-                  <span style={{ color: "#a3d96b" }}>{f.icon}</span>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.8)" }}>{f.label}</span>
+                  <span style={{ color: "#a8d96b" }}>{f.icon}</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 600, color: "rgba(255,255,255,0.88)" }}>{f.label}</span>
                 </div>
               ))}
             </div>
@@ -869,7 +886,7 @@ export default function HomePage() {
 
             {/* ══ NOVO DESIGN — CABEÇALHO + KPIs ══ */}
             {(() => {
-              const heroName = user ? (user.user_metadata?.full_name || user.email?.split("@")[0] || "").split(" ")[0] : "Bem-vindo";
+              const heroName = user ? (user.user_metadata?.full_name || user.email?.split("@")[0] || "").split(" ")[0] : "";
               const totalColetas2 = filtered.length;
               const finalizadasFilt2 = filtered.filter(c => c.status === "finished").length;
               const empresas2 = new Set(filtered.map(c => c.company_name || c.label).filter(Boolean)).size;
@@ -908,7 +925,7 @@ export default function HomePage() {
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
                     <div>
                       <h1 style={{ fontSize: 22, fontWeight: 800, color: "#0f172a", margin: 0, letterSpacing: "-0.3px" }}>
-                        Olá, {heroName}
+                        {heroName ? `Olá, ${heroName}` : "Olá"}
                       </h1>
                       <p style={{ fontSize: 12, color: "#94a3b8", margin: "4px 0 0", fontWeight: 500 }}>
                         {new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })}
@@ -1616,12 +1633,21 @@ export default function HomePage() {
 
           {step === "upload" && (
             <UploadStep
-              onComplete={(d, files) => { setExtractedData(d); setOriginalFiles(files); setLocalDraft(null); try { localStorage.removeItem(DRAFT_KEY); } catch {/**/} setStep("review"); }}
+              onComplete={(d, files, processedDocs) => {
+                setExtractedData(d);
+                setOriginalFiles(files);
+                // Salva quais seções tinham arquivos para restaurar corretamente ao voltar de review.
+                // Não usa buildCollectionDocs aqui pois ele pula docs com extração vazia/parcial.
+                if (processedDocs && processedDocs.length > 0) {
+                  setResumedDocs(processedDocs);
+                  confirmedDocsRef.current = processedDocs;
+                }
+                setLocalDraft(null);
+                try { localStorage.removeItem(DRAFT_KEY); } catch {/**/}
+                setStep("review");
+              }}
               onDataChange={(d) => { setExtractedData(d); autoSaveCollection(d); }}
-              // Quando voltamos pra upload vindo de review/generate, reconstroi a
-              // lista de docs a partir do extractedData atual (mesma funcao usada
-              // no save) para repovoar as sections. Evita "arquivos zerados".
-              resumedDocs={resumedDocs && resumedDocs.length > 0 ? resumedDocs : (buildCollectionDocs(extractedData) as import("@/types").CollectionDocument[])}
+              resumedDocs={resumedDocs}
               initialData={extractedData}
               highlightKeys={goalfyHighlight.length > 0 ? goalfyHighlight : undefined}
             />
@@ -1648,13 +1674,7 @@ export default function HomePage() {
       <footer style={{ background: "#f1f5f9", borderTop: "1px solid #e2e8f0", marginTop: 40 }}>
         <div style={{ height: 3, background: "linear-gradient(90deg, #73b815, #a8d96b 60%, transparent)" }} />
         <div style={{ maxWidth: 960, margin: "0 auto", padding: "22px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-          <svg width="150" height="22" viewBox="0 0 451 58" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="31" cy="27" r="22" stroke="#203b88" strokeWidth="4.5" fill="none" />
-            <circle cx="31" cy="49" r="4.5" fill="#203b88" />
-            <text x="66" y="46" fontFamily="'Open Sans', Arial, sans-serif" fontWeight="700" fontSize="38" letterSpacing="-0.5">
-              <tspan fill="#203b88">capital</tspan><tspan fill="#73b815">finanças</tspan>
-            </text>
-          </svg>
+          <Logo height={22} />
           <p style={{ fontSize: 12, color: "#94a3b8", margin: 0, letterSpacing: "0.01em" }}>
             © {new Date().getFullYear()} Capital Finanças · Uso interno e confidencial
           </p>

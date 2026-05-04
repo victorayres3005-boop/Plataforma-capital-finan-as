@@ -68,11 +68,11 @@ export function mapToGoalfyPayload(
   const fatorLimite = settings?.fator_limite_base || 1;
 
   const alertasCriticos = (aiAnalysis?.alertas || [])
-    .filter((a: any) => a.severidade === "critico" || a.severidade === "alto")
+    .filter((a: any) => a.severidade === "ALTA" || a.severidade === "CRÍTICO" || a.severidade === "RESTRITIVO")
     .map((a: any) => ({ descricao: a.descricao, mitigacao: a.mitigacao || "" }));
 
   const alertasModerados = (aiAnalysis?.alertas || [])
-    .filter((a: any) => a.severidade === "moderado" || a.severidade === "medio")
+    .filter((a: any) => a.severidade === "MODERADA" || a.severidade === "INFO" || a.severidade === "OBSERVAÇÃO")
     .map((a: any) => ({ descricao: a.descricao, mitigacao: a.mitigacao || "" }));
 
   return {

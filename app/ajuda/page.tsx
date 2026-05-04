@@ -4,18 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ChevronDown, ChevronUp, Search, HelpCircle, LogOut, User } from "lucide-react";
 import { useAuth } from "@/lib/useAuth";
-
-function Logo() {
-  return (
-    <svg width="160" height="22" viewBox="0 0 451 58" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Capital Finanças">
-      <circle cx="31" cy="27" r="22" stroke="#203b88" strokeWidth="4.5" fill="none" />
-      <circle cx="31" cy="49" r="4.5" fill="#203b88" />
-      <text x="66" y="46" fontFamily="'Open Sans', Arial, sans-serif" fontWeight="700" fontSize="38" letterSpacing="-0.3">
-        <tspan fill="#203b88">capital</tspan><tspan fill="#73b815">finanças</tspan>
-      </text>
-    </svg>
-  );
-}
+import Logo from "@/components/Logo";
 
 const faqs = [
   {

@@ -16,19 +16,19 @@ import { useAuth } from "@/lib/useAuth";
 import { deleteCollectionFiles } from "@/lib/storage";
 import OnboardingTooltip from "@/components/OnboardingTooltip";
 import { useTooltips } from "@/lib/useTooltips";
+import Logo from "@/components/Logo";
+import { getGrade as getGradeBase, getGradeTooltip as getGradeTooltipBase } from "@/lib/formatters";
 
-// ── Logo ──
-function Logo() {
-  return (
-    <svg width="180" height="24" viewBox="0 0 451 58" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Capital Finanças">
-      <circle cx="31" cy="27" r="22" stroke="#203b88" strokeWidth="4.5" fill="none" />
-      <circle cx="31" cy="49" r="4.5" fill="#203b88" />
-      <text x="66" y="46" fontFamily="'Open Sans', Arial, sans-serif" fontWeight="700" fontSize="38" letterSpacing="-0.5">
-        <tspan fill="#203b88">capital</tspan>
-        <tspan fill="#a8d96b">finanças</tspan>
-      </text>
-    </svg>
-  );
+// Versão local que devolve só os campos consumidos por este arquivo (sem `label`).
+function getGrade(rating: number | null): { letter: string; bg: string; color: string; border: string } {
+  const g = getGradeBase(rating);
+  return { letter: g.letter, bg: g.bg, color: g.color, border: g.border };
+}
+
+// Tooltip estendido — prefixa "Rating X.X/10 · " na descrição da faixa.
+function getGradeTooltip(rating: number | null): string {
+  if (rating == null) return getGradeTooltipBase(null);
+  return `Rating ${rating.toFixed(1)}/10 · ${getGradeTooltipBase(rating)}`;
 }
 
 // ── Helpers ──
@@ -72,25 +72,6 @@ function derivarSetor(cnaePrincipal?: string): string {
   if (/agro|agrícol|pecuária|rural/.test(t)) return "Agronegócio";
   if (/imóvel|imobiliária|locação/.test(t)) return "Imobiliário";
   return "Serviços";
-}
-
-function getGrade(rating: number | null): { letter: string; bg: string; color: string; border: string } {
-  if (rating == null) return { letter: "—", bg: "#F1F5F9", color: "#94A3B8", border: "#E2E8F0" };
-  if (rating >= 8)   return { letter: "A", bg: "#DCFCE7", color: "#16A34A", border: "#86EFAC" };
-  if (rating >= 5)   return { letter: "B", bg: "#FEF3C7", color: "#D97706", border: "#FCD34D" };
-  if (rating >= 3)   return { letter: "C", bg: "#FFEDD5", color: "#EA580C", border: "#FDBA74" };
-  return               { letter: "D", bg: "#FEE2E2", color: "#DC2626", border: "#FCA5A5" };
-}
-
-// Tooltip explicativo do rating — mostrado no hover do círculo A/B/C/D na lista.
-function getGradeTooltip(rating: number | null): string {
-  if (rating == null) return "Sem rating — análise ainda não foi gerada";
-  const faixa =
-    rating >= 8 ? "A · Baixo risco (rating 8-10): perfil saudável, recomendado"
-    : rating >= 5 ? "B · Risco moderado (rating 5-7,9): atenção recomendada"
-    : rating >= 3 ? "C · Risco elevado (rating 3-4,9): avaliar condições antes de aprovar"
-    : "D · Alto risco (rating 0-2,9): perfil crítico, evitar ou exigir garantias fortes";
-  return `Rating ${rating.toFixed(1)}/10 · ${faixa}`;
 }
 
 // ── Doc icon colors per type ──

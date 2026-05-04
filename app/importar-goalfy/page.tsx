@@ -10,6 +10,7 @@ import {
   CheckCircle2, User,
 } from "lucide-react";
 import type { GoalfyOperation } from "@/app/api/goalfy/listar/route";
+import { timeAgo } from "@/lib/formatters";
 
 type OperationWithStatus = GoalfyOperation & { already_imported: boolean };
 type ImportPhase = "idle" | "downloading" | "extracting" | "done" | "error";
@@ -31,16 +32,6 @@ const DOC_TYPE_LABEL: Record<string, string> = {
 
 function docLabel(type: string) {
   return DOC_TYPE_LABEL[type] ?? type;
-}
-
-function timeAgo(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const h = Math.floor(diff / 3_600_000);
-  const d = Math.floor(diff / 86_400_000);
-  if (h < 1) return "há menos de 1h";
-  if (h < 24) return `há ${h}h`;
-  if (d === 1) return "ontem";
-  return `há ${d} dias`;
 }
 
 function companyInitials(name: string) {
