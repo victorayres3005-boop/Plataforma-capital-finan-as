@@ -397,9 +397,9 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
           </span>
         )}
 
-        {/* Sector */}
+        {/* Sector — texto cinza simples (não pill decorativo). Setor é metadado, não sinal de status. */}
         {setor && (
-          <span style={{ fontSize: 11, background: "#F0FDF4", color: "#15803D", border: "1px solid #BBF7D0", borderRadius: 999, padding: "2px 8px", whiteSpace: "nowrap", flexShrink: 0 }}>
+          <span style={{ fontSize: 11.5, color: "#6B7280", whiteSpace: "nowrap", flexShrink: 0, fontWeight: 500 }}>
             {setor}
           </span>
         )}
@@ -412,36 +412,47 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
           <span>{docs.length} doc{docs.length !== 1 ? "s" : ""}</span>
         </span>
 
-        {/* Rating do comitê / analista */}
+        {/* Rating IA — número tabular + mini-bar. Substitui pill pastel por sinal mais editorial. */}
         {(() => {
           const ai = col.ai_analysis as Record<string, unknown> | null;
           const parecer = ai?.parecerAnalista as Record<string, unknown> | null;
           const ratingVal = parecer?.ratingAnalista != null ? Number(parecer.ratingAnalista) : col.rating;
           if (ratingVal == null) return null;
           const rc = ratingVal >= 7 ? "#16a34a" : ratingVal >= 4 ? "#d97706" : "#dc2626";
-          const rbg = ratingVal >= 7 ? "#f0fdf4" : ratingVal >= 4 ? "#fffbeb" : "#fff1f2";
-          const rborder = ratingVal >= 7 ? "#bbf7d0" : ratingVal >= 4 ? "#fde68a" : "#fecaca";
+          const ratingPct = Math.max(0, Math.min(100, ratingVal * 10));
           return (
-            <span style={{ fontSize: 11, fontWeight: 700, color: rc, background: rbg, border: `1px solid ${rborder}`, borderRadius: 6, padding: "2px 7px", whiteSpace: "nowrap", flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 3 }}>
-              <span style={{ fontSize: 9, fontWeight: 600, opacity: 0.8 }}>Rating</span>
-              {ratingVal}/10
+            <span
+              className="num"
+              title={`Rating IA: ${ratingVal.toFixed(1)}/10`}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", flexShrink: 0 }}
+            >
+              <span style={{ fontSize: 13, fontWeight: 700, color: rc, letterSpacing: "-0.01em" }}>
+                {ratingVal.toFixed(1)}
+              </span>
+              <span style={{ fontSize: 10, color: "#9CA3AF", fontWeight: 500 }}>/10</span>
+              <span className="bar-inline" aria-hidden>
+                <i style={{ width: `${ratingPct}%`, background: rc }} />
+              </span>
             </span>
           );
         })()}
 
-        {/* Status */}
-        <span style={{ fontSize: 11, fontWeight: 600, background: status.bg, color: status.color, border: `1px solid ${status.border}`, borderRadius: 999, padding: "2px 10px", whiteSpace: "nowrap", flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5 }}>
-          <span style={{ width: 5, height: 5, borderRadius: "50%", background: status.color, flexShrink: 0 }} />
+        {/* Status — inline (dot + texto colorido), sem fundo pastel.
+            Reduz ruído visual: cor é o sinal, não o pill. */}
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, color: status.color, whiteSpace: "nowrap", flexShrink: 0 }}>
+          <span style={{ width: 6, height: 6, borderRadius: "50%", background: status.color, flexShrink: 0 }} />
           {status.label}
         </span>
 
-        {/* Badge "REVISAR" — coleta com socios PF no QSA mas sem SCR de socios */}
+        {/* Tag "REVISAR" — sinal técnico (radius baixo, peso alto, tracking).
+            Estilo "etiqueta de documento" em vez de pill consumer. */}
         {needsRevision && (
           <span
             title={`${sociosPfCount} socio(s) PF no QSA sem SCR correspondente. Reabra a coleta e envie os SCRs dos socios.`}
-            style={{ fontSize: 10, fontWeight: 700, background: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A", borderRadius: 999, padding: "2px 8px", whiteSpace: "nowrap", flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 3 }}
+            className="tag tag-warning"
+            style={{ flexShrink: 0 }}
           >
-            <span style={{ fontSize: 10 }}>⚠</span> REVISAR
+            REVISAR
           </span>
         )}
 

@@ -69,9 +69,20 @@ html.dark body { background: #0f172a; color: #f1f5f9; }
   --ds-surface-2:      #f7f8fa;
   --ds-border-t:       rgba(17,24,39,0.08);
   --ds-border-s:       rgba(17,24,39,0.16);
+
+  /* Radius escalonado — institucional (radius baixo = "documento", radius alto = "consumer/SaaS").
+     Usar --ds-radius-tag (4px) para sinais técnicos (badge de tipo, ratings); --ds-radius-md (8px)
+     para inputs/botões; --ds-radius-lg (10px) para cards. Pill (999px) só onde a forma é a função
+     (avatar circle, dot indicators). */
+  --ds-radius-tag:     4px;
+  --ds-radius-sm:      6px;
   --ds-radius-md:      8px;
-  --ds-radius-lg:      12px;
-  --ds-radius-xl:      16px;
+  --ds-radius-lg:      10px;
+  --ds-radius-xl:      14px;
+
+  /* Letter-spacing institucional para headings */
+  --ds-tracking-tight: -0.012em;
+  --ds-tracking-meta:  0.06em;
 }
 
 @layer base {
@@ -126,15 +137,77 @@ html.dark body { background: #0f172a; color: #f1f5f9; }
   .btn-green:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
   .btn-green:disabled { box-shadow: none; }
 
-  /* Card */
+  /* Card — radius reduzido (1rem → 10px) pra ar mais institucional/documento.
+     Sombra mantida; hover só intensifica sutilmente. */
   .card {
     background-color: #ffffff;
-    border-radius: 1rem;
+    border-radius: var(--ds-radius-lg);
     border: 1px solid var(--border);
     box-shadow: var(--shadow-sm);
     transition: box-shadow 0.2s ease;
   }
   .card:hover { box-shadow: var(--shadow-md); }
+
+  /* ── Sinais técnicos (badges) ──────────────────────────────────────────────
+     `.tag` = sinal categórico (tipo de doc, rating letter, REVISAR). Radius baixo,
+     borda 1px, peso forte. Use em vez de `rounded-full` para coisas que são DADOS.
+     `.pill` = mantém forma circular para casos onde a forma carrega significado
+     (avatar, status com dot+texto, identidade visual). */
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 6px;
+    border-radius: var(--ds-radius-tag);
+    border: 1px solid var(--border);
+    background: #fff;
+    font-size: 10.5px;
+    font-weight: 700;
+    line-height: 1.4;
+    letter-spacing: 0.04em;
+    color: var(--text-2);
+    font-feature-settings: 'tnum';
+  }
+  .tag-danger  { color: var(--danger);   background: var(--ds-danger-bg);  border-color: var(--ds-danger-border); }
+  .tag-warning { color: var(--warning);  background: var(--ds-warning-bg); border-color: var(--ds-warning-border); }
+  .tag-success { color: var(--ds-success-text); background: var(--ds-success-bg); border-color: var(--ds-success-border); }
+  .tag-neutral { color: var(--text-3);   background: transparent;          border-color: var(--border); }
+
+  /* ── Status inline (sem fundo, só dot + texto) ─────────────────────────────
+     Padrão "instituição financeira": status do ciclo NÃO precisa de fundo
+     pastel — basta dot colorido + texto colorido. Reduz ruído visual. */
+  .status-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-2);
+    letter-spacing: 0;
+    white-space: nowrap;
+  }
+  .status-inline .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: currentColor;
+    flex-shrink: 0;
+  }
+
+  /* ── Label institucional (column header, KPI label) ─────────────────────── */
+  .label-meta {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: var(--ds-tracking-meta);
+  }
+
+  /* ── Heading institucional ───────────────────────────────────────────────── */
+  .heading-tight {
+    letter-spacing: var(--ds-tracking-tight);
+    font-weight: 700;
+  }
 
   /* Input */
   .input-field {
@@ -166,6 +239,31 @@ html.dark body { background: #0f172a; color: #f1f5f9; }
 @layer utilities {
   .text-balance { text-wrap: balance; }
   .bg-hero-gradient { background: linear-gradient(135deg, #0f1f5c 0%, #203b88 60%, #1a4fa8 100%); }
+
+  /* Tabular numerals — colunas alinham, valores não dançam.
+     Marca registrada de produto financeiro sério. Aplicar em todo número
+     que entra em coluna ou tabela. */
+  .num,
+  .tabular { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+
+  /* Mini-bar inline (alternativa ao pill colorido para indicar tier numérico).
+     Usar com `.bar` colorida internamente. */
+  .bar-inline {
+    display: inline-block;
+    width: 38px;
+    height: 4px;
+    background: var(--surface);
+    border-radius: 2px;
+    margin-left: 7px;
+    vertical-align: middle;
+    overflow: hidden;
+  }
+  .bar-inline > i {
+    display: block;
+    height: 100%;
+    background: var(--text-4);
+    border-radius: 2px;
+  }
 }
 
 /* ── Responsive KPI grid ── */
