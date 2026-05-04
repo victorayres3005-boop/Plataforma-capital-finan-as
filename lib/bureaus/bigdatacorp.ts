@@ -304,8 +304,15 @@ export async function consultarProcessosGrupoEconomico(
         const lawsuitsArr = Array.isArray(lawsuitsSection.Lawsuits)
           ? (lawsuitsSection.Lawsuits as Record<string, unknown>[])
           : [];
+        // Fallback defensivo: BigDataCorp pode usar nomes alternativos para o valor
+        // do processo (Value, Amount, LawsuitValue, Valor, ValorAcao). Em rotas onde
+        // só `Value` é coberto, valor estimado vinha "—" mesmo havendo dado.
         let totalValue = 0;
-        for (const l of lawsuitsArr) totalValue += _num(l.Value);
+        for (const l of lawsuitsArr) {
+          totalValue += _num(
+            l.Value ?? l.Amount ?? l.LawsuitValue ?? l.Valor ?? l.ValorAcao
+          );
+        }
 
         return {
           cnpj,
@@ -314,8 +321,13 @@ export async function consultarProcessosGrupoEconomico(
           processosTotal: total,
           valorTotalEstimado: totalValue > 0 ? _moeda(totalValue) : "—",
         } as EmpresaGrupoProcessos;
-      } catch {
+      } catch (err) {
         clearTimeout(tid);
+        // Antes era `catch {}` silencioso; passa a logar para diagnóstico
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(
+          `[bdc/grupo-econ] consulta processos falhou cnpj=${cnpj.slice(0, 4)}*** via=${via}: ${msg}`,
+        );
         return null;
       }
     }),

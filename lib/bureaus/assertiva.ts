@@ -176,25 +176,48 @@ export async function consultarSocios(
   const settled = await Promise.allSettled(
     cpfsValidos.map(async ({ cpf, nome }): Promise<AssertivaSocioData | null> => {
       const cpfNum = cpf.replace(/\D/g, "");
-      try {
-        const res = await fetch(
-          `${ASSERTIVA_BASE}/score/v3/pf/credito/${cpfNum}?idFinalidade=2`,
-          { headers: assertivaHeaders(token), signal: AbortSignal.timeout(25000) },
-        );
+      const url = `${ASSERTIVA_BASE}/score/v3/pf/credito/${cpfNum}?idFinalidade=2`;
+      const cpfMasked = cpfNum.slice(0, 3) + "***";
 
-        if (!res.ok) {
-          console.warn(`[assertiva] consultarSocios CPF ${cpfNum.slice(0, 3)}*** HTTP ${res.status}`);
-          return null;
+      // Retry simples: 1 tentativa adicional com delay 800ms em timeout ou 5xx.
+      // Sandbox/produção Assertiva pode dar erro transitório; sem retry o sócio
+      // some do relatório mesmo quando a 2ª tentativa funcionaria.
+      let lastErr: unknown = null;
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const res = await fetch(url, {
+            headers: assertivaHeaders(token),
+            signal: AbortSignal.timeout(25000),
+          });
+
+          if (!res.ok) {
+            if (res.status >= 500 && attempt === 1) {
+              console.warn(`[assertiva] consultarSocios CPF ${cpfMasked} HTTP ${res.status} — retry`);
+              await new Promise(r => setTimeout(r, 800));
+              continue;
+            }
+            console.warn(`[assertiva] consultarSocios CPF ${cpfMasked} HTTP ${res.status}`);
+            return null;
+          }
+
+          const json = await res.json();
+          console.log(`[assertiva] raw sócio ${cpfMasked}:`, JSON.stringify(json, null, 2));
+          return parseSocioResponse(cpfNum, nome, json);
+
+        } catch (err) {
+          lastErr = err;
+          const msg = err instanceof Error ? err.message : String(err);
+          const isTransient = err instanceof Error && (err.name === "AbortError" || /timeout|TimeoutError/i.test(msg));
+          if (attempt === 1 && isTransient) {
+            console.warn(`[assertiva] consultarSocios CPF ${cpfMasked} ${msg} — retry`);
+            await new Promise(r => setTimeout(r, 800));
+            continue;
+          }
+          break;
         }
-
-        const json = await res.json();
-        console.log(`[assertiva] raw sócio ${cpfNum.slice(0, 3)}***:`, JSON.stringify(json, null, 2));
-        return parseSocioResponse(cpfNum, nome, json);
-
-      } catch (err) {
-        console.warn(`[assertiva] consultarSocios CPF ${cpfNum.slice(0, 3)}*** erro:`, err instanceof Error ? err.message : err);
-        return null;
       }
+      console.warn(`[assertiva] consultarSocios CPF ${cpfMasked} erro após retry:`, lastErr instanceof Error ? lastErr.message : lastErr);
+      return null;
     }),
   );
 
