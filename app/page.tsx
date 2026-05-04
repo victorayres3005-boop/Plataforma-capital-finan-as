@@ -1621,13 +1621,13 @@ export default function HomePage() {
           );
         })() : step === "generate" ? (
 
-        <div key="generate" className="w-full animate-slide-up">
+        <div key="generate" className="w-full animate-fade-in">
           <GenerateStep data={extractedData} originalFiles={originalFiles} collectionId={collectionId} onCollectionIdChange={setCollectionId} onBack={() => setStep("review")} onReset={() => { setShowDashboard(true); setStep("upload"); setExtractedData(defaultData); setResumedDocs(undefined); setCollectionId(null); confirmedDocsRef.current = []; setLocalDraft(null); try { localStorage.removeItem(DRAFT_KEY); } catch {/**/} try { const url = new URL(window.location.href); url.searchParams.delete("resume"); url.searchParams.delete("step"); window.history.replaceState({}, "", url.toString()); } catch {/**/} setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] }); }} onNotify={handleNotify} onFirstCollection={markFirstCollectionDone} onAbrirScoreForm={() => { setStep("review"); setTimeout(() => { document.getElementById("score-section")?.scrollIntoView({ behavior: "smooth" }); }, 300); }} />
         </div>
 
         ) : (
 
-        <div key={step} className="max-w-2xl mx-auto animate-slide-up">
+        <div key={step} className="max-w-2xl mx-auto animate-fade-in">
           {/* Botão voltar + Step header */}
           <div className="mb-6">
             <button onClick={() => {

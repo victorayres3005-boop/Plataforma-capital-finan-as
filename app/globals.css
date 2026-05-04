@@ -2,6 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Acessibilidade: respeitar preferência do usuário por menos animação.
+   Desliga as transições padronizadas (fade/slide/scale) sem mexer em
+   indicadores que precisam animar (loaders, spinners). */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-slide-up,
+  .animate-scale-in,
+  .animate-fade-in-fast {
+    animation: none !important;
+  }
+}
+
 /* ── Dark mode base — sobrescreve --bg e cores semânticas mais usadas.
    Sidebar/Topbar com inline styles ainda não respeitam (sessão dedicada). */
 html.dark {

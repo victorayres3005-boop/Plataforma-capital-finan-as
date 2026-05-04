@@ -2227,7 +2227,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   ];
 
   return (
-    <div className="w-full animate-slide-up flex gap-8 items-start">
+    <div className="w-full animate-fade-in flex gap-8 items-start">
 
       {/* ── Sidebar de navegação (desktop) ── */}
       <nav className="hidden lg:flex flex-col gap-1 w-[220px] flex-shrink-0 sticky self-start" style={{ top: "80px" }}>
@@ -3078,7 +3078,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       </div>
 
       {/* ── Validation gate modal (Fase 3.2) ── */}
-      {/* Portal porque o wrapper pai tem animate-slide-up (transform) que cria
+      {/* Portal porque o wrapper pai tem animate-fade-in (transform) que cria
           um stacking context novo, fazendo position:fixed ficar confinado.
           Renderizar direto no document.body resolve. */}
       {pendingGenerator && gateValidation && typeof document !== "undefined" && createPortal(

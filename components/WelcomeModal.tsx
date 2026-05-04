@@ -30,7 +30,7 @@ const steps = [
 export default function WelcomeModal({ onClose }: WelcomeModalProps) {
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl max-w-xl w-full overflow-hidden animate-scale-in" style={{ boxShadow: "0 24px 48px rgba(0,0,0,0.15)" }}>
+      <div className="bg-white rounded-2xl max-w-xl w-full overflow-hidden animate-fade-in" style={{ boxShadow: "0 24px 48px rgba(0,0,0,0.15)" }}>
         {/* Header */}
         <div className="bg-hero-gradient px-8 py-8 text-center relative overflow-hidden">
           <div className="absolute inset-0 opacity-[0.04]" style={{ backgroundImage: "radial-gradient(circle, #ffffff 1px, transparent 1px)", backgroundSize: "20px 20px" }} />

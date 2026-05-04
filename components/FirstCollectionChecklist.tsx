@@ -17,7 +17,7 @@ export default function FirstCollectionChecklist({ currentStep, onDismiss }: Fir
   const progress = Math.max(0, currentStep - 1);
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 w-[280px] bg-white rounded-xl border border-cf-border shadow-lg animate-slide-up overflow-hidden">
+    <div className="fixed bottom-6 right-6 z-50 w-[280px] bg-white rounded-xl border border-cf-border shadow-lg animate-fade-in overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-cf-bg border-b border-cf-border">
         <p className="text-xs font-bold text-cf-text-1">Sua primeira analise</p>

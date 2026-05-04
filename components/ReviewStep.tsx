@@ -288,7 +288,7 @@ export default function ReviewStep({ data, onComplete, onBack, onDataChange }: R
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="animate-slide-up" style={{ display: "flex", flexDirection: "column", gap: "10px", paddingBottom: "80px" }}>
+    <div className="animate-fade-in" style={{ display: "flex", flexDirection: "column", gap: "10px", paddingBottom: "80px" }}>
 
       {/* ── Cabeçalho unificado: identidade + qualidade ── */}
       <div style={{ background: "white", borderRadius: "14px", overflow: "hidden", border: "1px solid #E2E8F0", boxShadow: "0 2px 12px rgba(32,59,136,0.09)" }}>

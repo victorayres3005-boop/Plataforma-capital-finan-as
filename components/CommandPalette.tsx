@@ -168,7 +168,7 @@ export default function CommandPalette() {
     >
       <div
         onClick={e => e.stopPropagation()}
-        className="w-full max-w-xl bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden animate-scale-in"
+        className="w-full max-w-xl bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden animate-fade-in"
       >
         {/* Input */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-100">

@@ -1143,7 +1143,7 @@ export default function UploadStep({
   const optionalDoneCount = optionalSections.filter(s => sections[s.key].processedCount > 0).length;
 
   return (
-    <div className="animate-slide-up">
+    <div className="animate-fade-in">
 
       {/* ── Info banner ── */}
       {resumedDocs && resumedDocs.length > 0 ? (

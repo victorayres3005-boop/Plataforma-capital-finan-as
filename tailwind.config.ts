@@ -71,7 +71,11 @@ const config: Config = {
         "surface-gradient": "linear-gradient(180deg, #ffffff 0%, #f5f7fb 100%)",
       },
       animation: {
-        "fade-in":  "fadeIn 0.35s ease-out both",
+        // Padrão único de transição da plataforma: fade puro em 200ms
+        // (carga inicial F5, navegação SPA entre rotas, modais e drawers).
+        // Mantemos slide-up/scale-in para casos pontuais (KPIs, banners),
+        // mas containers de página usam fade-in.
+        "fade-in":  "fadeIn 0.2s ease-out both",
         "slide-up": "slideUp 0.35s ease-out both",
         "scale-in": "scaleIn 0.3s ease-out both",
         "stagger-1": "fadeSlideUp 0.4s ease-out 0.05s both",

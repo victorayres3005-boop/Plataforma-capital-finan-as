@@ -40,7 +40,7 @@ const DialogContent = React.forwardRef<
         "fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2",
         "bg-white rounded-xl border border-slate-200 shadow-lg p-6",
         "focus:outline-none",
-        "data-[open]:animate-scale-in",
+        "data-[open]:animate-fade-in",
         className,
       )}
       {...props}

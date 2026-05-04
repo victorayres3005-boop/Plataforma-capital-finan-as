@@ -51,8 +51,10 @@ function RouteProgress({ pathname }: { pathname: string }) {
 }
 
 function PageContent({ children, pathname }: { children: React.ReactNode; pathname: string }) {
+  // `key={pathname}` força remount em mudança de rota, disparando o fade-in.
+  // Mesma classe é aplicada na carga inicial (F5) — comportamento idêntico.
   return (
-    <div key={pathname} className="animate-slide-up flex flex-col flex-1 min-w-0">
+    <div key={pathname} className="animate-fade-in flex flex-col flex-1 min-w-0">
       {children}
     </div>
   );

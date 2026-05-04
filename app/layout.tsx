@@ -55,7 +55,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
       </head>
-      <body className={`${openSans.variable} ${dmSans.variable} ${jetbrainsMono.variable} ${dmSans.className} antialiased`}>
+      <body className={`${openSans.variable} ${dmSans.variable} ${jetbrainsMono.variable} ${dmSans.className} antialiased animate-fade-in`}>
         <LayoutShell>
           {children}
         </LayoutShell>
