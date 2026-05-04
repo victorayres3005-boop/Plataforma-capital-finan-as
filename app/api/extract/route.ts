@@ -3396,14 +3396,17 @@ async function processExtract(
     // Curva ABC com texto grande (>15k chars): tenta parser direto antes de chamar Gemini.
     // Parser direto extrai clientes via regex em <10ms, evitando timeout do modelo (400+ clientes
     // geram 10k+ tokens de output, ultrapassam os 45s disponíveis no Hobby plan).
+    //
+    // IMPORTANTE: usar `rawPdfText` (texto completo) e não `textContent` (truncado em 60k para
+    // o Gemini). PDFs com 1000+ clientes ultrapassam 60k chars; truncar antes do regex faria
+    // o parser ver só os primeiros clientes e devolver lista parcial silenciosamente.
     let _directCurvaABC: ReturnType<typeof directParseCurvaABC> | undefined;
     if (docType === "curva_abc" && textContent.length > 15000) {
-      const dp = directParseCurvaABC(textContent);
+      const sourceText = rawPdfText && rawPdfText.length > textContent.length ? rawPdfText : textContent;
+      const dp = directParseCurvaABC(sourceText);
       if (dp && dp.clientes.length >= 5) {
         _directCurvaABC = dp;
-        // Mantém só o cabeçalho para Gemini extrair periodo/total caso o parser direto falhe
-        // (não é usado quando bypass está ativo, mas fica disponível como fallback)
-        console.log(`[extract][curva_abc] Direct parse: ${dp.clientes.length} clientes, periodo="${dp.periodoReferencia}", total=${dp.totalFaturado}`);
+        console.log(`[extract][curva_abc] Direct parse: ${dp.clientes.length} clientes, periodo="${dp.periodoReferencia}", total=${dp.totalFaturado} (sourceLen=${sourceText.length})`);
       } else {
         console.log(`[extract][curva_abc] Direct parse insuficiente (${dp?.clientes.length ?? 0} clientes) — usando Gemini`);
       }

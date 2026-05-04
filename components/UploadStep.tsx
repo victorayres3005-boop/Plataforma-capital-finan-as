@@ -507,6 +507,11 @@ export default function UploadStep({
 
     console.log(`[bureaus-qsa] QSA disponível (${pfSocios.length} sócios PF) após bureau inicial — re-consultando para SCR dos sócios`);
 
+    // Volta o status para "loading" enquanto a re-consulta roda. Sem isto, o usuário
+    // poderia clicar "Prosseguir" antes de esta promise resolver, desmontar o UploadStep
+    // e perder o setExtracted({ scrSocios }) que vem depois.
+    setBureauStatus("loading");
+
     (async () => {
       try {
         const res = await fetch("/api/bureaus", {
@@ -526,6 +531,8 @@ export default function UploadStep({
         if (json.bureaus) setBureauDetail(prev => ({ ...prev, ...json.bureaus }));
       } catch (err) {
         console.warn("[bureaus-qsa] erro na re-consulta:", err);
+      } finally {
+        setBureauStatus("done");
       }
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
