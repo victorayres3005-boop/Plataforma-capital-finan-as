@@ -53,8 +53,19 @@ function RouteProgress({ pathname }: { pathname: string }) {
 function PageContent({ children, pathname }: { children: React.ReactNode; pathname: string }) {
   // `key={pathname}` força remount em mudança de rota, disparando o fade-in.
   // Mesma classe é aplicada na carga inicial (F5) — comportamento idêntico.
+  //
+  // `transform: translateZ(0)` cria um "containing block" para descendentes com
+  // `position: fixed` (barras sticky bottom em GenerateStep e /parecer). Sem ele,
+  // essas barras escapariam para o viewport inteiro e passariam por baixo da
+  // sidebar. O slide-up anterior fornecia esse containing block via transform —
+  // ao migrar para fade puro (só opacity), precisamos manter o transform aqui.
+  // Custo: zero visual, força composited layer (já era assim com slide-up).
   return (
-    <div key={pathname} className="animate-fade-in flex flex-col flex-1 min-w-0">
+    <div
+      key={pathname}
+      className="animate-fade-in flex flex-col flex-1 min-w-0"
+      style={{ transform: "translateZ(0)" }}
+    >
       {children}
     </div>
   );
