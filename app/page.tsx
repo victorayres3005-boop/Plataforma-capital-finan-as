@@ -1376,24 +1376,40 @@ export default function HomePage() {
                 ))}
               </div>
 
-              {/* Empresa + Limpar */}
+              {/* Empresa (dropdown compacto) + Limpar.
+                  Antes era pill por empresa — com 15+ empresas, poluía o
+                  dashboard. Agora é um <select> simples + chip indicando
+                  o filtro ativo. */}
               {(companies.length > 1 || hasActiveFilters) && (
                 <div className="flex items-center gap-2 flex-wrap mt-2">
                   {companies.length > 1 && (
-                    <>
-                      <button onClick={() => { setSelectedCompany(null); setListaLimit(10); }}
-                        className={`px-3 py-1 rounded-full text-[11px] font-medium transition-all border ${!selectedCompany ? "bg-cf-navy text-white border-cf-navy" : "text-cf-text-3 border-cf-border hover:bg-cf-bg"}`}
-                        style={{ minHeight: "auto" }}>
-                        Todas as empresas
+                    <div className="relative inline-flex items-center">
+                      <Building2 size={12} className="absolute left-2.5 text-cf-text-3 pointer-events-none" />
+                      <select
+                        value={selectedCompany ?? ""}
+                        onChange={e => { setSelectedCompany(e.target.value || null); setListaLimit(10); }}
+                        aria-label="Filtrar por empresa"
+                        className="appearance-none pl-7 pr-8 py-1 rounded-full text-[11px] font-medium border border-cf-border bg-white text-cf-text-2 hover:bg-cf-bg cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-cf-navy/20"
+                        style={{ minHeight: "auto" }}
+                      >
+                        <option value="">Todas as empresas ({companies.length})</option>
+                        {companies.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                      <ChevronDown size={11} className="absolute right-2.5 text-cf-text-3 pointer-events-none" />
+                    </div>
+                  )}
+                  {selectedCompany && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-cf-navy text-white text-[11px] font-medium">
+                      {selectedCompany}
+                      <button
+                        onClick={() => { setSelectedCompany(null); setListaLimit(10); }}
+                        aria-label="Remover filtro de empresa"
+                        className="hover:bg-white/15 rounded-full leading-none px-1"
+                        style={{ minHeight: "auto" }}
+                      >
+                        ×
                       </button>
-                      {companies.map(c => (
-                        <button key={c} onClick={() => { setSelectedCompany(selectedCompany === c ? null : c); setListaLimit(10); }}
-                          className={`px-3 py-1 rounded-full text-[11px] font-medium transition-all border flex items-center gap-1 ${selectedCompany === c ? "bg-cf-navy text-white border-cf-navy" : "text-cf-text-3 border-cf-border hover:bg-cf-bg"}`}
-                          style={{ minHeight: "auto" }}>
-                          <Building2 size={10} />{c}
-                        </button>
-                      ))}
-                    </>
+                    </span>
                   )}
                   {hasActiveFilters && (
                     <button
