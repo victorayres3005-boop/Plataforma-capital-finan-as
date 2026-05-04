@@ -388,7 +388,7 @@ export default function ReviewStep({ data, onComplete, onBack, onDataChange }: R
 
       {/* Sections */}
       <SectionCNPJ data={form.cnpj} set={setCNPJ} expanded={open.cnpj} onToggle={() => toggle("cnpj")} quality={qualityMap.cnpj} />
-      <SectionQSA data={form.qsa} setField={setQSAField} setSocio={setQSASocio} addSocio={addQSASocio} removeSocio={removeQSASocio} expanded={open.qsa} onToggle={() => toggle("qsa")} quality={qualityMap.qsa} />
+      <SectionQSA data={form.qsa} setField={setQSAField} setSocio={setQSASocio} addSocio={addQSASocio} removeSocio={removeQSASocio} expanded={open.qsa} onToggle={() => toggle("qsa")} quality={qualityMap.qsa} mergeMap={(data as { _qsaMergeMap?: Record<string, { cpfCnpj?: boolean; qualificacao?: boolean; participacao?: boolean; capitalInvestido?: boolean }> })._qsaMergeMap} />
       <SectionContrato data={form.contrato} set={setContrato} setSocio={setSocio} addSocio={addSocio} removeSocio={removeSocio} expanded={open.contrato} onToggle={() => toggle("contrato")} quality={qualityMap.contrato} />
       <SectionFaturamento data={form.faturamento} setMes={setFatMes} addMes={addFatMes} removeMes={removeFatMes} expanded={open.faturamento} onToggle={() => toggle("faturamento")} quality={qualityMap.faturamento} />
       <SectionSCR data={form.scr} anterior={form.scrAnterior ?? undefined} set={setSCR} setMod={setSCRMod} addMod={addSCRMod} removeMod={removeSCRMod} setInst={setSCRInst} addInst={addSCRInst} removeInst={removeSCRInst} showDetails={showSCRDetails} setShowDetails={setShowSCRDetails} expanded={open.scr} onToggle={() => toggle("scr")} quality={qualityMap.scr} />

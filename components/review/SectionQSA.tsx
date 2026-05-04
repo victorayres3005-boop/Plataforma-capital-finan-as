@@ -1,7 +1,14 @@
 "use client";
-import { Plus, Trash2, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, AlertTriangle, FileSignature } from "lucide-react";
 import { QSAData, QSASocio } from "@/types";
 import { Field, QualityBadge, SectionCard, QualityResult, qualityAccent } from "./shared";
+
+type MergeFlag = {
+  cpfCnpj?:          boolean;
+  qualificacao?:     boolean;
+  participacao?:     boolean;
+  capitalInvestido?: boolean;
+};
 
 interface Props {
   data: QSAData;
@@ -12,9 +19,39 @@ interface Props {
   expanded: boolean;
   onToggle: () => void;
   quality: QualityResult;
+  // Mapa nome-normalizado → flags dos campos vindos do Contrato Social.
+  // Quando presente, a UI mostra um badge "do contrato" ao lado do campo.
+  mergeMap?: Record<string, MergeFlag>;
 }
 
-export function SectionQSA({ data, setField, setSocio, addSocio, removeSocio, expanded, onToggle, quality }: Props) {
+// Mesma normalização do mergeQsaWithContrato — manter sincronizada.
+function normalizeName(name: string): string {
+  return (name || "")
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ").trim();
+}
+
+function FromContratoBadge() {
+  return (
+    <span
+      title="Dado obtido do Contrato Social (sobrescreve o QSA da Receita)"
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 3,
+        fontSize: "9px", fontWeight: 700, color: "#0369a1",
+        background: "#e0f2fe", border: "1px solid #bae6fd",
+        borderRadius: 4, padding: "1px 5px",
+        marginLeft: 6, lineHeight: 1.3,
+      }}
+    >
+      <FileSignature size={9} />
+      do contrato
+    </span>
+  );
+}
+
+export function SectionQSA({ data, setField, setSocio, addSocio, removeSocio, expanded, onToggle, quality, mergeMap }: Props) {
   return (
     <SectionCard
       number="02"
@@ -48,6 +85,7 @@ export function SectionQSA({ data, setField, setSocio, addSocio, removeSocio, ex
             {data.quadroSocietario.map((s, i) => {
               const initial = s.nome ? s.nome.trim().charAt(0).toUpperCase() : String(i + 1);
               const hasCPF = s.cpfCnpj && s.cpfCnpj.trim();
+              const flags = mergeMap?.[normalizeName(s.nome)] || {};
               return (
                 <div
                   key={i}
@@ -79,28 +117,48 @@ export function SectionQSA({ data, setField, setSocio, addSocio, removeSocio, ex
                         onFocus={e => { e.currentTarget.style.borderColor = "#203b88"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(32,59,136,0.10)"; }}
                         onBlur={e => { e.currentTarget.style.borderColor = hasCPF ? "#E5E7EB" : "#fcd34d"; e.currentTarget.style.boxShadow = "none"; }}
                       />
-                      {!hasCPF && (
-                        <p style={{ fontSize: "10px", color: "#d97706", marginTop: "3px", display: "flex", alignItems: "center", gap: "3px" }}>
-                          <AlertTriangle size={9} /> CPF/CNPJ ausente
-                        </p>
-                      )}
+                      <div style={{ display: "flex", alignItems: "center", gap: 3, marginTop: 3, flexWrap: "wrap" }}>
+                        {!hasCPF && (
+                          <p style={{ fontSize: "10px", color: "#d97706", margin: 0, display: "flex", alignItems: "center", gap: "3px" }}>
+                            <AlertTriangle size={9} /> CPF/CNPJ ausente
+                          </p>
+                        )}
+                        {flags.cpfCnpj && <FromContratoBadge />}
+                      </div>
                     </div>
-                    <input
-                      value={s.qualificacao}
-                      onChange={e => setSocio(i, "qualificacao", e.target.value)}
-                      placeholder="Qualificação"
-                      style={{ width: "100%", borderRadius: "8px", padding: "7px 11px", fontSize: "12px", border: "1px solid #E5E7EB", background: "white", outline: "none", fontFamily: "inherit" }}
-                      onFocus={e => { e.currentTarget.style.borderColor = "#203b88"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(32,59,136,0.10)"; }}
-                      onBlur={e => { e.currentTarget.style.borderColor = "#E5E7EB"; e.currentTarget.style.boxShadow = "none"; }}
-                    />
-                    <input
-                      value={s.participacao}
-                      onChange={e => setSocio(i, "participacao", e.target.value)}
-                      placeholder="Participação %"
-                      style={{ width: "100%", borderRadius: "8px", padding: "7px 11px", fontSize: "12px", border: "1px solid #E5E7EB", background: "white", outline: "none", fontFamily: "inherit" }}
-                      onFocus={e => { e.currentTarget.style.borderColor = "#203b88"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(32,59,136,0.10)"; }}
-                      onBlur={e => { e.currentTarget.style.borderColor = "#E5E7EB"; e.currentTarget.style.boxShadow = "none"; }}
-                    />
+                    <div>
+                      <input
+                        value={s.qualificacao}
+                        onChange={e => setSocio(i, "qualificacao", e.target.value)}
+                        placeholder="Qualificação"
+                        style={{ width: "100%", borderRadius: "8px", padding: "7px 11px", fontSize: "12px", border: "1px solid #E5E7EB", background: "white", outline: "none", fontFamily: "inherit" }}
+                        onFocus={e => { e.currentTarget.style.borderColor = "#203b88"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(32,59,136,0.10)"; }}
+                        onBlur={e => { e.currentTarget.style.borderColor = "#E5E7EB"; e.currentTarget.style.boxShadow = "none"; }}
+                      />
+                      {flags.qualificacao && <div style={{ marginTop: 3 }}><FromContratoBadge /></div>}
+                    </div>
+                    <div>
+                      <input
+                        value={s.participacao}
+                        onChange={e => setSocio(i, "participacao", e.target.value)}
+                        placeholder="Participação %"
+                        style={{ width: "100%", borderRadius: "8px", padding: "7px 11px", fontSize: "12px", border: "1px solid #E5E7EB", background: "white", outline: "none", fontFamily: "inherit" }}
+                        onFocus={e => { e.currentTarget.style.borderColor = "#203b88"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(32,59,136,0.10)"; }}
+                        onBlur={e => { e.currentTarget.style.borderColor = "#E5E7EB"; e.currentTarget.style.boxShadow = "none"; }}
+                      />
+                      {flags.participacao && <div style={{ marginTop: 3 }}><FromContratoBadge /></div>}
+                    </div>
+                    <div>
+                      <input
+                        value={s.capitalInvestido ?? ""}
+                        onChange={e => setSocio(i, "capitalInvestido", e.target.value)}
+                        placeholder="Capital investido (R$)"
+                        style={{ width: "100%", borderRadius: "8px", padding: "7px 11px", fontSize: "12px", border: "1px solid #E5E7EB", background: "white", outline: "none", fontFamily: "inherit" }}
+                        onFocus={e => { e.currentTarget.style.borderColor = "#203b88"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(32,59,136,0.10)"; }}
+                        onBlur={e => { e.currentTarget.style.borderColor = "#E5E7EB"; e.currentTarget.style.boxShadow = "none"; }}
+                      />
+                      {flags.capitalInvestido && <div style={{ marginTop: 3 }}><FromContratoBadge /></div>}
+                    </div>
                   </div>
 
                   {/* Remover */}

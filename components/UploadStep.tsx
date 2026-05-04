@@ -7,6 +7,7 @@ import OnboardingTooltip from "./OnboardingTooltip";
 import { useTooltips } from "@/lib/useTooltips";
 import { CNPJData, QSAData, ContratoSocialData, FaturamentoData, SCRData, SCRSocioData, ProtestosData, ProcessosData, GrupoEconomicoData, ExtractedData, IRSocioData, CollectionDocument } from "@/types";
 import { upload } from "@vercel/blob/client";
+import { mergeQsaWithContrato } from "@/lib/mergeQsaWithContrato";
 
 // ─── Types ───
 
@@ -487,6 +488,24 @@ export default function UploadStep({
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [extracted.cnpj?.cnpj]);
+
+  // Merge QSA ← Contrato Social: sempre que ambos estão presentes, contrato
+  // sobrescreve cpfCnpj/qualificacao/participacao/capitalInvestido nos sócios
+  // do QSA. Sócios extras do contrato são adicionados ao QSA. Decisão tomada
+  // com Victor 2026-05-04 — contrato é fonte mais confiável que Receita.
+  useEffect(() => {
+    const qsa = extracted.qsa;
+    const contrato = extracted.contrato;
+    if (!qsa || !contrato || !contrato.socios || contrato.socios.length === 0) return;
+    const { qsa: mergedQsa, mergeMap } = mergeQsaWithContrato(qsa, contrato);
+    // Idempotente: só atualiza state se realmente mudou (evita loop infinito).
+    const changed =
+      JSON.stringify(mergedQsa.quadroSocietario) !== JSON.stringify(qsa.quadroSocietario) ||
+      JSON.stringify(mergeMap) !== JSON.stringify(extracted._qsaMergeMap || {});
+    if (!changed) return;
+    setExtracted(prev => ({ ...prev, qsa: mergedQsa, _qsaMergeMap: mergeMap }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [extracted.qsa?.quadroSocietario, extracted.contrato?.socios]);
 
   // Re-call bureaus after QSA is extracted — SCR dos sócios precisa dos CPFs do QSA,
   // que não estão disponíveis no momento do primeiro disparo (CNPJ extraído antes do QSA).

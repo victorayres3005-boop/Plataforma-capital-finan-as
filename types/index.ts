@@ -100,6 +100,9 @@ export interface QSASocio {
   protestosSocioValor?: number;
   ultimoProtestoData?:  string; // data do protesto mais recente (YYYY-MM-DD)
   rendaPresumida?:      string; // renda mensal estimada pela Assertiva (ex: "R$ 5.430,00")
+  // Capital social investido (R$) — vem do contrato social (valorTotalQuotas)
+  // quando o merge QSA ← Contrato roda. Ex.: "R$ 50.000,00".
+  capitalInvestido?:    string;
 }
 
 export interface QSAData {
@@ -819,6 +822,15 @@ export interface ExtractedData {
   };
   pefin?: PefinReginData;
   refin?: PefinReginData;
+  // Mapa de quais campos do QSA foram sobrescritos pelo Contrato Social
+  // (chave = nome normalizado do sócio). Usado pela aba Revisão para
+  // mostrar badge "do contrato" no campo correto. Não persiste no banco.
+  _qsaMergeMap?: Record<string, {
+    cpfCnpj?:          boolean;
+    qualificacao?:     boolean;
+    participacao?:     boolean;
+    capitalInvestido?: boolean;
+  }>;
 }
 
 // ─── Histórico de Operações ───
