@@ -1,4 +1,5 @@
 import type { PdfCtx, AutoCell, AlertSeverity, RGB } from "./context";
+import { calcScrTotal } from "@/lib/scrTotal";
 
 // ─── Formatting helpers ───────────────────────────────────────────────────────
 
@@ -665,8 +666,8 @@ export function gerarAlertasFaturamento(
 }
 
 export function gerarAlertasSCR(
-  scr: { vencidos?: string; prejuizos?: string; limiteCredito?: string; totalDividasAtivas?: string } | undefined,
-  scrAnterior: { limiteCredito?: string; totalDividasAtivas?: string } | null | undefined,
+  scr: { vencidos?: string; prejuizos?: string; limiteCredito?: string; totalDividasAtivas?: string; carteiraAVencer?: string; carteiraCurtoPrazo?: string; carteiraLongoPrazo?: string } | undefined,
+  scrAnterior: { limiteCredito?: string; totalDividasAtivas?: string; carteiraAVencer?: string; carteiraCurtoPrazo?: string; carteiraLongoPrazo?: string; vencidos?: string; prejuizos?: string } | null | undefined,
   fmmVal: number
 ): AlertaDet[] {
   const out: AlertaDet[] = [];
@@ -684,12 +685,12 @@ export function gerarAlertasSCR(
     }
   }
   if (fmmVal > 0) {
-    const alav = parseMoneyToNumber(scr.totalDividasAtivas || "0") / fmmVal;
+    const alav = calcScrTotal(scr) / fmmVal;
     if (alav > 1.5) out.push({ nivel: "media", mensagem: `Alavancagem de ${fmtBR(alav, 2)}x — acima do patamar conservador` });
   }
-  if (scrAnterior?.totalDividasAtivas) {
-    const divAt = parseMoneyToNumber(scr.totalDividasAtivas || "0");
-    const divAnt = parseMoneyToNumber(scrAnterior.totalDividasAtivas);
+  if (scrAnterior) {
+    const divAt = calcScrTotal(scr);
+    const divAnt = calcScrTotal(scrAnterior);
     if (divAnt > 0 && divAt < divAnt) {
       const pct = ((divAnt - divAt) / divAnt) * 100;
       if (pct > 50) out.push({ nivel: "info", mensagem: `Redução expressiva de dívida (${fmtBR(pct, 0)}%) — pode indicar renegociação` });

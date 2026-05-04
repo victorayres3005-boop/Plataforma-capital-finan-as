@@ -21,6 +21,7 @@ import type { PDFReportParams } from "./context";
 import type { PdfCtx } from "./context";
 import { DS } from "./design-system";
 import { clearAlertDedup, drawFooterAllPages, parseMoneyToNumber } from "./helpers";
+import { calcScrTotal } from "@/lib/scrTotal";
 import { CAPITAL_LOGO_B64 } from "@/lib/assets/capital-logo-b64";
 import { renderCapa } from "./sections/capa";
 import { renderIndice } from "./sections/indice";
@@ -93,7 +94,7 @@ export async function buildPDFReport(params: PDFReportParams): Promise<Blob> {
   const enrichedParams: PDFReportParams = {
     ...params,
     alavancagem: params.alavancagem ??
-      (fmmNum > 0 ? parseMoneyToNumber(data.scr?.totalDividasAtivas || "0") / fmmNum : 0),
+      (fmmNum > 0 ? calcScrTotal(data.scr) / fmmNum : 0),
   };
 
   // ── Build PdfCtx ──

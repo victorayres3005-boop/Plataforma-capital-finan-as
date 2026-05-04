@@ -10,6 +10,7 @@ import { buildHTMLReport } from "@/lib/generators/html";
 import { buildDOCXReport } from "@/lib/generators/docx";
 import { buildExcelReport } from "@/lib/generators/excel";
 import { buildPDFReport, generatePDF as generatePDFViaAPI, generateHTMLPreview } from "@/lib/generators/pdf";
+import { calcScrTotal } from "@/lib/scrTotal";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { uploadFile } from "@/lib/storage";
@@ -168,7 +169,9 @@ function validarContraParametros(data: ExtractedData, settings: FundSettings): F
   });
 
   // ── 4. Alavancagem ────────────────────────────────────────────────────────
-  const dividaTotal = parseMoney(data.scr.totalDividasAtivas);
+  // Usa calcScrTotal (carteira+vencidos+prejuízos) — não confia no agregado
+  // da fonte. Caso CRAVINFOODS evidenciou que totalDividasAtivas vem incompleto.
+  const dividaTotal = calcScrTotal(data.scr);
   const alavancagem = fmmVal > 0 && dividaTotal > 0 ? dividaTotal / fmmVal : 0;
   const alavStr = fmmVal > 0 && dividaTotal > 0 ? `${alavancagem.toFixed(2)}x FMM` : dividaTotal === 0 ? "Sem dívida" : "Sem FMM";
   const alavStatus: CriterionStatus =
@@ -1319,7 +1322,9 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     return parseFloat(val.replace(/\./g, "").replace(",", ".")) || 0;
   };
 
-  const dividaAtiva = parseMoneyToNumber(data.scr.totalDividasAtivas);
+  // dividaAtiva agora usa calcScrTotal (soma componentes) em vez do campo
+  // agregado da fonte que pode vir incompleto.
+  const dividaAtiva = calcScrTotal(data.scr);
   const atraso = parseMoneyToNumber(data.scr.operacoesEmAtraso);
   const prejuizosVal = parseMoneyToNumber(data.scr.prejuizos);
   const vencidas = parseMoneyToNumber(data.scr.operacoesVencidas);
@@ -1505,7 +1510,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
   // ── Alavancagem (escopo do componente para passar ao relatório) ──
   const _alavFmm = parseMoney(data.faturamento?.fmm12m || data.faturamento?.mediaAno || "");
-  const _alavDivida = parseMoney(data.scr?.totalDividasAtivas || "");
+  const _alavDivida = calcScrTotal(data.scr);
   const alavancagem = _alavFmm > 0 && _alavDivida > 0 ? _alavDivida / _alavFmm : 0;
 
   // ── Credit Limit Result ──

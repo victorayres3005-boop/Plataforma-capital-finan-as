@@ -3,6 +3,7 @@ import type { FundCriterion } from "@/types";
 import type { RespostaCriterio } from "@/types/politica-credito";
 import { CAPITAL_LOGO_B64 } from "@/lib/assets/capital-logo-b64";
 import { recomputeSCRTotals } from "@/lib/hydrateFromCollection";
+import { calcScrTotal } from "@/lib/scrTotal";
 
 // ─── Logo base64 ─────────────────────────────────────────────────────────────
 // Reaproveita a constante compartilhada em lib/assets/capital-logo-b64.ts —
@@ -828,12 +829,16 @@ function pageSintese(params: PDFReportParams, date: string): string {
     return `<tr><td><b>${esc(s.nome)}</b>${obitBadge}${cpfBadge}${scorePFBadge}${validacaoBadge}</td><td style="font-family:'JetBrains Mono',monospace;font-size:11px">${fmtCpf(cpfRaw)}</td><td>${esc(cleanQual)}</td><td style="color:var(--x4)">${fmt(part)}</td><td>${pl}</td></tr>`;
   }).join("");
 
-  // SCR cards
+  // SCR cards — usa helper único `calcScrTotal` (carteira+vencidos+prejuízos)
+  // para garantir consistência com comparativo, alavancagem e score V2.
+  // Detalhes do bug CRAVINFOODS em lib/scrTotal.ts.
   const scr = d.scr;
-  const totalDivida = scr?.totalDividasAtivas || scr?.carteiraAVencer || "—";
+  const totalNum = calcScrTotal(scr);
+  const totalDivida = totalNum > 0
+    ? totalNum.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : (scr?.totalDividasAtivas || scr?.carteiraAVencer || "—");
   const vencidos = scr?.vencidos ?? "—";
   const vencNum = numVal(vencidos);
-  const totalNum = numVal(totalDivida);
   const pctVencido = totalNum > 0 && vencNum >= 0 ? ((vencNum / totalNum) * 100).toFixed(1) + "%" : "0,0%";
   const nIfs = scr?.qtdeInstituicoes ?? "—";
   const fmmNumVal = numVal(d.faturamento?.fmm12m ?? d.faturamento?.mediaAno ?? "0");

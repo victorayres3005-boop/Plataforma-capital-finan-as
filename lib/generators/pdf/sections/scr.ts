@@ -4,6 +4,7 @@
  */
 import type { PdfCtx } from "../context";
 import { checkPageBreak, parseMoneyToNumber, fmtBR } from "../helpers";
+import { calcScrTotal } from "@/lib/scrTotal";
 
 const P = {
   n9:  [12,  27,  58]  as [number,number,number],
@@ -132,8 +133,13 @@ export function renderSCR(ctx: PdfCtx): void {
     const s = meses.reduce((acc, m) => acc + parseMoneyToNumber(m.valor||"0"), 0);
     return meses.length > 0 ? s / meses.length : 0;
   })();
-  const alav = ctx.params.alavancagem ?? (fmm12m > 0 ? n(scr.totalDividasAtivas) / fmm12m : 0);
-  const alavAnt = (hasAnt && fmm12m > 0) ? n(scrAnt!.totalDividasAtivas) / fmm12m : null;
+  // SCR Total via helper único: soma carteira+vencidos+prejuízos. O campo
+  // `totalDividasAtivas` da fonte é usado só como fallback porque algumas
+  // origens (DataBox360) o populam sem prejuízos. Caso CRAVINFOODS 2026-05-04.
+  const scrTotalAtual = calcScrTotal(scr);
+  const scrTotalAnt   = hasAnt ? calcScrTotal(scrAnt) : 0;
+  const alav = ctx.params.alavancagem ?? (fmm12m > 0 ? scrTotalAtual / fmm12m : 0);
+  const alavAnt = (hasAnt && fmm12m > 0) ? scrTotalAnt / fmm12m : null;
 
   const rows: SCRRow[] = [
     { label: "Curto Prazo",       cat: "Carteira",      cur: n(scr.carteiraCurtoPrazo || scr.carteiraAVencer),  ant: hasAnt ? n(scrAnt!.carteiraCurtoPrazo || scrAnt!.carteiraAVencer) : null },
@@ -144,7 +150,7 @@ export function renderSCR(ctx: PdfCtx): void {
     { label: "Limite Crédito",    cat: "Capacidade",    cur: n(scr.limiteCredito),                               ant: hasAnt ? n(scrAnt!.limiteCredito) : null, invertColor: true },
     { label: "Nº IFs",            cat: "Capacidade",    cur: ni(scr.qtdeInstituicoes),                           ant: hasAnt ? ni(scrAnt!.qtdeInstituicoes) : null, isCount: true },
     { label: "Nº Operações",      cat: "Capacidade",    cur: ni(scr.qtdeOperacoes),                              ant: hasAnt ? ni(scrAnt!.qtdeOperacoes) : null, isCount: true },
-    { label: "Total Dívidas",     cat: "Resumo",        cur: n(scr.totalDividasAtivas),                          ant: hasAnt ? n(scrAnt!.totalDividasAtivas) : null, isTotal: true },
+    { label: "Total Dívidas",     cat: "Resumo",        cur: scrTotalAtual,                                       ant: hasAnt ? scrTotalAnt : null, isTotal: true },
     { label: "Alavancagem",       cat: "Resumo",        cur: alav,                                               ant: alavAnt, isTotal: true, isCount: true },
   ];
 

@@ -1,4 +1,5 @@
 import type { ExtractedData } from "@/types";
+import { calcScrTotal } from "@/lib/scrTotal";
 
 /**
  * Validação cruzada determinística entre documentos.
@@ -55,7 +56,9 @@ export function crossValidate(data: ExtractedData): CrossValidationAlert[] {
   // ═════════════════════════════════════════════════════════════════════════
   // 2. Alavancagem SCR (dívida/FMM) × Alavancagem Balanço (passivo/PL)
   // ═════════════════════════════════════════════════════════════════════════
-  const scrTotal = parseBrMoney(data.scr?.totalDividasAtivas) || parseBrMoney(data.scr?.carteiraAVencer);
+  // calcScrTotal: helper único — soma carteira+vencidos+prejuízos. O campo
+  // `totalDividasAtivas` da fonte não inclui prejuízos em algumas origens.
+  const scrTotal = calcScrTotal(data.scr);
   const bAno0 = data.balanco?.anos?.[0] as {
     patrimonioLiquido?: string;
     passivoCirculante?: string;

@@ -5,6 +5,7 @@
 
 import { calcularScore } from './calculator'
 import { DEFAULT_POLITICA_V2 } from './defaults'
+import { calcScrTotal } from '@/lib/scrTotal'
 import type { ExtractedData } from '@/types'
 import type {
   RespostaCriterio,
@@ -147,8 +148,11 @@ export function autoPreencherScore(
   }
 
   // 2. SCR / Endividamento (5 pts)
+  // dividaTotal usa helper único `calcScrTotal` (carteira+vencidos+prejuízos),
+  // não confia em `totalDividasAtivas` da fonte que pode vir incompleto.
+  // Crítico: este número alimenta o score V2 e a decisão final.
   const fmm          = parseBRL(data?.faturamento?.mediaAno ?? data?.faturamento?.fmm12m)
-  const dividaTotal  = parseBRL(data?.scr?.totalDividasAtivas)
+  const dividaTotal  = calcScrTotal(data?.scr)
   const vencidos     = parseBRL(data?.scr?.vencidos)
   const prejuizos    = parseBRL(data?.scr?.prejuizos)
   const alavancagem  = fmm > 0 ? dividaTotal / fmm : 0
@@ -192,7 +196,7 @@ export function autoPreencherScore(
       opcao_label,
       pontos_base:  pontos,
       pontos_final: pontos,
-      observacao:   `Alavancagem calculada: ${alavancagem.toFixed(2)}× | Dívida: ${data.scr.totalDividasAtivas} | FMM: ${data?.faturamento?.mediaAno ?? 'não informado'}`,
+      observacao:   `Alavancagem calculada: ${alavancagem.toFixed(2)}× | Dívida: ${dividaTotal.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2})} | FMM: ${data?.faturamento?.mediaAno ?? 'não informado'}`,
     }, 'auto')
   } else {
     criterios_manuais.push('scr_endividamento')
@@ -462,7 +466,7 @@ export function autoPreencherScore(
       opcao_label,
       pontos_base:  pontos,
       pontos_final: pontos,
-      observacao:   `${alavancagem.toFixed(2)}× FMM — dívida total SCR: ${data.scr.totalDividasAtivas}`,
+      observacao:   `${alavancagem.toFixed(2)}× FMM — dívida total SCR: ${dividaTotal.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`,
     }, 'auto')
   } else {
     criterios_manuais.push('alavancagem')
@@ -483,8 +487,10 @@ export function autoPreencherScore(
     const algumComPrejuizo = socios.some(
       s => parseBRL(s?.periodoAtual?.prejuizos) > 0
     )
+    // Soma dívida real (carteira+vencidos+prejuízos) de cada sócio via calcScrTotal,
+    // não confia no campo agregado da fonte.
     const totalDividaSocios = socios.reduce(
-      (acc: number, s: any) => acc + parseBRL(s?.periodoAtual?.totalDividasAtivas),
+      (acc: number, s: any) => acc + calcScrTotal(s?.periodoAtual),
       0
     )
     const alavSocios = fmm > 0 ? totalDividaSocios / fmm : 0
