@@ -8,6 +8,7 @@ import { useTooltips } from "@/lib/useTooltips";
 import { CNPJData, QSAData, ContratoSocialData, FaturamentoData, SCRData, SCRSocioData, ProtestosData, ProcessosData, GrupoEconomicoData, ExtractedData, IRSocioData, CollectionDocument } from "@/types";
 import { upload } from "@vercel/blob/client";
 import { mergeQsaWithContrato } from "@/lib/mergeQsaWithContrato";
+import { toast } from "sonner";
 
 // ─── Types ───
 
@@ -25,6 +26,10 @@ interface SectionState {
   lastSuccessFile?: File;
   fromCache?: boolean;
   resumedFilenames?: string[]; // filenames from a resumed collection
+  // URLs do Vercel Blob dos arquivos originais (paralelo a resumedFilenames).
+  // Permite "Reprocessar extração" em coletas retomadas — sem File em memória,
+  // baixamos o blob e re-disparamos a extração.
+  resumedBlobUrls?: string[];
 }
 
 // ─── Fila global de extração — evita estouro de quota (RPM) no Gemini ───
@@ -284,26 +289,31 @@ function buildInitialSections(resumedDocs: CollectionDocument[]): Record<DocKey,
     if (!key) continue;
     sections[key].processedCount += 1;
     sections[key].resumedFilenames = [...(sections[key].resumedFilenames || []), doc.filename];
+    sections[key].resumedBlobUrls  = [...(sections[key].resumedBlobUrls  || []), doc.blob_url || ""];
   }
 
   // SCR empresa (PJ): primeiro → scr, segundo → scrAnterior
   if (scrPJ.length >= 1) {
     sections.scr.processedCount = 1;
     sections.scr.resumedFilenames = [scrPJ[0].filename];
+    sections.scr.resumedBlobUrls  = [scrPJ[0].blob_url || ""];
   }
   if (scrPJ.length >= 2) {
     sections.scrAnterior.processedCount = 1;
     sections.scrAnterior.resumedFilenames = [scrPJ[1].filename];
+    sections.scrAnterior.resumedBlobUrls  = [scrPJ[1].blob_url || ""];
   }
 
   // SCR sócios (PF): um slot por tipo, pode ter múltiplos arquivos
   if (scrPF_atual.length > 0) {
     sections.scr_socio.processedCount = scrPF_atual.length;
     sections.scr_socio.resumedFilenames = scrPF_atual.map(d => d.filename);
+    sections.scr_socio.resumedBlobUrls  = scrPF_atual.map(d => d.blob_url || "");
   }
   if (scrPF_anterior.length > 0) {
     sections.scr_socio_anterior.processedCount = scrPF_anterior.length;
     sections.scr_socio_anterior.resumedFilenames = scrPF_anterior.map(d => d.filename);
+    sections.scr_socio_anterior.resumedBlobUrls  = scrPF_anterior.map(d => d.blob_url || "");
   }
 
   return sections;
@@ -768,7 +778,43 @@ export default function UploadStep({
 
   const handleReprocess = useCallback(async (type: DocKey) => {
     const section = sections[type];
-    if (!section || section.files.length === 0) return;
+    if (!section) return;
+
+    let filesToReprocess: File[] = [...section.files];
+
+    // Caso de retomada: arquivos não estão em memória — baixa do Vercel Blob
+    // usando a URL salva em CollectionDocument.blob_url. Se a coleta foi
+    // criada antes do blob_url existir, os URLs vêm vazios e o reprocessar
+    // falha com mensagem clara em vez de silenciosamente não fazer nada.
+    if (filesToReprocess.length === 0) {
+      const urls = (section.resumedBlobUrls || []).filter(u => !!u);
+      if (urls.length === 0) {
+        toast.error("Não há arquivo original disponível para reprocessar (coleta antiga sem blob).");
+        return;
+      }
+      setSections(prev => ({ ...prev, [type]: { ...prev[type], processing: true } }));
+      try {
+        filesToReprocess = await Promise.all(
+          urls.map(async (url, i) => {
+            const filename = section.resumedFilenames?.[i] ?? `${type}-${i + 1}.pdf`;
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`Falha ao baixar ${filename}: HTTP ${res.status}`);
+            const blob = await res.blob();
+            return new File([blob], filename, { type: blob.type || "application/pdf" });
+          })
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        toast.error(`Não foi possível recuperar arquivo original: ${msg}`);
+        setSections(prev => ({ ...prev, [type]: { ...prev[type], processing: false } }));
+        return;
+      }
+    }
+
+    if (filesToReprocess.length === 0) {
+      toast.error("Nenhum arquivo para reprocessar.");
+      return;
+    }
 
     // Limpa dados antigos do tipo correspondente para evitar duplicação no merge
     setExtracted(prev => {
@@ -797,11 +843,10 @@ export default function UploadStep({
       return cleared;
     });
 
-    // Reseta contadores e re-roda processFiles com os arquivos existentes
-    const filesToReprocess = [...section.files];
+    // Reseta contadores e re-roda processFiles com os arquivos
     setSections(prev => ({
       ...prev,
-      [type]: { ...prev[type], files: [], processedCount: 0, errorCount: 0, errorType: undefined, errorMessage: undefined, lastFailedFile: undefined },
+      [type]: { ...prev[type], files: [], processedCount: 0, errorCount: 0, errorType: undefined, errorMessage: undefined, lastFailedFile: undefined, resumedFilenames: undefined, resumedBlobUrls: undefined },
     }));
     await processFiles(type, filesToReprocess);
   // eslint-disable-next-line react-hooks/exhaustive-deps
