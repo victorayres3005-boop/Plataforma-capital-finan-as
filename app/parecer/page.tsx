@@ -196,7 +196,9 @@ function ParecerContent() {
   // Taxas
   const [taxaConvencional, setTaxaConvencional] = useState("");
   const [taxaComissaria, setTaxaComissaria] = useState("");
-  const [tac, setTac] = useState("0,3%");
+  // TAC sem default — Victor pediu (2026-05-04) que TAC, garantias e concentração
+  // por sacado fiquem vazios na aba de registrar parecer para preenchimento manual.
+  const [tac, setTac] = useState("");
 
   // Limites
   const [limiteTotal, setLimiteTotal] = useState("");
@@ -299,14 +301,19 @@ function ParecerContent() {
         const src = (analista ?? aiParams ?? {}) as Record<string, unknown>;
         const s = (k: string) => (src[k] as string) || "";
 
+        // Para concentração por sacado, garantias e TAC: Victor pediu (2026-05-04)
+        // que NÃO sejam auto-preenchidos pela IA — só restaurar quando o analista
+        // já editou e salvou. Por isso lemos só de `analista`, ignorando `aiParams`.
+        const analistaOnly = (k: string) => ((analista as Record<string, unknown> | null)?.[k] as string) || "";
+
         if (s("limiteCredito") || s("limiteAproximado")) setLimiteCredito(s("limiteCredito") || s("limiteAproximado"));
-        if (s("concentracaoSacado")) setConcentracao(s("concentracaoSacado"));
-        if (s("garantias")) setGarantias(s("garantias"));
+        if (analistaOnly("concentracaoSacado")) setConcentracao(analistaOnly("concentracaoSacado"));
+        if (analistaOnly("garantias")) setGarantias(analistaOnly("garantias"));
         if (s("prazoRevisao") || s("revisao")) setPrazoRevisao(s("prazoRevisao") || s("revisao"));
         // Taxas
         if (s("taxaConvencional")) setTaxaConvencional(s("taxaConvencional"));
         if (s("taxaComissaria")) setTaxaComissaria(s("taxaComissaria"));
-        if (s("tac")) setTac(s("tac"));
+        if (analistaOnly("tac")) setTac(analistaOnly("tac"));
         // Limites
         if (s("limiteTotal")) setLimiteTotal(s("limiteTotal"));
         if (s("limiteConvencional")) setLimiteConvencional(s("limiteConvencional"));
