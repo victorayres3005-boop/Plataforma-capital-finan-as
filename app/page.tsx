@@ -383,6 +383,26 @@ export default function HomePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Listener: quando o usuário clica em "Visão Geral" ou na logo estando em "/",
+  // o LayoutShell dispara este evento para resetarmos o state local (showDashboard,
+  // step etc). Sem isso, ficaríamos presos na Nova Coleta porque router.refresh()
+  // não remonta o componente client.
+  useEffect(() => {
+    const handler = () => {
+      setShowDashboard(true);
+      setStep("upload");
+      setResumedDocs(undefined);
+      setExtractedData(defaultData);
+      setCollectionId(null);
+      setLocalDraft(null);
+      setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] });
+      try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
+    };
+    window.addEventListener("cf:go-to-dashboard", handler);
+    return () => window.removeEventListener("cf:go-to-dashboard", handler);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Persistir estado de navegação sempre que mudar
   useEffect(() => {
     saveNavState(step, showDashboard);

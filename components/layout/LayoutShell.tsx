@@ -112,8 +112,13 @@ function ShellInner({ children }: { children: React.ReactNode }) {
   function goToDashboard() {
     try { sessionStorage.removeItem("cf_nav_state"); } catch {/* */}
     if (pathname === "/") {
-      // já em "/" — limpa querystring (resume/step) e recarrega dados sem dropar SPA state
+      // Já em "/", mas pode estar dentro de uma coleta (showDashboard=false em
+      // app/page.tsx). `router.refresh()` sozinho não remonta o componente,
+      // então o state local (step, showDashboard) persiste e a tela continua
+      // mostrando a coleta. Solução: limpa querystring e dispara um evento que
+      // o page.tsx escuta para resetar para o dashboard.
       window.history.replaceState({}, "", "/");
+      window.dispatchEvent(new CustomEvent("cf:go-to-dashboard"));
       router.refresh();
     } else {
       router.push("/");
