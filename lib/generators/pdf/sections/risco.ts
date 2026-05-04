@@ -3,7 +3,45 @@
  * Fiel ao HTML de referência secoes-restantes-estetica-v3.html
  */
 import type { PdfCtx } from "../context";
-import { newPage, drawHeader, checkPageBreak, parseMoneyToNumber, fmtBR } from "../helpers";
+import { newPage, drawHeader, checkPageBreak, parseMoneyToNumber, fmtBR, drawBannerNaoConsultado } from "../helpers";
+
+// Detecta "bureau de Protestos não consultado": objeto default com todos os
+// campos vazios e nenhum dado em PEFIN/REFIN. Sem isto, o PDF mostra "0
+// protestos / Nenhum protesto identificado", convertendo dado ausente em
+// resultado limpo — risco real para decisão de crédito.
+function isProtestosNaoConsultado(p: typeof undefined | NonNullable<Parameters<typeof renderRisco>[0]["data"]["protestos"]>, pefin?: { qtd?: number } | null, refin?: { qtd?: number } | null): boolean {
+  if (!p) return true;
+  const empty = (s?: string) => !s || s.trim() === "" || s.trim() === "0";
+  const noQtd = empty(p.vigentesQtd) && empty(p.regularizadosQtd) && empty(p.fiscaisQtd);
+  const noValor = empty(p.vigentesValor) && empty(p.regularizadosValor) && empty(p.fiscaisValor);
+  const noDetalhes = !p.detalhes || p.detalhes.length === 0;
+  const noPefin = !pefin?.qtd;
+  const noRefin = !refin?.qtd;
+  return noQtd && noValor && noDetalhes && noPefin && noRefin;
+}
+
+// Equivalente para Processos: todos os contadores vazios e nenhum array
+// preenchido (distribuição, polos, top10 etc.). Default vazio do hydrate
+// faz `!data.processos` ser falso, então precisamos checar campo a campo.
+function isProcessosNaoConsultado(p: typeof undefined | NonNullable<Parameters<typeof renderRisco>[0]["data"]["processos"]>): boolean {
+  if (!p) return true;
+  const empty = (s?: string) => !s || s.trim() === "" || s.trim() === "0";
+  const noQtd =
+    empty(p.passivosTotal) && empty(p.ativosTotal) &&
+    empty(p.poloAtivoQtd) && empty(p.poloPassivoQtd) &&
+    empty(p.arquivadosQtd) && empty(p.interrompidosQtd);
+  const noValor = empty(p.valorTotalEstimado) && empty(p.dividasValor);
+  const noFlags = !p.temRJ && !p.temFalencia;
+  const noListas =
+    (!p.distribuicao || p.distribuicao.length === 0) &&
+    (!p.bancarios || p.bancarios.length === 0) &&
+    (!p.fiscais || p.fiscais.length === 0) &&
+    (!p.fornecedores || p.fornecedores.length === 0) &&
+    (!p.outros || p.outros.length === 0) &&
+    (!p.top10Valor || p.top10Valor.length === 0) &&
+    (!p.top10Recentes || p.top10Recentes.length === 0);
+  return noQtd && noValor && noFlags && noListas;
+}
 
 // ── Paleta ────────────────────────────────────────────────────────────────────
 const P = {
@@ -130,14 +168,19 @@ export function renderRisco(ctx: PdfCtx): void {
   stitle("07 · Protestos");
 
   const protestos = data.protestos;
+  const pefin = data.pefin;
+  const refin = data.refin;
+
+  // Bureau não consultado → mostra banner em vez de "0 protestos / nenhum identificado".
+  if (isProtestosNaoConsultado(protestos, pefin, refin)) {
+    drawBannerNaoConsultado(ctx, "Protestos");
+  } else {
   const vigQtd = parseInt(protestos?.vigentesQtd || "0") || params.protestosVigentes || 0;
   const regQtd = parseInt(protestos?.regularizadosQtd || "0") || 0;
   const vigValN = parseMoneyToNumber(protestos?.vigentesValor || "0");
   const regValN = parseMoneyToNumber(protestos?.regularizadosValor || "0");
   const fiscQtd = parseInt(protestos?.fiscaisQtd || "0") || 0;
   const fiscValN = parseMoneyToNumber(protestos?.fiscaisValor || "0");
-  const pefin = data.pefin;
-  const refin = data.refin;
   const pefinQtd = pefin?.qtd ?? 0;
   const refinQtd = refin?.qtd ?? 0;
   const pefinValN = pefin?.valor ?? 0;
@@ -276,6 +319,7 @@ export function renderRisco(ctx: PdfCtx): void {
     const pctFMM = fmm12m > 0 ? (vigValN / fmm12m * 100) : 0;
     alertRow("alta", `${vigQtd} protesto(s) vigente(s) — ${mo(vigValN)}${pctFMM > 0 ? ` (${fmtBR(pctFMM,0)}% do FMM)` : ""}`);
   }
+  } // ← fim do else "Protestos consultado"
 
   // ════════════════════════════════════════════════════════════════════════════
   // SEÇÃO 08 — PROCESSOS JUDICIAIS
@@ -285,6 +329,11 @@ export function renderRisco(ctx: PdfCtx): void {
   stitle("08 · Processos Judiciais");
 
   const processos = data.processos;
+
+  // Bureau de processos não consultado → banner, pula KPIs zero.
+  if (isProcessosNaoConsultado(processos)) {
+    drawBannerNaoConsultado(ctx, "Processos Judiciais");
+  } else {
   const passivo = parseInt(processos?.poloPassivoQtd || processos?.passivosTotal || "0") || 0;
   const ativo   = parseInt(processos?.poloAtivoQtd   || processos?.ativosTotal   || "0") || 0;
   const total   = passivo + ativo;
@@ -485,6 +534,7 @@ export function renderRisco(ctx: PdfCtx): void {
   if (execFiscQtd > 0) alertRow("alta", `${execFiscQtd} Execução(ões) Fiscal(is) ativa(s) — risco de bloqueio de bens`);
   if (temFal) alertRow("alta", "Pedido de falência ou recuperação judicial identificado");
   if (passivo > 15) alertRow("mod", `${passivo} processos no polo passivo — acima do limite recomendado (15)`);
+  } // ← fim do else "Processos consultado"
 
   // ════════════════════════════════════════════════════════════════════════════
   // SEÇÃO 09 — CCF (CHEQUES SEM FUNDO)
