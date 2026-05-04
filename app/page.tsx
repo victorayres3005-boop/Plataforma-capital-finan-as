@@ -1558,40 +1558,50 @@ export default function HomePage() {
                           <div style={{ fontSize: 11, color: "#64748b", textAlign: "center" }}>{col.documents?.length || 0}</div>
                           {/* FMM */}
                           <div style={{ fontSize: 11, fontWeight: col.fmm_12m ? 600 : 400, color: col.fmm_12m ? "#0f172a" : "#cbd5e1", textAlign: "center", fontFamily: "monospace", whiteSpace: "nowrap" }}>{fmmFmt}</div>
-                          {/* Decisão */}
+                          {/* Decisão — altura padronizada com botões de ação (26px) */}
                           <div style={{ textAlign: "center" }}>
-                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 4, color: decisaoColor, background: `${decisaoColor}12`, border: `1px solid ${decisaoColor}30`, whiteSpace: "nowrap" }}>
-                              <span style={{ width: 5, height: 5, borderRadius: "50%", background: decisaoColor, flexShrink: 0 }} />
+                            <span style={{
+                              display: "inline-flex", alignItems: "center", gap: 5,
+                              fontSize: 10.5, fontWeight: 700, height: 26, padding: "0 10px",
+                              borderRadius: 6, color: decisaoColor, background: `${decisaoColor}12`,
+                              border: `1px solid ${decisaoColor}30`, whiteSpace: "nowrap",
+                              boxSizing: "border-box",
+                            }}>
+                              <span style={{ width: 6, height: 6, borderRadius: "50%", background: decisaoColor, flexShrink: 0 }} />
                               {decisaoLabel}
                             </span>
                           </div>
 
-                          {/* Ações */}
+                          {/* Ações — todos os elementos com height: 26 para alinhar com Decisão */}
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6 }}>
                             {col.status === "in_progress" && (
                               <button onClick={() => handleResumeCollection(col.id)} style={{
-                                display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700,
-                                padding: "4px 10px", borderRadius: 5, border: "none", cursor: "pointer",
+                                display: "inline-flex", alignItems: "center", gap: 5,
+                                fontSize: 10.5, fontWeight: 700, height: 26, padding: "0 11px",
+                                borderRadius: 6, border: "none", cursor: "pointer",
                                 background: "#0a1232", color: "white", minHeight: "auto",
+                                boxSizing: "border-box",
                               }}>
-                                <RefreshCw size={9} /> Retomar
+                                <RefreshCw size={11} /> Retomar
                               </button>
                             )}
                             <a href={`/historico?highlight=${col.id}`} style={{
-                              width: 26, height: 26, borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center",
+                              width: 26, height: 26, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center",
                               color: "#94a3b8", textDecoration: "none", border: "1px solid #e2e8f0",
+                              boxSizing: "border-box",
                             }}
                               onMouseEnter={e => { e.currentTarget.style.color = "#203b88"; e.currentTarget.style.borderColor = "#203b88"; }}
                               onMouseLeave={e => { e.currentTarget.style.color = "#94a3b8"; e.currentTarget.style.borderColor = "#e2e8f0"; }}
                             >
-                              <ArrowRight size={11} />
+                              <ArrowRight size={12} />
                             </a>
                             {isMulti && (
                               <button onClick={toggleGroup} style={{
-                                width: 26, height: 26, borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center",
+                                width: 26, height: 26, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center",
                                 color: "#94a3b8", background: "transparent", border: "1px solid #e2e8f0", cursor: "pointer", minHeight: "auto",
+                                boxSizing: "border-box",
                               }}>
-                                <ChevronDown size={11} style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
+                                <ChevronDown size={12} style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
                               </button>
                             )}
                           </div>
