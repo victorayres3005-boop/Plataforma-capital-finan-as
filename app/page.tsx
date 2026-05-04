@@ -1461,11 +1461,11 @@ export default function HomePage() {
                   </div>
                 </div>
                 {/* Tabela */}
-                <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden", background: "white" }}>
+                <div style={{ border: "1px solid #e2e8f0", borderRadius: 10, overflow: "hidden", background: "white" }}>
                   {/* Cabeçalho da tabela */}
-                  <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 80px 60px 100px 110px 80px", gap: 0, padding: "8px 16px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 2.2fr) 160px 90px 60px 120px 120px 100px", gap: 12, padding: "10px 16px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", alignItems: "center" }}>
                     {["Empresa", "CNPJ", "Data", "Docs", "FMM/mês", "Decisão", ""].map((h, i) => (
-                      <div key={i} style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", textAlign: i >= 2 ? "center" : "left" }}>{h}</div>
+                      <div key={i} style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", textAlign: i >= 2 && i <= 5 ? "center" : i === 6 ? "right" : "left" }}>{h}</div>
                     ))}
                   </div>
                 <div>
@@ -1493,11 +1493,12 @@ export default function HomePage() {
                       <div key={group.key} style={{ borderBottom: rowIdx < visibleGroups.length - 1 ? "1px solid #f1f5f9" : "none" }}>
                         {/* Linha principal */}
                         <div style={{
-                          display: "grid", gridTemplateColumns: "2fr 1fr 80px 60px 100px 110px 80px",
-                          gap: 0, padding: "10px 16px", alignItems: "center",
+                          display: "grid", gridTemplateColumns: "minmax(0, 2.2fr) 160px 90px 60px 120px 120px 100px",
+                          gap: 12, padding: "10px 16px", alignItems: "center",
                           background: rowIdx % 2 === 1 ? "#fafbfc" : "white",
                           borderLeft: `3px solid ${decisaoColor}`,
                           transition: "background 0.1s",
+                          minHeight: 56,
                         }}
                           onMouseEnter={e => (e.currentTarget.style.background = "#f0f4ff")}
                           onMouseLeave={e => (e.currentTarget.style.background = rowIdx % 2 === 1 ? "#fafbfc" : "white")}
@@ -1507,32 +1508,50 @@ export default function HomePage() {
                             <div style={{ flexShrink: 0, width: 28, height: 28, borderRadius: 5, background: "#0a1232", display: "flex", alignItems: "center", justifyContent: "center" }}>
                               <span style={{ fontSize: 11, fontWeight: 800, color: "white" }}>{companyInitial}</span>
                             </div>
-                            <div style={{ minWidth: 0 }}>
-                              <p style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                {col.company_name || col.label || "Sem identificação"}
-                              </p>
-                              {col.observacoes && <p style={{ fontSize: 10, color: "#94a3b8", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{col.observacoes}</p>}
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                                <p style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
+                                  {col.company_name || col.label || "Sem identificação"}
+                                </p>
+                                {isMulti && (
+                                  <span title={`${group.items.length} coletas desta empresa`} style={{
+                                    fontSize: 9, fontWeight: 700, color: "#64748b",
+                                    background: "#f1f5f9", padding: "1px 5px", borderRadius: 3,
+                                    flexShrink: 0, lineHeight: 1.4,
+                                  }}>
+                                    {group.items.length}×
+                                  </span>
+                                )}
+                              </div>
+                              {col.observacoes && (
+                                <p title={col.observacoes} style={{
+                                  fontSize: 10, color: "#94a3b8", margin: "1px 0 0",
+                                  display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical",
+                                  overflow: "hidden", textOverflow: "ellipsis",
+                                }}>
+                                  {col.observacoes}
+                                </p>
+                              )}
                             </div>
-                            {isMulti && <span style={{ fontSize: 10, fontWeight: 600, color: "#64748b", flexShrink: 0 }}>{group.items.length}×</span>}
                           </div>
                           {/* CNPJ */}
-                          <div style={{ fontSize: 11, color: "#64748b", fontFamily: "monospace", whiteSpace: "nowrap" }}>{cnpjFmt}</div>
+                          <div style={{ fontSize: 11, color: "#64748b", fontFamily: "monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cnpjFmt}</div>
                           {/* Data */}
-                          <div style={{ fontSize: 11, color: "#64748b", textAlign: "center" }}>{group.date}</div>
+                          <div style={{ fontSize: 11, color: "#64748b", textAlign: "center", whiteSpace: "nowrap" }}>{group.date}</div>
                           {/* Docs */}
                           <div style={{ fontSize: 11, color: "#64748b", textAlign: "center" }}>{col.documents?.length || 0}</div>
                           {/* FMM */}
-                          <div style={{ fontSize: 11, fontWeight: col.fmm_12m ? 600 : 400, color: col.fmm_12m ? "#0f172a" : "#cbd5e1", textAlign: "center", fontFamily: "monospace" }}>{fmmFmt}</div>
+                          <div style={{ fontSize: 11, fontWeight: col.fmm_12m ? 600 : 400, color: col.fmm_12m ? "#0f172a" : "#cbd5e1", textAlign: "center", fontFamily: "monospace", whiteSpace: "nowrap" }}>{fmmFmt}</div>
                           {/* Decisão */}
                           <div style={{ textAlign: "center" }}>
-                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 4, color: decisaoColor, background: `${decisaoColor}12`, border: `1px solid ${decisaoColor}30` }}>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 4, color: decisaoColor, background: `${decisaoColor}12`, border: `1px solid ${decisaoColor}30`, whiteSpace: "nowrap" }}>
                               <span style={{ width: 5, height: 5, borderRadius: "50%", background: decisaoColor, flexShrink: 0 }} />
                               {decisaoLabel}
                             </span>
                           </div>
 
                           {/* Ações */}
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6 }}>
                             {col.status === "in_progress" && (
                               <button onClick={() => handleResumeCollection(col.id)} style={{
                                 display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700,
@@ -1566,7 +1585,7 @@ export default function HomePage() {
                         {isMulti && isExpanded && (
                           <div style={{ borderTop: "1px solid #f1f5f9", background: "#f8fafc" }}>
                             {group.items.map((attempt, j) => (
-                              <div key={attempt.id} style={{ padding: "10px 16px 10px 19px", display: "flex", alignItems: "center", gap: 10, borderTop: j > 0 ? "1px solid #f1f5f9" : "none" }}>
+                              <div key={attempt.id} style={{ padding: "8px 16px 8px 60px", display: "flex", alignItems: "center", gap: 12, borderTop: j > 0 ? "1px solid #eef2f7" : "none", minHeight: 40 }}>
                                 <div style={{ width: 22, height: 22, flexShrink: 0, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", background: "white", border: "1px solid #e2e8f0" }}>
                                   <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8" }}>{group.items.length - j}</span>
                                 </div>
