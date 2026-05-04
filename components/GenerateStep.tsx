@@ -2227,10 +2227,10 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   ];
 
   return (
-    <div className="w-full animate-fade-in flex gap-8 items-start">
+    <div className="w-full flex gap-8 items-start">
 
       {/* ── Sidebar de navegação (desktop) ── */}
-      <nav className="hidden lg:flex flex-col gap-1 w-[220px] flex-shrink-0 sticky self-start" style={{ top: "80px" }}>
+      <nav className="hidden lg:flex flex-col gap-1 w-[220px] flex-shrink-0 sticky self-start animate-fade-in" style={{ top: "80px" }}>
         <div style={{ background: "linear-gradient(135deg, #1a2f6b, #203b88)", borderRadius: 12, padding: "12px 14px", marginBottom: 8 }}>
           <p style={{ fontSize: 10, fontWeight: 800, color: "rgba(255,255,255,0.6)", textTransform: "uppercase", letterSpacing: "0.12em", margin: "0 0 2px" }}>Relatório</p>
           <p style={{ fontSize: 12, fontWeight: 700, color: "#fff", margin: 0 }}>{initialData?.cnpj?.razaoSocial?.split(" ")[0] || "Empresa"}</p>
@@ -2250,8 +2250,11 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         ))}
       </nav>
 
-      {/* ── Conteúdo principal ── */}
-      <div className="flex-1 min-w-0 pb-4 flex flex-col gap-7">
+      {/* ── Conteúdo principal ──
+          fade-stagger: cada SectionCard filho fade com delay incremental
+          (50/100/150/200/240/280/320ms). Sensação de cascata sem ferir
+          decisão estética 2026-05-04 (fade puro, sem slide-up). */}
+      <div className="flex-1 min-w-0 pb-4 flex flex-col gap-7 fade-stagger">
 
         {/* Feature 5 — Alerta de vencimento de documentos */}
         {docAgeWarnings.length > 0 && (
