@@ -2251,7 +2251,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       </nav>
 
       {/* ── Conteúdo principal ── */}
-      <div className="flex-1 min-w-0 pb-28 flex flex-col gap-7">
+      <div className="flex-1 min-w-0 pb-4 flex flex-col gap-7">
 
         {/* Feature 5 — Alerta de vencimento de documentos */}
         {docAgeWarnings.length > 0 && (
@@ -2992,8 +2992,8 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           />
         </OnboardingTooltip>
 
-        {/* ── Sticky bottom action bar ── */}
-        <div className="fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-sm" style={{ borderTop: "1px solid #e5e7eb", boxShadow: "0 -4px 16px rgba(0,0,0,0.06)" }}>
+        {/* ── Inline bottom action bar (rolagem normal) ── */}
+        <div className="bg-white" style={{ borderTop: "1px solid #e5e7eb", boxShadow: "0 -2px 8px rgba(0,0,0,0.04)", marginTop: 32 }}>
           <div className="max-w-[1720px] mx-auto px-8 flex items-center justify-between gap-4" style={{ height: 56 }}>
 
             {/* Esquerda — navegação */}

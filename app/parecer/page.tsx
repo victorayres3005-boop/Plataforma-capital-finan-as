@@ -1180,7 +1180,7 @@ const ratingIsAnalista = ratingAnalista != null;
       </header>
 
       {/* ── Content ── */}
-      <main style={{ maxWidth: 880, margin: "0 auto", padding: "20px 24px 140px" }}>
+      <main style={{ maxWidth: 880, margin: "0 auto", padding: "20px 24px 32px" }}>
 
         <Breadcrumb
           items={[
@@ -1588,14 +1588,12 @@ const ratingIsAnalista = ratingAnalista != null;
 
       </main>
 
-      {/* ── Fixed bottom action bar ── */}
+      {/* ── Inline bottom action bar (rolagem normal) ── */}
       <div style={{
-        position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50,
-        background: "rgba(255,255,255,0.92)",
-        backdropFilter: "blur(16px)",
-        WebkitBackdropFilter: "blur(16px)",
+        background: "#ffffff",
         borderTop: "1px solid rgba(32,59,136,0.1)",
-        boxShadow: "0 -8px 32px rgba(0,0,0,0.08)",
+        boxShadow: "0 -2px 8px rgba(0,0,0,0.04)",
+        marginTop: 32,
       }}>
         <div style={{ maxWidth: 880, margin: "0 auto", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
           <div>
