@@ -194,9 +194,9 @@ export default function Sidebar({
         }}
       >
         <button
-          onClick={collapsed ? onToggleCollapse : onGoToDashboard}
+          onClick={onGoToDashboard}
           style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center" }}
-          title={collapsed ? "Expandir menu" : "Visão Geral"}
+          title="Visão Geral"
         >
           {collapsed ? <Logo variant="icon" light height={26} /> : <Logo light height={22} />}
         </button>

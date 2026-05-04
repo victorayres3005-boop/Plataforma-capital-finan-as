@@ -178,17 +178,24 @@ function ShellInner({ children }: { children: React.ReactNode }) {
           >
             <Menu className="w-5 h-5" />
           </button>
-          <svg
-            width="120" height="18" viewBox="0 0 451 58"
-            xmlns="http://www.w3.org/2000/svg" aria-label="Capital Finanças"
+          <button
+            type="button"
+            onClick={() => { goToDashboard(); setMobileOpen(false); }}
+            aria-label="Ir para Visão Geral"
+            className="bg-transparent border-none p-0 cursor-pointer flex items-center"
           >
-            <circle cx="31" cy="27" r="22" stroke="#203b88" strokeWidth="4.5" fill="none" />
-            <circle cx="31" cy="49" r="4.5" fill="#203b88" />
-            <text x="66" y="46" fontFamily="'Open Sans',Arial,sans-serif" fontWeight="700" fontSize="38" letterSpacing="-0.3">
-              <tspan fill="#203b88">capital</tspan>
-              <tspan fill="#73b815">finanças</tspan>
-            </text>
-          </svg>
+            <svg
+              width="120" height="18" viewBox="0 0 451 58"
+              xmlns="http://www.w3.org/2000/svg" aria-hidden="true"
+            >
+              <circle cx="31" cy="27" r="22" stroke="#203b88" strokeWidth="4.5" fill="none" />
+              <circle cx="31" cy="49" r="4.5" fill="#203b88" />
+              <text x="66" y="46" fontFamily="'Open Sans',Arial,sans-serif" fontWeight="700" fontSize="38" letterSpacing="-0.3">
+                <tspan fill="#203b88">capital</tspan>
+                <tspan fill="#73b815">finanças</tspan>
+              </text>
+            </svg>
+          </button>
           <div className="w-9" />
         </div>
         <PageContent pathname={pathname}>
