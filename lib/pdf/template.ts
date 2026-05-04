@@ -1888,7 +1888,7 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
   // SCR comparative table with real variation
   let scrRows = "";
   if (scr) {
-    type SCRMoneyField = "carteiraCurtoPrazo"|"carteiraLongoPrazo"|"carteiraAVencer"|"vencidos"|"limiteCredito"|"totalDividasAtivas";
+    type SCRMoneyField = "carteiraCurtoPrazo"|"carteiraLongoPrazo"|"carteiraAVencer"|"vencidos"|"prejuizos"|"limiteCredito"|"totalDividasAtivas";
     type SCRStrField = "qtdeInstituicoes"|"qtdeOperacoes";
     const moneyRow = (label:string, cat:string, field:SCRMoneyField, higherIsBad:boolean) => {
       const c = scr[field] ?? "—"; const p = scrAnt ? scrAnt[field] ?? "—" : "—";
@@ -1905,6 +1905,10 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
       moneyRow("Longo Prazo","Carteira","carteiraLongoPrazo",true),
       moneyRow("A Vencer","Carteira","carteiraAVencer",true),
       moneyRow("Vencidos","Inadimplência","vencidos",true),
+      // Prejuízos: write-off do BACEN. Estava ausente da tabela
+      // (Total Dívidas já somava via calcScrTotalDRE, mas a linha intermediária
+      // não aparecia — inconsistência reportada com seção "Risco Consolidado").
+      moneyRow("Prejuízos","Inadimplência","prejuizos",true),
       moneyRow("Limite Crédito","Capacidade","limiteCredito",false),
       strRow("IFs","Capacidade","qtdeInstituicoes",false),
       strRow("Operações","Capacidade","qtdeOperacoes",false),
