@@ -21,7 +21,9 @@ PLAYWRIGHT_BASE_URL=https://plataformacapital-xxx.vercel.app npm run test:e2e
 |---|---|---|
 | `smoke.spec.ts` | Home redireciona pra login + página /login carrega sem erro JS | ✅ kick-off 2026-05-05 |
 | `login.spec.ts` | Login com user de teste → home autenticada + senha errada permanece em /login | ✅ 2026-05-05 (skipa se env ausente) |
-| `bureaus-stub.spec.ts` | POST /api/bureaus com header `x-e2e-mode: true` retorna fixture sem custo bureau real | ✅ 2026-05-05 |
+| `bureaus-stub.spec.ts` | POST /api/bureaus com header `x-e2e-mode: true` retorna fixture sem custo bureau real (não-auth, aceita 200 ou 401) | ✅ 2026-05-05 |
+| `bureaus-stub.authenticated.spec.ts` | Mesma cobertura mas com sessão real via storageState — assert status 200 estrito | ✅ 2026-05-05 |
+| `auth.setup.ts` | Setup project: loga uma vez via formulário e salva storageState em `playwright/.auth/user.json` (consumido pelos `*.authenticated.spec.ts`) | ✅ 2026-05-05 |
 | `upload.spec.ts` | Upload de PDFs anonimizados → coleta criada | ⏳ próxima sessão |
 | `review.spec.ts` | Review carrega + auto-fill data constituição funciona | ⏳ próxima sessão |
 | `generate.spec.ts` | Geração PDF dispara download | ⏳ próxima sessão |
@@ -57,11 +59,22 @@ Sem o usuário criado, login.spec.ts é **skipado automaticamente** (não falha)
 
 ## Convenção
 
-- Nomes de cenário no formato `<dominio>.spec.ts`
+- Nomes de cenário no formato `<dominio>.spec.ts` para testes não autenticados
+- Cenários que exigem login no formato `<dominio>.authenticated.spec.ts` — usam storageState do setup project, sem precisar logar de novo a cada teste
 - Cada teste começa com `test.describe(<área>)` e dentro tem 2-5 `test()`s pequenos
 - Seletores estáveis: prefere `data-testid` > `role` > `text`. Inputs de form prefere `name=`
-- Sem dependência de bureau real — sempre mockar ou usar fixture salva
-- Helpers compartilhados em `e2e/helpers/` (criar quando precisar; ainda não existe)
+- Sem dependência de bureau real — usar `x-e2e-mode: true` no header das chamadas a `/api/bureaus` e `/api/extract`
+- Helpers compartilhados em `e2e/helpers/`
+
+## Projetos do Playwright
+
+Configurados em `playwright.config.ts`:
+
+| Projeto | Roda | Storage |
+|---|---|---|
+| `setup` | `auth.setup.ts` (apenas) | grava `playwright/.auth/user.json` |
+| `chromium` | tudo exceto `*.authenticated.spec.ts` e `auth.setup.ts` | sem sessão |
+| `chromium-authenticated` | `*.authenticated.spec.ts` | herda storageState do setup |
 
 ## CI
 

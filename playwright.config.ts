@@ -1,4 +1,20 @@
 import { defineConfig, devices } from "@playwright/test";
+import { readFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
+
+// Carrega .env.local (Playwright não faz auto-load como Next.js).
+// Apenas variáveis ainda não setadas no process.env são preenchidas — assim
+// envs de CI/shell sempre vencem.
+const envPath = resolve(__dirname, ".env.local");
+if (existsSync(envPath)) {
+  for (const line of readFileSync(envPath, "utf8").split(/\r?\n/)) {
+    const m = line.match(/^([A-Z][A-Z0-9_]*)\s*=\s*(.*)$/);
+    if (!m) continue;
+    let v = m[2].trim();
+    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+    if (process.env[m[1]] === undefined) process.env[m[1]] = v;
+  }
+}
 
 /**
  * Configuração Playwright — Capital Finanças
@@ -29,9 +45,29 @@ export default defineConfig({
   },
 
   projects: [
+    // 1) Roda primeiro: faz login via formulário e salva storageState.
+    //    Skipa quando E2E_USER_EMAIL/PASSWORD ausentes.
+    {
+      name: "setup",
+      testMatch: /auth\.setup\.ts/,
+    },
+    // 2) Cenários públicos/sem auth (smoke, login spec, stubs).
+    //    Não dependem do setup — rodam em paralelo.
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
+      testIgnore: [/auth\.setup\.ts/, /\.authenticated\.spec\.ts/],
+    },
+    // 3) Cenários que precisam de sessão pronta — herdam storageState
+    //    salvo pelo setup. Convenção: nomear o arquivo *.authenticated.spec.ts.
+    {
+      name: "chromium-authenticated",
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: "playwright/.auth/user.json",
+      },
+      testMatch: /\.authenticated\.spec\.ts/,
+      dependencies: ["setup"],
     },
   ],
 
