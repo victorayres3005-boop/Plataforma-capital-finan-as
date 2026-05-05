@@ -1,13 +1,17 @@
 /**
  * Prompts Gemini da rota /api/analyze.
  *
- * Strings literais que orientam o modelo a gerar a análise de crédito
- * estruturada. ANALYSIS_PROMPT é o prompt principal; PROMPT_SINTESE
- * (function template) será adicionado em fase futura junto com a
- * extração de calculations.ts.
+ * - ANALYSIS_PROMPT: string literal pura, prompt principal de análise
+ *   estruturada.
+ * - PROMPT_SINTESE: arrow function que recebe (data, settings, preReq)
+ *   e devolve um prompt textual com 64 interpolações ${} para a síntese
+ *   executiva do cedente.
  *
  * Importado por `app/api/analyze/route.ts`.
  */
+
+import type { ExtractedData, FundSettings } from "@/types";
+import { calcularPreRequisitos, pct } from "@/lib/analyze/calculations";
 
 export const ANALYSIS_PROMPT = `Você é o motor de análise de crédito da plataforma Capital Finanças, especializado em due diligence de cedentes para operações de FIDC (Fundo de Investimento em Direitos Creditórios).
 
@@ -264,3 +268,138 @@ Adicione ao JSON de resposta:
 "ratingConfianca": número inteiro 0-100 (confiança do rating dado a documentação disponível),
 "nivelAnalise": "PRELIMINAR" | "BASICO" | "PADRAO" | "COMPLETO",
 "impactoDocsFaltantes": string descrevendo quais docs faltantes teriam maior impacto e quanto aumentariam a confiança`;
+export const PROMPT_SINTESE = (data: ExtractedData, settings: FundSettings, preReq: ReturnType<typeof calcularPreRequisitos>) => `
+Você é um analista de crédito sênior especializado em FIDCs (Fundos de Investimento em Direitos Creditórios).
+Escreva uma síntese executiva completa sobre o cedente abaixo para embasar a decisão de crédito do fundo.
+
+DADOS DA EMPRESA:
+- Razão Social: ${data.cnpj?.razaoSocial || "N/D"}
+- CNPJ: ${data.cnpj?.cnpj || "N/D"}
+- Setor: ${data.cnpj?.cnaePrincipal || "N/D"}
+- Data de Abertura: ${data.cnpj?.dataAbertura || "N/D"}
+- Situação: ${data.cnpj?.situacaoCadastral || "N/D"}
+- Sócios: ${(data.qsa?.quadroSocietario || data.contrato?.socios || []).map((s: { nome?: string; participacao?: string; qualificacao?: string }) => `${s.nome} (${s.participacao || s.qualificacao || ""})`).join(", ") || "N/D"}
+
+FATURAMENTO:
+- FMM 12M: R$ ${data.faturamento?.fmm12m || data.faturamento?.mediaAno || "N/D"}
+- FMM Médio: R$ ${data.faturamento?.fmmMedio || "N/D"}
+- Tendência: ${data.faturamento?.tendencia || "N/D"}
+- Mínimo exigido pelo fundo: R$ ${settings.fmm_minimo?.toLocaleString("pt-BR") || "N/D"}
+- Pré-requisito FMM: ${preReq.reprovadoPorPreRequisito ? "REPROVADO" : "APROVADO"}
+
+SCR DA EMPRESA (${data.scr?.periodoReferencia || "N/D"}):
+- Total dívidas: R$ ${data.scr?.totalDividasAtivas || "0,00"}
+- Vencidos: R$ ${data.scr?.vencidos || "0,00"}
+- Prejuízos: R$ ${data.scr?.prejuizos || "0,00"}
+- Qtde IFs: ${data.scr?.qtdeInstituicoes || "0"}
+
+${data.scrSocios && data.scrSocios.length > 0 ? `SCR DOS SÓCIOS:
+${data.scrSocios.map((s) => `- ${s.nomeSocio}: Dívidas R$ ${s.periodoAtual?.totalDividasAtivas || "0,00"}, Vencidos R$ ${s.periodoAtual?.vencidos || "0,00"}, Prejuízos R$ ${s.periodoAtual?.prejuizos || "0,00"}`).join("\n")}` : "SCR DOS SÓCIOS: Não informado"}
+
+${(data.dre?.anos?.length ?? 0) > 0 ? `DRE — ÚLTIMOS ${data.dre!.anos.length} ANOS:
+${data.dre!.anos.map((a: { ano: string; receitaBruta: string; lucroLiquido: string; margemLiquida: string }) => `- ${a.ano}: Receita R$ ${a.receitaBruta}, Lucro R$ ${a.lucroLiquido}, Margem ${a.margemLiquida}%`).join("\n")}
+- Tendência: ${data.dre!.tendenciaLucro}
+- Crescimento receita: ${data.dre!.crescimentoReceita}%
+${data.dre!.observacoes ? `- Observações: ${data.dre!.observacoes}` : ""}` : "DRE: Não informado"}
+
+${(data.balanco?.anos?.length ?? 0) > 0 ? `BALANÇO — ÚLTIMOS ${data.balanco!.anos.length} ANOS:
+${data.balanco!.anos.map((a: { ano: string; ativoTotal: string; patrimonioLiquido: string; liquidezCorrente: string; endividamentoTotal: string }) => `- ${a.ano}: Ativo R$ ${a.ativoTotal}, PL R$ ${a.patrimonioLiquido}, Liquidez ${a.liquidezCorrente}, Endividamento ${a.endividamentoTotal}%`).join("\n")}
+- Tendência PL: ${data.balanco!.tendenciaPatrimonio}
+${data.balanco!.observacoes ? `- Observações: ${data.balanco!.observacoes}` : ""}` : "BALANÇO: Não informado"}
+
+${(data.curvaABC?.maiorCliente || (data.curvaABC?.clientes?.length ?? 0) > 0 || data.curvaABC?.concentracaoTop5) ? `CONCENTRAÇÃO DE CLIENTES:
+- Maior cliente: ${data.curvaABC!.maiorCliente || "N/D"} (${pct(data.curvaABC!.maiorClientePct)}%)
+- Top 3: ${pct(data.curvaABC!.concentracaoTop3)}% | Top 5: ${pct(data.curvaABC!.concentracaoTop5)}%
+- Total clientes: ${data.curvaABC!.totalClientesNaBase || "N/D"}
+- Alerta concentração: ${data.curvaABC!.alertaConcentracao ? "SIM — cliente acima de 30%" : "NÃO"}${(data.curvaABC!.clientes?.length ?? 0) > 0 ? `
+- Carteira (top ${Math.min(10, data.curvaABC!.clientes.length)}):
+${data.curvaABC!.clientes.slice(0, 10).map(c => `  • ${c.nome}: ${pct(c.percentualReceita)}% (R$ ${c.valorFaturado}) — Classe ${c.classe || "N/D"}`).join("\n")}` : ""}` : "CONCENTRAÇÃO DE CLIENTES: Não informada — curva ABC ausente ou não preenchida"}
+
+${(data.irSocios?.length ?? 0) > 0 ? `IR DOS SÓCIOS:
+${data.irSocios!.map((s) => `- ${s.nomeSocio} (${s.anoBase}): Renda R$ ${s.rendimentoTotal}, PL R$ ${s.patrimonioLiquido}${s.situacaoMalhas ? " — MALHAS FISCAIS" : ""}${s.debitosEmAberto ? " — DÉBITOS EM ABERTO" : ""}`).join("\n")}` : "IR DOS SÓCIOS: Não informado"}
+
+${data.relatorioVisita?.dataVisita ? `RELATÓRIO DE VISITA (${data.relatorioVisita.dataVisita}):
+- Estrutura confirmada: ${data.relatorioVisita.estruturaFisicaConfirmada ? "Sim" : "Não"}
+- Operação compatível com faturamento: ${data.relatorioVisita.operacaoCompativelFaturamento ? "Sim" : "Não"}
+- Recomendação do visitante: ${data.relatorioVisita.recomendacaoVisitante?.toUpperCase() || "N/D"}
+${data.relatorioVisita.pontosAtencao?.length > 0 ? `- Pontos de atenção: ${data.relatorioVisita.pontosAtencao.join("; ")}` : ""}` : "RELATÓRIO DE VISITA: Não realizado"}
+
+${(data.protestos && (parseInt(data.protestos.vigentesQtd || "0") > 0 || (data.protestos.detalhes || []).length > 0)) ? `PROTESTOS (Bureau de Crédito):
+- Quantidade vigente: ${data.protestos.vigentesQtd || "0"}
+- Valor vigente: R$ ${data.protestos.vigentesValor || "0,00"}
+- Principais cedentes/apresentantes: ${(data.protestos.detalhes || []).slice(0, 3).map(p => `${p.apresentante || p.credor || "N/D"} — R$ ${p.valor || "0"}${p.municipio ? ` (${p.municipio}/${p.uf || ""})` : ""}`).join("; ")}` : "PROTESTOS: Não consultado ou sem ocorrências"}
+
+${(data.processos && parseInt(data.processos.passivosTotal || "0") > 0) ? `PROCESSOS JUDICIAIS (Bureau):
+- Total passivos: ${data.processos.passivosTotal}
+- Recuperação judicial: ${data.processos.temRJ ? "SIM — SITUAÇÃO CRÍTICA" : "Não"}
+- Processos de maior valor: ${(data.processos.top10Valor || []).slice(0, 3).map(p => `${p.tipo || "—"}: ${p.partes || "—"} vs ${p.polo_passivo || "—"} (R$ ${p.valor || "0"})`).join("; ")}` : "PROCESSOS: Não consultado ou sem passivos relevantes"}
+
+${(data.ccf && data.ccf.qtdRegistros > 0) ? `CCF — CHEQUES SEM FUNDO (Bureau):
+- Total de ocorrências: ${data.ccf.qtdRegistros}
+- Bancos com registro: ${data.ccf.bancos.map(b => `${b.banco || "N/D"}: ${b.quantidade || 0} ocorr.${b.motivo ? " (" + b.motivo + ")" : ""}${b.dataUltimo ? " — último: " + b.dataUltimo : ""}`).join("; ")}
+- Tendência: ${data.ccf.tendenciaLabel || "estável"}${(data.ccf.tendenciaVariacao ?? 0) !== 0 ? ` (${(data.ccf.tendenciaVariacao ?? 0) > 0 ? "+" : ""}${data.ccf.tendenciaVariacao}% vs período anterior)` : ""}` : "CCF: Não consultado ou sem ocorrências"}
+
+${(() => {
+  const san = (data as unknown as Record<string, unknown>).sancoes as Record<string, unknown> | undefined;
+  if (!san?.consultado) return "SANÇÕES CADASTRAIS (Portal da Transparência): Não consultado";
+  const cnpjLimpo = san.cnpjLimpo as boolean;
+  const sociosLimpos = san.sociosLimpos as boolean;
+  if (cnpjLimpo && sociosLimpos) return "SANÇÕES CADASTRAIS (Portal da Transparência): Empresa e sócios sem registros em CEIS/CNEP";
+  const linhas: string[] = ["SANÇÕES CADASTRAIS — ATENÇÃO: RESTRIÇÕES ENCONTRADAS:"];
+  if (!cnpjLimpo) {
+    const itens = (san.sancoesCNPJ as Record<string, unknown>[]) ?? [];
+    linhas.push(`- CNPJ sancionado: ${itens.length} ocorrência(s) em CEIS/CNEP`);
+    itens.slice(0, 3).forEach(s => linhas.push(`  · ${s.tipoSancao || "Sanção"} por ${s.orgaoSancionador} — ${s.dataInicioSancao}${s.dataFinalSancao ? ` até ${s.dataFinalSancao}` : " (sem data fim — vigente)"}`));
+  }
+  if (!sociosLimpos) {
+    const itens = (san.sancoesSocios as Record<string, unknown>[]) ?? [];
+    linhas.push(`- Sócios com restrições: ${itens.length} ocorrência(s) pessoais em CEIS`);
+    itens.slice(0, 3).forEach(s => linhas.push(`  · ${s.nomeSancionado}: ${s.tipoSancao || "Sanção"} por ${s.orgaoSancionador} (${s.dataInicioSancao})`));
+  }
+  return linhas.join("\n");
+})()}
+
+PARÂMETROS DO FUNDO:
+- FMM mínimo: R$ ${settings.fmm_minimo?.toLocaleString("pt-BR")}
+- Idade mínima: ${settings.idade_minima_anos} anos
+- Alavancagem saudável: até ${settings.alavancagem_saudavel}x
+- Alavancagem máxima: até ${settings.alavancagem_maxima}x
+- Concentração máxima por sacado: ${settings.concentracao_max_sacado}%
+- Fator limite base: ${settings.fator_limite_base}x o FMM
+
+INSTRUÇÃO:
+Escreva a síntese executiva em 5 parágrafos, em português brasileiro formal.
+Use linguagem de analista de crédito sênior. Seja direto, objetivo e técnico.
+Não use bullet points — escreva em parágrafos corridos.
+Cruze os dados entre si — por exemplo, compare o DRE com o faturamento, o SCR com a alavancagem, o IR dos sócios com o porte da empresa.
+Quando DRE ou Balanço não estiverem disponíveis, baseie a análise nos dados disponíveis e mencione a ausência como limitação.
+
+ESTRUTURA OBRIGATÓRIA:
+
+Parágrafo 1 — PERFIL DA EMPRESA
+Apresente a empresa: razão social, setor de atuação, tempo de operação, porte, estrutura societária e situação cadastral.
+
+Parágrafo 2 — SAÚDE FINANCEIRA
+Analise o faturamento (FMM 12M e tendência), compare com o mínimo do fundo.
+Se DRE disponível: comente receita, lucro, margens e tendência.
+Se Balanço disponível: comente patrimônio líquido, liquidez e endividamento.
+Identifique se a empresa é financeiramente saudável para operar com o fundo.
+
+Parágrafo 3 — PERFIL DE CRÉDITO
+Analise o SCR da empresa e dos sócios.
+Comente alavancagem, histórico de inadimplência, prejuízos e vencidos.
+Compare o endividamento bancário com o faturamento.
+Se IR dos sócios disponível, comente a coerência patrimonial.
+
+Parágrafo 4 — RISCOS IDENTIFICADOS
+Liste e analise os principais riscos: concentração de clientes (Curva ABC),
+processos judiciais, protestos, SCR adverso, PL negativo, margens baixas.
+Se relatório de visita disponível, inclua os pontos de atenção observados.
+
+Parágrafo 5 — CONCLUSÃO E RECOMENDAÇÃO
+Emita parecer claro: APROVADO, CONDICIONAL ou REPROVADO.
+Justifique com base nos dados analisados.
+Se aprovado: sugira limite de crédito (FMM × fator do fundo), prazo máximo e prazo de revisão.
+Se condicional: liste as condições específicas.
+Se reprovado: explique o motivo principal e sugira prazo para reanálise.
+`;
