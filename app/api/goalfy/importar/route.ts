@@ -39,48 +39,76 @@ export async function POST(req: Request) {
       status: string;
     }[] = [];
 
-    for (const doc of documents) {
-      // Validar URL completa antes de tentar fetch
-      const urlStr = typeof doc.url === "string" ? doc.url : "";
-      const isValidUrl = urlStr.startsWith("http://") || urlStr.startsWith("https://");
+    const GOALFY_BASE = process.env.GOALFY_BASE_URL || "https://api.goalfy.com.br";
 
-      if (!isValidUrl) {
+    for (const doc of documents) {
+      const urlStr   = typeof doc.url === "string" ? doc.url.trim() : "";
+      const isHttp   = urlStr.startsWith("http://") || urlStr.startsWith("https://");
+      // Sem URL alguma e sem path interno → não há o que baixar
+      if (!urlStr) {
         uploadedDocs.push({
           id: doc.id,
           blob_url: "",
           filename: doc.filename,
           doc_type: doc.type,
           size_bytes: doc.size_bytes ?? 0,
-          status: "pending_upload",
+          status: "no_url",
         });
         continue;
       }
 
       try {
-        // Arquivo da Goalfy: POST /api/files/download com { filePath, filename }
-        // Se a URL já for http completa, faz GET direto; caso contrário usa o endpoint da Goalfy
-        const isFullUrl = urlStr.startsWith("http://") || urlStr.startsWith("https://");
-        const GOALFY_BASE = process.env.GOALFY_BASE_URL || "https://api.goalfy.com.br";
-        const fileRes = isFullUrl
-          ? await fetch(urlStr, { headers: goalfyApiKey ? { "Authorization": `Token ${goalfyApiKey}` } : {} })
-          : await fetch(`${GOALFY_BASE}/api/files/download`, {
-              method: "POST",
-              headers: {
-                "Authorization": `Token ${goalfyApiKey}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ filePath: urlStr, filename: doc.filename }),
-            });
+        // Dois caminhos de download:
+        //   (1) URL HTTP completa (ex.: presigned S3 da Goalfy ou link público) → GET direto
+        //   (2) Caminho interno (ex.: "uuid/arquivo.pdf") → POST /api/files/download autenticado.
+        //       Reabilitado em 2026-05-05: antes a guarda early-return matava esse fluxo.
+        let fileRes: Response;
+        if (isHttp) {
+          fileRes = await fetch(urlStr, {
+            headers: goalfyApiKey ? { Authorization: `Token ${goalfyApiKey}` } : {},
+          });
+          console.log(`[goalfy/importar] GET direto ${doc.filename} → ${fileRes.status}`);
+        } else {
+          if (!goalfyApiKey) {
+            console.warn(`[goalfy/importar] sem GOALFY_API_KEY → não consegue baixar caminho interno "${urlStr}"`);
+            uploadedDocs.push({ id: doc.id, blob_url: "", filename: doc.filename, doc_type: doc.type, size_bytes: 0, status: "no_api_key" });
+            continue;
+          }
+          fileRes = await fetch(`${GOALFY_BASE}/api/files/download`, {
+            method: "POST",
+            headers: {
+              Authorization: `Token ${goalfyApiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ filePath: urlStr, filename: doc.filename }),
+          });
+          console.log(`[goalfy/importar] POST /api/files/download ${doc.filename} (filePath=${urlStr}) → ${fileRes.status}`);
+        }
 
         if (!fileRes.ok) {
-          console.warn(`[goalfy/importar] falha ao baixar ${doc.filename}: ${fileRes.status}`);
-          uploadedDocs.push({ id: doc.id, blob_url: "", filename: doc.filename, doc_type: doc.type, size_bytes: 0, status: "download_failed" });
+          const errBody = await fileRes.text().catch(() => "");
+          console.warn(`[goalfy/importar] falha ao baixar ${doc.filename} via ${isHttp ? "GET" : "API"}: ${fileRes.status} ${errBody.slice(0, 200)}`);
+          uploadedDocs.push({
+            id: doc.id,
+            blob_url: "",
+            filename: doc.filename,
+            doc_type: doc.type,
+            size_bytes: 0,
+            status: `download_failed_${fileRes.status}`,
+          });
           continue;
         }
 
         const fileBuffer = Buffer.from(await fileRes.arrayBuffer());
-        const safeName   = doc.filename.replace(/[^a-zA-Z0-9.\-_]/g, "_");
-        const blobPath   = `goalfy/${user.id}/${operation.id}/${safeName}`;
+        if (fileBuffer.length < 100) {
+          // Resposta minúscula provavelmente é JSON de erro disfarçado
+          console.warn(`[goalfy/importar] ${doc.filename} retornou ${fileBuffer.length} bytes — provável erro disfarçado`);
+          uploadedDocs.push({ id: doc.id, blob_url: "", filename: doc.filename, doc_type: doc.type, size_bytes: fileBuffer.length, status: "download_empty" });
+          continue;
+        }
+
+        const safeName = doc.filename.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+        const blobPath = `goalfy/${user.id}/${operation.id}/${safeName}`;
 
         const { url: blobUrl } = await put(blobPath, fileBuffer, {
           access: "public",
@@ -89,8 +117,9 @@ export async function POST(req: Request) {
 
         uploadedDocs.push({ id: doc.id, blob_url: blobUrl, filename: doc.filename, doc_type: doc.type, size_bytes: fileBuffer.length, status: "uploaded" });
       } catch (downloadErr) {
-        console.warn(`[goalfy/importar] erro ao processar ${doc.filename}:`, downloadErr);
-        uploadedDocs.push({ id: doc.id, blob_url: "", filename: doc.filename, doc_type: doc.type, size_bytes: 0, status: "pending_upload" });
+        const msg = downloadErr instanceof Error ? downloadErr.message : String(downloadErr);
+        console.warn(`[goalfy/importar] erro ao processar ${doc.filename}:`, msg);
+        uploadedDocs.push({ id: doc.id, blob_url: "", filename: doc.filename, doc_type: doc.type, size_bytes: 0, status: "exception" });
       }
     }
 
