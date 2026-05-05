@@ -960,12 +960,12 @@ export default function HomePage() {
                   {/* Cabeçalho limpo */}
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
                     <div>
-                      <h1 style={{ fontSize: 22, fontWeight: 800, color: "#0f172a", margin: 0, letterSpacing: "-0.3px" }}>
+                      <h1 className="text-page-title m-0">
                         {heroName ? `Olá, ${heroName}` : "Olá"}
                       </h1>
-                      <p style={{ fontSize: 12, color: "#94a3b8", margin: "4px 0 0", fontWeight: 500 }}>
+                      <p className="text-body-sm mt-1 mb-0 text-cf-text-4">
                         {new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })}
-                        {metricas.emAnalise > 0 && <span style={{ color: "#d97706", fontWeight: 600 }}> · {metricas.emAnalise} em andamento</span>}
+                        {metricas.emAnalise > 0 && <span className="text-cf-warning font-semibold"> · {metricas.emAnalise} em andamento</span>}
                       </p>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -1025,10 +1025,10 @@ export default function HomePage() {
                       }}>
                         {loadingCollections
                           ? <div style={{ width: 48, height: 30, background: "#f1f5f9", borderRadius: 4, marginBottom: 8 }} />
-                          : <p style={{ fontSize: 30, fontWeight: 800, color: "#0f172a", margin: "0 0 4px", lineHeight: 1, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.5px" }}>{k.value}</p>
+                          : <p className="num m-0 mb-1" style={{ fontSize: 30, fontWeight: 800, color: "#0f172a", lineHeight: 1, letterSpacing: "-0.5px" }}>{k.value}</p>
                         }
-                        <p style={{ fontSize: 10, fontWeight: 700, color: "#64748b", margin: 0, textTransform: "uppercase", letterSpacing: "0.08em" }}>{k.label}</p>
-                        <p style={{ fontSize: 10, color: "#94a3b8", margin: "3px 0 0" }}>{k.sub}</p>
+                        <p className="text-meta m-0">{k.label}</p>
+                        <p className="text-caption mt-0.5 mb-0">{k.sub}</p>
                       </div>
                     ))}
                   </div>
@@ -1036,7 +1036,7 @@ export default function HomePage() {
                   {/* Decisões — linha horizontal única */}
                   {metricas.totalFinalizadas > 0 && (
                     <div style={{ background: "white", borderRadius: 8, border: "1px solid #e2e8f0", padding: "12px 20px", marginBottom: 20, display: "flex", alignItems: "center", flexWrap: "wrap", gap: "10px 0" }}>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em", marginRight: 20, whiteSpace: "nowrap" }}>Decisões</span>
+                      <span className="text-meta whitespace-nowrap" style={{ marginRight: 20 }}>Decisões</span>
                       {[
                         { label: "Aprovadas",    value: metricas.porDecisao.aprovado,                      color: "#16a34a" },
                         { label: "Condicionais", value: metricas.porDecisao.condicional,                   color: "#7c3aed" },
