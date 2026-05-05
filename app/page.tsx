@@ -1027,43 +1027,61 @@ export default function HomePage() {
                     </div>
                   </div>
 
-                  {/* KPIs */}
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 20 }}>
+                  {/* KPIs — Document-grade: branco puro, micro-acento à esquerda do label, hover lift */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, marginBottom: 24 }}>
                     {kpis.map((k, i) => (
                       <div key={i} style={{
-                        background: "white", borderRadius: 8, padding: "16px 20px",
-                        border: "1px solid #e2e8f0", borderBottom: `3px solid ${k.accent}`,
-                      }}>
+                        background: "white", borderRadius: 10, padding: "20px 22px",
+                        border: "1px solid #e2e8f0",
+                        transition: "border-color 0.18s, box-shadow 0.18s, transform 0.18s",
+                        cursor: "default",
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = "#cbd5e1"; e.currentTarget.style.boxShadow = "0 4px 14px rgba(15,23,42,0.05)"; e.currentTarget.style.transform = "translateY(-1px)"; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = "#e2e8f0"; e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.transform = "translateY(0)"; }}
+                      >
                         {loadingCollections
-                          ? <div style={{ width: 48, height: 30, background: "#f1f5f9", borderRadius: 4, marginBottom: 8 }} />
-                          : <p className="num m-0 mb-1" style={{ fontSize: 30, fontWeight: 800, color: "#0f172a", lineHeight: 1, letterSpacing: "-0.5px" }}>{k.value}</p>
+                          ? <div style={{ width: 56, height: 34, background: "#f1f5f9", borderRadius: 6, marginBottom: 10 }} />
+                          : <p className="num m-0" style={{ fontSize: 32, fontWeight: 700, color: "#0f172a", lineHeight: 1.1, letterSpacing: "-0.02em", marginBottom: 8 }}>{k.value}</p>
                         }
-                        <p className="text-meta m-0">{k.label}</p>
-                        <p className="text-caption mt-0.5 mb-0">{k.sub}</p>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ width: 2, height: 14, background: k.accent, borderRadius: 1, flexShrink: 0 }} />
+                          <p className="text-meta m-0" style={{ color: "#475569" }}>{k.label}</p>
+                        </div>
+                        <p style={{ fontSize: 11, color: "#94a3b8", margin: "6px 0 0 10px", fontWeight: 400 }}>{k.sub}</p>
                       </div>
                     ))}
                   </div>
 
-                  {/* Decisões — linha horizontal única */}
+                  {/* Decisões — mini-cards com fundo pastel sutil + dot + número grande */}
                   {metricas.totalFinalizadas > 0 && (
-                    <div style={{ background: "white", borderRadius: 8, border: "1px solid #e2e8f0", padding: "12px 20px", marginBottom: 20, display: "flex", alignItems: "center", flexWrap: "wrap", gap: "10px 0" }}>
-                      <span className="text-meta whitespace-nowrap" style={{ marginRight: 20 }}>Decisões</span>
-                      {[
-                        { label: "Aprovadas",    value: metricas.porDecisao.aprovado,                      color: "#16a34a" },
-                        { label: "Condicionais", value: metricas.porDecisao.condicional,                   color: "#7c3aed" },
-                        { label: "Em Análise",   value: metricas.porDecisao.pendente + metricas.emAnalise, color: "#d97706" },
-                        { label: "Recusadas",    value: metricas.porDecisao.reprovado,                     color: "#dc2626" },
-                      ].map((d, i, arr) => (
-                        <div key={d.label} style={{
-                          display: "flex", alignItems: "center", gap: 8, flex: "1 1 130px",
-                          paddingLeft: i > 0 ? 20 : 0,
-                          borderLeft: i > 0 ? "1px solid #f1f5f9" : "none",
-                        }}>
-                          <span style={{ width: 8, height: 8, borderRadius: "50%", background: d.color, flexShrink: 0 }} />
-                          <span style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{d.value}</span>
-                          <span style={{ fontSize: 10, color: "#94a3b8", fontWeight: 600 }}>{d.label}</span>
-                        </div>
-                      ))}
+                    <div style={{ marginBottom: 28 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                        <span style={{ width: 3, height: 14, background: "#203b88", borderRadius: 2 }} />
+                        <span className="text-meta">Decisões — período selecionado</span>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
+                        {[
+                          { label: "Aprovadas",    value: metricas.porDecisao.aprovado,                      color: "#16a34a", bg: "#f0fdf4", border: "#dcfce7" },
+                          { label: "Condicionais", value: metricas.porDecisao.condicional,                   color: "#7c3aed", bg: "#faf5ff", border: "#ede9fe" },
+                          { label: "Em análise",   value: metricas.porDecisao.pendente + metricas.emAnalise, color: "#d97706", bg: "#fffbeb", border: "#fef3c7" },
+                          { label: "Recusadas",    value: metricas.porDecisao.reprovado,                     color: "#dc2626", bg: "#fef2f2", border: "#fee2e2" },
+                        ].map(d => (
+                          <div key={d.label} style={{
+                            background: d.value > 0 ? d.bg : "white",
+                            border: `1px solid ${d.value > 0 ? d.border : "#e2e8f0"}`,
+                            borderRadius: 10,
+                            padding: "14px 16px",
+                            display: "flex", alignItems: "center", gap: 12,
+                            transition: "border-color 0.18s",
+                          }}>
+                            <span style={{ width: 8, height: 8, borderRadius: "50%", background: d.color, flexShrink: 0, boxShadow: d.value > 0 ? `0 0 0 3px ${d.bg}` : "none" }} />
+                            <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                              <span className="num" style={{ fontSize: 22, fontWeight: 700, color: d.value > 0 ? "#0f172a" : "#cbd5e1", lineHeight: 1, letterSpacing: "-0.02em" }}>{d.value}</span>
+                              <span style={{ fontSize: 11, color: d.value > 0 ? "#475569" : "#94a3b8", fontWeight: 500 }}>{d.label}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </>
