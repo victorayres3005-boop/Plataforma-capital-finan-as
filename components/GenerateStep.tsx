@@ -2256,6 +2256,23 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           decisão estética 2026-05-04 (fade puro, sem slide-up). */}
       <div className="flex-1 min-w-0 pb-4 flex flex-col gap-7 fade-stagger">
 
+        {/* ── Nav mobile (chips) — só aparece <lg, substitui a sidebar ── */}
+        <nav className="lg:hidden flex flex-wrap gap-2">
+          {navItems.map(item => (
+            <a
+              key={item.id}
+              href={`#${item.id}`}
+              className="inline-flex items-center gap-1.5 py-1.5 px-2.5 rounded-lg bg-white border border-[#e8edf5] text-[12px] font-medium text-cf-text-2 no-underline shadow-sm transition-colors active:bg-blue-50 hover:bg-blue-50"
+              onClick={e => { e.preventDefault(); document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
+            >
+              <span className="w-5 h-5 rounded-md bg-cf-navy/5 flex items-center justify-center text-[10px] font-bold text-cf-text-3">
+                {item.icon}
+              </span>
+              <span className="leading-none">{item.label}</span>
+            </a>
+          ))}
+        </nav>
+
         {/* Feature 5 — Alerta de vencimento de documentos */}
         {docAgeWarnings.length > 0 && (
           <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 12, padding: "12px 16px", display: "flex", alignItems: "flex-start", gap: 10 }}>
