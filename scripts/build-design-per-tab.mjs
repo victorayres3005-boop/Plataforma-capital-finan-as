@@ -6,8 +6,7 @@ import { resolve, dirname } from "path";
 import { globSync } from "glob";
 
 const ROOT_PROJ = resolve(process.cwd());
-const ROOT_REPO = resolve(ROOT_PROJ, "..");
-const OUT_DIR   = resolve(ROOT_REPO, "cerebro", "design");
+const OUT_DIR   = resolve(ROOT_PROJ, "cerebro", "design");
 
 mkdirSync(OUT_DIR, { recursive: true });
 

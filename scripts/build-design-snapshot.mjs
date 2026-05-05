@@ -5,8 +5,7 @@ import { resolve, relative } from "path";
 import { globSync } from "glob";
 
 const ROOT_PROJ = resolve(process.cwd());                  // capital-financas/
-const ROOT_REPO = resolve(ROOT_PROJ, "..");                // pasta pai
-const OUT       = resolve(ROOT_REPO, "cerebro", "codigo-design-snapshot.md");
+const OUT       = resolve(ROOT_PROJ, "cerebro", "codigo-design-snapshot.md");
 
 const groups = [
   {
@@ -98,4 +97,4 @@ console.log(`Output: ${OUT}`);
 console.log(`Arquivos: ${count} (faltando: ${missing})`);
 console.log(`Bytes lidos: ${totalBytes.toLocaleString("pt-BR")}`);
 console.log(`Bytes escritos: ${Buffer.byteLength(final, "utf8").toLocaleString("pt-BR")}`);
-console.log(`Caminho relativo do output: ${relative(ROOT_REPO, OUT)}`);
+console.log(`Caminho relativo do output: ${relative(ROOT_PROJ, OUT)}`);
