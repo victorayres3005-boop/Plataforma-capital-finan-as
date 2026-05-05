@@ -90,27 +90,6 @@ async function uploadToGeminiFiles(buffer: Buffer, mimeType: string, displayName
   }
 }
 
-// Tenta upload com rotação de chaves: percorre todas as GEMINI_API_KEYS até uma funcionar.
-async function uploadToGeminiFilesWithRotation(buffer: Buffer, mimeType: string, displayName: string): Promise<string> {
-  if (GEMINI_API_KEYS.length === 0) throw new Error("GEMINI_API_KEYS não configurada");
-  const startIdx = Math.floor(Math.random() * GEMINI_API_KEYS.length);
-  const rotated = [...GEMINI_API_KEYS.slice(startIdx), ...GEMINI_API_KEYS.slice(0, startIdx)];
-  let lastErr: unknown = null;
-  for (const apiKey of rotated) {
-    try {
-      const t0 = Date.now();
-      const fileUri = await uploadToGeminiFiles(buffer, mimeType, displayName, apiKey, 10000);
-      console.log(`[extract] Files API upload OK key=${apiKey.substring(0, 8)} (${Date.now() - t0}ms)`);
-      return fileUri;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[extract] Files API upload falhou key=${apiKey.substring(0, 8)}: ${msg}`);
-      lastErr = err;
-    }
-  }
-  throw lastErr instanceof Error ? lastErr : new Error("Todas as chaves Gemini falharam no Files API upload");
-}
-
 async function callGemini(prompt: string, content: string | { mimeType: string; base64: string } | { mimeType: string; fileUri: string }, maxOutputTokens = 2048, thinkingBudget = 0, perAttemptMsOverride = 0): Promise<string> {
   // Estrutura otimizada para o caching implicito do Gemini 2.5:
   // o PROMPT (estatico, ~400 linhas no CONTRATO) vai PRIMEIRO em uma part isolada,
