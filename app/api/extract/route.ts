@@ -281,6 +281,36 @@ export async function POST(request: NextRequest) {
   try {
     const contentType = request.headers.get("content-type") || "";
 
+    // ── Stub E2E ──────────────────────────────────────────────────────────────
+    // Quando rodando E2E (Playwright), retorna fixture estática em vez de
+    // chamar Gemini. Evita custo + flakiness por modelo lento. Fixture
+    // representa um cartão CNPJ extraído com sucesso. Outros tipos de
+    // documento podem ser adicionados conforme cenários novos surgirem.
+    // Ativação: header `x-e2e-mode: true` na request OU env E2E_EXTRACT_STUB=true.
+    const isE2eStub =
+      request.headers.get("x-e2e-mode") === "true" ||
+      process.env.E2E_EXTRACT_STUB === "true";
+    if (isE2eStub) {
+      const docType = request.headers.get("x-e2e-doc-type") || "cnpj";
+      console.log(`[extract][E2E_STUB] retornando fixture estática para tipo=${docType}`);
+      const stubData = {
+        razaoSocial: "Empresa E2E Stub LTDA",
+        nomeFantasia: "E2E Stub",
+        cnpj: "12.345.678/0001-90",
+        dataAbertura: "01/01/2020",
+        situacaoCadastral: "ATIVA",
+        cnaePrincipal: "62.01-5-01",
+        capitalSocialCNPJ: "R$ 100.000,00",
+        endereco: "Rua de Teste, 123, São Paulo, SP, 01000-000",
+        porte: "ME",
+      };
+      return NextResponse.json({
+        success: true,
+        data: stubData,
+        meta: { rawTextLength: 0, filledFields: 9, isScanned: false, aiPowered: false, warningsCount: 0, e2eStub: true },
+      });
+    }
+
     // ── Caminho 2: arquivo via Vercel Blob URL (JSON body) ──────────────────
     // Usado para arquivos grandes que não cabem no corpo de uma função serverless.
     // O cliente faz upload direto para o Blob e nos envia só a URL.
