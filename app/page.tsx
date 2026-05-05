@@ -1017,7 +1017,7 @@ export default function HomePage() {
                   </div>
 
                   {/* KPIs */}
-                  <div style={{ display: "grid", gridTemplateColumns: `repeat(${kpis.length}, 1fr)`, gap: 10, marginBottom: 20 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 20 }}>
                     {kpis.map((k, i) => (
                       <div key={i} style={{
                         background: "white", borderRadius: 8, padding: "16px 20px",
@@ -1035,7 +1035,7 @@ export default function HomePage() {
 
                   {/* Decisões — linha horizontal única */}
                   {metricas.totalFinalizadas > 0 && (
-                    <div style={{ background: "white", borderRadius: 8, border: "1px solid #e2e8f0", padding: "12px 20px", marginBottom: 20, display: "flex", alignItems: "center", gap: 0 }}>
+                    <div style={{ background: "white", borderRadius: 8, border: "1px solid #e2e8f0", padding: "12px 20px", marginBottom: 20, display: "flex", alignItems: "center", flexWrap: "wrap", gap: "10px 0" }}>
                       <span style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em", marginRight: 20, whiteSpace: "nowrap" }}>Decisões</span>
                       {[
                         { label: "Aprovadas",    value: metricas.porDecisao.aprovado,                      color: "#16a34a" },
@@ -1044,7 +1044,7 @@ export default function HomePage() {
                         { label: "Recusadas",    value: metricas.porDecisao.reprovado,                     color: "#dc2626" },
                       ].map((d, i, arr) => (
                         <div key={d.label} style={{
-                          display: "flex", alignItems: "center", gap: 8, flex: 1,
+                          display: "flex", alignItems: "center", gap: 8, flex: "1 1 130px",
                           paddingLeft: i > 0 ? 20 : 0,
                           borderLeft: i > 0 ? "1px solid #f1f5f9" : "none",
                         }}>
