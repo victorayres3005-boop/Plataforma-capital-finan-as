@@ -353,9 +353,9 @@ export default function CustosPage() {
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px" }}>
             <ReceiptText size={20} color="#1a2f6b" />
-            <h1 style={{ fontSize: "20px", fontWeight: 700, color: "#111827", margin: 0 }}>Custos por Análise</h1>
+            <h1 className="text-page-title m-0">Custos por Análise</h1>
           </div>
-          <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>
+          <p className="text-body m-0" style={{ color: "#6b7280" }}>
             Acompanhe os custos de APIs de bureau e IA por operação de crédito
           </p>
         </div>

@@ -40,7 +40,7 @@ export default function ConfiguracoesPage() {
             </div>
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <h1 style={{ fontSize: 22, fontWeight: 800, color: "#ffffff", margin: 0, letterSpacing: "-0.3px" }}>
+                <h1 className="text-page-title m-0" style={{ color: "#ffffff" }}>
                   Política de Crédito
                 </h1>
                 <span style={{

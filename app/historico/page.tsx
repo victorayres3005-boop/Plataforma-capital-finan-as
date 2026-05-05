@@ -1365,7 +1365,7 @@ function HistoricoContent() {
                 <Clock size={20} style={{ color: "#a8d96b" }} />
               </div>
               <div>
-                <h1 style={{ fontSize: 20, fontWeight: 800, color: "#fff", margin: 0, letterSpacing: "-0.3px" }}>Histórico de Relatórios</h1>
+                <h1 className="text-page-title m-0" style={{ color: "#fff" }}>Histórico de Relatórios</h1>
                 {!loading && (
                   <p style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", margin: "3px 0 0" }}>
                     {totalEntries} coleta{totalEntries !== 1 ? "s" : ""} · {grouped.length} empresa{grouped.length !== 1 ? "s" : ""}
