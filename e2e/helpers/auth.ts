@@ -44,11 +44,39 @@ export async function loginViaForm(page: Page, creds: E2eCredentials = getCreden
   await expect(emailInput,    "input de email não encontrado em /login").toBeVisible();
   await expect(passwordInput, "input de senha não encontrado em /login").toBeVisible();
 
+  // Captura logs de console e network failures pra diagnosticar quando o login não redireciona
+  const consoleErrors: string[] = [];
+  page.on("console", msg => { if (msg.type() === "error") consoleErrors.push(msg.text()); });
+  page.on("requestfailed", req => consoleErrors.push(`request failed: ${req.url()} — ${req.failure()?.errorText}`));
+
   await emailInput.fill(creds.email);
   await passwordInput.fill(creds.password);
   await submitBtn.click();
 
-  // Espera sair de /login. Quando o middleware redireciona pra home (ou onde quer
-  // que mande), a URL muda. Se ficar em /login após 8s, falhou (provável credencial errada).
-  await page.waitForURL(url => !url.pathname.startsWith("/login"), { timeout: 8000 });
+  // Espera o toast de sucesso aparecer — confirma que Supabase aceitou credenciais
+  // e gravou o cookie de sessão no contexto do navegador.
+  const successToast = page.locator(':text("Login realizado")');
+  await successToast.waitFor({ state: "visible", timeout: 10000 }).catch(() => {
+    // Fallback: se não viu o toast, deixa o waitForURL abaixo decidir o erro
+  });
+
+  // Pequena pausa pra cookie ser persistido antes do navegação server-side.
+  // Em headless, router.push() client-side às vezes corre antes do cookie
+  // estar disponível no próximo request — full reload via goto resolve.
+  await page.waitForTimeout(500);
+  await page.goto("/");
+
+  // Espera sair de /login após reload.
+  try {
+    await page.waitForURL(url => !url.pathname.startsWith("/login"), { timeout: 8000 });
+  } catch (err) {
+    const toastText = await page.locator('[role="alert"], [data-sonner-toast], li[data-type]').allTextContents().catch(() => []);
+    throw new Error(
+      `Login não redirecionou pra fora de /login após full reload.\n` +
+      `URL atual: ${page.url()}\n` +
+      `Toasts/alerts visíveis: ${JSON.stringify(toastText)}\n` +
+      `Console errors: ${consoleErrors.join(" | ") || "(nenhum)"}\n` +
+      `Erro original: ${err instanceof Error ? err.message : err}`,
+    );
+  }
 }
