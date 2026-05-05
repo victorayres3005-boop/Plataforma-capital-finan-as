@@ -24,6 +24,7 @@ PLAYWRIGHT_BASE_URL=https://plataformacapital-xxx.vercel.app npm run test:e2e
 | `bureaus-stub.spec.ts` | POST /api/bureaus com header `x-e2e-mode: true` retorna fixture sem custo bureau real (não-auth, aceita 200 ou 401) | ✅ 2026-05-05 |
 | `bureaus-stub.authenticated.spec.ts` | Mesma cobertura mas com sessão real via storageState — assert status 200 estrito | ✅ 2026-05-05 |
 | `auth.setup.ts` | Setup project: loga uma vez via formulário e salva storageState em `playwright/.auth/user.json` (consumido pelos `*.authenticated.spec.ts`) | ✅ 2026-05-05 |
+| `upload.authenticated.spec.ts` | Upload real de Cartão CNPJ via setInputFiles + PDF gerado em runtime via pdf-lib + stubs E2E (network helper) | ✅ 2026-05-05 |
 | `upload.spec.ts` | Upload de PDFs anonimizados → coleta criada | ⏳ próxima sessão |
 | `review.spec.ts` | Review carrega + auto-fill data constituição funciona | ⏳ próxima sessão |
 | `generate.spec.ts` | Geração PDF dispara download | ⏳ próxima sessão |
