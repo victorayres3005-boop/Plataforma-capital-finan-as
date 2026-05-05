@@ -88,10 +88,11 @@ export async function POST(req: NextRequest) {
     const cpfsParaBDC = sociosParaGrupo.map(s => s.cpfCnpj);
     const assertivaSociosInput = sociosParaGrupo.map(s => ({ cpf: s.cpfCnpj, nome: s.nome }));
 
-    // Todas as consultas em paralelo — BDC empresa agora participa do mesmo bloco
+    // FASE 1 — todas as APIs em paralelo, EXCETO BDC.
+    // BDC é caro e renova token toda semana; entra apenas como fallback se CH vier vazio.
     // 90s cobre o pior caso: token DataBox360 (40s × 2 tentativas) + chamada SCR (15s)
     const BUREAU_TIMEOUT = 90_000;
-    const [credithub, serasa, spc, quod, grupoEconomico, brasilapi, sancoes, bigdatacorp, bdcSocios, assertivaEmpresa, assertivaSocios, db360Empresa, db360Socios, pefinRefin] = await Promise.allSettled([
+    const [credithub, serasa, spc, quod, grupoEconomico, brasilapi, sancoes, assertivaEmpresa, assertivaSocios, db360Empresa, db360Socios, pefinRefin] = await Promise.allSettled([
       withTimeout(consultarCreditHubComCache(cnpj, creditHubRaw), BUREAU_TIMEOUT, "credithub"),
       withTimeout(consultarSerasa(cnpj), BUREAU_TIMEOUT, "serasa"),
       withTimeout(consultarSPC(cnpj), BUREAU_TIMEOUT, "spc"),
@@ -99,8 +100,6 @@ export async function POST(req: NextRequest) {
       withTimeout(consultarGrupoEconomicoSocios(sociosParaGrupo, cnpj), BUREAU_TIMEOUT, "grupo-economico"),
       withTimeout(consultarBrasilApi(cnpj), BUREAU_TIMEOUT, "brasilapi"),
       withTimeout(consultarSancoes(cnpj, sociosParaGrupo), BUREAU_TIMEOUT, "sancoes"),
-      withTimeout(consultarBigDataCorp(cnpj), BUREAU_TIMEOUT, "bigdatacorp-empresa"),
-      withTimeout(consultarBDCSocios(cpfsParaBDC), BUREAU_TIMEOUT, "bigdatacorp-socios"),
       withTimeout(consultarAssertiva(cnpj), BUREAU_TIMEOUT, "assertiva-empresa"),
       withTimeout(consultarSociosAssertiva(assertivaSociosInput), BUREAU_TIMEOUT, "assertiva-socios"),
       withTimeout(consultarSCREmpresa(cnpj), BUREAU_TIMEOUT, "databox360-empresa"),
@@ -111,27 +110,49 @@ export async function POST(req: NextRequest) {
     const grupoEconomicoResult = grupoEconomico.status === "fulfilled" ? grupoEconomico.value : undefined;
     const brasilapiResult      = brasilapi.status      === "fulfilled" ? brasilapi.value      : undefined;
     const sancoesResult        = sancoes.status        === "fulfilled" ? sancoes.value        : undefined;
-    let bigdatacorpResult      = bigdatacorp.status    === "fulfilled" ? bigdatacorp.value    : undefined;
     const db360EmpresaResult   = db360Empresa.status   === "fulfilled" ? db360Empresa.value   : undefined;
     const db360SociosResult    = db360Socios.status    === "fulfilled" ? db360Socios.value    : undefined;
 
-    // Mescla dados de KYC dos sócios no resultado da empresa
-    if (bigdatacorpResult && bdcSocios.status === "fulfilled") {
-      const s = bdcSocios.value;
-      bigdatacorpResult = {
-        ...bigdatacorpResult,
-        socios:                s.socios,
-        sociosFalecidos:       s.sociosFalecidos,
-        alertaParentesco:      s.alertaParentesco,
-        parentescosDetectados: s.parentescosDetectados,
-      };
-      if (s.sociosFalecidos.length > 0) {
-        console.warn(`[bureaus] BigDataCorp: sócios com óbito: ${s.sociosFalecidos.join(", ")}`);
-      }
-      if (s.alertaParentesco) {
-        console.warn(`[bureaus] BigDataCorp: parentesco detectado: ${s.parentescosDetectados.map(p => `${p.socio1} + ${p.socio2}`).join(" | ")}`);
-      }
+    // FASE 2 — BDC apenas como fallback total quando CreditHub não trouxe dados úteis.
+    // Critério "vazio": CH falhou, está em mock, OU não trouxe nenhum dado substantivo
+    // (sem CNAE e sem sócios = CNPJ não reconhecido pelo bureau).
+    const credithubValue = credithub.status === "fulfilled" ? credithub.value : undefined;
+    const chTemDado =
+      !!credithubValue?.cnpjEnrichment?.cnaePrincipal ||
+      (credithubValue?.qsaEnrichment?.quadroSocietario?.length ?? 0) > 0;
+    const credithubVazio =
+      !credithubValue ||
+      credithubValue.mock ||
+      !credithubValue.success ||
+      !chTemDado;
 
+    let bigdatacorpResult: Awaited<ReturnType<typeof consultarBigDataCorp>> | undefined;
+    if (credithubVazio) {
+      console.log(`[bureaus] CreditHub vazio (success=${credithubValue?.success ?? false}, mock=${credithubValue?.mock ?? "?"}, cnae=${credithubValue?.cnpjEnrichment?.cnaePrincipal ?? "—"}, qsa=${credithubValue?.qsaEnrichment?.quadroSocietario?.length ?? 0}) → fallback BDC ativado`);
+      const [bdcEmp, bdcSoc] = await Promise.allSettled([
+        withTimeout(consultarBigDataCorp(cnpj), BUREAU_TIMEOUT, "bigdatacorp-empresa"),
+        withTimeout(consultarBDCSocios(cpfsParaBDC), BUREAU_TIMEOUT, "bigdatacorp-socios"),
+      ]);
+      bigdatacorpResult = bdcEmp.status === "fulfilled" ? bdcEmp.value : undefined;
+
+      if (bigdatacorpResult && bdcSoc.status === "fulfilled") {
+        const s = bdcSoc.value;
+        bigdatacorpResult = {
+          ...bigdatacorpResult,
+          socios:                s.socios,
+          sociosFalecidos:       s.sociosFalecidos,
+          alertaParentesco:      s.alertaParentesco,
+          parentescosDetectados: s.parentescosDetectados,
+        };
+        if (s.sociosFalecidos.length > 0) {
+          console.warn(`[bureaus] BigDataCorp: sócios com óbito: ${s.sociosFalecidos.join(", ")}`);
+        }
+        if (s.alertaParentesco) {
+          console.warn(`[bureaus] BigDataCorp: parentesco detectado: ${s.parentescosDetectados.map(p => `${p.socio1} + ${p.socio2}`).join(" | ")}`);
+        }
+      }
+    } else {
+      console.log(`[bureaus] CreditHub respondeu (cnae="${credithubValue?.cnpjEnrichment?.cnaePrincipal ?? ""}", QSA=${credithubValue?.qsaEnrichment?.quadroSocietario?.length ?? 0}) — BDC ignorado (economia de custo)`);
     }
 
     // Mescla socios Assertiva no resultado da empresa
