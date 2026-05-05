@@ -71,12 +71,14 @@ export default defineConfig({
     },
   ],
 
-  // Quando rodar localmente sem dev server ativo, sobe automaticamente.
-  // Em CI, o workflow é responsável por subir o build.
-  webServer: process.env.CI ? undefined : {
-    command: "npm run dev",
+  // Sobe o app automaticamente. Local: npm run dev (rápido). CI: build + start
+  // (mais próximo de produção, sem hot-reload). Reusa server já rodando se houver.
+  webServer: {
+    command: process.env.CI ? "npm run build && npm start" : "npm run dev",
     url: "http://localhost:3017",
-    reuseExistingServer: true,
-    timeout: 120_000,
+    reuseExistingServer: !process.env.CI,
+    timeout: process.env.CI ? 240_000 : 120_000,
+    stdout: "pipe",
+    stderr: "pipe",
   },
 });

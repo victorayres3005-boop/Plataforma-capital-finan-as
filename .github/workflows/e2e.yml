@@ -1,0 +1,98 @@
+name: E2E (Playwright)
+
+# Roda em todo PR e em push pra master. Bloqueia merge se falhar.
+# Workflow não usa bureau real — stubs E2E em /api/extract e /api/bureaus
+# evitam custo Gemini/CreditHub/BDC/etc. a cada run.
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# Cancela runs anteriores quando novo commit chega no mesmo branch
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: Playwright tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      # Supabase — necessário pro app subir e pro setup-e2e-user funcionar
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      # Credenciais do usuário E2E — criadas via scripts/setup-e2e-user.mjs
+      E2E_USER_EMAIL: ${{ secrets.E2E_USER_EMAIL }}
+      E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
+      # Variáveis dummy pras integrações que NÃO devem ser chamadas em E2E (stubs cobrem).
+      # Se ausentes, o app pode não subir; setá-las como string não-vazia evita crash.
+      GEMINI_API_KEYS: "stub-key-not-used-in-e2e"
+      BDC_TOKEN: "stub-not-used"
+      BDC_TOKEN_ID: "stub-not-used"
+      ASSERTIVA_CLIENT_ID: "stub-not-used"
+      ASSERTIVA_CLIENT_SECRET: "stub-not-used"
+      DATABOX360_API_KEY: "stub-not-used"
+      CREDITHUB_API_KEY: "stub-not-used"
+      CREDITHUB_API_URL: "https://stub.invalid"
+      GOOGLE_MAPS_STATIC_KEY: "stub-not-used"
+      # Marca como CI pro Playwright config trocar pro modo build+start
+      CI: "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Cache dos browsers Playwright (Chromium ~250MB) entre runs
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install only system deps (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      # Garante que o usuário E2E existe e está com a senha certa
+      - name: Setup E2E user via Supabase Admin API
+        run: node scripts/setup-e2e-user.mjs
+
+      - name: Run Playwright tests
+        run: npx playwright test --reporter=list,html
+
+      # Em failure, sobe o relatório HTML pra debug
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Upload test traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: test-results/
+          retention-days: 7

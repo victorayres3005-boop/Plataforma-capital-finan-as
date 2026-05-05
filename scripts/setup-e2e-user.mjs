@@ -12,24 +12,28 @@
 //
 // Idempotente: se existe, atualiza a senha.
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ENV_PATH = resolve(__dirname, "..", ".env.local");
 
-const E2E_EMAIL    = "e2e@capitalfinancas.test";
-const E2E_PASSWORD = "e2e-test-2026";
+const E2E_EMAIL    = process.env.E2E_USER_EMAIL    || "e2e@capitalfinancas.test";
+const E2E_PASSWORD = process.env.E2E_USER_PASSWORD || "e2e-test-2026";
 
+// Em CI as vars vêm de process.env (job env / GitHub Secrets).
+// Localmente, lê do .env.local. Process.env tem prioridade quando setado.
 function loadEnv() {
-  const env = {};
-  for (const line of readFileSync(ENV_PATH, "utf8").split(/\r?\n/)) {
-    const m = line.match(/^([A-Z][A-Z0-9_]*)\s*=\s*(.*)$/);
-    if (!m) continue;
-    let v = m[2].trim();
-    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
-    env[m[1]] = v;
+  const env = { ...process.env };
+  if (existsSync(ENV_PATH)) {
+    for (const line of readFileSync(ENV_PATH, "utf8").split(/\r?\n/)) {
+      const m = line.match(/^([A-Z][A-Z0-9_]*)\s*=\s*(.*)$/);
+      if (!m) continue;
+      let v = m[2].trim();
+      if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+      if (env[m[1]] === undefined) env[m[1]] = v;
+    }
   }
   return env;
 }
