@@ -20,16 +20,30 @@ PLAYWRIGHT_BASE_URL=https://plataformacapital-xxx.vercel.app npm run test:e2e
 | Arquivo | O que cobre | Status |
 |---|---|---|
 | `smoke.spec.ts` | Home redireciona pra login + página /login carrega sem erro JS | ✅ kick-off 2026-05-05 |
-| `login.spec.ts` | Login com user de teste → home autenticada | ⏳ próxima sessão |
+| `login.spec.ts` | Login com user de teste → home autenticada + senha errada permanece em /login | ✅ 2026-05-05 (skipa se env ausente) |
 | `upload.spec.ts` | Upload de PDFs anonimizados → coleta criada | ⏳ próxima sessão |
 | `review.spec.ts` | Review carrega + auto-fill data constituição funciona | ⏳ próxima sessão |
 | `generate.spec.ts` | Geração PDF dispara download | ⏳ próxima sessão |
 | `retomada.spec.ts` | Reabrir coleta preserva estado | ⏳ próxima sessão |
 
-Para o kick-off vale o cenário smoke. Os outros entram quando tivermos:
-1. Usuário de teste no Supabase (ENV: `E2E_USER_EMAIL`, `E2E_USER_PASSWORD`)
-2. PDFs anonimizados em `e2e/fixtures/` (cartão CNPJ, balanço, IR, etc.)
-3. Decisão sobre stub de bureaus (não queremos custo real por test run — provável: mock via `MSW` ou flag `E2E_SKIP_BUREAUS`)
+## Setup do usuário de teste
+
+1. Abre o Supabase SQL Editor do projeto de **dev/teste** (NÃO produção real)
+2. Cola e executa `e2e/fixtures/setup-user.sql` — cria `e2e@capitalfinancas.test` com senha `e2e-test-2026`
+3. Adiciona no `.env.local`:
+   ```
+   E2E_USER_EMAIL="e2e@capitalfinancas.test"
+   E2E_USER_PASSWORD="e2e-test-2026"
+   ```
+4. Roda `npm run test:e2e` — login.spec.ts deve passar
+
+Sem o usuário criado, login.spec.ts é **skipado automaticamente** (não falha).
+
+## Próximos passos antes dos cenários upload/review/generate
+
+1. ✅ Usuário de teste no Supabase (`e2e/fixtures/setup-user.sql`)
+2. ⏳ PDFs anonimizados em `e2e/fixtures/pdfs/` (cartão CNPJ, balanço, IR, etc.)
+3. ⏳ Decisão sobre stub de bureaus — provável: header `x-e2e-mode: true` em `/api/bureaus` retorna fixture pré-gravada (não conta no `api_usage_logs`)
 
 ## Convenção
 
