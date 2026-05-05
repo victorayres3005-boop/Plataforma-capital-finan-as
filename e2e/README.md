@@ -21,6 +21,7 @@ PLAYWRIGHT_BASE_URL=https://plataformacapital-xxx.vercel.app npm run test:e2e
 |---|---|---|
 | `smoke.spec.ts` | Home redireciona pra login + página /login carrega sem erro JS | ✅ kick-off 2026-05-05 |
 | `login.spec.ts` | Login com user de teste → home autenticada + senha errada permanece em /login | ✅ 2026-05-05 (skipa se env ausente) |
+| `bureaus-stub.spec.ts` | POST /api/bureaus com header `x-e2e-mode: true` retorna fixture sem custo bureau real | ✅ 2026-05-05 |
 | `upload.spec.ts` | Upload de PDFs anonimizados → coleta criada | ⏳ próxima sessão |
 | `review.spec.ts` | Review carrega + auto-fill data constituição funciona | ⏳ próxima sessão |
 | `generate.spec.ts` | Geração PDF dispara download | ⏳ próxima sessão |
