@@ -2,6 +2,29 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   DESIGN SYSTEM — Capital Finanças
+   ───────────────────────────────────────────────────────────────────────────
+   Use os tokens abaixo em vez de hardcodar valores. Quando usar inline?
+   Apenas pra estados dinâmicos calculados em runtime (ex: barras de
+   progresso). Tudo que tem valor fixo deve usar token.
+
+   TIPOGRAFIA (use as classes utility — não invente fontSize):
+     .text-page-title    — h1 de página (22px / 800 / tight)
+     .text-section-title — título de seção dentro de página (18px / 700)
+     .text-card-title    — título de card/panel (14px / 700)
+     .text-body          — corpo padrão (13px / 400)
+     .text-body-sm       — corpo secundário (12px / 400)
+     .text-caption       — texto auxiliar (11px / 500)
+     .text-meta          — label uppercase técnica (10.5px / 600 / tracking)
+
+   CORES (cf-*):           navy, green, text-1..4, danger, warning, success
+   RADIUS (--ds-radius-*): tag (4) / sm (6) / md (8) / lg (10) / xl (14)
+   SHADOWS (cf-*):         sm / md / lg / navy / green / input
+   SPACING:                use escala Tailwind (p-1=4px, p-2=8px, p-3=12px,
+                           p-4=16px, p-6=24px, p-8=32px, p-12=48px, p-16=64px)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 /* Acessibilidade: respeitar preferência do usuário por menos animação.
    Desliga as transições padronizadas (fade/slide/scale) sem mexer em
    indicadores que precisam animar (loaders, spinners). */
@@ -93,7 +116,7 @@ html.dark body { background: #0f172a; color: #f1f5f9; }
   body {
     background-color: var(--bg);
     color: var(--text-1);
-    font-family: 'Open Sans', 'DM Sans', system-ui, sans-serif;
+    font-family: var(--font-dm-sans), 'DM Sans', 'Open Sans', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     line-height: 1.6;
@@ -208,6 +231,57 @@ html.dark body { background: #0f172a; color: #f1f5f9; }
   .heading-tight {
     letter-spacing: var(--ds-tracking-tight);
     font-weight: 700;
+  }
+
+  /* ── Escala tipográfica nomeada ──────────────────────────────────────────────
+     Hierarquia única. Use o utility correspondente ao papel do texto, não o
+     fontSize. Cada nível tem size + weight + line-height + tracking definidos.
+     ─────────────────────────────────────────────────────────────────────────── */
+  .text-page-title {
+    font-size: 22px;
+    font-weight: 800;
+    line-height: 1.25;
+    letter-spacing: var(--ds-tracking-tight);
+    color: var(--text-1);
+  }
+  .text-section-title {
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.35;
+    letter-spacing: var(--ds-tracking-tight);
+    color: var(--text-1);
+  }
+  .text-card-title {
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.4;
+    color: var(--text-1);
+  }
+  .text-body {
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.55;
+    color: var(--text-2);
+  }
+  .text-body-sm {
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.5;
+    color: var(--text-2);
+  }
+  .text-caption {
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.45;
+    color: var(--text-3);
+  }
+  .text-meta {
+    font-size: 10.5px;
+    font-weight: 600;
+    line-height: 1.4;
+    text-transform: uppercase;
+    letter-spacing: var(--ds-tracking-meta);
+    color: var(--text-3);
   }
 
   /* Input */
