@@ -1205,9 +1205,9 @@ const ratingIsAnalista = ratingAnalista != null;
               <FileText size={22} style={{ color: "#a8d96b" }} />
             </div>
             <div>
-              <p style={{ fontSize: 11, fontWeight: 700, color: "rgba(168,217,107,0.9)", textTransform: "uppercase", letterSpacing: "0.12em", margin: "0 0 4px" }}>Registrar Parecer Final</p>
-              <h1 style={{ fontSize: 22, fontWeight: 800, color: "#fff", margin: "0 0 4px", letterSpacing: "-0.01em" }}>{companyName}</h1>
-              <p style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", margin: 0 }}>CNPJ {cnpj}</p>
+              <p className="text-meta mb-1" style={{ color: "rgba(168,217,107,0.9)", letterSpacing: "0.12em" }}>Registrar Parecer Final</p>
+              <h1 className="text-page-title mb-1" style={{ color: "#fff" }}>{companyName}</h1>
+              <p className="text-body-sm m-0" style={{ color: "rgba(255,255,255,0.5)" }}>CNPJ {cnpj}</p>
             </div>
           </div>
 
@@ -1246,8 +1246,8 @@ const ratingIsAnalista = ratingAnalista != null;
               <CheckCircle2 size={15} style={{ color: "#a8d96b" }} />
             </div>
             <div>
-              <p style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", margin: 0 }}>Decisão do Analista</p>
-              <p style={{ fontSize: 11, color: "#94a3b8", margin: 0 }}>Selecione o resultado desta análise de crédito</p>
+              <p className="text-card-title m-0">Decisão do Analista</p>
+              <p className="text-caption m-0">Selecione o resultado desta análise de crédito</p>
             </div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -1277,8 +1277,8 @@ const ratingIsAnalista = ratingAnalista != null;
                     <d.Icon size={18} style={{ color: selected ? d.color : "#94a3b8" }} />
                   </div>
                   <div style={{ flex: 1 }}>
-                    <p style={{ fontSize: 14, fontWeight: 700, color: selected ? d.color : "#0f172a", margin: 0 }}>{d.label}</p>
-                    <p style={{ fontSize: 12, color: selected ? d.color : "#64748b", margin: "3px 0 0", opacity: selected ? 0.85 : 1 }}>{d.sub}</p>
+                    <p className="text-card-title m-0" style={{ color: selected ? d.color : "#0f172a" }}>{d.label}</p>
+                    <p className="text-body-sm" style={{ margin: "3px 0 0", color: selected ? d.color : "#64748b", opacity: selected ? 0.85 : 1 }}>{d.sub}</p>
                   </div>
                   {selected && (
                     <div style={{ position: "absolute", top: 10, right: 10, width: 18, height: 18, borderRadius: "50%", background: d.color, display: "flex", alignItems: "center", justifyContent: "center" }}>
