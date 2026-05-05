@@ -16,7 +16,7 @@ export function Field({ label, value, onChange, multiline = false, span2 = false
 
   return (
     <div className={span2 ? "col-span-2" : ""}>
-      <label style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px", fontSize: "11px", fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: "#6B7280" }}>
+      <label className="text-meta" style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
         {label}
         {isSuspicious && (
           <span style={{ fontSize: "9px", fontWeight: 700, color: "#ea580c", background: "#ffedd5", padding: "1px 6px", borderRadius: "99px" }}>⚠ verificar</span>
@@ -139,7 +139,7 @@ export function SectionCard({
         </div>
 
         {/* Título */}
-        <p style={{ flex: 1, fontSize: "13px", fontWeight: 600, color: "#111827", lineHeight: "1.4", margin: 0 }}>
+        <p className="text-card-title m-0" style={{ flex: 1 }}>
           {title}
         </p>
 
