@@ -1,3 +1,5 @@
+> Hub: [[CAPITAL]]
+
 # Aba: V2 (em desenvolvimento)
 
 Telas em desenvolvimento da próxima versão (`/v2`) — métricas e pareceres remodelados.

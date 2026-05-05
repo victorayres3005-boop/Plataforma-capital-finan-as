@@ -1,3 +1,5 @@
+> Hub: [[CAPITAL]]
+
 # Aba: Pareceres
 
 Pareceres de crédito gerados pela plataforma. Lista (`/pareceres`), visualização individual (`/parecer/[id]`) e roteador (`/parecer`).

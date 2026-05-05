@@ -2,6 +2,9 @@
 tags: [capital-financas, historico, changelog]
 ---
 
+> Hub: [[CAPITAL]]
+
+
 # Histórico — sessões e cirurgias
 
 Log datado de mudanças significativas. Adicionar entrada nova **no topo** quando uma sessão executar cirurgias relevantes. Bug fixes pequenos vão pro commit, não aqui.

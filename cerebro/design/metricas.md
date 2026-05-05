@@ -1,3 +1,5 @@
+> Hub: [[CAPITAL]]
+
 # Aba: Métricas
 
 Dashboard de métricas operacionais da plataforma — volume de análises, distribuição de ratings, tempo médio.

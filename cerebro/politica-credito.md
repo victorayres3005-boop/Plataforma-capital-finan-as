@@ -1,3 +1,5 @@
+> Hub: [[CAPITAL]]
+
 # Política de Crédito V2 — fonte única de verdade
 
 Desde 2026-04-29, a **política de crédito é a única fonte de verdade** para rating e avaliação. O Gemini sempre recebe a política completa no prompt.

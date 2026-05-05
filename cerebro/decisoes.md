@@ -1,3 +1,5 @@
+> Hub: [[CAPITAL]]
+
 # Decisões arquiteturais (ADRs)
 
 Decisões com peso de longo prazo. Cada uma com **contexto**, **escolha**, e **consequência** — para que mudanças futuras saibam o trade-off em vogor.

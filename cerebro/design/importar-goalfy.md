@@ -1,3 +1,5 @@
+> Hub: [[CAPITAL]]
+
 # Aba: Importar Goalfy
 
 Importação de leads/empresas via integração com Goalfy.

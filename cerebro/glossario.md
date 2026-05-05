@@ -2,6 +2,9 @@
 tags: [capital-financas, glossario, dominio]
 ---
 
+> Hub: [[CAPITAL]]
+
+
 # Glossário — termos do domínio
 
 Termos de análise de crédito FIDC e KYC que aparecem no código, no relatório e nas conversas com Victor.

@@ -2,13 +2,16 @@
 tags: [capital-financas, roadmap, gaps, avaliacao]
 ---
 
+> Hub: [[CAPITAL]]
+
+
 # Roadmap, Gaps e Avaliação
 
 Estado da plataforma, gaps conhecidos e direção. Atualizar quando o próprio Victor recalibrar prioridades.
 
 ## Avaliação atual: 8.9/10 (snapshot 2026-05-05)
 
-> Sessão maratona 2026-05-05 entregou mobile responsivo, split de `extract/route.ts` (3782→966 linhas) + `analyze/route.ts` (2030→908) e design system base. Sessão da tarde do mesmo dia entregou refactor CreditHub-first ([ADR-011](decisoes.md#adr-011--credithub-first-bdc-como-fallback-total-2026-05-05)). Próximo passo: **testes E2E** com Playwright — destrava confiança pra refactors maiores.
+> Sessão maratona 2026-05-05 entregou mobile responsivo, split de `extract/route.ts` (3782→966 linhas) + `analyze/route.ts` (2030→908) e design system base. Sessão da tarde do mesmo dia entregou refactor CreditHub-first ([[decisoes#adr-011--credithub-first-bdc-como-fallback-total-2026-05-05|ADR-011]]). Próximo passo: **testes E2E** com Playwright — destrava confiança pra refactors maiores.
 
 ### Snapshot histórico
 - **7.5/10** em 2026-04-19 — pós-fixes intensivos de abril
@@ -55,7 +58,7 @@ Estado da plataforma, gaps conhecidos e direção. Atualizar quando o próprio V
 
 ## Datasets BDC órfãos pós-refactor CreditHub-first (2026-05-05)
 
-Com BDC virando fallback total ([ADR-011](decisoes.md#adr-011--credithub-first-bdc-como-fallback-total-2026-05-05)), os datasets abaixo **só aparecem quando CH vem vazio**. Aceito como perda. Revisitar se time sentir falta no parecer:
+Com BDC virando fallback total ([[decisoes#adr-011--credithub-first-bdc-como-fallback-total-2026-05-05|ADR-011]]), os datasets abaixo **só aparecem quando CH vem vazio**. Aceito como perda. Revisitar se time sentir falta no parecer:
 
 | Dataset BDC | O que perde | Substituto possível |
 |---|---|---|

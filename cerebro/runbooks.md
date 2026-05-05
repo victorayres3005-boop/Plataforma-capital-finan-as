@@ -1,3 +1,5 @@
+> Hub: [[CAPITAL]]
+
 # Runbooks — procedimentos operacionais
 
 Procedimentos para incidentes recorrentes. **Diagnóstico via logs Vercel é a primeira ação** — não investigar código antes de ver os logs.
@@ -17,7 +19,7 @@ Investigar git diff procurando regressões antes dos logs já consumiu 30+ min s
 
 ## BDC_TOKEN expirou
 
-**Importância (atualizada 2026-05-05):** desde o refactor CreditHub-first ([ADR-011](decisoes.md#adr-011--credithub-first-bdc-como-fallback-total-2026-05-05)), BDC só dispara como fallback quando CreditHub vem vazio. Token expirado **deixou de ser bloqueante** para o fluxo principal — mas o fallback fica capenga.
+**Importância (atualizada 2026-05-05):** desde o refactor CreditHub-first ([[decisoes#adr-011--credithub-first-bdc-como-fallback-total-2026-05-05|ADR-011]]), BDC só dispara como fallback quando CreditHub vem vazio. Token expirado **deixou de ser bloqueante** para o fluxo principal — mas o fallback fica capenga.
 
 **Sintoma:** logs `[bigdatacorp] HTTP 200` com body `Status.login.Code = -111 INVALID ACCESS TOKEN`. Em prod, só aparece quando CreditHub vem vazio E BDC é acionado como fallback.
 
@@ -47,7 +49,7 @@ vercel --prod                              # redeploy pra pegar
 
 **Causa:** outage do Google. Confirmar em https://status.cloud.google.com/ → Vertex AI / Gemini.
 
-**Fallback:** **NÃO existe** OpenRouter/Groq (Victor não quer — ver [decisoes.md](decisoes.md#sem-fallback-para-outros-llms)). Aguardar voltar.
+**Fallback:** **NÃO existe** OpenRouter/Groq (Victor não quer — ver [[decisoes#sem-fallback-para-outros-llms|decisoes.md]]). Aguardar voltar.
 
 **Mitigação durante outage:**
 - Curva ABC com texto >15k chars usa parser direto (bypass Gemini) — ver abaixo

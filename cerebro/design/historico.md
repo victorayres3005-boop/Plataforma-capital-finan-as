@@ -1,3 +1,5 @@
+> Hub: [[CAPITAL]]
+
 # Aba: Histórico
 
 Lista todas as análises de crédito feitas pelo usuário. Filtros por status, empresa, data.

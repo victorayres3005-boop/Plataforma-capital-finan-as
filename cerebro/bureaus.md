@@ -1,3 +1,5 @@
+> Hub: [[CAPITAL]]
+
 # Bureaus & APIs externas
 
 Visão consolidada das integrações de dados externos. **Desde 2026-05-05** o orquestrador `app/api/bureaus/route.ts` segue padrão **CreditHub-first, BDC só como fallback total** — ver [orquestração](#orquestração-creditHub-first).
@@ -24,7 +26,7 @@ Visão consolidada das integrações de dados externos. **Desde 2026-05-05** o o
 ## BigDataCorp (BDC) — `lib/bureaus/bigdatacorp.ts`  *(fallback total)*
 
 **Auth:** `BDC_TOKEN` (JWT, ~30d desde 2026-05-05) + `BDC_TOKEN_ID`. Renovação manual pela Nayara (NAYARA@CAPITALFINANCAS.COM.BR). **Importante:** ao renovar, o `BDC_TOKEN_ID` também pode mudar — sempre conferir.
-**Próxima expiração:** ver [runbooks.md — BDC_TOKEN](runbooks.md#bdc_token-expirou).
+**Próxima expiração:** ver [[runbooks#bdc_token-expirou|runbooks.md — BDC_TOKEN]].
 
 **Quando dispara:** apenas quando CreditHub vem vazio (ver critério acima). Em produção isso é raro — economia direta de custo.
 
@@ -40,7 +42,7 @@ Visão consolidada das integrações de dados externos. **Desde 2026-05-05** o o
 - `government_debtors` → pgfnDebtTotal, pgfnTotalDebts, pgfnDebts[]
 - `processes` → processosTotal/Passivo/Ativo/ValorTotal
 
-**Datasets órfãos pós-refactor (aceitos como perda quando CH responde):** `owners_kyc`, `interests_and_behaviors`, `owners_lawsuits_distribution_data`, `financial_risk` PF. Ver [roadmap-gaps.md](roadmap-gaps.md) — revisitar se time sentir falta no parecer.
+**Datasets órfãos pós-refactor (aceitos como perda quando CH responde):** `owners_kyc`, `interests_and_behaviors`, `owners_lawsuits_distribution_data`, `financial_risk` PF. Ver [[roadmap-gaps|roadmap-gaps.md]] — revisitar se time sentir falta no parecer.
 
 **Nota histórica:** dataset `protests` não está habilitado na conta BDC (código -109). Protestos vinham de Assertiva (PJ) e Assertiva PF (sócios). CreditHub agora também cobre.
 
@@ -79,7 +81,7 @@ Visão consolidada das integrações de dados externos. **Desde 2026-05-05** o o
 - `isScrIdenticoSandbox()` no merger detecta e oculta colunas/tabelas
 - Em produção, dados sempre diferentes → tudo destrava automático
 
-**Estado credenciais:** ver [runbooks.md — DataBox360 prod](runbooks.md#virada-databox360-para-produção). Sandbox-only até 2026-04-29.
+**Estado credenciais:** ver [[runbooks#virada-databox360-para-produção|runbooks.md — DataBox360 prod]]. Sandbox-only até 2026-04-29.
 
 ## Goalfy — `lib/bureaus/goalfy/` + `app/api/goalfy/`
 

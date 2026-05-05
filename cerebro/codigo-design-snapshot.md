@@ -1,3 +1,5 @@
+> Hub: [[CAPITAL]]
+
 # Capital Finanças — Snapshot de código (UI/Design)
 
 Gerado em 2026-05-05T12:19:22.031Z

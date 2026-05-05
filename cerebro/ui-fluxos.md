@@ -2,6 +2,9 @@
 tags: [capital-financas, ui, fluxos, frontend]
 ---
 
+> Hub: [[CAPITAL]]
+
+
 # Fluxos UI — telas e estados
 
 Fluxos do analista pela plataforma. Onde cada estado vive, qual o invariante e os bugs históricos.

@@ -2,6 +2,9 @@
 tags: [capital-financas, claude, protocolo, manutencao]
 ---
 
+> Hub: [[CAPITAL]]
+
+
 # Protocolo Claude — como usar e manter o cérebro
 
 Como o Claude Code (esta IA) deve usar e atualizar este cérebro a cada sessão.

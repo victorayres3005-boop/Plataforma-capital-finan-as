@@ -1,3 +1,5 @@
+> Hub: [[CAPITAL]]
+
 # Aba: Login
 
 Tela de autenticação — Supabase Auth.

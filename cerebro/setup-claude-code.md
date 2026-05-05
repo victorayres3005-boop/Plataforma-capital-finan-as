@@ -2,6 +2,9 @@
 tags: [capital-financas, claude-code, setup, plugins, skills]
 ---
 
+> Hub: [[CAPITAL]]
+
+
 # Setup Claude Code — Capital Finanças
 
 Configuração da ferramenta Claude Code que o Victor usa pra trabalhar nesta plataforma. Usar este arquivo como **referência de recriação** ao trocar de conta ou máquina.

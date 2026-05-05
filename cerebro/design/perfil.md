@@ -1,3 +1,5 @@
+> Hub: [[CAPITAL]]
+
 # Aba: Perfil
 
 Tela de perfil do usuário — dados pessoais, configurações de conta.

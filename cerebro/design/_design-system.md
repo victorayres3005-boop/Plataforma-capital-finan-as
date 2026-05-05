@@ -1,3 +1,5 @@
+> Hub: [[CAPITAL]]
+
 # _design-system
 
 Design system, layout shell e primitives da plataforma Capital Finanças.

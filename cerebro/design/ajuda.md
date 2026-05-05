@@ -1,3 +1,5 @@
+> Hub: [[CAPITAL]]
+
 # Aba: Ajuda
 
 Central de ajuda / FAQ da plataforma.

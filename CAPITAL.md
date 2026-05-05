@@ -15,21 +15,21 @@ Mapa de Conteúdo do projeto. Aponta para o conhecimento estável (`cerebro/`) e
 
 | Vou para... | Quando |
 |---|---|
-| **[arquitetura](cerebro/arquitetura.md)** | Stack, fluxo, modelo de dados, configs de timeout |
-| **[bureaus](cerebro/bureaus.md)** | BDC, Assertiva, DataBox360, CredHub, Goalfy |
-| **[politica-credito](cerebro/politica-credito.md)** | Política V2, 5 pilares, score, elegibilidade, HIDE_AVALIACAO |
-| **[pdf-relatorio](cerebro/pdf-relatorio.md)** | Estrutura 12 páginas, Puppeteer/jsPDF, `template.ts` |
-| **[extracao](cerebro/extracao.md)** | Pipeline `/api/extract`, modos texto/visual, nuances por tipo |
-| **[ui-fluxos](cerebro/ui-fluxos.md)** | UploadStep, ReviewStep, GenerateStep, telas auxiliares |
-| **[banco-dados](cerebro/banco-dados.md)** | Schema Supabase, RLS, migrations, SQLs prontos |
-| **[runbooks](cerebro/runbooks.md)** | Diagnóstico, BDC_TOKEN, Gemini outage, 504, blob, embeddings |
-| **[decisoes](cerebro/decisoes.md)** | ADRs: por que Gemini-only, getSession, removeConsole=false, etc. |
-| **[snippets-padroes](cerebro/snippets-padroes.md)** | Padrões de código (auth, safeNum, parseJSON, withTimeout) |
-| **[glossario](cerebro/glossario.md)** | Termos do domínio (FIDC, FMM, sacado, cedente, SCR, etc.) |
-| **[roadmap-gaps](cerebro/roadmap-gaps.md)** | Avaliação 7.5/10, gaps, roadmap, pendências |
-| **[historico](cerebro/historico.md)** | Changelog datado de sessões e cirurgias |
-| **[inventario](cerebro/inventario.md)** | Lista exaustiva: endpoints, páginas, componentes, libs, crons, envvars |
-| **[protocolo-claude](cerebro/protocolo-claude.md)** | Como o Claude usa e mantém este cérebro |
+| **[[arquitetura]]** | Stack, fluxo, modelo de dados, configs de timeout |
+| **[[bureaus]]** | BDC, Assertiva, DataBox360, CredHub, Goalfy |
+| **[[politica-credito]]** | Política V2, 5 pilares, score, elegibilidade, HIDE_AVALIACAO |
+| **[[pdf-relatorio]]** | Estrutura 12 páginas, Puppeteer/jsPDF, `template.ts` |
+| **[[extracao]]** | Pipeline `/api/extract`, modos texto/visual, nuances por tipo |
+| **[[ui-fluxos]]** | UploadStep, ReviewStep, GenerateStep, telas auxiliares |
+| **[[banco-dados]]** | Schema Supabase, RLS, migrations, SQLs prontos |
+| **[[runbooks]]** | Diagnóstico, BDC_TOKEN, Gemini outage, 504, blob, embeddings |
+| **[[decisoes]]** | ADRs: por que Gemini-only, getSession, removeConsole=false, etc. |
+| **[[snippets-padroes]]** | Padrões de código (auth, safeNum, parseJSON, withTimeout) |
+| **[[glossario]]** | Termos do domínio (FIDC, FMM, sacado, cedente, SCR, etc.) |
+| **[[roadmap-gaps]]** | Avaliação 7.5/10, gaps, roadmap, pendências |
+| **[[historico]]** | Changelog datado de sessões e cirurgias |
+| **[[inventario]]** | Lista exaustiva: endpoints, páginas, componentes, libs, crons, envvars |
+| **[[protocolo-claude]]** | Como o Claude usa e mantém este cérebro |
 
 ### Memória cronológica
 Carrega automaticamente em toda sessão do Claude Code. Não precisa abrir manualmente.
@@ -47,7 +47,7 @@ Duas camadas, sem duplicação:
 
 **Regra:** se a info é "como o sistema funciona" → `cerebro/`. Se é "o que aconteceu / quem disse o quê / quando" → memória.
 
-Esta cópia no projeto é **espelho** do vault em `C:\Users\Admin\Documents\Obsidian Vault\Capital Finanças\`. As duas existem; mantenha sincronizadas quando atualizar uma. Procedimento detalhado em [protocolo-claude](cerebro/protocolo-claude.md).
+Esta cópia no projeto é **espelho** do vault em `C:\Users\Admin\Documents\Obsidian Vault\Capital Finanças\`. As duas existem; mantenha sincronizadas quando atualizar uma. Procedimento detalhado em [[protocolo-claude]].
 
 ---
 
@@ -66,7 +66,7 @@ Esta cópia no projeto é **espelho** do vault em `C:\Users\Admin\Documents\Obsi
 - 3 arquivos: `template.ts`, `parecer.ts`, `sintese.ts`
 
 ### Tokens com renovação
-- **BDC_TOKEN** — TTL 7 dias, manual (Nayara) — ver [runbooks](cerebro/runbooks.md#bdc_token-expirou)
+- **BDC_TOKEN** — TTL 7 dias, manual (Nayara) — ver [[runbooks#bdc_token-expirou|runbooks]]
 - **DATABOX360** — sandbox até 2026-04-29, virar para prod
 - **GEMINI_API_KEYS** — 3 chaves em rotação (vírgula-separadas)
 
@@ -77,7 +77,7 @@ Esta cópia no projeto é **espelho** do vault em `C:\Users\Admin\Documents\Obsi
 - 2026-05-03: auditoria 70+ arquivos + 3 SQLs RLS
 - 2026-05-04: overhaul UX (15 commits)
 
-→ Detalhe completo: [historico](cerebro/historico.md)
+→ Detalhe completo: [[historico]]
 
 ---
 
@@ -102,7 +102,7 @@ Esta cópia no projeto é **espelho** do vault em `C:\Users\Admin\Documents\Obsi
 - `MEMORY.md` (em `~/.claude/...`) é o índice da memória cronológica
 - Skills disponíveis: `capital-pdf-report`, `capital-rating-analysis`
 - Codex review automático ativo após mudanças de código
-- Protocolo de manutenção do cérebro: [protocolo-claude](cerebro/protocolo-claude.md)
+- Protocolo de manutenção do cérebro: [[protocolo-claude]]
 
 ---
 
@@ -117,4 +117,4 @@ Esta cópia no projeto é **espelho** do vault em `C:\Users\Admin\Documents\Obsi
 
 ## Manutenção
 
-Regra geral: **a cada execução / mudança / decisão com peso de invariante, atualizar o cérebro.** Detalhe e procedimento em [protocolo-claude](cerebro/protocolo-claude.md).
+Regra geral: **a cada execução / mudança / decisão com peso de invariante, atualizar o cérebro.** Detalhe e procedimento em [[protocolo-claude]].

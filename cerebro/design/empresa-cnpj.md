@@ -1,3 +1,5 @@
+> Hub: [[CAPITAL]]
+
 # Aba: Empresa por CNPJ
 
 Página dinâmica que mostra o histórico consolidado de uma empresa específica.

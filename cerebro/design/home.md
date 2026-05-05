@@ -1,3 +1,5 @@
+> Hub: [[CAPITAL]]
+
 # Aba: Nova Análise (Home)
 
 Tela principal da plataforma — fluxo de 3 passos: Upload → Revisão → Geração de relatório.

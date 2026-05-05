@@ -2,6 +2,9 @@
 tags: [capital-financas, inventario, endpoints, libs]
 ---
 
+> Hub: [[CAPITAL]]
+
+
 # Inventário completo da plataforma
 
 Lista exaustiva de todos os endpoints, páginas, componentes, libs, crons e envvars. Atualizar quando criar ou remover algo.

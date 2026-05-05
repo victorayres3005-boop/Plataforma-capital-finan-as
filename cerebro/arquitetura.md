@@ -1,3 +1,5 @@
+> Hub: [[CAPITAL]]
+
 # Arquitetura — Capital Finanças
 
 Plataforma web para análise de crédito (FIDC, due diligence, KYC) que consolida documentos financeiros + APIs de bureaus em um relatório PDF/HTML para o comitê.
@@ -69,7 +71,7 @@ types/index.ts                # ExtractedData, QSASocio, ScoreResult, RespostaCr
 
 **APIs como fonte primária.** Reduzir uploads de documentos sempre que possível. Bureau busca antes; upload só quando o dado não existe na API (ex: IR pessoal). Exemplo: SCR via DataBox360 substituiu upload manual do relatório do Bacen.
 
-→ Detalhe: [bureaus.md](bureaus.md), [decisoes.md](decisoes.md)
+→ Detalhe: [[bureaus|bureaus.md]], [[decisoes|decisoes.md]]
 
 ## Configuração de timeout (Hobby plan)
 
@@ -87,7 +89,7 @@ SCR DataBox360 timeout       = 30000ms
 ## Edge cases conhecidos da arquitetura
 
 - **PDFs escaneados** (sem texto OCR): `hasUsefulText = false` → cai pro modo visual automaticamente
-- **Curva ABC com 400+ clientes**: parser regex direto bypassa Gemini (>15k chars) → ver [runbooks.md](runbooks.md)
+- **Curva ABC com 400+ clientes**: parser regex direto bypassa Gemini (>15k chars) → ver [[runbooks|runbooks.md]]
 - **Sandbox DataBox360**: detecção via valores idênticos entre períodos → esconde colunas no PDF
 - **Goalfy plano grátis**: API não retorna URLs públicas de arquivo → integração via n8n + webhook
 

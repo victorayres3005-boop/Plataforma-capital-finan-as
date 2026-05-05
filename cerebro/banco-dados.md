@@ -2,6 +2,9 @@
 tags: [capital-financas, supabase, banco, schema]
 ---
 
+> Hub: [[CAPITAL]]
+
+
 # Banco de dados — Supabase
 
 Schema, tabelas, RLS e migrations. **Toda mudança schema-related vai aqui.**

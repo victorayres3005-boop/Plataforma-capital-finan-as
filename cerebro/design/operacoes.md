@@ -1,3 +1,5 @@
+> Hub: [[CAPITAL]]
+
 # Aba: Operações
 
 Histórico de operações de crédito (duplicatas, CCB, NF, etc.) com status e modalidade.

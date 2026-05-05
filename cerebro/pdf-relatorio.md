@@ -1,3 +1,5 @@
+> Hub: [[CAPITAL]]
+
 # Relatório PDF/HTML
 
 Como o relatório é gerado, qual arquivo editar, e a estrutura das 12 páginas.
@@ -6,7 +8,7 @@ Como o relatório é gerado, qual arquivo editar, e a estrutura das 12 páginas.
 
 **Em produção, sempre cai no Puppeteer + template.ts.** O `lib/generators/pdf/sections/*.ts` (jsPDF) é fallback **local** que nunca é o que Victor vê. Espelhar mudanças nele é desperdício, exceto:
 
-- `parecer.ts` e `sintese.ts` precisam acompanhar `HIDE_AVALIACAO` (ver [politica-credito.md](politica-credito.md#estado-em-calibração)).
+- `parecer.ts` e `sintese.ts` precisam acompanhar `HIDE_AVALIACAO` (ver [[politica-credito#estado-em-calibração|politica-credito.md]]).
 
 → Skill auxiliar: `capital-pdf-report` (design system, helpers, invariantes).
 
@@ -77,7 +79,7 @@ scoreV2?: ScoreResult                  // resultado calculado
 scoreV2Respostas?: RespostaCriterio[]  // respostas individuais do analista
 ```
 
-GenerateStep busca os dois em `score_operacoes` (ver [politica-credito.md](politica-credito.md)).
+GenerateStep busca os dois em `score_operacoes` (ver [[politica-credito|politica-credito.md]]).
 
 ## Estrutura da função `page()`
 

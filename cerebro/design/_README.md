@@ -1,3 +1,5 @@
+> Hub: [[CAPITAL]]
+
 # Como usar este conjunto de arquivos com Claude/ChatGPT
 
 ## Para redesign visual de UMA aba específica

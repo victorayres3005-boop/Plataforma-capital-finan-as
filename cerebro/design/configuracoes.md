@@ -1,3 +1,5 @@
+> Hub: [[CAPITAL]]
+
 # Aba: Configurações
 
 Configurações da conta + Política de Crédito V2.

@@ -1,3 +1,5 @@
+> Hub: [[CAPITAL]]
+
 # Aba: Custos
 
 Painel de custos por bureau (BDC, Assertiva, DataBox360) — chamadas, preço unitário, total mensal.

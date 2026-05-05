@@ -1,3 +1,5 @@
+> Hub: [[CAPITAL]]
+
 # Aba: Admin (interno)
 
 Telas administrativas internas — debug de extração e rating drift.

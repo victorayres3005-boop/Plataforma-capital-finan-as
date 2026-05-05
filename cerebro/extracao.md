@@ -2,6 +2,9 @@
 tags: [capital-financas, extracao, gemini, documentos]
 ---
 
+> Hub: [[CAPITAL]]
+
+
 # Pipeline de Extração — `/api/extract`
 
 Como cada tipo de documento é processado e quais cuidados existem por tipo. Toda mudança no extrator deve ser testada com PDFs reais.

@@ -2,6 +2,9 @@
 tags: [capital-financas, snippets, padroes, codigo]
 ---
 
+> Hub: [[CAPITAL]]
+
+
 # Snippets & padrões de código
 
 Padrões que se repetem no codebase. Quando criar código novo na plataforma, seguir estes templates.
