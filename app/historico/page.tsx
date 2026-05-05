@@ -499,7 +499,7 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
       {expanded && (
         <div style={{ background: "#FAFAFA", borderTop: "1px solid #F1F5F9", padding: "14px 16px 14px 60px" }} className="animate-fade-in">
           {/* Info grid */}
-          <div className="grid grid-cols-3 gap-x-8 gap-y-3 mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-8 gap-y-3 mb-4">
             <div>
               <p style={{ fontSize: 10, color: col.fmm_12m != null && col.fmm_12m >= 300000 ? "#15803D" : col.fmm_12m != null ? "#DC2626" : "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>FMM / mês</p>
               <p style={{ fontSize: 16, fontWeight: 700, color: "#1E3A5F" }}>{fmtCurrency(col.fmm_12m)}</p>

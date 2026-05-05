@@ -138,8 +138,8 @@ export function SectionProcessos({ data, expanded, onToggle }: Props) {
           <p style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#6B7280", margin: "0 0 8px" }}>
             Top 10 por Valor
           </p>
-          <div style={{ borderRadius: "10px", border: "1px solid #E5E7EB", overflow: "hidden" }}>
-            <table style={{ width: "100%", fontSize: "12px", borderCollapse: "collapse" }}>
+          <div style={{ borderRadius: "10px", border: "1px solid #E5E7EB", overflow: "hidden", overflowX: "auto" }}>
+            <table style={{ width: "100%", minWidth: "640px", fontSize: "12px", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ background: "#F9FAFB" }}>
                   {["Número", "Tipo", "Assunto", "Data", "Valor", "Status"].map((h, i) => (

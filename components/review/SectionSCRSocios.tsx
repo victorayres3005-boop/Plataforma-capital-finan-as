@@ -184,7 +184,8 @@ export function SectionSCRSocios({ socios, expanded, onToggle, quality }: Props)
                           <p style={{ fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "#6B7280", marginBottom: "6px" }}>
                             Comparativo {anterior.periodoReferencia || "Anterior"} → {atual?.periodoReferencia || "Atual"}
                           </p>
-                          <table style={{ width: "100%", fontSize: "12px", borderCollapse: "collapse" }}>
+                          <div style={{ overflowX: "auto" }}>
+                          <table style={{ width: "100%", minWidth: "420px", fontSize: "12px", borderCollapse: "collapse" }}>
                             <thead>
                               <tr style={{ background: "#F9FAFB" }}>
                                 <th style={{ textAlign: "left", padding: "6px 10px", color: "#6B7280", fontWeight: 600 }}>Métrica</th>
@@ -221,6 +222,7 @@ export function SectionSCRSocios({ socios, expanded, onToggle, quality }: Props)
                               })}
                             </tbody>
                           </table>
+                          </div>
                         </div>
                       )}
 
@@ -230,7 +232,8 @@ export function SectionSCRSocios({ socios, expanded, onToggle, quality }: Props)
                           <p style={{ fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "#6B7280", marginBottom: "6px" }}>
                             Modalidades ({atual.periodoReferencia || "Atual"})
                           </p>
-                          <table style={{ width: "100%", fontSize: "12px", borderCollapse: "collapse" }}>
+                          <div style={{ overflowX: "auto" }}>
+                          <table style={{ width: "100%", minWidth: "420px", fontSize: "12px", borderCollapse: "collapse" }}>
                             <thead>
                               <tr style={{ background: "#F9FAFB" }}>
                                 <th style={{ textAlign: "left", padding: "6px 10px", color: "#6B7280", fontWeight: 600 }}>Modalidade</th>
@@ -250,6 +253,7 @@ export function SectionSCRSocios({ socios, expanded, onToggle, quality }: Props)
                               ))}
                             </tbody>
                           </table>
+                          </div>
                         </div>
                       )}
 
