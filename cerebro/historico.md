@@ -8,6 +8,46 @@ Log datado de mudanças significativas. Adicionar entrada nova **no topo** quand
 
 ---
 
+## 2026-05-05 (sessão tarde) — CreditHub-first refactor ✅
+
+**Disparador:** consultas avulsas via script revelaram que (a) BDC token tinha expirado em 2026-04-30, (b) CreditHub `/simples` cobre quase tudo que a plataforma usa do BDC. Victor decidiu inverter a hierarquia.
+
+**Cirurgias:**
+
+| Commit | Conteúdo |
+|---|---|
+| `968f544` | refactor(bureaus): CreditHub-first, BDC como fallback total |
+
+**Mudança:** `app/api/bureaus/route.ts` em 2 fases. Fase 1 paralela sem BDC. Fase 2 dispara BDC empresa + sócios apenas se CH vier vazio (success=false OU mock=true OU sem CNAE E sem QSA). Toda lógica de KYC sócios/óbito/parentesco/PEP movida pro branch condicional. Sub-fluxo "BDC trouxe sócios não vistos no QSA/IR → roda Assertiva/SCR de novo" continua intacto.
+
+**Operacional:**
+- `BDC_TOKEN` e `BDC_TOKEN_ID` renovados (Nayara): novo TokenId `69fa1b3c653b497d0386aa9c` (anterior `69ea56fbae3c0c7ef707bcf0`). Importante: ao renovar, sempre conferir se o TokenId mudou junto.
+- Nova validade ~30d (exp 2026-06-04).
+- Variáveis atualizadas no Vercel production via CLI.
+
+**Scripts auxiliares adicionados (`capital-financas/scripts/`):**
+- `check-cpf-protestos-processos.mjs` — Assertiva PF + BDC `/pessoas`
+- `check-credithub-grupo.mjs` — `/v1/grupo-economico` + `/simples` PJ/PF
+- `check-grupo-credithub-first.mjs` — CH primeiro, BDC fallback
+- `check-grupo-economico.mjs` — BDC empresa + pessoa
+
+**Codex review (task-mosv1fwi-b5i4ae):** 4 checkpoints PASS, sem code changes aplicados.
+
+**Memórias atualizadas:**
+- `feedback_credithub_first_bdc_fallback.md` (nova) — diretriz
+- `project_credithub_first_deploy_2026_05_05.md` (nova) — estado pós-deploy
+- `project_grupo_economico.md` — pipeline atualizado
+- `project_bdc_token_renewal.md` — token + TokenId novos
+
+**Pendentes pós-deploy:**
+- Smoke test em produção
+- Telemetria CH vs BDC em `api_usage_logs`
+- Validar economia em ~1 semana
+
+**Pipeline:** type-check ✅ → ESLint ✅ → commit/push GitHub ✅ → Vercel auto-deploy ✅ → Codex review ✅
+
+---
+
 ## 2026-05-05 (sessão maratona) — Mobile + Split extract + Split analyze + Design system base ✅
 
 **Disparador:** Victor pediu auditoria + roadmap completo pra subir nota da plataforma de 7.5/10 para 9.0/10. Sessão estendida com 30+ commits.

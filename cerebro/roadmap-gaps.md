@@ -6,9 +6,13 @@ tags: [capital-financas, roadmap, gaps, avaliacao]
 
 Estado da plataforma, gaps conhecidos e direção. Atualizar quando o próprio Victor recalibrar prioridades.
 
-## Avaliação atual: 7.5/10 (snapshot 2026-04-19)
+## Avaliação atual: 8.9/10 (snapshot 2026-05-05)
 
-> "A plataforma funciona e é sólida. O que separa 7.5 de 9 não é feature — é polish e arquitetura: reduzir monólitos, unificar design, ligar onboarding existente, mobile crítico, testes antirregressão."
+> Sessão maratona 2026-05-05 entregou mobile responsivo, split de `extract/route.ts` (3782→966 linhas) + `analyze/route.ts` (2030→908) e design system base. Sessão da tarde do mesmo dia entregou refactor CreditHub-first ([ADR-011](decisoes.md#adr-011--credithub-first-bdc-como-fallback-total-2026-05-05)). Próximo passo: **testes E2E** com Playwright — destrava confiança pra refactors maiores.
+
+### Snapshot histórico
+- **7.5/10** em 2026-04-19 — pós-fixes intensivos de abril
+- **8.9/10** em 2026-05-05 — pós-mobile + splits + design system + CreditHub-first
 
 ### Forte (8-9)
 
@@ -48,6 +52,29 @@ Estado da plataforma, gaps conhecidos e direção. Atualizar quando o próprio V
 | 8 | Mobile do Parecer + Histórico | 2d |
 | 9 | Testes integração do fluxo extração | 1d |
 | 10 | Extrair prompts para `lib/prompts/*.ts` | 3h |
+
+## Datasets BDC órfãos pós-refactor CreditHub-first (2026-05-05)
+
+Com BDC virando fallback total ([ADR-011](decisoes.md#adr-011--credithub-first-bdc-como-fallback-total-2026-05-05)), os datasets abaixo **só aparecem quando CH vem vazio**. Aceito como perda. Revisitar se time sentir falta no parecer:
+
+| Dataset BDC | O que perde | Substituto possível |
+|---|---|---|
+| `owners_kyc` | PEP / sancionado **com fontes** detalhadas | Portal Transparência (CEIS/CNEP) já cobre sanções públicas + CreditHub `ppe` (booleano simples) |
+| `interests_and_behaviors` | CreditSeeker, OnlineInvestor, CreditCardScore (A-H) | Sem equivalente — comportamento digital. Raramente usado em decisão de crédito. |
+| `owners_lawsuits_distribution_data` | Distribuição agregada de processos por sócio (tipos, tribunais) | Derivável dos `processos[]` individuais do CreditHub PF |
+| `financial_risk` PF | Score 0-1000 + classe + faixa de patrimônio/renda | Assertiva PF já cobre score 0-1000 + classe |
+
+**Como decidir:** rodar a plataforma por ~1 semana com a config nova; se feedback do time/comitê mencionar PEP rasa ou faixa patrimonial faltando, repor BDC sempre-on para esses datasets.
+
+## Próximo passo: testes E2E (E2E placeholder)
+
+Cobertura de testes hoje = ~5%. Próximo move da plataforma é E2E com Playwright:
+
+1. **Stack proposta:** Playwright + seed Supabase de teste + 3-5 PDFs anonimizados como entrada fixa
+2. **Cenários mínimos:** análise PJ completa, retomada de coleta, geração PDF, login/auth, fluxo Goalfy
+3. **Onde rodam:** local antes do push + CI no Vercel preview deploys
+4. **Custo:** 1-2 dias para os primeiros cenários
+5. **ROI:** pega regressões silenciosas (tipo `getUser()` 504 ou `confirmedDocsRef` perdendo docs) antes de produção
 
 ## Gaps de funcionalidade (não são bugs)
 

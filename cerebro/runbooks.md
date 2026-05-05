@@ -17,19 +17,27 @@ Investigar git diff procurando regressões antes dos logs já consumiu 30+ min s
 
 ## BDC_TOKEN expirou
 
-**Sintoma:** processos judiciais, KYC sócios, grupo econômico vazios no relatório.
+**Importância (atualizada 2026-05-05):** desde o refactor CreditHub-first ([ADR-011](decisoes.md#adr-011--credithub-first-bdc-como-fallback-total-2026-05-05)), BDC só dispara como fallback quando CreditHub vem vazio. Token expirado **deixou de ser bloqueante** para o fluxo principal — mas o fallback fica capenga.
 
-**Frequência:** TTL 7 dias. Sem endpoint de refresh — renovação manual obrigatória.
+**Sintoma:** logs `[bigdatacorp] HTTP 200` com body `Status.login.Code = -111 INVALID ACCESS TOKEN`. Em prod, só aparece quando CreditHub vem vazio E BDC é acionado como fallback.
+
+**Frequência:** TTL **~30 dias** desde 2026-05-05 (era 7 dias antes — confirmar TTL no JWT a cada renovação). Sem endpoint de refresh — renovação manual.
 
 ```bash
 # 1. Nayara (NAYARA@CAPITALFINANCAS.COM.BR) acessa portal BigDataCorp e gera novo token
 # 2. Victor passa o valor para atualizar
-# 3. Atualizar no Vercel:
-npx vercel env rm BDC_TOKEN production
-npx vercel env add BDC_TOKEN production   # cola o novo valor
-# 4. Verificar se BDC_TOKEN_ID também muda — se sim, atualizar também
-npx vercel --prod                          # redeploy pra pegar
+# 3. SEMPRE conferir se BDC_TOKEN_ID também mudou na renovação (aconteceu em 2026-05-05)
+# 4. Atualizar no Vercel:
+vercel env rm BDC_TOKEN production --yes
+printf "<NOVO_JWT>" | vercel env add BDC_TOKEN production
+vercel env rm BDC_TOKEN_ID production --yes
+printf "<NOVO_TOKEN_ID>" | vercel env add BDC_TOKEN_ID production
+vercel --prod                              # redeploy pra pegar
 ```
+
+**Validação rápida:** `node scripts/check-grupo-economico.mjs <CNPJ>` — se BDC retornar `Status.login` com `Code: 0 OK`, está funcionando.
+
+**Atualizar `.env.local`** também — sem `\n` literais no final dos valores (o env loader nem sempre strippa corretamente).
 
 **Produtos habilitados:** BIGBOOST, BIGID.
 

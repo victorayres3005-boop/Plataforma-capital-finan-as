@@ -140,6 +140,27 @@ Crons fail-closed: 503 sem `CRON_SECRET` (Vercel auto-injeta `Authorization: Bea
 
 ---
 
+## ADR-011 — CreditHub-first, BDC como fallback total (2026-05-05)
+
+**Contexto:** Orquestrador de bureaus chamava todas as APIs em paralelo (`Promise.allSettled`), incluindo BDC. Mesmo com CreditHub respondendo ok, BDC era cobrado a cada análise. CreditHub `/simples` cobre ~85% dos datasets BDC usados pela plataforma (basic_data, QSA, processos, protestos, CCF, grupo econômico, dados PF). Token BDC tem TTL curto e renovação manual semanal pela Nayara — vetor frequente de quebra.
+
+**Decisão:** Refatorar `app/api/bureaus/route.ts` em duas fases: Fase 1 paralela sem BDC; Fase 2 dispara BDC empresa + BDC sócios apenas quando CreditHub vem vazio (`success=false` OU `mock=true` OU sem `cnpjEnrichment.cnaePrincipal` E sem `qsaEnrichment.quadroSocietario`).
+
+**Razão:** reduzir custo (BDC vira gasto residual), eliminar dependência crítica do token semanal do BDC, simplificar a árvore de decisão (um bureau primário em vez de três disputando precedência).
+
+**Consequência:**
+- Datasets BDC sem equivalente no CH ficam órfãos quando CH responde: `owners_kyc` (PEP/sanções com fontes), `interests_and_behaviors`, `owners_lawsuits_distribution_data`, `financial_risk` PF. Aceito como perda; revisitar se time sentir falta no parecer.
+- Latência: caso comum mantém ~25s; pior caso (fallback) ~50s.
+- Token BDC continua sendo renovado, mas expiração deixou de ser bloqueante para o fluxo principal.
+- Codex review (4 checkpoints PASS) — commit `968f544`.
+
+**Pendentes:**
+- Smoke test em produção
+- Telemetria em `api_usage_logs` para confirmar economia em números
+- Decidir destino dos 4 datasets órfãos em ~1 semana de uso real
+
+---
+
 ## Quando adicionar uma nova ADR
 
 Adicione um ADR aqui quando uma decisão tem **uma das três** propriedades:
