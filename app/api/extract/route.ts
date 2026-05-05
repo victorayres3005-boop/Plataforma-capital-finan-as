@@ -291,23 +291,79 @@ export async function POST(request: NextRequest) {
       request.headers.get("x-e2e-mode") === "true" ||
       process.env.E2E_EXTRACT_STUB === "true";
     if (isE2eStub) {
-      const docType = request.headers.get("x-e2e-doc-type") || "cnpj";
+      // docType: prefere header explícito; senão parseia body (JSON.type ou FormData.type).
+      // Cloned request pra não consumir o stream original — já vamos retornar mesmo, mas mantém
+      // padrão limpo caso futuramente precisemos chain com outra lógica.
+      let docType = request.headers.get("x-e2e-doc-type") || "";
+      if (!docType) {
+        try {
+          if (contentType.includes("application/json")) {
+            const body = await request.clone().json() as { type?: string };
+            docType = body?.type ?? "";
+          } else if (contentType.includes("multipart/form-data") || contentType.includes("application/x-www-form-urlencoded")) {
+            const fd = await request.clone().formData();
+            docType = String(fd.get("type") ?? "");
+          }
+        } catch { /* parse falhou — usa default */ }
+      }
+      docType = docType || "cnpj";
       console.log(`[extract][E2E_STUB] retornando fixture estática para tipo=${docType}`);
-      const stubData = {
-        razaoSocial: "Empresa E2E Stub LTDA",
-        nomeFantasia: "E2E Stub",
-        cnpj: "12.345.678/0001-90",
-        dataAbertura: "01/01/2020",
-        situacaoCadastral: "ATIVA",
-        cnaePrincipal: "62.01-5-01",
-        capitalSocialCNPJ: "R$ 100.000,00",
-        endereco: "Rua de Teste, 123, São Paulo, SP, 01000-000",
-        porte: "ME",
+      const STUB_FIXTURES: Record<string, { data: Record<string, unknown>; filledFields: number }> = {
+        cnpj: {
+          data: {
+            razaoSocial: "Empresa E2E Stub LTDA",
+            nomeFantasia: "E2E Stub",
+            cnpj: "12.345.678/0001-90",
+            dataAbertura: "01/01/2020",
+            situacaoCadastral: "ATIVA",
+            cnaePrincipal: "62.01-5-01",
+            capitalSocialCNPJ: "R$ 100.000,00",
+            endereco: "Rua de Teste, 123, São Paulo, SP, 01000-000",
+            porte: "ME",
+          },
+          filledFields: 9,
+        },
+        // Contrato sem dataConstituicao propositalmente — aciona auto-fill via cnpj.dataAbertura
+        contrato: {
+          data: {
+            socios: [{ nome: "Sócio E2E", cpf: "111.222.333-44", participacao: "100%", qualificacao: "Administrador" }],
+            capitalSocial: "R$ 100.000,00",
+            objetoSocial: "Atividades de teste E2E.",
+            dataConstituicao: "",
+            temAlteracoes: false,
+            prazoDuracao: "Indeterminado",
+            administracao: "Administrador único",
+            foro: "São Paulo",
+          },
+          filledFields: 7,
+        },
+        qsa: {
+          data: {
+            capitalSocial: "R$ 100.000,00",
+            quadroSocietario: [
+              { nome: "Sócio E2E", cpfCnpj: "111.222.333-44", qualificacao: "Administrador", participacao: "100%", dataEntrada: "01/01/2020" },
+            ],
+          },
+          filledFields: 5,
+        },
+        faturamento: {
+          data: {
+            meses: [
+              { mes: "01/2026", valor: "R$ 50.000,00" },
+              { mes: "02/2026", valor: "R$ 55.000,00" },
+              { mes: "03/2026", valor: "R$ 60.000,00" },
+            ],
+            total: "R$ 165.000,00",
+            mediaMensal: "R$ 55.000,00",
+          },
+          filledFields: 5,
+        },
       };
+      const fixture = STUB_FIXTURES[docType] ?? STUB_FIXTURES.cnpj;
       return NextResponse.json({
         success: true,
-        data: stubData,
-        meta: { rawTextLength: 0, filledFields: 9, isScanned: false, aiPowered: false, warningsCount: 0, e2eStub: true },
+        data: fixture.data,
+        meta: { rawTextLength: 0, filledFields: fixture.filledFields, isScanned: false, aiPowered: false, warningsCount: 0, e2eStub: true, docType },
       });
     }
 

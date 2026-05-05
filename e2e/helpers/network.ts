@@ -20,3 +20,20 @@ export async function installE2eStubs(page: Page): Promise<void> {
     await route.continue({ headers });
   });
 }
+
+/**
+ * Dispensa o WelcomeModal de onboarding se estiver visível.
+ * Aparece pra contas novas/sem onboarding completo. Não bloqueia o teste
+ * se o modal não aparecer (timeout curto, silencioso).
+ */
+export async function dismissOnboardingIfPresent(page: Page): Promise<void> {
+  const startBtn = page.getByRole("button", { name: /Começar agora|Comecar agora/i });
+  try {
+    await startBtn.waitFor({ state: "visible", timeout: 2000 });
+    await startBtn.click();
+    // Espera o modal sumir
+    await startBtn.waitFor({ state: "hidden", timeout: 3000 }).catch(() => undefined);
+  } catch {
+    // Modal não apareceu — fluxo normal
+  }
+}

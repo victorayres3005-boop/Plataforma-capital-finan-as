@@ -50,4 +50,42 @@ test.describe("Stubs E2E autenticados", () => {
       situacaoCadastral: "ATIVA",
     });
   });
+
+  test("/api/extract stub cobre os 4 tipos obrigatórios (cnpj, qsa, contrato, faturamento)", async ({ request }) => {
+    // Cobre que o stub server-side reconhece todos os tipos que o UploadStep
+    // pode mandar. Importante porque Review depende de campos específicos por
+    // tipo (ex: cnpj.dataAbertura aciona auto-fill de contrato.dataConstituicao).
+
+    const expected: Record<string, (data: Record<string, unknown>) => void> = {
+      cnpj: d => {
+        expect(d.dataAbertura, "cnpj stub deve ter dataAbertura — auto-fill da Review depende disso").toBe("01/01/2020");
+        expect(d.razaoSocial).toBe("Empresa E2E Stub LTDA");
+      },
+      qsa: d => {
+        expect(Array.isArray(d.quadroSocietario)).toBe(true);
+        expect((d.quadroSocietario as unknown[]).length).toBeGreaterThan(0);
+      },
+      contrato: d => {
+        // Propositalmente vazio: aciona auto-fill via cnpj.dataAbertura
+        expect(d.dataConstituicao, "contrato stub deve ter dataConstituicao vazia pra acionar auto-fill").toBe("");
+        expect(Array.isArray(d.socios)).toBe(true);
+      },
+      faturamento: d => {
+        expect(Array.isArray(d.meses)).toBe(true);
+        expect((d.meses as unknown[]).length).toBeGreaterThanOrEqual(3);
+      },
+    };
+
+    for (const [type, validate] of Object.entries(expected)) {
+      const res = await request.post("/api/extract", {
+        headers: { "x-e2e-mode": "true", "content-type": "application/json" },
+        data: { blobUrl: "noop://e2e", type },
+      });
+      expect(res.status(), `tipo ${type} deve retornar 200`).toBe(200);
+      const body = await res.json();
+      expect(body.success).toBe(true);
+      expect(body.meta?.docType).toBe(type);
+      validate(body.data);
+    }
+  });
 });
