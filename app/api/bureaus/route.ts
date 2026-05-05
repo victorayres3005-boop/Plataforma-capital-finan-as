@@ -60,6 +60,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "CNPJ não informado" }, { status: 400 });
     }
 
+    // ── Stub E2E ──────────────────────────────────────────────────────────────
+    // Quando rodando E2E (Playwright), retorna fixture estática em vez de chamar
+    // bureaus reais. Evita custo + flakiness por dependência externa.
+    // Ativação: header `x-e2e-mode: true` na request OU env E2E_BUREAUS_STUB=true.
+    // NÃO grava em api_usage_logs (não polui métricas de custo).
+    const isE2eStub =
+      req.headers.get("x-e2e-mode") === "true" ||
+      process.env.E2E_BUREAUS_STUB === "true";
+    if (isE2eStub) {
+      console.log(`[bureaus][E2E_STUB] retornando fixture estática para CNPJ ${cnpj}`);
+      const merged: Partial<ExtractedData> = {
+        bureausConsultados: ["E2E_STUB"],
+        score: { credithub: { consultadoEm: new Date().toISOString(), protestosIntegrados: true, processosIntegrados: true } },
+      };
+      return NextResponse.json({
+        success: true,
+        merged,
+        bureaus: { e2e_stub: { success: true, mock: true } },
+      });
+    }
+
     // Socios PF para consulta de grupo econômico
     // Fonte 1: QSA (quadro societário extraído do cartão CNPJ)
     const sociosQSA = (data.qsa?.quadroSocietario ?? [])

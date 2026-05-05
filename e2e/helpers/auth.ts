@@ -37,7 +37,9 @@ export async function loginViaForm(page: Page, creds: E2eCredentials = getCreden
 
   const emailInput    = page.locator('input[type="email"], input[name="email"]').first();
   const passwordInput = page.locator('input[type="password"], input[name="password"]').first();
-  const submitBtn     = page.locator('button[type="submit"], button:has-text("Entrar"), button:has-text("Login")').first();
+  // A página tem 2 botões com "Entrar": o toggle de tab (Entrar/Cadastrar) e o submit
+  // ("Entrar na plataforma"). Pegar pelo texto exato do submit pra não confundir.
+  const submitBtn     = page.locator('button:has-text("Entrar na plataforma")').first();
 
   await expect(emailInput,    "input de email não encontrado em /login").toBeVisible();
   await expect(passwordInput, "input de senha não encontrado em /login").toBeVisible();

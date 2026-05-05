@@ -28,14 +28,23 @@ PLAYWRIGHT_BASE_URL=https://plataformacapital-xxx.vercel.app npm run test:e2e
 
 ## Setup do usuário de teste
 
-1. Abre o Supabase SQL Editor do projeto de **dev/teste** (NÃO produção real)
-2. Cola e executa `e2e/fixtures/setup-user.sql` — cria `e2e@capitalfinancas.test` com senha `e2e-test-2026`
-3. Adiciona no `.env.local`:
-   ```
-   E2E_USER_EMAIL="e2e@capitalfinancas.test"
-   E2E_USER_PASSWORD="e2e-test-2026"
-   ```
-4. Roda `npm run test:e2e` — login.spec.ts deve passar
+**Recomendado — via Admin API (caminho oficial Supabase):**
+
+```bash
+node scripts/setup-e2e-user.mjs
+```
+
+O script cria/atualiza `e2e@capitalfinancas.test` com senha `e2e-test-2026` usando a Admin API + valida fazendo um login de teste no final. Idempotente.
+
+Adiciona no `.env.local`:
+```
+E2E_USER_EMAIL="e2e@capitalfinancas.test"
+E2E_USER_PASSWORD="e2e-test-2026"
+```
+
+Roda `npm run test:e2e` — login.spec.ts deve passar.
+
+> O `e2e/fixtures/setup-user.sql` é um caminho alternativo (SQL direto). Pode falhar em projetos Supabase mais novos que têm campos novos em `auth.users` (`is_sso_user`, `is_anonymous` etc.). Prefira o script.
 
 Sem o usuário criado, login.spec.ts é **skipado automaticamente** (não falha).
 

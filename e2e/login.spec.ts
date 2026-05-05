@@ -29,7 +29,7 @@ test.describe("Login real", () => {
 
     await page.locator('input[type="email"], input[name="email"]').first().fill(creds.email);
     await page.locator('input[type="password"], input[name="password"]').first().fill("senha-errada-XXX");
-    await page.locator('button[type="submit"], button:has-text("Entrar"), button:has-text("Login")').first().click();
+    await page.locator('button:has-text("Entrar na plataforma")').first().click();
 
     // Espera 3s — se o redirect não acontecer, ainda estamos em /login = comportamento correto
     await page.waitForTimeout(3000);
