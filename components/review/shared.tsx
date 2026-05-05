@@ -1,12 +1,13 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
 export const SUSPICIOUS_VALUES = new Set(["N/D", "n/d", "ND", "nd", "N/A", "n/a", "—", "-", "null", "undefined", "NaN"]);
 
 // ── Field ─────────────────────────────────────────────────────────────────────
-export function Field({ label, value, onChange, multiline = false, span2 = false }: {
-  label: string; value: string; onChange: (v: string) => void; multiline?: boolean; span2?: boolean;
+export function Field({ label, value, onChange, multiline = false, span2 = false, badge }: {
+  label: string; value: string; onChange: (v: string) => void; multiline?: boolean; span2?: boolean; badge?: ReactNode;
 }) {
   const isEmpty = !value || value === "" || value === "0" || value === "0,00";
   const isSuspicious = !isEmpty && SUSPICIOUS_VALUES.has(value.trim());
@@ -21,6 +22,7 @@ export function Field({ label, value, onChange, multiline = false, span2 = false
         {isSuspicious && (
           <span style={{ fontSize: "9px", fontWeight: 700, color: "#ea580c", background: "#ffedd5", padding: "1px 6px", borderRadius: "99px" }}>⚠ verificar</span>
         )}
+        {badge}
       </label>
       {multiline ? (
         <textarea

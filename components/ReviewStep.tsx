@@ -179,6 +179,21 @@ export default function ReviewStep({ data, onComplete, onBack, onDataChange }: R
     return { ...p, contrato: { ...p.contrato, socios: s } };
   });
 
+  // Auto-fill: data de constituição herdada do cartão CNPJ quando o contrato veio sem ela.
+  // Mantém flag local pra exibir badge "do cartão CNPJ" no Field; flag desliga assim que
+  // o usuário editar (igualdade com cnpj.dataAbertura quebra) ou o contrato trouxer dado próprio.
+  const [dataConstituicaoFromCnpj, setDataConstituicaoFromCnpj] = useState(false);
+  useEffect(() => {
+    if (!form.contrato.dataConstituicao && form.cnpj?.dataAbertura) {
+      setForm(p => ({ ...p, contrato: { ...p.contrato, dataConstituicao: p.cnpj?.dataAbertura ?? "" } }));
+      setDataConstituicaoFromCnpj(true);
+    }
+  }, [form.cnpj?.dataAbertura, form.contrato.dataConstituicao]);
+  const dataConstituicaoEhDoCnpj =
+    dataConstituicaoFromCnpj &&
+    !!form.contrato.dataConstituicao &&
+    form.contrato.dataConstituicao === form.cnpj?.dataAbertura;
+
   // ── Faturamento setters ───────────────────────────────────────────────────
   const setFatMes = (i: number, k: keyof FaturamentoMensal, v: string) =>
     setForm(p => { const m = [...p.faturamento.meses]; m[i] = { ...m[i], [k]: v }; return { ...p, faturamento: { ...p.faturamento, meses: m } }; });
@@ -389,7 +404,7 @@ export default function ReviewStep({ data, onComplete, onBack, onDataChange }: R
       {/* Sections */}
       <SectionCNPJ data={form.cnpj} set={setCNPJ} expanded={open.cnpj} onToggle={() => toggle("cnpj")} quality={qualityMap.cnpj} />
       <SectionQSA data={form.qsa} setField={setQSAField} setSocio={setQSASocio} addSocio={addQSASocio} removeSocio={removeQSASocio} expanded={open.qsa} onToggle={() => toggle("qsa")} quality={qualityMap.qsa} mergeMap={(data as { _qsaMergeMap?: Record<string, { cpfCnpj?: boolean; qualificacao?: boolean; participacao?: boolean; capitalInvestido?: boolean }> })._qsaMergeMap} />
-      <SectionContrato data={form.contrato} set={setContrato} setSocio={setSocio} addSocio={addSocio} removeSocio={removeSocio} expanded={open.contrato} onToggle={() => toggle("contrato")} quality={qualityMap.contrato} />
+      <SectionContrato data={form.contrato} set={setContrato} setSocio={setSocio} addSocio={addSocio} removeSocio={removeSocio} expanded={open.contrato} onToggle={() => toggle("contrato")} quality={qualityMap.contrato} dataConstituicaoFromCnpj={dataConstituicaoEhDoCnpj} />
       <SectionFaturamento data={form.faturamento} setMes={setFatMes} addMes={addFatMes} removeMes={removeFatMes} expanded={open.faturamento} onToggle={() => toggle("faturamento")} quality={qualityMap.faturamento} />
       <SectionSCR data={form.scr} anterior={form.scrAnterior ?? undefined} set={setSCR} setMod={setSCRMod} addMod={addSCRMod} removeMod={removeSCRMod} setInst={setSCRInst} addInst={addSCRInst} removeInst={removeSCRInst} showDetails={showSCRDetails} setShowDetails={setShowSCRDetails} expanded={open.scr} onToggle={() => toggle("scr")} quality={qualityMap.scr} />
       <SectionSCRSocios socios={form.scrSocios || []} expanded={open.scrSocios} onToggle={() => toggle("scrSocios")} quality={qualityMap.scr} />

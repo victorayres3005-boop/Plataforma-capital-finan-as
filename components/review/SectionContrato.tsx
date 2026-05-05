@@ -1,5 +1,5 @@
 "use client";
-import { Plus, Trash2, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, AlertTriangle, IdCard } from "lucide-react";
 import { ContratoSocialData, Socio } from "@/types";
 import { Field, QualityBadge, SectionCard, QualityResult, qualityAccent } from "./shared";
 
@@ -12,9 +12,30 @@ interface Props {
   expanded: boolean;
   onToggle: () => void;
   quality: QualityResult;
+  // True quando a Data de Constituição foi herdada do cartão CNPJ (contrato veio sem ela).
+  // Mostra badge "do cartão CNPJ" ao lado do campo enquanto o valor não for editado.
+  dataConstituicaoFromCnpj?: boolean;
 }
 
-export function SectionContrato({ data, set, setSocio, addSocio, removeSocio, expanded, onToggle, quality }: Props) {
+function FromCnpjBadge() {
+  return (
+    <span
+      title="Dado herdado do Cartão CNPJ porque o Contrato Social não trouxe a data de constituição"
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 3,
+        fontSize: "9px", fontWeight: 700, color: "#0369a1",
+        background: "#e0f2fe", border: "1px solid #bae6fd",
+        borderRadius: 4, padding: "1px 5px",
+        marginLeft: 6, lineHeight: 1.3,
+      }}
+    >
+      <IdCard size={9} />
+      do cartão CNPJ
+    </span>
+  );
+}
+
+export function SectionContrato({ data, set, setSocio, addSocio, removeSocio, expanded, onToggle, quality, dataConstituicaoFromCnpj }: Props) {
   const accent = data.temAlteracoes ? "#d97706" : qualityAccent(quality.score);
 
   return (
@@ -128,7 +149,7 @@ export function SectionContrato({ data, set, setSocio, addSocio, removeSocio, ex
         {/* Campos gerais */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Capital Social" value={data.capitalSocial} onChange={v => set("capitalSocial", v)} />
-          <Field label="Data de Constituição" value={data.dataConstituicao} onChange={v => set("dataConstituicao", v)} />
+          <Field label="Data de Constituição" value={data.dataConstituicao} onChange={v => set("dataConstituicao", v)} badge={dataConstituicaoFromCnpj ? <FromCnpjBadge /> : undefined} />
           <Field label="Prazo de Duração" value={data.prazoDuracao} onChange={v => set("prazoDuracao", v)} />
           <Field label="Foro" value={data.foro} onChange={v => set("foro", v)} />
           <Field label="Objeto Social" value={data.objetoSocial} onChange={v => set("objetoSocial", v)} multiline span2 />
