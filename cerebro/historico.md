@@ -11,6 +11,40 @@ Log datado de mudanças significativas. Adicionar entrada nova **no topo** quand
 
 ---
 
+## 2026-05-05 (sessão noite) — Auto-fill Data Constituição + Geocoding via place_id + Gemini Vision ✅
+
+**Disparador:** Victor pediu (a) que a caixa Data de Constituição na Review fosse pré-preenchida pelo cartão CNPJ quando o contrato vier sem ela, (b) corrigir mapa do relatório que às vezes apontava endereço errado e (c) usar contexto da empresa pra validar coerência do endereço.
+
+**Cirurgias:**
+
+| Commit | Conteúdo |
+|---|---|
+| `b980451` | feat(review): herda Data de Constituição do cartão CNPJ quando contrato vem sem |
+| `f9451d6` | fix(review): auto-fill data constituicao não repreenche após apagar (Codex review FAIL parcial → corrigido) |
+| `4711d07` | feat(map): geocoding via place_id + validação contextual Gemini Vision |
+
+**Auto-fill Data Constituição:**
+- `Field` em `shared.tsx` ganhou prop opcional `badge?: ReactNode` ao lado do label
+- `SectionContrato` aceita `dataConstituicaoFromCnpj?: boolean` + componente `FromCnpjBadge` (chip azul "do cartão CNPJ", ícone IdCard)
+- `ReviewStep` tem useEffect + `lastAutoFilledRef` que rastreia qual `cnpj.dataAbertura` já foi usada como fonte. Evita repreenchimento se o usuário apagar o campo intencionalmente; permite redisparar se cnpj.dataAbertura mudar (re-extração)
+- Codex review (task-mosz1jrg-bhs5q7): 5 PASS, 1 FAIL parcial corrigido em commit subsequente
+
+**Geocoding correto (Camada 1):**
+- `/api/map-image?type=places` agora retorna `lat/lng` (fieldMask `places.location` adicionado)
+- `GenerateStep.fetchGoogleMapsImages` captura `placesLat/placesLng` quando Places identifica a empresa e passa pro `type=map` via `&lat=&lng=` em vez de `&address=` cru
+- Elimina casos onde Google geocodificava endereço cru pra homônimos (rua das Flores em outra cidade) e o ponto vermelho caía longe
+
+**Validação contextual Gemini Vision (Camada 2):**
+- `/api/map-image?type=map&validate=true` aceita `razaoSocial+cnae+porte` e chama Gemini Vision sobre a imagem aérea
+- Prompt avalia coerência industrial/comercial/residencial/rural × tipo de negócio
+- Retorna `contextoCoerente:bool + contextoObservacao:string`. Timeout 8s, falha silenciosa (`coerente=true`)
+- `PDFReportParams.mapaContextoAviso?:string` propagado pelos 3 payloads (generatePDF, HTMLView, shareReport)
+- `template.ts`: chip amarelo "⚠ {observação} — verificar manualmente" abaixo do bloco de endereço quando aviso existe
+
+**Pipeline:** type-check ✅ por commit · ESLint ok nos arquivos novos (erros pré-existentes em zonas não tocadas de GenerateStep) · push direto pra master · Vercel auto-deploy
+
+---
+
 ## 2026-05-05 (sessão tarde) — CreditHub-first refactor ✅
 
 **Disparador:** consultas avulsas via script revelaram que (a) BDC token tinha expirado em 2026-04-30, (b) CreditHub `/simples` cobre quase tudo que a plataforma usa do BDC. Victor decidiu inverter a hierarquia.

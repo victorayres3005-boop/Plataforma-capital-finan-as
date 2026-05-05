@@ -35,7 +35,7 @@ Upload de até 16 tipos de documento. Cada seção tem progresso (`pct`), aceita
 | Nº | Seção | Componente |
 |---|---|---|
 | 01 | Cartão CNPJ | `SectionCNPJ` |
-| 02 | QSA + Contrato | `SectionQSA` (fuzzy merge contrato↔QSA) |
+| 02 | QSA + Contrato | `SectionQSA` (fuzzy merge contrato↔QSA) + `SectionContrato` |
 | 03 | Faturamento | `SectionFaturamento` |
 | 04 | DRE / Balanço | `SectionFinanceiro` |
 | 05 | SCR + IR Sócios | `SectionSCR`, `SectionIR` |
@@ -60,6 +60,15 @@ Analista preenche os 5 pilares com critérios e modificadores. Salva em `score_o
 - `respostas[]` (individual)
 
 **Não auto-preenche** em `/parecer` (decisão Victor 2026-05-04): TAC, garantias, concentração ficam vazios → evita viés de concordância com IA.
+
+### Cross-doc auto-fill na Review (2026-05-05)
+
+| Campo | Origem | Quando dispara | UI |
+|---|---|---|---|
+| `qsa.quadroSocietario[*].{cpfCnpj,qualificacao,participacao,capitalInvestido}` | Contrato Social (fuzzy match por nome) | Sempre que QSA + Contrato existem | Badge azul **"do contrato"** ao lado dos campos herdados (`SectionQSA.tsx`, `mergeQsaWithContrato.ts`) |
+| `contrato.dataConstituicao` | `cnpj.dataAbertura` | Quando contrato veio sem essa data e o cartão CNPJ tem | Badge azul **"do cartão CNPJ"** no Field (`SectionContrato.tsx`, ref `lastAutoFilledRef` em `ReviewStep.tsx` evita repreenchimento se o usuário apagar) |
+
+Padrão geral: **não sobrescrever dado próprio do documento**, **registrar herança visualmente**, **preservar autonomia do analista** (badge some quando o usuário edita).
 
 ### `GenerateStep` (`components/GenerateStep.tsx`)
 

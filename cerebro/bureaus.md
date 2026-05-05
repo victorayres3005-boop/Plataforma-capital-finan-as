@@ -104,6 +104,25 @@ CRM de origem dos clientes. Importa cards e seus anexos.
 - Cartão CNPJ pode vir de upload OU de consulta direta — preferir API quando disponível.
 - Status da Receita, situação cadastral, idade de empresa: derivados de respostas das APIs.
 
+## Google Maps + Places — `app/api/map-image/route.ts`
+
+Proxy server-side único para 3 produtos Google: Static Maps, Street View, Places API (New).
+
+**Auth:** `GOOGLE_MAPS_STATIC_KEY` (server-side). `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` só para `mapEmbedUrl` (iframe).
+
+**Modos:**
+- `?type=places&address=&razaoSocial=&cnae=&porte=` — busca empresa via `places:searchText`. Retorna `fotos[]` (validadas com Gemini Vision pra relevância de fachada) + `place_id` + `nome_encontrado` + **`lat`/`lng`** (desde 2026-05-05) + `formattedAddress`. fieldMask inclui `places.location` pra capturar coordenadas.
+- `?type=streetview&address=&heading=` — Street View 4 ângulos (0/90/180/270).
+- `?type=map&address=` ou `?type=map&lat=&lng=` — Static Map aéreo. Aceita lat/lng como alternativa ao endereço cru (preferível quando Places identificou o lugar) — evita geocoding errado por homônimos.
+
+**Validação contextual (Camada 2, desde 2026-05-05):** `?type=map&validate=true&razaoSocial=&cnae=&porte=` faz Gemini Vision olhar a imagem aérea e avaliar coerência do entorno (industrial/comercial/residencial/rural × tipo de negócio). Retorna `contextoCoerente: bool` + `contextoObservacao: string` (≤120 chars). Falha silenciosa: timeout 8s e qualquer erro retorna `coerente=true` (não bloqueia o relatório).
+
+**Geocoding correto no fluxo (Camada 1, desde 2026-05-05):** `GenerateStep.fetchGoogleMapsImages` chama Places primeiro pra obter `lat/lng` do estabelecimento; se sucesso, passa essas coords pro `type=map` em vez de geocodificar texto. Resolve casos onde o endereço do CNPJ tinha homônimos e o ponto vermelho do mapa caía longe da empresa real.
+
+**Onde aparece no relatório:** seção 1 do PDF/HTML. Aviso `mapaContextoAviso` (chip amarelo abaixo do bloco de endereço) quando Gemini sinalizar incoerência — analista decide.
+
+**Custo:** 1 chamada Places + 1-4 chamadas Street View + 1 chamada Static Map + 1 chamada Gemini Vision por relatório. Cache via `next.revalidate=86400` no Static Map.
+
 ## Orquestração CreditHub-first
 
 **Padrão desde 2026-05-05** (`app/api/bureaus/route.ts` commit `968f544`):
