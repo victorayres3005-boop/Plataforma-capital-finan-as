@@ -71,13 +71,13 @@ export function SectionFaturamento({ data, setMes, addMes, removeMes, expanded, 
           </div>
           {data.meses.length > 0 ? (
             <div className="rounded-xl border border-cf-border overflow-hidden">
-              <div className="grid grid-cols-[120px_1fr_36px] bg-cf-surface px-3 py-2 gap-2">
+              <div className="grid grid-cols-[88px_1fr_32px] sm:grid-cols-[120px_1fr_36px] bg-cf-surface px-3 py-2 gap-2">
                 {["Mês","Valor (R$)",""].map((h, i) => (
                   <span key={i} className="text-[11px] font-semibold text-cf-text-3 uppercase tracking-wide">{h}</span>
                 ))}
               </div>
               {data.meses.map((m, i) => (
-                <div key={i} className={`grid grid-cols-[120px_1fr_36px] px-3 py-2 gap-2 items-center ${i > 0 ? "border-t border-cf-border" : ""}`}>
+                <div key={i} className={`grid grid-cols-[88px_1fr_32px] sm:grid-cols-[120px_1fr_36px] px-3 py-2 gap-2 items-center ${i > 0 ? "border-t border-cf-border" : ""}`}>
                   <input value={m.mes} onChange={e => setMes(i,"mes",e.target.value)} placeholder="MM/YYYY" className="input-field py-1.5 text-xs" />
                   <input value={m.valor} onChange={e => setMes(i,"valor",e.target.value)} placeholder="0,00" className="input-field py-1.5 text-xs" />
                   <button onClick={() => removeMes(i)} className="w-8 h-8 flex items-center justify-center text-cf-text-3 hover:text-cf-danger hover:bg-cf-danger-bg rounded-lg transition-colors"><Trash2 size={13} /></button>

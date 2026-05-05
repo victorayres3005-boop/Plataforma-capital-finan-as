@@ -57,7 +57,7 @@ export function SectionProtestos({ data, expanded, onToggle }: Props) {
       )}
 
       {/* Resumo em cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "10px", marginBottom: temDetalhe ? "20px" : "0" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "10px", marginBottom: temDetalhe ? "20px" : "0" }}>
         <MetricCard label="Vigentes" qtd={vigQtd} valor={data.vigentesValor} danger={vigQtd > 0} />
         <MetricCard label="Regularizados" qtd={regQtd} valor={data.regularizadosValor} />
         {fiscQtd > 0 && (
@@ -71,8 +71,8 @@ export function SectionProtestos({ data, expanded, onToggle }: Props) {
           <p style={{ fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#6B7280", margin: "0 0 8px" }}>
             Detalhamento ({data.detalhes.length} registro{data.detalhes.length !== 1 ? "s" : ""})
           </p>
-          <div style={{ borderRadius: "10px", border: "1px solid #E5E7EB", overflow: "hidden" }}>
-            <table style={{ width: "100%", fontSize: "12px", borderCollapse: "collapse" }}>
+          <div style={{ borderRadius: "10px", border: "1px solid #E5E7EB", overflow: "hidden", overflowX: "auto" }}>
+            <table style={{ width: "100%", minWidth: "640px", fontSize: "12px", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ background: "#F9FAFB" }}>
                   {["Data", "Credor", "Valor", "Espécie", "Município/UF", "Status"].map((h, i) => (
