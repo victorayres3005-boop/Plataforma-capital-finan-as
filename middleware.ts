@@ -2,15 +2,49 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const PUBLIC_ROUTES = ["/login", "/auth/confirm", "/api/diag-credithub", "/api/test-credithub", "/api/debug-extraction", "/api/ch-diag", "/api/goalfy/receber", "/api/goalfy/webhook", "/api/cron/", "/api/debug-bureaus"];
+// Match exato — tem que bater 100% com pathname
+const PUBLIC_EXACT = new Set<string>([
+  "/login",
+  "/auth/confirm",
+]);
+
+// Match por prefixo — pega tudo que começa com esses paths
+const PUBLIC_PREFIXES: readonly string[] = [
+  "/_next/",
+  "/api/public/",
+  "/auth/confirm/",
+  // Endpoints internos historicamente públicos (diagnóstico, webhooks, cron)
+  "/api/diag-credithub",
+  "/api/test-credithub",
+  "/api/debug-extraction",
+  "/api/ch-diag",
+  "/api/goalfy/receber",
+  "/api/goalfy/webhook",
+  "/api/cron/",
+  "/api/debug-bureaus",
+];
+
+function isPublicRoute(pathname: string): boolean {
+  if (PUBLIC_EXACT.has(pathname)) return true;
+  for (const p of PUBLIC_PREFIXES) {
+    if (pathname.startsWith(p)) return true;
+  }
+  return false;
+}
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // 1. Response mutável para setar cookies
+  // ─── 1. Rotas públicas: passa sem tocar em Supabase ────────────────────────
+  // Skip do createServerClient + getSession() em rotas que não dependem de
+  // auth (assets, webhooks, cron, diagnóstico). Reduz latência e custo Supabase.
+  if (isPublicRoute(pathname) && pathname !== "/login") {
+    return NextResponse.next();
+  }
+
+  // ─── 2. Resto do app: precisa de sessão ────────────────────────────────────
   let response = NextResponse.next({ request });
 
-  // 2. Client Supabase com getter/setter de cookies na request/response
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -20,13 +54,10 @@ export async function middleware(request: NextRequest) {
           return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
-          // Set on request (for SSR downstream)
           cookiesToSet.forEach(({ name, value }) => {
             request.cookies.set(name, value);
           });
-          // Recreate response with updated request
           response = NextResponse.next({ request });
-          // Set on response (for browser)
           cookiesToSet.forEach(({ name, value, options }) => {
             response.cookies.set(name, value, options);
           });
@@ -35,22 +66,34 @@ export async function middleware(request: NextRequest) {
     },
   );
 
-  // 3. getSession() lê do cookie (sem rede) — evita timeout no Edge.
+  // getSession() lê do cookie (sem rede) — evita timeout no Edge.
   // getUser() (valida com servidor) fica nas rotas individuais que precisam.
   const { data: { session } } = await supabase.auth.getSession();
   const user = session?.user ?? null;
 
-  // 4. Check if route is public
-  const isPublic = PUBLIC_ROUTES.some((route) => pathname.startsWith(route));
+  // /login é público mas tem lógica especial: usuário logado é redirecionado pra home
+  if (pathname === "/login") {
+    if (user) {
+      const next = request.nextUrl.searchParams.get("next");
+      const homeUrl = request.nextUrl.clone();
+      if (next && next.startsWith("/") && !next.startsWith("//")) {
+        const parsed = new URL(next, request.nextUrl.origin);
+        homeUrl.pathname = parsed.pathname;
+        homeUrl.search = parsed.search;
+      } else {
+        homeUrl.pathname = "/";
+        homeUrl.search = "";
+      }
+      return NextResponse.redirect(homeUrl);
+    }
+    return response;
+  }
 
-  // 5. Redirect/reject logic
-  if (!user && !isPublic) {
-    // Rotas API retornam 401 JSON em vez de redirect
+  // Demais rotas exigem sessão
+  if (!user) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
     }
-    // Preserva URL original em ?next= para redirecionar de volta apos login.
-    // Sem isso, sessao expirada no meio de uma analise perdia o contexto.
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
     const fullPath = pathname + (request.nextUrl.search || "");
@@ -60,23 +103,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  if (user && pathname === "/login") {
-    // Respeita ?next= quando o usuario ja estava tentando ir pra algum lugar
-    const next = request.nextUrl.searchParams.get("next");
-    const homeUrl = request.nextUrl.clone();
-    if (next && next.startsWith("/") && !next.startsWith("//")) {
-      // Preserva o path + query inteiros
-      const parsed = new URL(next, request.nextUrl.origin);
-      homeUrl.pathname = parsed.pathname;
-      homeUrl.search = parsed.search;
-    } else {
-      homeUrl.pathname = "/";
-      homeUrl.search = "";
-    }
-    return NextResponse.redirect(homeUrl);
-  }
-
-  // 6. Return response with updated cookies
   return response;
 }
 
