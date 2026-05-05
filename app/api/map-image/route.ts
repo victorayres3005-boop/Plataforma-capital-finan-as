@@ -66,6 +66,53 @@ async function validatePhotoWithGemini(
   }
 }
 
+// Valida se o ENTORNO mostrado num mapa estático aéreo bate com o tipo de
+// negócio. Retorna { coerente, observacao }. Se Gemini falhar/timeout, marca
+// como coerente (não bloqueia o relatório, só sinaliza quando há dúvida real).
+async function validateMapContextWithGemini(
+  base64: string,
+  mime: string,
+  ctx: { razaoSocial: string; cnae: string; porte: string; endereco: string },
+): Promise<{ coerente: boolean; observacao: string }> {
+  if (!GEMINI_KEY) return { coerente: true, observacao: "" };
+  try {
+    const prompt =
+      `Imagem aérea (Google Maps satellite/hybrid) do endereço "${ctx.endereco}". ` +
+      `Empresa: "${ctx.razaoSocial}" — CNAE "${ctx.cnae}" — porte "${ctx.porte}". ` +
+      `Tarefa: avaliar se o ENTORNO visível na imagem é coerente com o tipo de negócio. ` +
+      `Por exemplo: indústria deveria estar em zona industrial/galpão; comércio em via comercial/centro; ` +
+      `serviços profissionais em zona urbana; agropecuária em área rural. ` +
+      `Não use estética da foto, só padrão de uso do solo. Em caso de dúvida razoável, retorne coerente=true. ` +
+      `Retorne SOMENTE JSON: {"coerente": true|false, "observacao": "frase curta em pt-BR explicando, máx 90 chars"}`;
+
+    const body = {
+      contents: [{ parts: [
+        { inlineData: { mimeType: `image/${mime}`, data: base64 } },
+        { text: prompt },
+      ]}],
+      generationConfig: { responseMimeType: "application/json", temperature: 0, maxOutputTokens: 120 },
+    };
+
+    const ctrl = new AbortController();
+    const tid  = setTimeout(() => ctrl.abort(), 8000);
+    const res  = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ctrl.signal },
+    );
+    clearTimeout(tid);
+    if (!res.ok) return { coerente: true, observacao: "" };
+    const json = await res.json();
+    const text: string = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? '{"coerente":true,"observacao":""}';
+    const parsed = JSON.parse(text) as { coerente?: boolean; observacao?: string };
+    return {
+      coerente: parsed.coerente !== false,
+      observacao: typeof parsed.observacao === "string" ? parsed.observacao.slice(0, 120) : "",
+    };
+  } catch {
+    return { coerente: true, observacao: "" };
+  }
+}
+
 // ── route ─────────────────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
@@ -93,7 +140,7 @@ export async function GET(req: NextRequest) {
         headers: {
           "Content-Type": "application/json",
           "X-Goog-Api-Key": key,
-          "X-Goog-FieldMask": "places.id,places.displayName,places.photos,places.formattedAddress",
+          "X-Goog-FieldMask": "places.id,places.displayName,places.photos,places.formattedAddress,places.location",
         },
         body: JSON.stringify({
           textQuery: `${razaoSocial} ${address}`.trim(),
@@ -113,24 +160,27 @@ export async function GET(req: NextRequest) {
           displayName?: { text?: string };
           formattedAddress?: string;
           photos?: Array<{ name: string }>;
+          location?: { latitude?: number; longitude?: number };
         }>;
       };
       const places = searchJson.places ?? [];
 
       if (places.length === 0) {
         console.log(`[map-image/places] sem resultado: "${razaoSocial} ${address}"`);
-        return NextResponse.json({ fotos: [], fallback: true, place_id: null, nome_encontrado: null });
+        return NextResponse.json({ fotos: [], fallback: true, place_id: null, nome_encontrado: null, lat: null, lng: null });
       }
 
       const place        = places[0];
       const place_id     = place.id ?? null;
       const nome_encontrado = place.displayName?.text ?? null;
       const photos       = place.photos ?? [];
+      const lat          = place.location?.latitude ?? null;
+      const lng          = place.location?.longitude ?? null;
 
-      console.log(`[map-image/places] "${nome_encontrado}" place_id=${place_id} fotos=${photos.length}`);
+      console.log(`[map-image/places] "${nome_encontrado}" place_id=${place_id} lat=${lat} lng=${lng} fotos=${photos.length}`);
 
       if (photos.length === 0) {
-        return NextResponse.json({ fotos: [], fallback: true, place_id, nome_encontrado });
+        return NextResponse.json({ fotos: [], fallback: true, place_id, nome_encontrado, lat, lng });
       }
 
       // 2) Busca até 4 fotos em paralelo via media endpoint
@@ -153,7 +203,7 @@ export async function GET(req: NextRequest) {
       const validPhotos = photoResults.filter((p): p is { base64: string; mime: string } => p !== null);
 
       if (validPhotos.length === 0) {
-        return NextResponse.json({ fotos: [], fallback: true, place_id, nome_encontrado });
+        return NextResponse.json({ fotos: [], fallback: true, place_id, nome_encontrado, lat, lng });
       }
 
       // 3) Validação Gemini Vision em paralelo
@@ -169,10 +219,10 @@ export async function GET(req: NextRequest) {
       console.log(`[map-image/places] ${fotos.length}/${validPhotos.length} fotos relevantes`);
 
       if (fotos.length === 0) {
-        return NextResponse.json({ fotos: [], fallback: true, place_id, nome_encontrado });
+        return NextResponse.json({ fotos: [], fallback: true, place_id, nome_encontrado, lat, lng });
       }
 
-      return NextResponse.json({ fotos, fallback: false, place_id, nome_encontrado });
+      return NextResponse.json({ fotos, fallback: false, place_id, nome_encontrado, lat, lng });
     } catch (err) {
       console.error("[map-image/places] erro:", err instanceof Error ? err.message : err);
       return NextResponse.json({ fotos: [], fallback: true, place_id: null, nome_encontrado: null });
@@ -206,6 +256,15 @@ export async function GET(req: NextRequest) {
     if (buf.byteLength < 2000) return NextResponse.json({ error: "no_imagery" });
     const base64 = Buffer.from(buf).toString("base64");
     const mime   = contentType.startsWith("image/jpeg") ? "jpeg" : "png";
+
+    // Validação contextual opcional (Camada 2): só dispara em type=map com ?validate=true.
+    // Falha silenciosa — o mapa é retornado mesmo se Gemini não conseguir avaliar.
+    const validate = type === "map" && searchParams.get("validate") === "true";
+    if (validate && (razaoSocial || cnae || porte)) {
+      const ctx = { razaoSocial, cnae, porte, endereco: address ?? "" };
+      const { coerente, observacao } = await validateMapContextWithGemini(base64, mime, ctx);
+      return NextResponse.json({ base64, mime, contextoCoerente: coerente, contextoObservacao: observacao });
+    }
     return NextResponse.json({ base64, mime });
   } catch {
     return NextResponse.json({ error: "unavailable" });

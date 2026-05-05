@@ -1124,6 +1124,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
       <div class="l">Endereço</div>
       <div class="a">${esc(cnpj?.endereco ?? "—")}</div>
       <div class="t">Tipo: ${esc(cnpj?.tipoEmpresa ?? "Matriz")}</div>
+      ${params.mapaContextoAviso ? `<div style="margin-top:6px;font-size:10px;color:#92400e;background:#fef9c3;border:1px solid #fde68a;border-radius:6px;padding:5px 9px;line-height:1.4">⚠ ${esc(params.mapaContextoAviso)} — verificar manualmente</div>` : ""}
     </div>`;
   } else {
     mapHtml = `
@@ -1131,6 +1132,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
       <div class="l">Endereço</div>
       <div class="a">${esc(cnpj?.endereco ?? "—")}</div>
       <div class="t">Tipo: ${esc(cnpj?.tipoEmpresa ?? "Matriz")}</div>
+      ${params.mapaContextoAviso ? `<div style="margin-top:6px;font-size:10px;color:#92400e;background:#fef9c3;border:1px solid #fde68a;border-radius:6px;padding:5px 9px;line-height:1.4">⚠ ${esc(params.mapaContextoAviso)} — verificar manualmente</div>` : ""}
     </div>`;
   }
 

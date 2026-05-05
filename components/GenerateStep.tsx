@@ -1738,6 +1738,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         streetView270Base64,
         mapStaticBase64,
         streetViewInteractiveUrl,
+        mapaContextoAviso,
       } = await fetchGoogleMapsImages();
 
       // ── Busca histórico de operações do cedente ────────────────────────────
@@ -1775,6 +1776,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         streetView270Base64,
         streetViewInteractiveUrl,
         mapStaticBase64,
+        mapaContextoAviso,
         fundValidation,
         creditLimit,
         histOperacoes: histOperacoes.length ? histOperacoes : undefined,
@@ -1881,6 +1883,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     streetView270Base64?: string;
     mapStaticBase64?: string;
     streetViewInteractiveUrl?: string;
+    mapaContextoAviso?: string;
   }> => {
     const endereco = data.cnpj?.endereco;
     if (!endereco) return {};
@@ -1889,27 +1892,57 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     const cnae        = data.cnpj?.cnaePrincipal ?? "";
     const porte       = data.cnpj?.porte ?? "";
 
-    const fetchMapProxy = async (type: "streetview" | "map", heading?: number): Promise<string | undefined> => {
+    // fetchMapProxy unificado: aceita lat/lng (preferido quando Places identificou a empresa)
+    // ou cai no address. Em type=map suporta validate=true que retorna {contextoCoerente, contextoObservacao}.
+    const fetchMapProxy = async (opts: {
+      type: "streetview" | "map";
+      heading?: number;
+      lat?: number;
+      lng?: number;
+      validate?: boolean;
+    }): Promise<{ url?: string; aviso?: string }> => {
       try {
-        const qs = new URLSearchParams({ address: endereco, type });
-        if (heading != null) qs.set("heading", String(heading));
+        const qs = new URLSearchParams({ type: opts.type });
+        if (opts.lat != null && opts.lng != null) {
+          qs.set("lat", String(opts.lat));
+          qs.set("lng", String(opts.lng));
+        } else {
+          qs.set("address", endereco);
+        }
+        if (opts.heading != null) qs.set("heading", String(opts.heading));
+        if (opts.validate) {
+          qs.set("validate", "true");
+          if (razaoSocial) qs.set("razaoSocial", razaoSocial);
+          if (cnae)        qs.set("cnae",        cnae);
+          if (porte)       qs.set("porte",       porte);
+          // address sempre incluso pra prompt do Gemini Vision ter contexto textual
+          qs.set("address", endereco);
+        }
         const ctrl = new AbortController();
-        const timeoutId = setTimeout(() => ctrl.abort(), 8000);
+        const timeoutId = setTimeout(() => ctrl.abort(), opts.validate ? 12000 : 8000);
         const res = await fetch(`/api/map-image?${qs.toString()}`, { signal: ctrl.signal });
         clearTimeout(timeoutId);
-        if (!res.ok) return undefined;
+        if (!res.ok) return {};
         const json = await res.json();
-        if (json.error || !json.base64) return undefined;
-        return `data:image/${json.mime ?? "jpeg"};base64,${json.base64}`;
+        if (json.error || !json.base64) return {};
+        const url = `data:image/${json.mime ?? "jpeg"};base64,${json.base64}`;
+        const aviso = json.contextoCoerente === false && typeof json.contextoObservacao === "string"
+          ? json.contextoObservacao
+          : undefined;
+        return { url, aviso };
       } catch (e) {
-        console.warn(`[fetchGoogleMapsImages] ${type}/${heading} falhou:`, e instanceof Error ? e.message : e);
-        return undefined;
+        console.warn(`[fetchGoogleMapsImages] ${opts.type}/${opts.heading ?? ""} falhou:`, e instanceof Error ? e.message : e);
+        return {};
       }
     };
 
     let sv0: string | undefined, sv90: string | undefined, sv180: string | undefined, sv270: string | undefined;
     let interactiveUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(endereco)}`;
     let usedPlaces = false;
+    // lat/lng do Places: quando preenchido, mapa estático é centralizado nessa coordenada
+    // exata em vez de geocodificar o texto do endereço (evita homônimos).
+    let placesLat: number | undefined;
+    let placesLng: number | undefined;
 
     // ── Tenta Places API primeiro ────────────────────────────────────────
     try {
@@ -1925,7 +1958,15 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           place_id: string | null;
           nome_encontrado: string | null;
           fallback: boolean;
+          lat?: number | null;
+          lng?: number | null;
         };
+        // Captura lat/lng mesmo quando fallback=true mas Places encontrou place (foto pode falhar):
+        // posiciona o mapa exatamente onde a empresa foi identificada.
+        if (typeof pj.lat === "number" && typeof pj.lng === "number") {
+          placesLat = pj.lat;
+          placesLng = pj.lng;
+        }
         if (!pj.fallback && pj.fotos.length > 0) {
           const toUrl = (f?: { base64: string; mime: string }) =>
             f ? `data:image/${f.mime};base64,${f.base64}` : undefined;
@@ -1935,7 +1976,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           sv270 = toUrl(pj.fotos[3]);
           if (pj.place_id) interactiveUrl = `https://www.google.com/maps/place/?q=place_id:${pj.place_id}`;
           usedPlaces = true;
-          console.log(`[fetchGoogleMapsImages] Places: ${pj.fotos.length} fotos, "${pj.nome_encontrado}", place_id=${pj.place_id}`);
+          console.log(`[fetchGoogleMapsImages] Places: ${pj.fotos.length} fotos, "${pj.nome_encontrado}", place_id=${pj.place_id}, lat=${placesLat}, lng=${placesLng}`);
         }
       }
     } catch (e) {
@@ -1947,20 +1988,28 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       console.log("[fetchGoogleMapsImages] Street View (Places sem resultado)");
       try {
         const [a, b, c, d] = await Promise.all([
-          fetchMapProxy("streetview", 0),
-          fetchMapProxy("streetview", 90),
-          fetchMapProxy("streetview", 180),
-          fetchMapProxy("streetview", 270),
+          fetchMapProxy({ type: "streetview", heading: 0 }),
+          fetchMapProxy({ type: "streetview", heading: 90 }),
+          fetchMapProxy({ type: "streetview", heading: 180 }),
+          fetchMapProxy({ type: "streetview", heading: 270 }),
         ]);
-        sv0 = a; sv90 = b; sv180 = c; sv270 = d;
+        sv0 = a.url; sv90 = b.url; sv180 = c.url; sv270 = d.url;
       } catch (e) {
         console.warn("[fetchGoogleMapsImages] Street View falhou:", e);
       }
     }
 
-    // ── Mapa estático sempre busca ───────────────────────────────────────
-    const mp = await fetchMapProxy("map").catch(() => undefined);
-    console.log(`[fetchGoogleMapsImages] sv0=${!!sv0} sv90=${!!sv90} mp=${!!mp} source=${usedPlaces ? "places" : "streetview"}`);
+    // ── Mapa estático sempre busca, com Camada 1 (lat/lng quando Places identificou)
+    // e Camada 2 (validação contextual via Gemini Vision) ─────────────────────
+    const mapResult = await fetchMapProxy({
+      type: "map",
+      lat: placesLat,
+      lng: placesLng,
+      validate: true,
+    }).catch(() => ({} as { url?: string; aviso?: string }));
+    const mp = mapResult.url;
+    const mapaContextoAviso = mapResult.aviso;
+    console.log(`[fetchGoogleMapsImages] sv0=${!!sv0} sv90=${!!sv90} mp=${!!mp} source=${usedPlaces ? "places" : "streetview"} latlng=${placesLat != null ? `${placesLat},${placesLng}` : "—"} aviso=${mapaContextoAviso ?? "—"}`);
 
     return {
       streetViewBase64: sv0,
@@ -1969,6 +2018,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       streetView270Base64: sv270,
       mapStaticBase64: mp,
       streetViewInteractiveUrl: interactiveUrl,
+      mapaContextoAviso,
     };
   };
 
@@ -2006,6 +2056,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         streetView270Base64: maps.streetView270Base64,
         streetViewInteractiveUrl: maps.streetViewInteractiveUrl,
         mapStaticBase64: maps.mapStaticBase64,
+        mapaContextoAviso: maps.mapaContextoAviso,
         mapEmbedUrl: htmlEndereco && htmlApiKey
           ? `https://www.google.com/maps/embed/v1/place?key=${htmlApiKey}&q=${encodeURIComponent(htmlEndereco)}`
           : undefined,
@@ -2060,6 +2111,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         streetView270Base64: maps.streetView270Base64,
         streetViewInteractiveUrl: maps.streetViewInteractiveUrl,
         mapStaticBase64: maps.mapStaticBase64,
+        mapaContextoAviso: maps.mapaContextoAviso,
         mapEmbedUrl: htmlEndereco && htmlApiKey
           ? `https://www.google.com/maps/embed/v1/place?key=${htmlApiKey}&q=${encodeURIComponent(htmlEndereco)}`
           : undefined,

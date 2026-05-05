@@ -44,6 +44,10 @@ export interface PDFReportParams {
   mapStaticBase64?: string;
   mapEmbedUrl?: string;
   streetViewInteractiveUrl?: string; // link pro Google Maps com Street View
+  // Aviso textual do Gemini Vision quando o entorno do mapa não bate com o tipo
+  // de negócio (Camada 2 do auto-validação geocoding). Renderizado em cinza
+  // abaixo do bloco de endereço; quando ausente, nada é exibido.
+  mapaContextoAviso?: string;
   fundValidation?: FundValidationResult;
   creditLimit?: CreditLimitResult;
   histOperacoes?: Operacao[];
