@@ -237,6 +237,16 @@ html.dark body { background: #0f172a; color: #f1f5f9; }
      Hierarquia única. Use o utility correspondente ao papel do texto, não o
      fontSize. Cada nível tem size + weight + line-height + tracking definidos.
      ─────────────────────────────────────────────────────────────────────────── */
+  .text-display {
+    /* Hero de página principal (home, dashboard inicial). Reservar para o
+       primeiro título da experiência. Document-grade fintech vibe — generoso
+       no peso visual mas com tracking apertado pra parecer institucional. */
+    font-size: 30px;
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    color: var(--text-1);
+  }
   .text-page-title {
     font-size: 22px;
     font-weight: 800;

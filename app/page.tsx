@@ -960,58 +960,69 @@ export default function HomePage() {
                   {/* Cabeçalho limpo */}
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
                     <div>
-                      <h1 className="text-page-title m-0">
+                      <h1 className="text-display m-0">
                         {heroName ? `Olá, ${heroName}` : "Olá"}
                       </h1>
-                      <p className="text-body-sm mt-1 mb-0 text-cf-text-4">
+                      <p className="mt-2 mb-0" style={{ fontSize: 13, color: "#64748b", fontWeight: 400, letterSpacing: "0.01em" }}>
                         {new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })}
-                        {metricas.emAnalise > 0 && <span className="text-cf-warning font-semibold"> · {metricas.emAnalise} em andamento</span>}
+                        {metricas.emAnalise > 0 && <span style={{ color: "#d97706", fontWeight: 500, marginLeft: 6 }}>· {metricas.emAnalise} em andamento</span>}
                       </p>
                     </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      {/* filtro de data */}
-                      <div style={{ display: "flex", gap: 1, background: "#f1f5f9", borderRadius: 7, padding: 2 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                      {/* filtro de data — segmented com underline verde no ativo */}
+                      <div style={{ display: "flex", alignItems: "stretch", gap: 0, borderBottom: "1px solid #e2e8f0" }}>
                         {([
                           { key: "hoje", label: "Hoje" },
-                          { key: "7dias", label: "7d" },
-                          { key: "30dias", label: "30d" },
+                          { key: "7dias", label: "7 dias" },
+                          { key: "30dias", label: "30 dias" },
                           { key: "custom", label: "" },
-                        ] as { key: typeof dateFilter; label: string }[]).map(f =>
-                          f.key === "custom" ? (
+                        ] as { key: typeof dateFilter; label: string }[]).map(f => {
+                          const active = dateFilter === f.key;
+                          return f.key === "custom" ? (
                             <button key="custom" onClick={() => setDateFilter("custom")} style={{
-                              display: "flex", alignItems: "center", padding: "5px 9px", borderRadius: 5, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, transition: "all 0.12s",
-                              background: dateFilter === "custom" ? "white" : "transparent",
-                              color: dateFilter === "custom" ? "#0f172a" : "#64748b", minHeight: "auto",
-                              boxShadow: dateFilter === "custom" ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
-                            }}><Calendar size={11} /></button>
+                              display: "flex", alignItems: "center", padding: "8px 12px", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 500, transition: "color 0.15s, border-color 0.15s",
+                              background: "transparent",
+                              color: active ? "#0f172a" : "#94a3b8", minHeight: "auto",
+                              borderBottom: active ? "2px solid #73b815" : "2px solid transparent",
+                              marginBottom: "-1px",
+                            }}><Calendar size={13} /></button>
                           ) : (
                             <button key={f.key} onClick={() => setDateFilter(f.key)} style={{
-                              padding: "5px 12px", borderRadius: 5, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700, transition: "all 0.12s",
-                              background: dateFilter === f.key ? "white" : "transparent",
-                              color: dateFilter === f.key ? "#0f172a" : "#64748b", minHeight: "auto",
-                              boxShadow: dateFilter === f.key ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                              padding: "8px 14px", border: "none", cursor: "pointer", fontSize: 12, fontWeight: active ? 600 : 500, transition: "color 0.15s, border-color 0.15s",
+                              background: "transparent",
+                              color: active ? "#0f172a" : "#64748b", minHeight: "auto",
+                              borderBottom: active ? "2px solid #73b815" : "2px solid transparent",
+                              marginBottom: "-1px",
+                              letterSpacing: "0.01em",
                             }}>{f.label}</button>
-                          )
-                        )}
+                          );
+                        })}
                       </div>
                       {dateFilter === "custom" && (
                         <input type="date" value={customDate} onChange={e => setCustomDate(e.target.value)}
-                          style={{ padding: "5px 10px", borderRadius: 7, border: "1px solid #e2e8f0", background: "white", color: "#0f172a", fontSize: 11 }} />
+                          style={{ padding: "7px 10px", borderRadius: 8, border: "1px solid #e2e8f0", background: "white", color: "#0f172a", fontSize: 12 }} />
                       )}
                       <div style={{ position: "relative" }}>
-                        <Search size={12} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#94a3b8" }} />
+                        <Search size={13} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: "#94a3b8", pointerEvents: "none" }} />
                         <input type="text" value={searchQuery}
                           onChange={e => { setSearchQuery(e.target.value); setListaLimit(10); }}
                           placeholder="Buscar empresa..."
-                          style={{ paddingLeft: 30, paddingRight: 12, paddingTop: 7, paddingBottom: 7, borderRadius: 7, border: "1px solid #e2e8f0", background: "white", color: "#0f172a", fontSize: 11, width: 150, outline: "none" }}
+                          style={{ paddingLeft: 32, paddingRight: 14, paddingTop: 8, paddingBottom: 8, borderRadius: 8, border: "1px solid #e2e8f0", background: "white", color: "#0f172a", fontSize: 12, width: 180, outline: "none", transition: "border-color 0.15s, box-shadow 0.15s" }}
+                          onFocus={e => { e.currentTarget.style.borderColor = "#203b88"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(32,59,136,0.10)"; }}
+                          onBlur={e => { e.currentTarget.style.borderColor = "#e2e8f0"; e.currentTarget.style.boxShadow = "none"; }}
                         />
                       </div>
                       <button onClick={handleNovaColeta} style={{
-                        display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px",
-                        borderRadius: 7, border: "none", cursor: "pointer", background: "#203b88",
-                        color: "white", fontSize: 12, fontWeight: 700, minHeight: "auto",
-                      }}>
-                        <Plus size={13} /> Nova Coleta
+                        display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 18px",
+                        borderRadius: 8, border: "1px solid #203b88", cursor: "pointer", background: "#203b88",
+                        color: "white", fontSize: 12, fontWeight: 600, minHeight: "auto",
+                        transition: "background 0.15s, border-color 0.15s, box-shadow 0.15s",
+                        letterSpacing: "0.01em",
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = "#162d6e"; e.currentTarget.style.borderColor = "#73b815"; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = "#203b88"; e.currentTarget.style.borderColor = "#203b88"; }}
+                      >
+                        <Plus size={14} /> Nova Coleta
                       </button>
                     </div>
                   </div>
