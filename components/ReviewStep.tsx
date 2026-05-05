@@ -180,14 +180,19 @@ export default function ReviewStep({ data, onComplete, onBack, onDataChange }: R
   });
 
   // Auto-fill: data de constituição herdada do cartão CNPJ quando o contrato veio sem ela.
-  // Mantém flag local pra exibir badge "do cartão CNPJ" no Field; flag desliga assim que
-  // o usuário editar (igualdade com cnpj.dataAbertura quebra) ou o contrato trouxer dado próprio.
+  // Usa ref pra rastrear qual dataAbertura já foi auto-preenchida — evita repreencher se o
+  // usuário apagar o campo intencionalmente (re-disparo do effect com mesmo cnpj.dataAbertura).
+  // Permite redisparar se cnpj.dataAbertura mudar (re-extração com data nova).
   const [dataConstituicaoFromCnpj, setDataConstituicaoFromCnpj] = useState(false);
+  const lastAutoFilledRef = useRef<string>("");
   useEffect(() => {
-    if (!form.contrato.dataConstituicao && form.cnpj?.dataAbertura) {
-      setForm(p => ({ ...p, contrato: { ...p.contrato, dataConstituicao: p.cnpj?.dataAbertura ?? "" } }));
-      setDataConstituicaoFromCnpj(true);
-    }
+    const da = form.cnpj?.dataAbertura ?? "";
+    if (!da) return;
+    if (form.contrato.dataConstituicao) return;
+    if (lastAutoFilledRef.current === da) return;
+    setForm(p => ({ ...p, contrato: { ...p.contrato, dataConstituicao: da } }));
+    setDataConstituicaoFromCnpj(true);
+    lastAutoFilledRef.current = da;
   }, [form.cnpj?.dataAbertura, form.contrato.dataConstituicao]);
   const dataConstituicaoEhDoCnpj =
     dataConstituicaoFromCnpj &&
