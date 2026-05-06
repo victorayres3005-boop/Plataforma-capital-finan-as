@@ -188,15 +188,22 @@ parecer.perguntasVisita (3–6 objetos { pergunta, contexto }):
 Foque nos alertas [ALTA] e [MODERADA] identificados. Tom direto de analista experiente.
 Contexto entre parênteses explica por que a pergunta importa para a operação.
 
-parecer.textoCompleto (6–7 parágrafos corridos, SEM markdown, SEM bullets, SEM listas — apenas texto corrido):
+parecer.textoCompleto (7–8 parágrafos corridos, SEM markdown, SEM bullets, SEM listas — apenas texto corrido):
 P1 — Perfil e contexto: quem é a empresa, setor (CNAE), tempo de operação, porte, FMM, regime tributário. Identifique o tipo de recebível predominante (duplicata mercantil, nota de serviço, CCB) com base no CNAE/objeto social. Se Simples Nacional, avalie se o faturamento anualizado está próximo do teto (R$ 4,8M/ano) — risco de migração de regime com impacto direto em margens. Se já no Lucro Presumido/Real, mencione como indicador de porte relevante. Contextualize para o comitê entender o negócio.
 P2 — Capacidade financeira: SCR detalhado (cite valores exatos), alavancagem (X,Xx), composição CP/LP, tendência entre períodos. Compare com FMM. Analise as modalidades do SCR — se houver desconto de duplicatas, antecipação de recebíveis ou operações FIDC existentes, cite o volume e explique que comprime a capacidade disponível para esta operação. Se o SCR dos sócios estiver disponível, mencione se há ou não inadimplência pessoal e sua implicação para a eficácia do aval.
 P3 — Disciplina de pagamento: protestos (cite quantidade, valor total e % do FMM), processos judiciais (cite tipos e quantidades), CCF se houver. Seja específico com números.
 P4 — Qualidade da carteira de sacados: se Curva ABC disponível, cite o maior sacado (nome e % do faturamento), concentração top 3 e top 5, total de clientes na base. Avalie se a diversificação é adequada para um portfólio de FIDC. Se não disponível, sinalize a limitação e o impacto no rating de confiança. Se o setor sugere risco de diluição (serviços, construção), estime o impacto no overcollateral necessário.
 P5 — Estrutura societária e governança: sócios (cite nomes), participações, IR dos sócios (cite restrições), grupo econômico se houver. Identifique riscos de concentração de gestão.
 P6 — Balanço e DRE: patrimônio líquido, liquidez corrente, endividamento, margens. Compare anos se disponível. Identifique tendências.
+P_PILARES — Análise crítica dos 5 pilares da Política V2:
+Comente cada pilar na ordem oficial: Estrutura da Operação (35%), Risco e Compliance (25%), Perfil da Empresa (15%), Saúde Financeira (15%), Sócios e Governança (10%). Para CADA pilar:
+  • Cite peso e pontuação obtida lendo do bloco SCORE V2 — ex: "Estrutura da Operação (35%, 28/35 pts)".
+  • Avalie se a RESPOSTA DO ANALISTA para cada critério é coerente com os dados extraídos da empresa (SCR, faturamento, processos, balanço, etc.).
+  • Aponte EXPLICITAMENTE divergências quando os dados contradisserem a resposta do analista. Exemplo: "Analista marcou 'sem inadimplência relevante' mas SCR mostra R$ 162.834 vencidos — inconsistência a revisar antes de comitê".
+  • Quando os dados confirmarem a resposta, valide brevemente em uma frase.
+Use linguagem de auditor crítico, não de complacência. Este parágrafo existe para o comitê verificar se a pontuação faz sentido frente aos dados objetivos.
 P7 — Conclusão e recomendação: decisão fundamentada com condições específicas. O que precisa ser esclarecido antes de aprovar. Prazo de revisão sugerido. Mencione explicitamente se a operação é adequada para FIDC com ou sem coobrigação do cedente. Se houver relatório de visita com recomendação negativa, dedique ao menos 2 frases explicando o conflito entre o dado de campo e o score documental, e por que o comitê deve tratar como PENDENTE até esclarecimento.
-IMPORTANTE: Cada parágrafo deve ter 3-5 frases com dados concretos. NÃO seja genérico. Cite valores em R$, percentuais e quantidades sempre que disponíveis.
+IMPORTANTE: Cada parágrafo deve ter 3-5 frases com dados concretos. NÃO seja genérico. Cite valores em R$, percentuais e quantidades sempre que disponíveis. O parágrafo P_PILARES pode ser mais longo (até 8-10 frases) por sua natureza estruturada — uma frase por pilar com dados concretos.
 
 === PARÂMETROS OPERACIONAIS ===
 
