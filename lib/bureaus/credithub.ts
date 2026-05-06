@@ -558,8 +558,10 @@ function parseProcessos(d: any): ProcessosData {
   console.log(`[credithub] processos polo ativo=${poloAtivoQtd} polo passivo=${poloPassivoQtd} arquivados=${arquivados} interrompidos=${interrompidos} falência=${temFalencia}`);
 
   return {
-    // Total de PROCESSOS (não somar dividas — são entidades distintas; o valor agregado vai em valorTotalEstimado)
-    passivosTotal: String(processos.length),
+    // passivosTotal = APENAS processos onde a empresa é polo passivo (ré).
+    // Antes contava processos.length (todos), gerando inconsistência com BDC e
+    // inflando o critério eliminatório `processos_passivos_max` da política V2.
+    passivosTotal: String(poloPassivoQtd),
     ativosTotal: String(ativos),
     valorTotalEstimado: fmtBRL(valorProcessos + valorDividas),
     temRJ,
@@ -1027,7 +1029,9 @@ async function consultarCreditHubPorCPF(cpf: string, nomeSocio: string): Promise
 
       const kyc: SocioKycCreditHub = {
         cpf: cpfNum,
-        processosTotal:     Number(proc.passivosTotal) || undefined,
+        // processosTotal = ativo + passivo. Antes lia passivosTotal cru, mas
+        // agora passivosTotal reflete só polo passivo — o total precisa ser somado.
+        processosTotal:     (Number(proc.poloAtivoQtd ?? 0) + Number(proc.poloPassivoQtd ?? 0)) || undefined,
         processosAtivo:     Number(proc.poloAtivoQtd)  || undefined,
         processosPassivo:   Number(proc.poloPassivoQtd) || undefined,
         processosValorTotal: proc.valorTotalEstimado || undefined,

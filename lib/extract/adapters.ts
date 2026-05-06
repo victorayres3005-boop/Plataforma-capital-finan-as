@@ -226,7 +226,8 @@ export function adaptSCRNew(raw: Record<string, unknown>): Partial<SCRData> {
   const aVen_ate30 = aVen.de_14_a_30_dias ?? aVen.ate_30_dias;
   // Curto prazo = até 360 dias. Longo prazo = acima de 360 dias.
   const curtoN = _sumNums([aVen_ate30, aVen.de_31_a_60_dias, aVen.de_61_a_90_dias, aVen.de_91_a_180_dias, aVen.de_181_a_360_dias]);
-  const longoN = _sumNums([aVen.acima_de_360_dias]);
+  // Longo prazo (BCB) = acima 360 dias + prazo indeterminado.
+  const longoN = _sumNums([aVen.acima_de_360_dias, aVen.prazo_indeterminado]);
 
   // Para carteira_a_vencer: recalcula pelas faixas porque Gemini omite "De 14 a 30 dias" no total.
   // Para vencidos/prejuizos: prefere o total declarado no documento — mais confiável que a soma

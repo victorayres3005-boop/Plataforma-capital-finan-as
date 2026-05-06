@@ -31,7 +31,9 @@ export function recomputeSCRTotals<T extends Partial<SCRData>>(scr: T): T {
   const curtoFaixas = fa
     ? parseBR(fa.ate30d) + parseBR(fa.d31_60) + parseBR(fa.d61_90) + parseBR(fa.d91_180) + parseBR(fa.d181_360)
     : 0;
-  const longoFaixas = fa ? parseBR(fa.acima360d) : 0;
+  // Longo prazo (BCB) = acima 360 dias + prazo indeterminado.
+  // Antes: ignorava prazoIndeterminado, subestimando exposição de longo prazo.
+  const longoFaixas = fa ? parseBR(fa.acima360d) + parseBR(fa.prazoIndeterminado ?? "") : 0;
   const vencFaixas = fv
     ? parseBR(fv.ate30d) + parseBR(fv.d31_60) + parseBR(fv.d61_90) + parseBR(fv.d91_180) + parseBR(fv.d181_360) + parseBR(fv.acima360d)
     : 0;

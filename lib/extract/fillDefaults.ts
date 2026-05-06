@@ -212,12 +212,15 @@ export function fillSCRDefaults(data: Partial<SCRData>): SCRData {
   const curtoNum   = parseMoney(carteiraCurtoPrazo);
   const longoNum   = parseMoney(carteiraLongoPrazo);
   if (curtoNum === 0 && longoNum === 0 && aVencerNum > 0) {
-    // Nenhum dado de faixa — assume 100% curto prazo (cenário conservador)
+    // Nenhum dado de faixa — deriva pelo total a vencer.
+    // Longo prazo (BCB) = acima 360 dias + prazo indeterminado.
     const acima360 = parseMoney(faixasAVencer.acima360d);
-    const curtoDerivado = Math.max(0, aVencerNum - acima360);
+    const indeterminado = parseMoney(faixasAVencer.prazoIndeterminado);
+    const longoDerivado = acima360 + indeterminado;
+    const curtoDerivado = Math.max(0, aVencerNum - longoDerivado);
     carteiraCurtoPrazo = curtoDerivado.toFixed(2).replace(".", ",");
-    carteiraLongoPrazo = acima360.toFixed(2).replace(".", ",");
-    console.log(`[scr-fallback] curto/longo derivados de carteiraAVencer=${aVencerNum} (curto=${curtoDerivado}, longo=${acima360})`);
+    carteiraLongoPrazo = longoDerivado.toFixed(2).replace(".", ",");
+    console.log(`[scr-fallback] curto/longo derivados de carteiraAVencer=${aVencerNum} (curto=${curtoDerivado}, longo=${longoDerivado})`);
   }
 
   return {

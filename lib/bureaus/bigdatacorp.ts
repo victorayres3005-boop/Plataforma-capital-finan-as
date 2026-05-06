@@ -596,7 +596,11 @@ export function mapearParaExtractedData(r: Record<string, unknown>, rawBody?: Re
   // Dataset "processes" retorna com chave "Lawsuits" na resposta BDC
   const lawsuitsSection = (r.Lawsuits ?? getSection(r, "processes")) as Record<string, unknown> | undefined;
   if (lawsuitsSection !== undefined) {
-    const passivos = _num(lawsuitsSection.TotalLawsuitsAsDefendant ?? lawsuitsSection.TotalLawsuits);
+    // Distingue "campo ausente" (cai em items.length) de "0 legítimo" (preserva 0).
+    // Antes: `passivos || items.length` transformava 0 explícito em items.length.
+    const passivosRaw = lawsuitsSection.TotalLawsuitsAsDefendant ?? lawsuitsSection.TotalLawsuits;
+    const passivos = _num(passivosRaw);
+    const passivosInformado = passivosRaw != null;
     const ativos   = _num(lawsuitsSection.TotalLawsuitsAsAuthor);
 
     const lawsuitsArr = Array.isArray(lawsuitsSection.Lawsuits)
@@ -707,7 +711,7 @@ export function mapearParaExtractedData(r: Record<string, unknown>, rawBody?: Re
     );
 
     out.processos = {
-      passivosTotal:      String(passivos || items.length),
+      passivosTotal:      String(passivosInformado ? passivos : items.length),
       ativosTotal:        String(ativos),
       valorTotalEstimado: _moeda(totalValue),
       temRJ,
