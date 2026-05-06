@@ -1416,7 +1416,7 @@ function HistoricoContent() {
             </div>
           )}
 
-          {/* ── Funil de Crédito Profissional ── */}
+          {/* ── Funil de aprovação · APEX ── */}
           {!loading && collections.length > 0 && (() => {
             const total = collections.length;
             const finalizadas = collections.filter(c => c.status === "finished").length;
@@ -1433,113 +1433,190 @@ function HistoricoContent() {
             }).filter((r): r is number => r != null && r > 0);
             const ratingMedio = ratings.length > 0 ? (ratings.reduce((a, b) => a + b, 0) / ratings.length) : null;
 
-            const stages = [
-              { label: "Recebidas", sub: "total de análises", count: total, color: "#1E3A5F", gradient: ["#1a3560", "#2a4db5"] },
-              { label: "Finalizadas", sub: "análise concluída", count: finalizadas, color: "#2563EB", gradient: ["#1d4ed8", "#3b82f6"] },
-              { label: "Pré-aprovadas", sub: "aprovadas + condicionais", count: aprovadas + condicionais, color: "#059669", gradient: ["#047857", "#10b981"] },
-              { label: "Aprovação plena", sub: "sem restrições", count: aprovadas, color: "#15803d", gradient: ["#166534", "#22c55e"] },
+            const stages: { key: string; label: string; sub: string; count: number; dot: string }[] = [
+              { key: "recv", label: "Recebidas",       sub: "total de análises",         count: total,                    dot: "#0f1f5c" },
+              { key: "fin",  label: "Finalizadas",     sub: "análise concluída",         count: finalizadas,              dot: "#203b88" },
+              { key: "pre",  label: "Pré-aprovadas",   sub: "aprovadas + condicionais",  count: aprovadas + condicionais, dot: "#2a4db5" },
+              { key: "ok",   label: "Aprovação plena", sub: "sem restrições",            count: aprovadas,                dot: "#73b815" },
             ];
-            const VW = 320; const SH = 44; const GAP = 3; const TH = stages.length * SH + (stages.length - 1) * GAP;
+
+            // SVG geometry — funil triangular hairline
+            const VW = 240; const SH = 45; const GAP = 1;
+            const TH = stages.length * SH + (stages.length - 1) * GAP;
+            const MIN_W = 0.18;
 
             return (
-              <div style={{ background: "linear-gradient(135deg, #ffffff 0%, #f8faff 100%)", borderRadius: 16, border: "1px solid #e2e8f0", padding: 0, marginBottom: 16, boxShadow: "0 2px 12px rgba(30,58,95,0.06)", overflow: "hidden" }}>
-                {/* Header */}
-                <div style={{ background: "linear-gradient(135deg, #1a3560 0%, #203b88 100%)", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{
+                background: "#ffffff",
+                border: "1px solid #d1dcf0",
+                borderRadius: 16,
+                boxShadow: "0 1px 3px rgba(32,59,136,.07), 0 1px 2px rgba(32,59,136,.05)",
+                overflow: "hidden",
+                marginBottom: 16,
+              }}>
+                {/* Head */}
+                <div style={{
+                  padding: "18px 24px 16px",
+                  borderBottom: "1px solid #e4ebf6",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "baseline",
+                  gap: 16,
+                  flexWrap: "wrap",
+                }}>
                   <div>
-                    <p style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.6)", textTransform: "uppercase", letterSpacing: "0.12em", margin: 0 }}>Funil de Crédito</p>
-                    <p style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", margin: "2px 0 0" }}>{total} análise{total !== 1 ? "s" : ""} no período</p>
+                    <p style={{ fontSize: 15, fontWeight: 700, color: "#111827", margin: 0, letterSpacing: "-0.005em" }}>
+                      Funil de aprovação
+                    </p>
+                    <p style={{ fontSize: 11, color: "#6b7280", margin: "3px 0 0", fontWeight: 500, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                      {total} análise{total !== 1 ? "s" : ""} no período
+                    </p>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                  <div style={{ display: "flex", gap: 32 }}>
                     <div style={{ textAlign: "right" }}>
-                      <p style={{ fontSize: 22, fontWeight: 800, color: "#fff", lineHeight: 1 }}>{taxaAprov}%</p>
-                      <p style={{ fontSize: 9, color: "rgba(255,255,255,0.5)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Taxa de aprovação</p>
+                      <p style={{ fontSize: 10, fontWeight: 600, color: "#9ca3af", letterSpacing: "0.12em", textTransform: "uppercase", margin: "0 0 2px" }}>
+                        Taxa de aprovação
+                      </p>
+                      <p style={{ fontSize: 22, fontWeight: 700, color: "#111827", margin: 0, letterSpacing: "-0.022em", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
+                        {taxaAprov}<span style={{ fontSize: 12, fontWeight: 500, color: "#6b7280", marginLeft: 2 }}>%</span>
+                      </p>
                     </div>
                     {ratingMedio != null && (
-                      <div style={{ width: 1, height: 32, background: "rgba(255,255,255,0.15)" }} />
-                    )}
-                    {ratingMedio != null && (
                       <div style={{ textAlign: "right" }}>
-                        <p style={{ fontSize: 22, fontWeight: 800, color: ratingMedio >= 7 ? "#86efac" : ratingMedio >= 4 ? "#fde68a" : "#fca5a5", lineHeight: 1 }}>{ratingMedio.toFixed(1)}</p>
-                        <p style={{ fontSize: 9, color: "rgba(255,255,255,0.5)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Rating médio</p>
+                        <p style={{ fontSize: 10, fontWeight: 600, color: "#9ca3af", letterSpacing: "0.12em", textTransform: "uppercase", margin: "0 0 2px" }}>
+                          Rating médio
+                        </p>
+                        <p style={{
+                          fontSize: 22,
+                          fontWeight: 700,
+                          color: ratingMedio >= 7 ? "#16a34a" : ratingMedio >= 4 ? "#d97706" : "#dc2626",
+                          margin: 0,
+                          letterSpacing: "-0.022em",
+                          lineHeight: 1,
+                          fontVariantNumeric: "tabular-nums",
+                        }}>
+                          {ratingMedio.toFixed(1).replace(".", ",")}
+                          <span style={{ fontSize: 12, fontWeight: 500, color: "#6b7280", marginLeft: 2 }}>/10</span>
+                        </p>
                       </div>
                     )}
                   </div>
                 </div>
 
-                {/* Body: SVG funnel + legend */}
-                <div style={{ display: "flex", alignItems: "center", padding: "20px 24px", gap: 28 }}>
-                  {/* SVG Funnel */}
-                  <svg viewBox={`0 0 ${VW} ${TH}`} style={{ flex: "0 0 auto", width: "min(260px, 45%)", height: "auto" }} xmlns="http://www.w3.org/2000/svg">
+                {/* Body */}
+                <div style={{
+                  display: "grid",
+                  gridTemplateColumns: "minmax(180px, 240px) 1fr",
+                  gap: 36,
+                  padding: "28px 32px",
+                  alignItems: "center",
+                }}>
+                  {/* SVG Funnel — hairline-only */}
+                  <svg viewBox={`0 0 ${VW} ${TH}`} style={{ width: "100%", height: "auto", display: "block" }} xmlns="http://www.w3.org/2000/svg">
                     <defs>
-                      {stages.map((s, i) => (
-                        <linearGradient key={`fg-${i}`} id={`hfg-${i}`} x1="0%" y1="0%" x2="100%" y2="0%">
-                          <stop offset="0%" stopColor={s.gradient[0]} />
-                          <stop offset="100%" stopColor={s.gradient[1]} />
-                        </linearGradient>
-                      ))}
+                      <linearGradient id="apex-funnel-fill" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" stopColor="#0f1f5c" stopOpacity="0.92" />
+                        <stop offset="55%" stopColor="#203b88" stopOpacity="0.85" />
+                        <stop offset="100%" stopColor="#73b815" stopOpacity="0.78" />
+                      </linearGradient>
                     </defs>
                     {stages.map((s, i) => {
-                      const MIN_W = 0.22;
                       const topRatio = Math.max(s.count / total, MIN_W);
                       const nextRatio = i < stages.length - 1
                         ? Math.max(stages[i + 1].count / total, MIN_W)
                         : Math.max(s.count / total * 0.65, MIN_W);
-                      const topW = topRatio * VW; const botW = nextRatio * VW;
+                      const topW = topRatio * VW;
+                      const botW = nextRatio * VW;
                       const topL = (VW - topW) / 2; const topR = VW - topL;
                       const botL = (VW - botW) / 2; const botR = VW - botL;
                       const y = i * (SH + GAP);
-                      const r = 4;
-                      const pts = `M${topL + r},${y} L${topR - r},${y} Q${topR},${y} ${topR},${y + r} L${botR},${y + SH - r} Q${botR},${y + SH} ${botR - r},${y + SH} L${botL + r},${y + SH} Q${botL},${y + SH} ${botL},${y + SH - r} L${topL},${y + r} Q${topL},${y} ${topL + r},${y} Z`;
-                      return (
-                        <g key={i}>
-                          <path d={pts} fill={`url(#hfg-${i})`} opacity="0.9" />
-                          <text x={VW / 2} y={y + SH / 2 + 1} textAnchor="middle" dominantBaseline="middle" style={{ fontSize: 15, fontWeight: 800, fill: "#fff", textShadow: "0 1px 3px rgba(0,0,0,0.3)" }}>
-                            {s.count}
-                          </text>
-                        </g>
-                      );
+                      const rt = i === 0 ? 4 : 0;
+                      const rb = i === stages.length - 1 ? 4 : 0;
+                      const pts = `M${topL + rt},${y} L${topR - rt},${y} Q${topR},${y} ${topR},${y + rt} L${botR},${y + SH - rb} Q${botR},${y + SH} ${botR - rb},${y + SH} L${botL + rb},${y + SH} Q${botL},${y + SH} ${botL},${y + SH - rb} L${topL},${y + rt} Q${topL},${y} ${topL + rt},${y} Z`;
+                      const segOpacity = i === 0 ? 0.85 : i === 1 ? 0.9 : i === 2 ? 0.95 : 1;
+                      return <path key={s.key} d={pts} fill="url(#apex-funnel-fill)" opacity={segOpacity} />;
+                    })}
+                    {/* hairline dividers between segments */}
+                    {stages.slice(0, -1).map((s, i) => {
+                      const nextRatio = Math.max(stages[i + 1].count / total, MIN_W);
+                      const w = nextRatio * VW;
+                      const l = (VW - w) / 2;
+                      const y = (i + 1) * SH + i * GAP;
+                      return <line key={`d-${s.key}`} x1={l} y1={y} x2={VW - l} y2={y} stroke="#fff" strokeWidth="1.4" />;
                     })}
                   </svg>
 
-                  {/* Legend */}
-                  <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12 }}>
+                  {/* Stages legend */}
+                  <div style={{ display: "flex", flexDirection: "column" }}>
                     {stages.map((s, i) => {
                       const pct = total > 0 ? Math.round((s.count / total) * 100) : 0;
                       const prev = i > 0 ? stages[i - 1].count : null;
                       const conv = prev && prev > 0 ? Math.round((s.count / prev) * 100) : null;
                       return (
-                        <div key={i}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
-                            <div style={{ width: 10, height: 10, borderRadius: 3, background: `linear-gradient(135deg, ${s.gradient[0]}, ${s.gradient[1]})`, flexShrink: 0 }} />
-                            <span style={{ fontSize: 12, fontWeight: 700, color: "#1f2937", flex: 1 }}>{s.label}</span>
-                            <span style={{ fontSize: 14, fontWeight: 800, color: s.color }}>{s.count}</span>
-                            <span style={{ fontSize: 10, color: "#9ca3af", width: 32, textAlign: "right", fontWeight: 600 }}>{pct}%</span>
+                        <div key={s.key} style={{
+                          display: "grid",
+                          gridTemplateColumns: "8px 1fr auto auto",
+                          gap: 14,
+                          alignItems: "center",
+                          padding: "12px 0",
+                          borderTop: i === 0 ? "none" : "1px solid #e4ebf6",
+                        }}>
+                          <span style={{ width: 8, height: 8, borderRadius: 99, background: s.dot, flexShrink: 0 }} />
+                          <div style={{ minWidth: 0 }}>
+                            <p style={{ fontSize: 13.5, fontWeight: 600, color: "#111827", margin: 0, letterSpacing: "-0.005em" }}>
+                              {s.label}
+                            </p>
+                            <p style={{ fontSize: 11.5, color: "#6b7280", margin: "1px 0 0" }}>
+                              {s.sub}{conv != null ? ` · ${conv}% conv.` : ""}
+                            </p>
                           </div>
-                          <div style={{ paddingLeft: 18, display: "flex", alignItems: "center", gap: 8 }}>
-                            <span style={{ fontSize: 10, color: "#9ca3af" }}>{s.sub}</span>
-                            {conv != null && (
-                              <span style={{ fontSize: 9, fontWeight: 700, color: conv >= 70 ? "#16a34a" : conv >= 40 ? "#d97706" : "#dc2626", background: conv >= 70 ? "#f0fdf4" : conv >= 40 ? "#fffbeb" : "#fef2f2", borderRadius: 4, padding: "1px 5px" }}>
-                                {conv}% conv.
-                              </span>
-                            )}
-                          </div>
+                          <span style={{
+                            fontFamily: "'JetBrains Mono', monospace",
+                            fontSize: 11,
+                            fontWeight: 500,
+                            color: "#6b7280",
+                            background: "#f5f7fb",
+                            border: "1px solid #e4ebf6",
+                            padding: "3px 8px",
+                            borderRadius: 99,
+                            minWidth: 56,
+                            textAlign: "center",
+                            fontVariantNumeric: "tabular-nums",
+                          }}>{pct}%</span>
+                          <span style={{
+                            fontSize: 20,
+                            fontWeight: 700,
+                            letterSpacing: "-0.018em",
+                            color: i === stages.length - 1 ? "#5a9010" : "#111827",
+                            lineHeight: 1,
+                            minWidth: 36,
+                            textAlign: "right",
+                            fontVariantNumeric: "tabular-nums",
+                          }}>{s.count}</span>
                         </div>
                       );
                     })}
                   </div>
                 </div>
 
-                {/* Footer: métricas adicionais */}
-                <div style={{ borderTop: "1px solid #f1f5f9", padding: "10px 24px", display: "flex", gap: 20, flexWrap: "wrap", background: "#fafbfd" }}>
+                {/* Footer metrics */}
+                <div style={{
+                  display: "flex",
+                  gap: 20,
+                  padding: "12px 24px",
+                  borderTop: "1px solid #e4ebf6",
+                  background: "#f5f7fb",
+                  flexWrap: "wrap",
+                }}>
                   {[
-                    { label: "Em andamento", value: String(emAndamento), color: "#d97706", icon: "⏳" },
-                    { label: "Condicionais", value: String(condicionais), color: "#7c3aed", icon: "⚠" },
-                    { label: "Reprovadas", value: String(reprovadas), color: "#dc2626", icon: "✕" },
-                  ].map((m, i) => (
-                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                      <span style={{ fontSize: 10 }}>{m.icon}</span>
-                      <span style={{ fontSize: 11, color: "#6b7280" }}>{m.label}</span>
-                      <span style={{ fontSize: 12, fontWeight: 800, color: m.color }}>{m.value}</span>
+                    { label: "Em andamento", value: emAndamento, dot: "#d97706" },
+                    { label: "Condicionais", value: condicionais, dot: "#7c3aed" },
+                    { label: "Reprovadas",   value: reprovadas,   dot: "#dc2626" },
+                  ].map((m) => (
+                    <div key={m.label} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "#6b7280" }}>
+                      <span style={{ width: 6, height: 6, borderRadius: 99, background: m.dot }} />
+                      <span>{m.label}</span>
+                      <b style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: "#111827", marginLeft: 2 }}>{m.value}</b>
                     </div>
                   ))}
                 </div>
