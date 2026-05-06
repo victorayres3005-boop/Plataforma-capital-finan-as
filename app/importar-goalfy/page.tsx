@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { useAuth } from "@/lib/useAuth";
 import {
   Zap, RefreshCw, Loader2, FileText, Building2,
@@ -115,13 +116,51 @@ export default function ImportarGoalfyPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ operation: op }),
       });
-      const json = await res.json() as { success?: boolean; collection_id?: string; error?: string };
+      const json = await res.json() as {
+        success?: boolean;
+        collection_id?: string;
+        documents_imported?: number;
+        documents_total?: number;
+        error?: string;
+      };
       if (!res.ok || !json.success) throw new Error(json.error ?? "Erro ao importar");
+
       setImported(prev => ({ ...prev, [op.id]: json.collection_id! }));
       setImportPhase(p => ({ ...p, [op.id]: "done" }));
       setOperations(prev => prev.map(o => o.id === op.id ? { ...o, already_imported: true } : o));
+
+      // Toast com contagem real de documentos baixados (alguns podem ter falhado download)
+      const baixados = json.documents_imported ?? 0;
+      const total = json.documents_total ?? op.documents.length;
+      if (baixados === total && total > 0) {
+        toast.success(`${op.company_name} — ${total} documento${total !== 1 ? "s" : ""} importado${total !== 1 ? "s" : ""}`, {
+          description: "Abrindo a coleção para revisão...",
+          duration: 2500,
+        });
+      } else if (baixados > 0) {
+        toast.warning(`${op.company_name} — ${baixados} de ${total} documentos importados`, {
+          description: `${total - baixados} falharam o download. Revise antes de gerar o relatório.`,
+          duration: 4500,
+        });
+      } else {
+        toast.error(`${op.company_name} — nenhum documento foi baixado`, {
+          description: "Verifique a URL configurada no Goalfy ou GOALFY_API_KEY no Vercel.",
+          duration: 6000,
+        });
+      }
+
+      // Auto-navega para a coleção após pequeno delay (deixa o usuário ver o "Analisada"
+      // verde + ler o toast). Pula auto-nav se nenhum doc foi baixado para evitar tela vazia.
+      if (baixados > 0 && json.collection_id) {
+        setTimeout(() => router.push(`/?resume=${json.collection_id}`), 1500);
+      }
     } catch (e) {
       setImportPhase(p => ({ ...p, [op.id]: "error" }));
+      const msg = e instanceof Error ? e.message : "Erro desconhecido";
+      toast.error(`Falha ao importar ${op.company_name}`, {
+        description: msg,
+        duration: 5000,
+      });
       setTimeout(() => setImportPhase(p => ({ ...p, [op.id]: "idle" })), 3000);
       console.error(e);
     }
@@ -439,8 +478,9 @@ function OperationCard({
                 onClick={onImport}
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-90"
                 style={{ background: "linear-gradient(135deg,#1a2f6b,#203b88)" }}
+                title="Baixa os documentos do Goalfy e abre a tela de revisão"
               >
-                <Sparkles size={14} /> Analisar
+                <Sparkles size={14} /> Importar e revisar
               </button>
             )}
           </div>
