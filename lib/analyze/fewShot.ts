@@ -22,7 +22,7 @@ type FewShotRow = {
   resumo_ia: string | null;
 };
 
-function formatFewShotBlock(rows: FewShotRow[], mode: "vetorial" | "divergencia"): string {
+export function formatFewShotBlock(rows: FewShotRow[], mode: "vetorial" | "divergencia"): string {
   if (rows.length === 0) return "";
 
   const header = mode === "vetorial"
