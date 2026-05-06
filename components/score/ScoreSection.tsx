@@ -6,8 +6,8 @@ import { createClient } from "@/lib/supabase/client";
 import type { ConfiguracaoPolitica, RespostaCriterio, ScoreResult } from "@/types/politica-credito";
 import { DEFAULT_POLITICA_V2, mergeComDefaults } from "@/lib/politica-credito/defaults";
 import { autoPreencherScore } from "@/lib/politica-credito/auto-score";
-import type { ExtractedData } from "@/types";
-import { ScoreForm } from "./ScoreForm";
+import type { ExtractedData, AIAnalysis } from "@/types";
+import { ScoreForm, type SugestaoIA } from "./ScoreForm";
 import { ScoreSummaryCard } from "./ScoreSummaryCard";
 // import { PolicyVersionBanner } from "@/components/politica/PolicyVersionBanner";
 
@@ -34,6 +34,7 @@ export function ScoreSection({ collectionId, extractedData }: Props) {
 
   const [autoGerado, setAutoGerado] = useState(false);
   const [criteriosManuaisPendentes, setCriteriosManuaisPendentes] = useState<string[]>([]);
+  const [sugestoesIA, setSugestoesIA] = useState<SugestaoIA[]>([]);
 
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userId = useRef<string | null>(null);
@@ -66,6 +67,17 @@ export function ScoreSection({ collectionId, extractedData }: Props) {
           resolvedPolicy = DEFAULT_POLITICA_V2;
           setPolicy(DEFAULT_POLITICA_V2);
           setNoPolicy(true);
+        }
+
+        // Load ai_analysis pra extrair as sugestões da IA por critério (Fase 3 D)
+        const { data: collectionData } = await supabase
+          .from("document_collections")
+          .select("ai_analysis")
+          .eq("id", collectionId)
+          .maybeSingle();
+        const aiAnalysis = collectionData?.ai_analysis as AIAnalysis | undefined;
+        if (aiAnalysis?.respostasSugeridas?.length) {
+          setSugestoesIA(aiAnalysis.respostasSugeridas);
         }
 
         // Load existing score for this collection
@@ -351,6 +363,7 @@ export function ScoreSection({ collectionId, extractedData }: Props) {
                   config={policy}
                   initialRespostas={respostas}
                   onScoreCalculated={handleScoreCalculated}
+                  sugestoesIA={sugestoesIA}
                 />
               )}
             </>

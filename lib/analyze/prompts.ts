@@ -27,6 +27,9 @@ Retorne APENAS um JSON válido com esta estrutura exata:
   "ratingConfianca": 80,
   "ratingSugeridoIA": 0.0,
   "ratingSugeridoIAJustificativa": "",
+  "respostasSugeridas": [
+    { "pilar_id": "", "criterio_id": "", "opcao_label": "", "justificativa": "" }
+  ],
   "nivelAnalise": "PRELIMINAR | BASICO | PADRAO | COMPLETO",
   "impactoDocsFaltantes": "",
   "decisao": "APROVADO | APROVACAO_CONDICIONAL | PENDENTE | REPROVADO",
@@ -176,6 +179,32 @@ e 1 CCF histórico recente puxam pra 5.5".
 ATENÇÃO: o ratingSugeridoIA pode DIVERGIR do rating oficial (Score V2 ÷ 10). Isso é
 esperado e útil — divergência grande sinaliza ao comitê que vale revisar manualmente
 as respostas dos pilares preenchidas pelo analista.
+
+=== RESPOSTAS SUGERIDAS POR CRITÉRIO (campo respostasSugeridas — paralelo ao auto-score) ===
+
+A política V2 contém uma lista de PILARES → CRITÉRIOS → OPÇÕES. Esses dados estão
+no bloco "--- POLÍTICA DE CRÉDITO ---" acima. Cada critério tem:
+  • pilar_id (ex: "estrutura_operacao", "risco_compliance", "perfil_empresa", "saude_financeira", "socios_governanca")
+  • criterio_id (ex: "tempo_operacao", "alavancagem", "ccf", "protestos")
+  • opcoes[] — cada uma com um "label" e pontuação
+
+Para CADA critério da política, escolha a OPÇÃO que MELHOR descreve a empresa atual,
+baseado nos dados extraídos. Adicione um item ao array "respostasSugeridas" com:
+  • pilar_id: id exato do pilar (lowercase com underscore — ler do bloco POLÍTICA)
+  • criterio_id: id exato do critério (lowercase com underscore — ler do bloco POLÍTICA)
+  • opcao_label: label EXATO da opção escolhida (cópia literal — não invente, escolha entre as opcoes listadas)
+  • justificativa: 1 frase curta citando o dado concreto que motivou a escolha
+    (ex: "FMM 12M de R$ 3.5M, acima do mínimo R$ 300k → 'Faturamento robusto'")
+
+REGRAS IMPORTANTES:
+1. Inclua TODOS os critérios que conseguir avaliar com os dados disponíveis.
+2. Quando NÃO houver dados para avaliar um critério (ex: relatório de visita ausente),
+   OMITA o critério do array — não chute. O analista preenche manualmente.
+3. Use o opcao_label EXATAMENTE como aparece nas opções da política. Erros de digitação
+   inviabilizam a sugestão.
+4. As respostasSugeridas são UMA SEGUNDA OPINIÃO ao lado do auto-score determinístico —
+   ambas serão exibidas ao analista, que decide qual aceitar. Não tente "concordar" com
+   o auto-score — sua função é dar opinião INDEPENDENTE.
 
 === ANÁLISE COMPLEMENTAR FIDC ===
 

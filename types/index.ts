@@ -969,6 +969,15 @@ export interface AIAnalysis {
   // até `HIDE_AVALIACAO=false`.
   ratingSugeridoIA?: number;
   ratingSugeridoIAJustificativa?: string;
+  // Sugestões da IA por critério da Política V2 — exibidas como segunda
+  // opinião ao lado do auto-score determinístico no ScoreForm.
+  // Não substitui auto-score nem altera persistência: só hint visual.
+  respostasSugeridas?: Array<{
+    pilar_id: string;
+    criterio_id: string;
+    opcao_label: string;       // label exato da opção sugerida
+    justificativa: string;     // 1 frase curta com dado concreto
+  }>;
   coberturaDocumental?: {
     cobertura: number;
     coberturaEfetiva?: number;

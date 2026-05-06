@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { CheckCircle, Circle, AlertTriangle } from "lucide-react";
+import { CheckCircle, Circle, AlertTriangle, Sparkles } from "lucide-react";
 import type {
   ConfiguracaoPolitica,
   CriterioPilar,
@@ -12,11 +12,21 @@ import type {
 import { calcularScore, calcularPontosCriterio } from "@/lib/politica-credito/calculator";
 import { PolicyVersionBanner } from "@/components/politica/PolicyVersionBanner";
 
+// Sugestão da IA por critério (Fase 3 D — paralela ao auto-score determinístico).
+// Vem de AIAnalysis.respostasSugeridas, gerada pelo Gemini em /api/analyze.
+export interface SugestaoIA {
+  pilar_id: string;
+  criterio_id: string;
+  opcao_label: string;
+  justificativa: string;
+}
+
 interface Props {
   config: ConfiguracaoPolitica;
   initialRespostas?: RespostaCriterio[];
   onScoreCalculated?: (score: ScoreResult, respostas: RespostaCriterio[]) => void;
   readOnly?: boolean;
+  sugestoesIA?: SugestaoIA[];
 }
 
 const MANUAIS_OBRIGATORIOS = [
@@ -32,7 +42,12 @@ const PILAR_COLORS: Record<string, string> = {
   estrutura_operacao:"#203b88",
 };
 
-export function ScoreForm({ config, initialRespostas = [], onScoreCalculated, readOnly = false }: Props) {
+export function ScoreForm({ config, initialRespostas = [], onScoreCalculated, readOnly = false, sugestoesIA = [] }: Props) {
+  const sugestoesByCriterio = useMemo(() => {
+    const map = new Map<string, SugestaoIA>();
+    for (const s of sugestoesIA) map.set(`${s.pilar_id}|${s.criterio_id}`, s);
+    return map;
+  }, [sugestoesIA]);
   const [respostas, setRespostas] = useState<RespostaCriterio[]>(initialRespostas);
   const [observacoes, setObservacoes] = useState<Record<string, string>>({});
   const [expandedPilares, setExpandedPilares] = useState<Set<string>>(
@@ -214,6 +229,7 @@ export function ScoreForm({ config, initialRespostas = [], onScoreCalculated, re
                     }
                     onObs={obs => setObs(pilar.id, criterio.id, obs)}
                     readOnly={readOnly}
+                    sugestaoIA={sugestoesByCriterio.get(`${pilar.id}|${criterio.id}`)}
                   />
                 ))}
               </div>
@@ -235,10 +251,14 @@ interface CriterioItemProps {
   onSelect: (opcaoLabel: string, pontosBase: number, modLabel?: string, modMult?: number) => void;
   onObs: (obs: string) => void;
   readOnly: boolean;
+  sugestaoIA?: SugestaoIA;
 }
 
-function CriterioItem({ criterio, cor, resp, obsValue, onSelect, onObs, readOnly }: CriterioItemProps) {
+function CriterioItem({ criterio, cor, resp, obsValue, onSelect, onObs, readOnly, sugestaoIA }: CriterioItemProps) {
   const [showObs, setShowObs] = useState(false);
+  // "Consenso": IA e auto-score (resp atual) escolheram a mesma opção
+  const consenso = !!(sugestaoIA && resp && resp.fonte_preenchimento === 'auto'
+    && sugestaoIA.opcao_label === resp.opcao_label);
 
   return (
     <div style={{ padding: "14px 18px", borderBottom: "1px solid #f8fafc" }}>
@@ -260,6 +280,26 @@ function CriterioItem({ criterio, cor, resp, obsValue, onSelect, onObs, readOnly
                 verticalAlign: 'middle',
               }}>
                 Auto
+              </span>
+            )}
+            {consenso && (
+              <span title="Auto-score e IA convergiram nesta opção" style={{
+                fontSize: '10px', fontWeight: 700, padding: '1px 6px',
+                borderRadius: '99px', background: '#f0fdf4', color: '#15803d',
+                border: '1px solid #86efac',
+                display: 'inline-flex', alignItems: 'center', gap: 3,
+              }}>
+                ✓ Consenso
+              </span>
+            )}
+            {sugestaoIA && !consenso && (
+              <span title={sugestaoIA.justificativa} style={{
+                fontSize: '10px', fontWeight: 700, padding: '1px 6px',
+                borderRadius: '99px', background: '#eff6ff', color: '#1d4ed8',
+                border: '1px solid #93c5fd',
+                display: 'inline-flex', alignItems: 'center', gap: 3,
+              }}>
+                <Sparkles size={9} /> IA: {sugestaoIA.opcao_label.length > 22 ? sugestaoIA.opcao_label.slice(0, 19) + "..." : sugestaoIA.opcao_label}
               </span>
             )}
             {!resp && MANUAIS_OBRIGATORIOS.includes(criterio.id) && (
@@ -322,21 +362,30 @@ function CriterioItem({ criterio, cor, resp, obsValue, onSelect, onObs, readOnly
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               {criterio.opcoes.map(opcao => {
                 const sel = resp?.opcao_label === opcao.label;
+                const sugIA = sugestaoIA?.opcao_label === opcao.label;
                 const pontosExibidos = resp?.modificador_multiplicador && sel
                   ? calcularPontosCriterio(opcao.pontos, resp.modificador_multiplicador).toFixed(1)
                   : String(opcao.pontos);
+                // Borda: selecionada > sugestão IA (não selecionada) > default
+                const borderStyle = sel
+                  ? `1px solid ${cor}`
+                  : sugIA
+                    ? "1px dashed #3b82f6"
+                    : "1px solid #e5e7eb";
                 return (
                   <button
                     key={opcao.label}
                     disabled={readOnly}
                     onClick={() => onSelect(opcao.label, opcao.pontos, resp?.modificador_label, resp?.modificador_multiplicador)}
+                    title={sugIA && !sel ? `IA sugere esta opção: ${sugestaoIA?.justificativa ?? ""}` : undefined}
                     style={{
                       display: "flex", alignItems: "flex-start", gap: 10,
                       padding: "9px 12px", textAlign: "left", width: "100%",
-                      background: sel ? `${cor}12` : "white",
-                      border: `1px solid ${sel ? cor : "#e5e7eb"}`,
+                      background: sel ? `${cor}12` : sugIA ? "#f0f7ff" : "white",
+                      border: borderStyle,
                       borderRadius: 8, cursor: readOnly ? "default" : "pointer",
                       transition: "all 0.12s",
+                      position: "relative",
                     }}
                   >
                     <div style={{
@@ -345,9 +394,14 @@ function CriterioItem({ criterio, cor, resp, obsValue, onSelect, onObs, readOnly
                       background: sel ? cor : "transparent",
                     }} />
                     <div style={{ flex: 1 }}>
-                      <p style={{ fontSize: 12, fontWeight: 700, color: sel ? "#0f172a" : "#374151", margin: "0 0 2px" }}>
-                        {opcao.label}
-                      </p>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <p style={{ fontSize: 12, fontWeight: 700, color: sel ? "#0f172a" : "#374151", margin: "0 0 2px" }}>
+                          {opcao.label}
+                        </p>
+                        {sugIA && !sel && (
+                          <Sparkles size={10} style={{ color: "#3b82f6", flexShrink: 0 }} />
+                        )}
+                      </div>
                       <p style={{ fontSize: 11, color: "#6b7280", margin: 0 }}>{opcao.descricao}</p>
                     </div>
                     <span style={{ fontSize: 12, fontWeight: 800, color: sel ? cor : "#9ca3af", flexShrink: 0 }}>
