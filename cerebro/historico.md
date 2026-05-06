@@ -11,6 +11,53 @@ Log datado de mudanças significativas. Adicionar entrada nova **no topo** quand
 
 ---
 
+## 2026-05-06 — Suíte Vitest + CI gate + 8 bugs reais corrigidos (4 críticos da política V2 + Goalfy webhook) ✅
+
+**Disparador:** Sessão começou como "vamos para testes E2E com Vitest" e expandiu para corrigir bugs críticos descobertos pelos testes/Codex review. Plataforma ficou de 8.9 → 9.3.
+
+**Cirurgias:**
+
+| Área | Conteúdo |
+|---|---|
+| Tests Vitest | 258 testes em 8 arquivos (`lib/extract/__tests__/`, `lib/analyze/__tests__/`, `lib/goalfy/__tests__/`); cobre sanitize, json, schemas, fillDefaults, adapters, calculations, fewShot, webhookParser |
+| CI gate | `.github/workflows/quality.yml` — bloqueia merge em falha de `tsc --noEmit` ou `npm test`. Lint roda como warning (99 erros pré-existentes) |
+| Fix produção #1 | `adaptSCRNew` `vencidos.total`/`prejuizos.total` em string BR não viraram NaN (era `Number()`, agora `_sumNums`) |
+| Fix produção #2 | `adaptCurvaABCNew` cumulativa SEMPRE vence raw classificacao do Gemini (loga divergência) |
+| Fix produção #3 | `tryRecoverTruncatedJSON` agora string-aware (não confunde `}` literal em string com delimitador) |
+| Fix produção #4 | `adaptVisitaNew` normaliza diacríticos antes do match (Híbrida funciona) |
+| Fix CRÍTICO #5 | `parseBRL` em `lib/analyze/calculations.ts` — agora remove prefixo `R$` e espaços. Antes `parseBRL("R$ 1.234,56")` retornava 0 |
+| Fix CRÍTICO #6 | `calcularPreRequisitos` CCF — lê `data.ccf.qtdRegistros` (canônico) em vez de `data.protestos.ccfQuantidade` (inexistente) |
+| Fix CRÍTICO #7 | `calcularPreRequisitos` protestos — lê `protestos.vigentesQtd` (canônico) em vez de `quantidadeVigentes` (inexistente) |
+| Fix CRÍTICO #8 | `calcularPreRequisitos` processos passivos — lê `processos.passivosTotal` (canônico) em vez de iterar `processos.processos[]` (inexistente) |
+| Fix residual | `passivosTotal === 0` legítimo não ativa fallback de iteração |
+| Goalfy webhook | `/api/goalfy/receber` agora baixa cada URL imediatamente e re-sobe pro Vercel Blob (antes só guardava URL crua, S3 expirava); parser unificado em `lib/goalfy/webhookParser.ts`; `/webhook` virou alias deprecated |
+
+**Severidade dos bugs eliminatórios (#5-#8):**
+- Política V2 estava parcialmente sem efeito em produção por tempo indeterminado.
+- Empresas com CCF, protestos > limite, processos passivos > limite passavam pela barreira automática.
+- Análise IA + analista cobriam manualmente, mas o gate eliminatório nunca disparava.
+- Memória `project_politica_eliminatoria_bugs_2026_05_06.md` documenta detalhes.
+
+**Como descobriu:** Codex review do test bundle apontou que campos lidos por `calcularPreRequisitos` não existiam no shape canônico produzido por `fillProtestosDefaults`/`fillProcessosDefaults`. Cross-check com `calcularCobertura` (que usava shape canônico) confirmou.
+
+**Lição (capturada em `cerebro/snippets-padroes.md` candidato):** Adapters/fillDefaults definem o shape canônico. Funções downstream devem ler **exatamente** os campos que `fillXxxDefaults` produz. Cross-check entre funções que consomem os mesmos dados (`calcularCobertura` vs `calcularPreRequisitos`) é a forma de pegar drift.
+
+**Estado pós-deploy:**
+- 258 testes Vitest verdes em ~1.2s
+- TSC limpo
+- CI gate ativo em PR e push para master
+- 99 lint errors pré-existentes em `lib/pdf/template.ts`, `lib/generators/pdf/sections/risco.ts`, `lib/mergeQsaWithContrato.ts` — não bloqueiam merge; cleanup gradual
+
+**Próximos gaps até 10/10 (de `cerebro/roadmap-gaps.md`):**
+- E2E Playwright funcionando (specs existem mas quebrados)
+- Component tests das 15 sections de revisão
+- Observabilidade prod (Sentry ou similar) — **declinado pelo Victor**, fica em standby
+- Rate limiting nas rotas pesadas
+- Quebrar monolitos `app/page.tsx` (1779 linhas) e `historico/page.tsx` (1747 linhas)
+- Cleanup de 99 lint errors
+
+---
+
 ## 2026-05-05 (sessão noite) — Auto-fill Data Constituição + Geocoding via place_id + Gemini Vision ✅
 
 **Disparador:** Victor pediu (a) que a caixa Data de Constituição na Review fosse pré-preenchida pelo cartão CNPJ quando o contrato vier sem ela, (b) corrigir mapa do relatório que às vezes apontava endereço errado e (c) usar contexto da empresa pra validar coerência do endereço.

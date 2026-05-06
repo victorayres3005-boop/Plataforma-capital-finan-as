@@ -9,13 +9,14 @@ tags: [capital-financas, roadmap, gaps, avaliacao]
 
 Estado da plataforma, gaps conhecidos e direção. Atualizar quando o próprio Victor recalibrar prioridades.
 
-## Avaliação atual: 8.9/10 (snapshot 2026-05-05)
+## Avaliação atual: 9.3/10 (snapshot 2026-05-06)
 
-> Sessão maratona 2026-05-05 entregou mobile responsivo, split de `extract/route.ts` (3782→966 linhas) + `analyze/route.ts` (2030→908) e design system base. Sessão da tarde do mesmo dia entregou refactor CreditHub-first ([[decisoes#adr-011--credithub-first-bdc-como-fallback-total-2026-05-05|ADR-011]]). Próximo passo: **testes E2E** com Playwright — destrava confiança pra refactors maiores.
+> Sessão 2026-05-06 entregou **258 testes Vitest** (era 0), CI gate em PR/push (`tsc + test` bloqueante), e **8 bugs reais corrigidos** — incluindo 4 críticos da política eliminatória V2 que estavam mortos em prod (parseBRL ignorando R$, CCF/protestos/processos lendo campos inexistentes). Próximo passo: **E2E Playwright funcionando** + **componentes React testados**.
 
 ### Snapshot histórico
 - **7.5/10** em 2026-04-19 — pós-fixes intensivos de abril
 - **8.9/10** em 2026-05-05 — pós-mobile + splits + design system + CreditHub-first
+- **9.3/10** em 2026-05-06 — pós-suíte Vitest (258 testes) + CI gate + 4 bugs eliminatórios V2 corrigidos + Goalfy webhook resilient
 
 ### Forte (8-9)
 
@@ -37,9 +38,12 @@ Estado da plataforma, gaps conhecidos e direção. Atualizar quando o próprio V
 ### Precisa de trabalho (4-5)
 
 - **Mobile:** Upload/Revisão/Parecer inutilizáveis em celular
-- **Testes:** ~5% cobertura (3 arquivos), nenhum do fluxo crítico
+- **Componentes React sem teste** — 0 testes em `components/`; sections de revisão (15) e UI crítica (UploadStep, ReviewStep, GenerateStep) descobertas
+- **E2E Playwright quebrado** — specs existem mas não rodam (workflow `e2e.yml` instalado, mas suíte falha)
+- **Observabilidade prod** — sem Sentry/error tracking; bug em prod só vira log Vercel
 - **Parecer com 717 inline styles** quebra design system
 - **`OnboardingTooltip.tsx`** existe mas não é usado em nenhum lugar (órfão)
+- **99 erros lint** pré-existentes em `lib/pdf/template.ts`, `lib/generators/pdf/sections/risco.ts`, `lib/mergeQsaWithContrato.ts` — não bloqueiam merge (warning), cleanup gradual
 
 ## Roadmap para chegar a 9 (ordem impacto×esforço)
 
@@ -69,15 +73,43 @@ Com BDC virando fallback total ([[decisoes#adr-011--credithub-first-bdc-como-fal
 
 **Como decidir:** rodar a plataforma por ~1 semana com a config nova; se feedback do time/comitê mencionar PEP rasa ou faixa patrimonial faltando, repor BDC sempre-on para esses datasets.
 
-## Próximo passo: testes E2E (E2E placeholder)
+## Cobertura de testes — estado 2026-05-06
 
-Cobertura de testes hoje = ~5%. Próximo move da plataforma é E2E com Playwright:
+**Suíte Vitest:** 258 testes em 8 arquivos, ~1.2s, **bloqueia merge** via CI gate.
 
-1. **Stack proposta:** Playwright + seed Supabase de teste + 3-5 PDFs anonimizados como entrada fixa
-2. **Cenários mínimos:** análise PJ completa, retomada de coleta, geração PDF, login/auth, fluxo Goalfy
-3. **Onde rodam:** local antes do push + CI no Vercel preview deploys
-4. **Custo:** 1-2 dias para os primeiros cenários
-5. **ROI:** pega regressões silenciosas (tipo `getUser()` 504 ou `confirmedDocsRef` perdendo docs) antes de produção
+| Módulo | Tests | Cobre |
+|---|---|---|
+| `lib/extract/__tests__/sanitize.test.ts` | 21 | Boilerplate RF, sanitizeMoney BR/US, enum, str, array |
+| `lib/extract/__tests__/json.test.ts` | 22 | Markdown wrappers, números BR multi-grupo, $ espúrio OCR, recovery truncamento string-aware |
+| `lib/extract/__tests__/schemas.test.ts` | 25 | Zod schemas, safeParseExtracted, auditBusinessRules CNPJ/QSA/SCR/Faturamento |
+| `lib/extract/__tests__/fillDefaults.test.ts` | 34 | 13 funções fill + countFilledFields + reconciliação IR |
+| `lib/extract/__tests__/adapters.test.ts` | 59 | 10 adapters + directParseCurvaABC + 7 regressões de bugs corrigidos |
+| `lib/analyze/__tests__/calculations.test.ts` | 49 | parseBRL R$, calcularCobertura, buildCoberturaBlock, 12 eliminatórios V2, alavancagem |
+| `lib/analyze/__tests__/fewShot.test.ts` | 11 | formatFewShotBlock (vetorial + divergencia) |
+| `lib/goalfy/__tests__/webhookParser.test.ts` | 27 | extractDocuments 5 padrões + extractMeta + mapDocType + safeFilenameFromUrl |
+
+**O que ainda não tem teste (gaps):**
+- `lib/extract/ai.ts` (I/O Gemini — precisa mock)
+- `lib/extract/prompts.ts` (só strings literais, baixo valor)
+- `lib/bureaus/*` (databox360, credithub, bdc, assertiva — todos sem teste)
+- `lib/hydrateFromCollection.ts`, `lib/buildCollectionDocs.ts` (round-trip Supabase)
+- `lib/scrTotal.ts`, `lib/mergeQsaWithContrato.ts`, `lib/formatters.ts`, `lib/embeddings.ts`
+- `components/*` (15 sections de revisão + UploadStep/ReviewStep/GenerateStep)
+- E2E real Playwright (specs existem mas quebrados)
+
+## CI gate ativo — `.github/workflows/quality.yml`
+
+Roda em PR e push para master:
+- ✅ **Bloqueia:** `tsc --noEmit` + `npm test`
+- ⚠️ **Warning:** `npm run lint` (`continue-on-error: true` enquanto há 99 erros pré-existentes; remover quando chegar a 0)
+
+**Pendência operacional:** GitHub → repo Settings → Branches → adicionar regra "Require status checks to pass before merging" e marcar `quality` na lista. Sem essa configuração, workflow roda mas não bloqueia merge.
+
+## Próximo passo: E2E Playwright + componentes React
+
+1. **Destravar Playwright existente** — workflow `e2e.yml` já existe; specs em `e2e/*.spec.ts` precisam ser corrigidos. 1-2 sessões.
+2. **Component tests** — Vitest + Testing Library para sections de revisão (15) e UploadStep/ReviewStep/GenerateStep. 2-3 sessões.
+3. **Integration tests** com Supabase de teste — round-trip extracted_data → buildCollectionDocs → hydrateFromCollection. 1 sessão.
 
 ## Gaps de funcionalidade (não são bugs)
 

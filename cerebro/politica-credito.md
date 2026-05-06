@@ -38,6 +38,15 @@ F = 0-49    CRÍTICO
 
 ⚠️ Bug histórico: IDs antigos eram `pilar_1`, `pilar_2`. Os corretos são `perfil_empresa`, `saude_financeira`, etc. Já corrigido em `buildScoreV2Block()`.
 
+⚠️ **Bugs eliminatórios corrigidos 2026-05-06** (estavam mortos em produção):
+- `parseBRL` em `lib/analyze/calculations.ts` ignorava prefixo `R$` — alavancagem/prejuízos SCR/vencidos % silenciosamente zerados
+- Eliminatório CCF lia `protestos.ccfQuantidade` (inexistente) — agora `data.ccf.qtdRegistros`
+- Eliminatório protestos lia `quantidadeVigentes`/`quantidade` (inexistente) — agora `protestos.vigentesQtd`
+- Eliminatório processos passivos iterava `processos.processos[]` (inexistente) — agora `processos.passivosTotal`
+- Fallback de iteração só ativa se `passivosTotal == null` (zero canônico legítimo respeitado)
+
+**Regra para mexer em `calcularPreRequisitos`:** sempre cross-check com `calcularCobertura` (mesma fonte de dados). Se uma lê campo X e outra lê Y, é drift = bug iminente. Os shapes canônicos vêm de `fillProtestosDefaults`/`fillProcessosDefaults` em `lib/extract/fillDefaults.ts`.
+
 ## Fluxo de carregamento (`/api/analyze/route.ts`)
 
 ```

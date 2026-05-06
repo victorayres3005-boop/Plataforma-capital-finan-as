@@ -85,19 +85,28 @@ Visão consolidada das integrações de dados externos. **Desde 2026-05-05** o o
 
 ## Goalfy — `lib/bureaus/goalfy/` + `app/api/goalfy/`
 
-CRM de origem dos clientes. Importa cards e seus anexos.
+CRM de origem dos clientes. Importa cards e seus anexos via webhook Goalfy → URL pública S3 → download imediato.
 
-**Limitação:** plano atual NÃO tem HTTP Request action → API Goalfy retorna **caminhos internos** de anexos (`uuid/file.pdf`), não URLs públicas. Solução só com plano pago ou Vitor configurar webhook na automação deles.
+**Endpoints:**
+- `POST /api/goalfy/receber` *(canônico — URL exposta na UI `/importar-goalfy`)* — recebe payload do Goalfy, baixa cada URL, re-sobe pro Vercel Blob, salva em `goalfy_pending_operations`. Auth via query string `?secret=GOALFY_WEBHOOK_SECRET`.
+- `POST /api/goalfy/webhook` *(deprecated alias)* — mesma lógica, auth via header `x-goalfy-secret` ou `Authorization: Bearer`. Mantido para automações antigas; novas devem apontar para `/receber`.
+- `GET /api/cron/goalfy-sync` — pull de cards via `lib/goalfy/sync.ts`, chamado por n8n.
+- `app/importar-goalfy/page.tsx` lista pending, importa, abre coleção com `?highlight=tipos`.
 
-**Fluxo implementado:**
-- `lib/goalfy/sync.ts` sincroniza cards do board → `goalfy_pending_operations`
-- `app/api/cron/goalfy-sync/route.ts` GET endpoint chamado por n8n
-- `app/api/goalfy/webhook/route.ts` recebe payload externo (n8n com URLs S3 já presigned)
-- `app/importar-goalfy/page.tsx` lista pending, importa, abre coleção com `?highlight=tipos`
+**Parser unificado** em `lib/goalfy/webhookParser.ts` (criado 2026-05-06):
+- `extractDocuments(body)` aceita 5 padrões de payload (campo direto, array de URLs, array de objetos, root link/url, fields[name,value])
+- `extractMeta(body)` — razão, cnpj, gerente, telefone, email, notes
+- `mapDocType(label)` — DOC_TYPE_MAP + normalização de diacríticos (Última Alteração = ultima alteracao)
+- `safeFilenameFromUrl` sanitiza nome via decode + strip de chars não-alfanuméricos
+- 27 testes unit em `lib/goalfy/__tests__/webhookParser.test.ts`
+
+**Bug crítico fixado 2026-05-06:** `/receber` antes guardava URL crua do S3 com status `pending_download`; URL S3 presignada expirava antes do clique em "Importar" → docs órfãos. Agora baixa imediatamente.
 
 **Auth:** `GOALFY_API_KEY` (header `Authorization: Token {JWT}`, NÃO Bearer).
 **BOARD_ID:** `38e78384-2a7d-49a2-9127-3b65ecb4e97f`.
-**Cron secret:** opcional para o endpoint `/api/cron/goalfy-sync` (sem CRON_SECRET = aceita anônimo).
+**`GOALFY_WEBHOOK_SECRET`:** obrigatório no Vercel — sem ele endpoint fica aberto.
+**Cron secret:** opcional para `/api/cron/goalfy-sync` (sem CRON_SECRET = aceita anônimo).
+**Tabela `goalfy_pending_operations`:** precisa unique key em `goalfy_card_id` (upsert depende disso).
 
 ## Brasil API + outras APIs públicas
 
