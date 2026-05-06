@@ -398,8 +398,13 @@ function OperationCard({
   // Acontece quando webhook do Goalfy chegou com payload incompleto OU o card
   // foi criado antes do fix do /receber (URLs S3 já expiradas).
   // Importar não vai trazer nada — bloqueia preventivamente.
-  const semDocsUteis = !op.documents.length ||
-    op.documents.every(d => !d.url || (!d.url.startsWith("http://") && !d.url.startsWith("https://")));
+  // Defensivo: row.documents pode vir como null/undefined ou string JSON
+  // se o Supabase devolver shape inesperado — não pode crashar a página.
+  const docsList = Array.isArray(op.documents) ? op.documents : [];
+  const semDocsUteis = docsList.length === 0 || docsList.every(d => {
+    if (!d || typeof d.url !== "string") return true;
+    return !d.url.startsWith("http://") && !d.url.startsWith("https://");
+  });
   const isZombie = semDocsUteis && !isAlreadyDone && !justDone;
 
   const [fg, bg] = avatarColor(op.company_name);
@@ -542,9 +547,9 @@ function OperationCard({
         )}
 
         {/* Chips de documentos */}
-        {op.documents.length > 0 && !isActive && (
+        {docsList.length > 0 && !isActive && (
           <div className="flex gap-1.5 flex-wrap mt-3 pt-3 border-t border-cf-border">
-            {op.documents.map(d => (
+            {docsList.map(d => (
               <span
                 key={d.id}
                 className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md"
