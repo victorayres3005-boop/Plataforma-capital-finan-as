@@ -76,6 +76,8 @@ interface AnalysisRow {
 // bdc_empresa = basic_data(0,020)+registration_data(0,120)+relationships(0,030)+processes(0,070)+economic_group_rel(0,050)+owners_kyc(0,090)+owners_lawsuits(0,130) = R$ 0,510
 // bdc_socio   = basic_data(0,030)+financial_risk(0,050)+financial_data(0,050)+collections(0,050)+government_debtors(0,050)+processes(0,070) = R$ 0,300
 // DataBox360: R$2,49/consulta até 100 | R$2,24 de 101-500 | R$1,99 acima de 500 (contrato 2026-04-27)
+// Gemini: preço Google é em USD; convertido p/ R$ usando cotação fixa 5.0 (USD→BRL).
+// Flash: $0.075 input / $0.30 output → R$ 0,375 / R$ 1,50 por 1M tokens.
 const DEFAULT_PRICES: BureauPrices = {
   credithub_empresa:  0.31,
   assertiva_pj:       1.20,
@@ -84,11 +86,12 @@ const DEFAULT_PRICES: BureauPrices = {
   bdc_socio:          0.30,
   databox360_empresa: 2.49,
   databox360_socio:   2.49,
-  gemini_input_per_1m:  0.075,
-  gemini_output_per_1m: 0.30,
+  gemini_input_per_1m:  0.375,
+  gemini_output_per_1m: 1.50,
 };
 
-const STORAGE_KEY = "capital_bureau_prices";
+// v2: 2026-05-06 — preços Gemini agora em R$ (antes USD); descarta cache antigo.
+const STORAGE_KEY = "capital_bureau_prices_v2";
 
 const MONTHS = [
   "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
@@ -96,11 +99,6 @@ const MONTHS = [
 ];
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
-function fmtUSD(val: number): string {
-  const safe = (typeof val === "number" && isFinite(val)) ? val : 0;
-  return "$" + safe.toFixed(4);
-}
-
 function calcCustoBureau(calls: BureauCalls, prices: BureauPrices): number {
   return (
     safeNum(calls.credithub)           * safeNum(prices.credithub_empresa) +
@@ -113,16 +111,19 @@ function calcCustoBureau(calls: BureauCalls, prices: BureauPrices): number {
   );
 }
 
+// Preços do Gemini Pro fixos em R$ (USD * 5.0): $1.25 → R$ 6,25 input | $10.00 → R$ 50,00 output
+const GEMINI_PRO_INPUT_BRL  = 6.25;
+const GEMINI_PRO_OUTPUT_BRL = 50.0;
+
 function calcCustoIA(
   tokens: { input: number; output: number; model: string } | null,
   prices: BureauPrices,
-  usdBrl: number,
 ): number {
   if (!tokens || tokens.input === 0) return 0;
   const isPro = tokens.model?.includes("pro");
-  const rateIn  = isPro ? 1.25  : prices.gemini_input_per_1m;
-  const rateOut = isPro ? 10.0  : prices.gemini_output_per_1m;
-  return ((tokens.input / 1_000_000) * rateIn + (tokens.output / 1_000_000) * rateOut) * usdBrl;
+  const rateIn  = isPro ? GEMINI_PRO_INPUT_BRL  : prices.gemini_input_per_1m;
+  const rateOut = isPro ? GEMINI_PRO_OUTPUT_BRL : prices.gemini_output_per_1m;
+  return (tokens.input / 1_000_000) * rateIn + (tokens.output / 1_000_000) * rateOut;
 }
 
 function estimateBureauCalls(hasAI: boolean): BureauCalls {
@@ -209,7 +210,6 @@ export default function CustosPage() {
   const [savedMsg, setSavedMsg] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState<string>("all");
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
-  const [usdBrl, setUsdBrl] = useState<number>(5.0);
 
   useEffect(() => {
     try {
@@ -271,7 +271,7 @@ export default function CustosPage() {
         cnpj: ref.cnpj ?? "—",
         created_at: ref.created_at,
         custo_bureau: calcCustoBureau(bureauCalls, prices),
-        custo_ia: calcCustoIA(geminiTokens, prices, usdBrl),
+        custo_ia: calcCustoIA(geminiTokens, prices),
         get total() { return this.custo_bureau + this.custo_ia; },
         bureauCalls,
         geminiTokens,
@@ -373,15 +373,6 @@ export default function CustosPage() {
             <Calendar size={14} style={{ position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)", color: "#9ca3af", pointerEvents: "none" }} />
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: "8px", background: "#fff", fontSize: "13px" }}>
-            <span style={{ color: "#6b7280" }}>USD/BRL</span>
-            <input
-              type="number" min={1} step={0.01} value={usdBrl}
-              onChange={e => setUsdBrl(parseFloat(e.target.value) || 5.0)}
-              style={{ width: "52px", border: "none", outline: "none", fontSize: "13px", fontWeight: 600, color: "#111827", textAlign: "right" }}
-            />
-          </div>
-
           <button
             onClick={() => { setShowConfig(c => !c); setDraftPrices(prices); }}
             style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 14px", fontSize: "13px", fontWeight: 500, border: "1px solid #d1d5db", borderRadius: "8px", background: showConfig ? "#1a2f6b" : "#fff", color: showConfig ? "#fff" : "#374151", cursor: "pointer", transition: "all 0.15s" }}
@@ -451,13 +442,13 @@ export default function CustosPage() {
               </div>
             </div>
             <div>
-              <p style={{ fontSize: "11px", fontWeight: 700, color: "#9ca3af", letterSpacing: "0.06em", marginBottom: "8px" }}>GEMINI (USD / 1M tokens)</p>
+              <p style={{ fontSize: "11px", fontWeight: 700, color: "#9ca3af", letterSpacing: "0.06em", marginBottom: "8px" }}>GEMINI (R$ / 1M tokens)</p>
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                <PriceInput label="Flash — Input" value={draftPrices.gemini_input_per_1m} onChange={v => setDraftPrices(p => ({ ...p, gemini_input_per_1m: v }))} prefix="USD" />
-                <PriceInput label="Flash — Output" value={draftPrices.gemini_output_per_1m} onChange={v => setDraftPrices(p => ({ ...p, gemini_output_per_1m: v }))} prefix="USD" />
+                <PriceInput label="Flash — Input" value={draftPrices.gemini_input_per_1m} onChange={v => setDraftPrices(p => ({ ...p, gemini_input_per_1m: v }))} prefix="R$" />
+                <PriceInput label="Flash — Output" value={draftPrices.gemini_output_per_1m} onChange={v => setDraftPrices(p => ({ ...p, gemini_output_per_1m: v }))} prefix="R$" />
                 <div style={{ padding: "8px 10px", background: "#f9fafb", borderRadius: "6px", fontSize: "11px", color: "#9ca3af", display: "flex", gap: "5px" }}>
                   <Info size={11} style={{ flexShrink: 0, marginTop: "1px" }} />
-                  Gemini Pro: $1.25 input / $10.00 output (fixo)
+                  Gemini Pro: R$ 6,25 input / R$ 50,00 output (fixo)
                 </div>
               </div>
             </div>
@@ -583,10 +574,10 @@ export default function CustosPage() {
                                   <>
                                     <div style={{ color: "#374151", marginBottom: "4px" }}>Modelo: <strong>{row.geminiTokens.model || "Flash"}</strong></div>
                                     <div style={{ color: "#374151", marginBottom: "4px" }}>
-                                      Input: {row.geminiTokens.input.toLocaleString("pt-BR")} tokens · {fmtUSD(row.geminiTokens.input / 1_000_000 * (row.geminiTokens.model?.includes("pro") ? 1.25 : prices.gemini_input_per_1m))}
+                                      Input: {row.geminiTokens.input.toLocaleString("pt-BR")} tokens · {fmtBRL(row.geminiTokens.input / 1_000_000 * (row.geminiTokens.model?.includes("pro") ? GEMINI_PRO_INPUT_BRL : prices.gemini_input_per_1m))}
                                     </div>
                                     <div style={{ color: "#374151", marginBottom: "4px" }}>
-                                      Output: {row.geminiTokens.output.toLocaleString("pt-BR")} tokens · {fmtUSD(row.geminiTokens.output / 1_000_000 * (row.geminiTokens.model?.includes("pro") ? 10.0 : prices.gemini_output_per_1m))}
+                                      Output: {row.geminiTokens.output.toLocaleString("pt-BR")} tokens · {fmtBRL(row.geminiTokens.output / 1_000_000 * (row.geminiTokens.model?.includes("pro") ? GEMINI_PRO_OUTPUT_BRL : prices.gemini_output_per_1m))}
                                     </div>
                                     <div style={{ fontWeight: 700, color: "#374151" }}>Total IA: {fmtBRL(row.custo_ia)}</div>
                                   </>
