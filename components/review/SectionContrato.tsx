@@ -20,6 +20,7 @@ interface Props {
 function FromCnpjBadge() {
   return (
     <span
+      data-testid="contrato-data-constituicao-from-cnpj"
       title="Dado herdado do Cartão CNPJ porque o Contrato Social não trouxe a data de constituição"
       style={{
         display: "inline-flex", alignItems: "center", gap: 3,
@@ -149,7 +150,13 @@ export function SectionContrato({ data, set, setSocio, addSocio, removeSocio, ex
         {/* Campos gerais */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Capital Social" value={data.capitalSocial} onChange={v => set("capitalSocial", v)} />
-          <Field label="Data de Constituição" value={data.dataConstituicao} onChange={v => set("dataConstituicao", v)} badge={dataConstituicaoFromCnpj ? <FromCnpjBadge /> : undefined} />
+          <Field
+            label="Data de Constituição"
+            value={data.dataConstituicao}
+            onChange={v => set("dataConstituicao", v)}
+            badge={dataConstituicaoFromCnpj ? <FromCnpjBadge /> : undefined}
+            testId="contrato-data-constituicao"
+          />
           <Field label="Prazo de Duração" value={data.prazoDuracao} onChange={v => set("prazoDuracao", v)} />
           <Field label="Foro" value={data.foro} onChange={v => set("foro", v)} />
           <Field label="Objeto Social" value={data.objetoSocial} onChange={v => set("objetoSocial", v)} multiline span2 />

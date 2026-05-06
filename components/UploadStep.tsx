@@ -1426,6 +1426,8 @@ export default function UploadStep({
               onSeen={() => markSeen("upload-prosseguir")}
             >
               <button
+                data-testid="upload-prosseguir-btn"
+                data-state={anyProcessing || anyRetrying ? "processing" : canProceed ? "ready" : "waiting"}
                 onClick={handleSubmit}
                 disabled={!canProceed}
                 className={`btn-primary ${!canProceed ? "opacity-50 cursor-not-allowed" : ""}`}
@@ -1436,6 +1438,7 @@ export default function UploadStep({
             </OnboardingTooltip>
             {!allRequiredDone && !anyProcessing && !anyRetrying && !forcarAvancar && requiredDoneCount >= 1 && (
               <button
+                data-testid="upload-prosseguir-incompletos"
                 onClick={() => setForcarAvancar(true)}
                 className="text-[11px] text-cf-text-4 hover:text-amber-600 transition-colors"
                 style={{ minHeight: "auto" }}

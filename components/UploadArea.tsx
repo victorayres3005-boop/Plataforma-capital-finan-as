@@ -123,6 +123,8 @@ export default function UploadArea({
 
   return (
     <div
+      data-testid={`upload-area-${docKey}`}
+      data-upload-status={isDone ? "done" : hasError ? "error" : processing ? "processing" : "idle"}
       className="relative rounded-xl border border-cf-border bg-white transition-all duration-200 overflow-hidden"
       style={{ borderLeft: `3px solid ${accentColor}` }}
       onDragEnter={() => { dragCounter.current++; setDragOver(true); }}
@@ -130,7 +132,15 @@ export default function UploadArea({
       onDragLeave={() => { dragCounter.current--; if (dragCounter.current === 0) setDragOver(false); }}
       onDrop={handleDrop}
     >
-      <input ref={inputRef} type="file" accept={ACCEPT_STRING} multiple className="hidden" onChange={handleInputChange} />
+      <input
+        ref={inputRef}
+        data-testid={`upload-input-${docKey}`}
+        type="file"
+        accept={ACCEPT_STRING}
+        multiple
+        className="hidden"
+        onChange={handleInputChange}
+      />
 
       {/* ── Compact main row ── */}
       <div

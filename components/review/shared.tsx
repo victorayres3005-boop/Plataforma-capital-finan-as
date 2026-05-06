@@ -6,8 +6,8 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 export const SUSPICIOUS_VALUES = new Set(["N/D", "n/d", "ND", "nd", "N/A", "n/a", "—", "-", "null", "undefined", "NaN"]);
 
 // ── Field ─────────────────────────────────────────────────────────────────────
-export function Field({ label, value, onChange, multiline = false, span2 = false, badge }: {
-  label: string; value: string; onChange: (v: string) => void; multiline?: boolean; span2?: boolean; badge?: ReactNode;
+export function Field({ label, value, onChange, multiline = false, span2 = false, badge, testId }: {
+  label: string; value: string; onChange: (v: string) => void; multiline?: boolean; span2?: boolean; badge?: ReactNode; testId?: string;
 }) {
   const isEmpty = !value || value === "" || value === "0" || value === "0,00";
   const isSuspicious = !isEmpty && SUSPICIOUS_VALUES.has(value.trim());
@@ -16,7 +16,7 @@ export function Field({ label, value, onChange, multiline = false, span2 = false
   const baseBg    = isSuspicious ? "#fff7ed" : isEmpty ? "#fffbeb" : "#ffffff";
 
   return (
-    <div className={span2 ? "col-span-2" : ""}>
+    <div className={span2 ? "col-span-2" : ""} data-testid={testId ? `field-${testId}` : undefined}>
       <label className="text-meta" style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
         {label}
         {isSuspicious && (
@@ -26,6 +26,7 @@ export function Field({ label, value, onChange, multiline = false, span2 = false
       </label>
       {multiline ? (
         <textarea
+          data-testid={testId ? `field-${testId}-input` : undefined}
           value={value}
           onChange={e => onChange(e.target.value)}
           rows={3}
@@ -35,6 +36,7 @@ export function Field({ label, value, onChange, multiline = false, span2 = false
         />
       ) : (
         <input
+          data-testid={testId ? `field-${testId}-input` : undefined}
           type="text"
           value={value}
           onChange={e => onChange(e.target.value)}
