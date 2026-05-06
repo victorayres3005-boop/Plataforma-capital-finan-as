@@ -1059,9 +1059,12 @@ export function renderSintese(ctx: PdfCtx): void {
     const CARDH= 22;
     const cw4  = (CW - GAP*3)/4;
     const taxa  = rvP.taxaConvencional || rvP.taxaComissaria || "—";
+    // Modalidade é normalizada pelo adapter como lowercase sem acento
+    // (hibrida/comissaria/convencional) — mostra a forma com caixa e acento.
+    const MOD_LABEL: Record<string, string> = { hibrida: "Híbrida", comissaria: "Comissária", convencional: "Convencional" };
     const cards = [
       {l:"VALOR PLEITEADO", v:pleitoVal>0?`R$ ${fmtBR(pleitoVal,2)}`:"—"},
-      {l:"MODALIDADE",      v:tr(rvP.modalidade||"—",18)},
+      {l:"MODALIDADE",      v:tr(MOD_LABEL[rvP.modalidade||""] || "—",18)},
       {l:"PRAZO MÁXIMO",    v:String(rvP.prazoMaximoOp||"—")},
       {l:"TAXA",            v:String(taxa)},
     ];

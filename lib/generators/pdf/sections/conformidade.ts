@@ -174,7 +174,8 @@ export function renderConformidade(ctx: PdfCtx): void {
       };
       icell(ML,              y0, cw, CH, "Ticket Médio",    mo(rv.ticketMedio),       P.n0, P.n1, P.n9);
       icell(ML+cw+GAP,       y0, cw, CH, "Cobr. Boleto",   rv.valorCobrancaBoleto||"—", P.n0, P.n1, P.n9);
-      const mod = (rv.modalidade||"").replace(/_/g," ").toUpperCase();
+      const MOD_LABEL: Record<string, string> = { hibrida: "Híbrida", comissaria: "Comissária", convencional: "Convencional" };
+      const mod = MOD_LABEL[rv.modalidade||""] || "";
       icell(ML+(cw+GAP)*2,   y0, cw, CH, "Modalidade",     mod||"—",                 P.n0, P.n1, P.n9);
       icell(ML+(cw+GAP)*3,   y0, cw, CH, "Prazo Máximo",   rv.prazoMaximoOp ? rv.prazoMaximoOp+" dias" : "—", P.n0, P.n1, P.n9);
       pos.y = y0 + CH + 5;
