@@ -2,8 +2,19 @@
 import type { SCRData, SCRModalidade } from "@/types";
 import { cacheGet, cacheSet } from "./cache";
 
-const DB360_BASE_URL = (process.env.DATABOX360_BASE_URL || "https://sandbox-api.databox360.com.br").trim();
+const DB360_BASE_URL_RAW = (process.env.DATABOX360_BASE_URL || "").trim();
+const DB360_USING_SANDBOX = !DB360_BASE_URL_RAW;
+const DB360_BASE_URL = DB360_BASE_URL_RAW || "https://sandbox-api.databox360.com.br";
 const DB360_API_KEY  = (process.env.DATABOX360_API_KEY  || "").trim();
+const DB360_BLOCK_IN_PROD = DB360_USING_SANDBOX && process.env.NODE_ENV === "production";
+
+if (DB360_BLOCK_IN_PROD) {
+  console.error(
+    "[databox360] CRÍTICO: DATABOX360_BASE_URL ausente em produção. " +
+    "Recusando consultas SCR para evitar dado de sandbox em decisão real. " +
+    "Configure a env var na Vercel.",
+  );
+}
 
 // ─── JWT token cache (1h TTL) ────────────────────────────────────────────────
 let cachedToken: string | null = null;
@@ -267,6 +278,7 @@ export async function consultarSCR(
   mes: string,
   ano: string,
 ): Promise<SCRData | null> {
+  if (DB360_BLOCK_IN_PROD) return null;
   const docNum = documento.replace(/\D/g, "");
   if (!docNum) return null;
 
@@ -319,7 +331,7 @@ export interface DataBox360EmpresaResult {
 }
 
 export async function consultarSCREmpresa(cnpj: string): Promise<DataBox360EmpresaResult> {
-  if (!DB360_API_KEY) return { scr: null, scrAnterior: null, mock: true };
+  if (!DB360_API_KEY || DB360_BLOCK_IN_PROD) return { scr: null, scrAnterior: null, mock: true };
 
   // Comparativo anual: período atual vs mesmo mês 12 meses atrás
   const { mes: mesAtual, ano: anoAtual } = calcularPeriodo(0);
@@ -344,7 +356,7 @@ export interface DataBox360SocioResult {
 export async function consultarSCRSocios(
   socios: { nome: string; cpfCnpj: string }[],
 ): Promise<DataBox360SocioResult[]> {
-  if (!DB360_API_KEY) return [];
+  if (!DB360_API_KEY || DB360_BLOCK_IN_PROD) return [];
 
   const sociosPF = socios.filter(s => s.cpfCnpj.replace(/\D/g, "").length === 11);
   if (sociosPF.length === 0) return [];
@@ -388,7 +400,7 @@ export interface DataBox360EmpresaGrupoResult {
 export async function consultarSCRGrupoEconomico(
   cnpjs: string[],
 ): Promise<DataBox360EmpresaGrupoResult[]> {
-  if (!DB360_API_KEY) return [];
+  if (!DB360_API_KEY || DB360_BLOCK_IN_PROD) return [];
 
   const cnpjsValidos = cnpjs
     .map(c => c.replace(/\D/g, ""))

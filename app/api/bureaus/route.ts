@@ -238,11 +238,13 @@ export async function POST(req: NextRequest) {
       databox360:  db360EmpresaResult?.mock ? undefined : { empresa: db360EmpresaResult, socios: db360SociosMerged },
     };
 
+    // Marca como "consultado" só quando a Promise resolveu E o bureau não retornou em modo mock.
+    // Promise rejeitada → results.X === undefined → não conta (antes contava por bug do ternário).
     const bureausConsultados = [
-      results.credithub?.mock ? null : "credithub",
-      results.serasa?.mock    ? null : "serasa",
-      results.spc?.mock       ? null : "spc",
-      results.quod?.mock      ? null : "quod",
+      results.credithub && !results.credithub.mock ? "credithub" : null,
+      results.serasa    && !results.serasa.mock    ? "serasa"    : null,
+      results.spc       && !results.spc.mock       ? "spc"       : null,
+      results.quod      && !results.quod.mock      ? "quod"      : null,
     ].filter(Boolean);
 
     const merged = mergeBureauResults(data, results);

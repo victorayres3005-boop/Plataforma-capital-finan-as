@@ -52,6 +52,75 @@ function getFileExt(fileName: string): string {
   return fileName.split(".").pop()?.toLowerCase() || "";
 }
 
+// ─── Blob fetch seguro (allowlist + timeout + size limit) ────────────────────
+// Defesa contra SSRF: só permite hosts do Vercel Blob.
+// Defesa contra OOM: respeita Content-Length e aborta em 30s.
+const ALLOWED_BLOB_HOST_PATTERNS: RegExp[] = [
+  /\.public\.blob\.vercel-storage\.com$/i,
+  /\.blob\.vercel-storage\.com$/i,
+];
+const MAX_BLOB_BYTES = 30 * 1024 * 1024; // 30MB — alinhado ao limite multipart
+
+async function fetchBlobSafe(blobUrl: string): Promise<{ buffer: Buffer; contentType: string | null } | { error: string; status: number }> {
+  let parsed: URL;
+  try {
+    parsed = new URL(blobUrl);
+  } catch {
+    return { error: "blobUrl inválido.", status: 400 };
+  }
+  if (parsed.protocol !== "https:") {
+    return { error: "blobUrl deve usar HTTPS.", status: 400 };
+  }
+  if (!ALLOWED_BLOB_HOST_PATTERNS.some(rx => rx.test(parsed.hostname))) {
+    console.warn(`[extract] blobUrl host não permitido: ${parsed.hostname}`);
+    return { error: "Host do blob não permitido.", status: 400 };
+  }
+  let resp: Response;
+  try {
+    // redirect:"error" bloqueia 30x — caso contrário URL no host permitido poderia
+    // redirecionar para IP interno (SSRF via redirect).
+    resp = await fetch(blobUrl, { signal: AbortSignal.timeout(30_000), redirect: "error" });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { error: `Falha ao baixar blob: ${msg}`, status: 502 };
+  }
+  if (!resp.ok) {
+    return { error: `Não foi possível baixar o arquivo do blob (${resp.status}).`, status: 400 };
+  }
+  const lenHeader = resp.headers.get("content-length");
+  if (lenHeader) {
+    const declared = Number(lenHeader);
+    if (Number.isFinite(declared) && declared > MAX_BLOB_BYTES) {
+      return { error: `Arquivo excede o limite de ${MAX_BLOB_BYTES / 1024 / 1024}MB.`, status: 413 };
+    }
+  }
+  // Streaming: aborta logo que ultrapassar o limite, sem bufferizar GB inteiros em RAM.
+  if (!resp.body) {
+    return { error: "Resposta do blob sem body.", status: 502 };
+  }
+  const reader = resp.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        received += value.byteLength;
+        if (received > MAX_BLOB_BYTES) {
+          await reader.cancel().catch(() => {});
+          return { error: `Arquivo excede o limite de ${MAX_BLOB_BYTES / 1024 / 1024}MB.`, status: 413 };
+        }
+        chunks.push(value);
+      }
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { error: `Falha ao ler blob: ${msg}`, status: 502 };
+  }
+  return { buffer: Buffer.concat(chunks.map(c => Buffer.from(c)), received), contentType: resp.headers.get("content-type") };
+}
+
 
 
 
@@ -384,12 +453,12 @@ export async function POST(request: NextRequest) {
       if (GEMINI_API_KEYS.length === 0) {
         return NextResponse.json({ error: "Nenhuma GEMINI_API_KEY configurada." }, { status: 500 });
       }
-      // Fetch do blob (URL pública temporária do Vercel Blob)
-      const blobResp = await fetch(blobUrl);
-      if (!blobResp.ok) {
-        return NextResponse.json({ error: "Não foi possível baixar o arquivo do blob." }, { status: 400 });
+      // Fetch do blob (URL pública temporária do Vercel Blob) — protegido contra SSRF + OOM
+      const blobFetchRes = await fetchBlobSafe(blobUrl);
+      if ("error" in blobFetchRes) {
+        return NextResponse.json({ error: blobFetchRes.error }, { status: blobFetchRes.status });
       }
-      const blobBuffer = Buffer.from(await blobResp.arrayBuffer());
+      const blobBuffer = blobFetchRes.buffer;
       const blobFileName = fileName ?? blobUrl.split("/").pop() ?? "document.pdf";
       const blobExt = getFileExt(blobFileName);
       const blobMime = EXT_TO_MIME[blobExt];
