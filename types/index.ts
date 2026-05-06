@@ -964,6 +964,11 @@ export interface AIAnalysis {
   ratingConfianca?: number;
   nivelAnalise?: "PRELIMINAR" | "BASICO" | "PADRAO" | "COMPLETO";
   impactoDocsFaltantes?: string;
+  // Sugestão de rating calculada independentemente pela IA (paralela ao
+  // Score V2 oficial). Em calibração — exibida só na UI, não vaza pro PDF
+  // até `HIDE_AVALIACAO=false`.
+  ratingSugeridoIA?: number;
+  ratingSugeridoIAJustificativa?: string;
   coberturaDocumental?: {
     cobertura: number;
     coberturaEfetiva?: number;

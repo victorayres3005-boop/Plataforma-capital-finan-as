@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { DocumentCollection } from "@/types";
+import { DocumentCollection, type AIAnalysis } from "@/types";
 import type { ScoreResult } from "@/types/politica-credito";
 import { hydrateFromCollection } from "@/lib/hydrateFromCollection";
 import { autoPreencherScore } from "@/lib/politica-credito/auto-score";
@@ -1317,18 +1317,47 @@ const ratingIsAnalista = ratingAnalista != null;
                 </p>
               </div>
             </div>
-            {ratingAnalista != null && (
-              <div style={{
-                background: ratingAnalista >= 8 ? "#f0fdf4" : ratingAnalista >= 5 ? "#fffbeb" : "#fff1f2",
-                border: `2px solid ${ratingAnalista >= 8 ? "#86efac" : ratingAnalista >= 5 ? "#fcd34d" : "#fca5a5"}`,
-                borderRadius: 14, padding: "10px 20px", textAlign: "center", flexShrink: 0,
-              }}>
-                <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", margin: 0, color: ratingAnalista >= 8 ? "#16a34a" : ratingAnalista >= 5 ? "#d97706" : "#dc2626" }}>Comitê</p>
-                <p style={{ fontSize: 28, fontWeight: 900, margin: 0, lineHeight: 1.1, color: ratingAnalista >= 8 ? "#16a34a" : ratingAnalista >= 5 ? "#d97706" : "#dc2626" }}>
-                  {ratingAnalista.toFixed(1)}<span style={{ fontSize: 13, fontWeight: 500 }}>/10</span>
-                </p>
-              </div>
-            )}
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              {/* Card sugestão da IA — em calibração, só visível na UI (não vai pro PDF) */}
+              {(() => {
+                const ai = collection.ai_analysis as AIAnalysis | undefined;
+                const sugIA = ai?.ratingSugeridoIA;
+                const justIA = ai?.ratingSugeridoIAJustificativa;
+                if (sugIA == null || isNaN(sugIA)) return null;
+                return (
+                  <div style={{
+                    background: "#eff6ff",
+                    border: "2px solid #93c5fd",
+                    borderRadius: 14, padding: "10px 20px", textAlign: "center", flexShrink: 0,
+                    maxWidth: 240,
+                  }}>
+                    <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", margin: 0, color: "#1d4ed8" }}>
+                      Sugestão IA
+                    </p>
+                    <p style={{ fontSize: 28, fontWeight: 900, margin: 0, lineHeight: 1.1, color: "#1d4ed8" }}>
+                      {sugIA.toFixed(1)}<span style={{ fontSize: 13, fontWeight: 500 }}>/10</span>
+                    </p>
+                    {justIA && (
+                      <p title={justIA} style={{ fontSize: 10, color: "#1e40af", margin: "4px 0 0", lineHeight: 1.3, fontStyle: "italic" }}>
+                        {justIA.length > 90 ? justIA.slice(0, 87) + "..." : justIA}
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
+              {ratingAnalista != null && (
+                <div style={{
+                  background: ratingAnalista >= 8 ? "#f0fdf4" : ratingAnalista >= 5 ? "#fffbeb" : "#fff1f2",
+                  border: `2px solid ${ratingAnalista >= 8 ? "#86efac" : ratingAnalista >= 5 ? "#fcd34d" : "#fca5a5"}`,
+                  borderRadius: 14, padding: "10px 20px", textAlign: "center", flexShrink: 0,
+                }}>
+                  <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", margin: 0, color: ratingAnalista >= 8 ? "#16a34a" : ratingAnalista >= 5 ? "#d97706" : "#dc2626" }}>Comitê</p>
+                  <p style={{ fontSize: 28, fontWeight: 900, margin: 0, lineHeight: 1.1, color: ratingAnalista >= 8 ? "#16a34a" : ratingAnalista >= 5 ? "#d97706" : "#dc2626" }}>
+                    {ratingAnalista.toFixed(1)}<span style={{ fontSize: 13, fontWeight: 500 }}>/10</span>
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Atalhos por inteiro */}

@@ -25,6 +25,8 @@ Retorne APENAS um JSON válido com esta estrutura exata:
   "rating": 0.0,
   "ratingMax": 10,
   "ratingConfianca": 80,
+  "ratingSugeridoIA": 0.0,
+  "ratingSugeridoIAJustificativa": "",
   "nivelAnalise": "PRELIMINAR | BASICO | PADRAO | COMPLETO",
   "impactoDocsFaltantes": "",
   "decisao": "APROVADO | APROVACAO_CONDICIONAL | PENDENTE | REPROVADO",
@@ -136,7 +138,44 @@ Seu papel:
 1. Gerar o texto narrativo do parecer comentando cada critério dos 5 pilares com dados concretos
 2. Identificar e listar todos os alertas cabíveis
 3. Aplicar critérios eliminatórios quando presentes
-NÃO calcule nem ajuste o score — o Score V2 é fonte única e imutável do rating.
+4. Calcular um rating sugerido INDEPENDENTE (campo "ratingSugeridoIA") — ver seção abaixo
+NÃO calcule nem ajuste o score oficial — o Score V2 é fonte única e imutável do "rating".
+
+=== RATING SUGERIDO PELA IA (campo ratingSugeridoIA — paralelo, não oficial) ===
+
+Além do "rating" oficial (que é o Score V2 ÷ 10), você deve calcular um SEGUNDO rating
+independente em "ratingSugeridoIA" (escala 0-10, 1 casa decimal) com base SOMENTE nos
+dados objetivos extraídos da empresa, COMO SE você fosse o analista marcando os 5 pilares.
+Este campo serve como SEGUNDA OPINIÃO em calibração — não substitui o rating oficial.
+
+Critérios para o ratingSugeridoIA (use a Política V2 do bloco acima como referência mental):
+
+— Eliminatórios FORÇAM ratingSugeridoIA <= 3.0:
+  • CCF > 0
+  • SCR vencido > 0 ou prejuízo SCR > 0
+  • RJ ativa
+  • Alavancagem acima do máximo da política
+
+— Empresas COM PROBLEMAS MODERADOS: ratingSugeridoIA entre 4.0 e 6.0
+  • Protestos vigentes 1-2, alavancagem entre saudável e máxima, processos passivos
+    significativos sem RJ, margens apertadas, alterações societárias recentes
+
+— Empresas SAUDÁVEIS COM SINAIS POSITIVOS: ratingSugeridoIA entre 7.0 e 9.5
+  • Zero protestos, zero CCF, alavancagem dentro do saudável, FMM acima do mínimo,
+  sócios sem restrições no IR/SCR, tempo de operação > 5 anos, curva ABC diversificada
+
+— EXCELÊNCIA (ratingSugeridoIA >= 9.0):
+  • Tudo limpo + tempo de operação > 10 anos + carteira de sacados muito diversificada
+  + balanço com PL crescente + DRE com lucro consistente em 3+ anos
+
+Em "ratingSugeridoIAJustificativa" (1-3 frases), explique brevemente os 2-3 fatores
+DECISIVOS que levaram à sua nota. Mencione números concretos. Exemplo: "FMM de R$ 3.5M
+e zero protestos justificam nota alta, mas alavancagem de 4.2x próxima do máximo (5x)
+e 1 CCF histórico recente puxam pra 5.5".
+
+ATENÇÃO: o ratingSugeridoIA pode DIVERGIR do rating oficial (Score V2 ÷ 10). Isso é
+esperado e útil — divergência grande sinaliza ao comitê que vale revisar manualmente
+as respostas dos pilares preenchidas pelo analista.
 
 === ANÁLISE COMPLEMENTAR FIDC ===
 
