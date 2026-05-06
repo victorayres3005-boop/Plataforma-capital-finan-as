@@ -4,6 +4,7 @@ export const maxDuration = 60;
 import { createServerSupabase } from "@/lib/supabase/server";
 import { put } from "@vercel/blob";
 import type { GoalfyOperation } from "../listar/route";
+import { toCollectionType } from "@/lib/goalfy/webhookParser";
 
 export async function POST(req: Request) {
   try {
@@ -126,6 +127,25 @@ export async function POST(req: Request) {
     // ─── Passo 3: criar document_collection no Supabase ──────────────────────
     const cnpjClean = (operation.cnpj || "").replace(/\D/g, "");
 
+    // Shape canônico esperado por hydrateFromCollection / UploadStep:
+    // - campo `type` (não `doc_type`)
+    // - `extracted_data: {}` vazio (será preenchido na revisão pelo /api/extract
+    //   quando o usuário disparar a extração no UploadStep)
+    // - tipo do parser ("scr") mapeado pro canônico de CollectionDocument ("scr_bacen")
+    // Filtra apenas docs que efetivamente foram baixados — docs com status de erro
+    // entram como "outro" e seriam invisíveis no UploadStep.
+    const collectionDocs = uploadedDocs
+      .filter(d => d.status === "uploaded" && d.blob_url)
+      .map(d => ({
+        id:             d.id,
+        type:           toCollectionType(d.doc_type),
+        filename:       d.filename,
+        blob_url:       d.blob_url,
+        size_bytes:     d.size_bytes,
+        status:         d.status,
+        extracted_data: {},
+      }));
+
     const { data: collection, error: insertError } = await supabase
       .from("document_collections")
       .insert({
@@ -134,18 +154,15 @@ export async function POST(req: Request) {
         cnpj:         cnpjClean || null,
         label:        operation.company_name,
         status:       "in_progress",
-        documents:    uploadedDocs.map(d => ({
-          id:        d.id,
-          blob_url:  d.blob_url,
-          filename:  d.filename,
-          doc_type:  d.doc_type,
-          size_bytes:d.size_bytes,
-          status:    d.status,
-        })),
+        documents:    collectionDocs,
         ai_analysis: {
           goalfy_operation_id: operation.id,
           goalfy_manager:      operation.manager_name,
           goalfy_imported_at:  new Date().toISOString(),
+          // Preserva docs que falharam download para auditoria/diagnóstico
+          goalfy_failed_docs:  uploadedDocs.filter(d => d.status !== "uploaded").map(d => ({
+            filename: d.filename, type: d.doc_type, status: d.status,
+          })),
         },
       })
       .select("id")

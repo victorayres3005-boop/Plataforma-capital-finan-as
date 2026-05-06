@@ -5,6 +5,7 @@ import {
   mapDocType,
   isUrl,
   safeFilenameFromUrl,
+  toCollectionType,
 } from "@/lib/goalfy/webhookParser";
 
 describe("isUrl", () => {
@@ -170,6 +171,28 @@ describe("extractMeta", () => {
     expect(extractMeta({ cardId: "abc" }).cardId).toBe("abc");
     expect(extractMeta({ id: "def" }).cardId).toBe("def");
     expect(extractMeta({ card_id: "ghi" }).cardId).toBe("ghi");
+  });
+});
+
+describe("toCollectionType", () => {
+  it("mapeia scr para scr_bacen (CollectionDocument.type canônico)", () => {
+    expect(toCollectionType("scr")).toBe("scr_bacen");
+  });
+
+  it("preserva tipos que já são canônicos", () => {
+    expect(toCollectionType("contrato_social")).toBe("contrato_social");
+    expect(toCollectionType("faturamento")).toBe("faturamento");
+    expect(toCollectionType("dre")).toBe("dre");
+    expect(toCollectionType("ir_socio")).toBe("ir_socio");
+    expect(toCollectionType("relatorio_visita")).toBe("relatorio_visita");
+    expect(toCollectionType("balanco")).toBe("balanco");
+    expect(toCollectionType("curva_abc")).toBe("curva_abc");
+    expect(toCollectionType("qsa")).toBe("qsa");
+    expect(toCollectionType("outro")).toBe("outro");
+  });
+
+  it("retorna o tipo cru quando desconhecido (fallback)", () => {
+    expect(toCollectionType("xpto")).toBe("xpto");
   });
 });
 

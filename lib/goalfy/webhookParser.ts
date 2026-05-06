@@ -178,6 +178,32 @@ export function extractMeta(body: Record<string, unknown>): GoalfyMeta {
   return { razao, cnpj, gerente, cardId, phone, email, notes };
 }
 
+/**
+ * Converte o tipo "amigável" do webhook (scr, contrato_social, etc.) para o
+ * tipo canônico aceito por `CollectionDocument.type` em `types/index.ts`.
+ *
+ * O webhook parser usa nomes simples ("scr"); o tipo canônico tem variações
+ * históricas como "scr_bacen". Sem esse mapeamento, `UploadStep` e
+ * `hydrateFromCollection` ignoram silenciosamente os docs vindos do Goalfy
+ * (campo `type` não bate com nenhum slot).
+ */
+export function toCollectionType(parserType: string): string {
+  const map: Record<string, string> = {
+    scr: "scr_bacen",
+    // os demais tipos do parser já batem com CollectionDocument.type
+    contrato_social: "contrato_social",
+    faturamento: "faturamento",
+    relatorio_visita: "relatorio_visita",
+    dre: "dre",
+    balanco: "balanco",
+    curva_abc: "curva_abc",
+    qsa: "qsa",
+    ir_socio: "ir_socio",
+    outro: "outro",
+  };
+  return map[parserType] ?? parserType;
+}
+
 /** Sanitiza nome de arquivo a partir de URL. Trunca caracteres especiais. */
 export function safeFilenameFromUrl(url: string, fallback: string): string {
   let raw: string;

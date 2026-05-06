@@ -96,6 +96,23 @@ export default function ImportarGoalfyPage() {
     fetchList().finally(() => setLoading(false));
   }, [user, authLoading, router, fetchList]);
 
+  // Polling 30s — atualiza lista automaticamente quando novo card chega via
+  // webhook do Goalfy. Pausa quando aba está em background pra economizar.
+  // Pausa também durante uma importação ativa pra não interromper estado visual.
+  useEffect(() => {
+    if (authLoading || !user) return;
+    const POLL_MS = 30_000;
+    const id = setInterval(() => {
+      if (document.hidden) return;
+      const algumaImportandoAtiva = Object.values(importPhase).some(
+        p => p === "downloading" || p === "extracting",
+      );
+      if (algumaImportandoAtiva) return;
+      fetchList();
+    }, POLL_MS);
+    return () => clearInterval(id);
+  }, [authLoading, user, fetchList, importPhase]);
+
   async function handleSync() {
     setSyncing(true);
     try {
