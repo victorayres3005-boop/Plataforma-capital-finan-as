@@ -6,8 +6,8 @@ import { toast } from "sonner";
 import { useAuth } from "@/lib/useAuth";
 import {
   Zap, RefreshCw, Loader2, FileText, Building2,
-  AlertTriangle, ArrowRight, Clock, Link2,
-  Sparkles, Copy, Check, ChevronDown, ChevronUp,
+  AlertTriangle, ArrowRight, Clock,
+  Sparkles, ChevronDown, ChevronUp,
   CheckCircle2, User,
 } from "lucide-react";
 import type { GoalfyOperation } from "@/app/api/goalfy/listar/route";
@@ -70,12 +70,8 @@ export default function ImportarGoalfyPage() {
   const [error, setError]             = useState<string | null>(null);
   const [importPhase, setImportPhase] = useState<Record<string, ImportPhase>>({});
   const [imported, setImported]       = useState<Record<string, string>>({});
-  const [copied, setCopied]           = useState(false);
   const [doneOpen, setDoneOpen]       = useState(false);
-
-  const webhookUrl = typeof window !== "undefined"
-    ? `${window.location.origin}/api/goalfy/receber`
-    : "https://plataformacapital.vercel.app/api/goalfy/receber";
+  const [zumbiOpen, setZumbiOpen]     = useState(false);
 
   const fetchList = useCallback(async () => {
     setError(null);
@@ -199,66 +195,159 @@ export default function ImportarGoalfyPage() {
   }
 
   return (
-    <div className="min-h-screen bg-cf-bg">
-      <main style={{ maxWidth: 860, margin: "0 auto", padding: "32px 20px" }}>
+    <div style={{ minHeight: "100vh", background: "#f5f7fb" }}>
 
-        {/* ── Header ─────────────────────────────────────────────────────── */}
-        <div className="mb-6">
-          <div className="flex items-start justify-between gap-4 flex-wrap mb-4">
-            <div className="flex items-center gap-3">
+      {/* ── HERO BANNER full-width ── */}
+      <div style={{
+        background: "linear-gradient(135deg, #0f1f5c 0%, #203b88 45%, #2d4fad 100%)",
+        position: "relative",
+        overflow: "hidden",
+        paddingBottom: 80,
+      }}>
+        {/* Padrão decorativo */}
+        <div aria-hidden style={{
+          position: "absolute", top: -100, right: -100, width: 380, height: 380, borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(168,217,107,0.18) 0%, transparent 70%)",
+        }} />
+        <div aria-hidden style={{
+          position: "absolute", bottom: -80, left: "30%", width: 260, height: 260, borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%)",
+        }} />
+
+        <main style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 24px 0", position: "relative", zIndex: 1 }}>
+          {/* Título + ações */}
+          <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 24, flexWrap: "wrap", marginBottom: 32 }}>
+            <div style={{ flex: 1, minWidth: 280 }}>
               <div style={{
-                width: 44, height: 44, borderRadius: 13,
-                background: "linear-gradient(135deg,#1a2f6b,#2d4fad)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                flexShrink: 0, boxShadow: "0 2px 8px rgba(26,47,107,0.25)",
+                display: "inline-flex", alignItems: "center", gap: 8, marginBottom: 14,
+                padding: "5px 12px", borderRadius: 99,
+                background: "rgba(168,217,107,0.18)", border: "1px solid rgba(168,217,107,0.35)",
               }}>
-                <Zap size={21} color="#a8d96b" />
+                <Zap size={12} style={{ color: "#a8d96b" }} />
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#a8d96b", letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                  Goalfy CRM
+                </span>
               </div>
-              <div>
-                <h1 className="text-xl font-bold text-cf-text-1 leading-tight">Importar do Goalfy</h1>
-                <p className="text-xs text-cf-text-3 mt-0.5">Operações recebidas automaticamente via webhook</p>
-              </div>
+              <h1 style={{
+                fontSize: 44, fontWeight: 900, color: "#fff", margin: 0,
+                letterSpacing: "-0.035em", lineHeight: 1.02,
+              }}>
+                Importar do{" "}
+                <span style={{
+                  background: "linear-gradient(135deg, #a8d96b 0%, #d4ed94 50%, #73b815 100%)",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                  backgroundClip: "text",
+                  fontStyle: "italic",
+                  letterSpacing: "-0.02em",
+                  paddingRight: 4,
+                }}>Goalfy</span>
+              </h1>
             </div>
             <button
               onClick={handleSync}
               disabled={syncing}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-white text-cf-navy border border-cf-border hover:bg-cf-bg transition-colors disabled:opacity-50"
+              style={{
+                display: "flex", alignItems: "center", gap: 8,
+                fontSize: 12, fontWeight: 700, color: "#0f1f5c",
+                background: "#fff", border: "none",
+                borderRadius: 10, padding: "10px 18px",
+                cursor: syncing ? "not-allowed" : "pointer",
+                opacity: syncing ? 0.6 : 1,
+                transition: "all 0.15s",
+                boxShadow: "0 8px 24px -8px rgba(0,0,0,0.4)",
+              }}
+              onMouseEnter={e => {
+                if (!syncing) {
+                  e.currentTarget.style.transform = "translateY(-1px)";
+                  e.currentTarget.style.boxShadow = "0 12px 28px -10px rgba(0,0,0,0.5)";
+                }
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.transform = "translateY(0)";
+                e.currentTarget.style.boxShadow = "0 8px 24px -8px rgba(0,0,0,0.4)";
+              }}
             >
-              <RefreshCw size={14} className={syncing ? "animate-spin" : ""} />
+              <RefreshCw size={13} className={syncing ? "animate-spin" : ""} />
               {syncing ? "Sincronizando..." : "Sincronizar"}
             </button>
           </div>
 
-          {/* Painel de métricas rápidas */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="bg-white rounded-xl border border-cf-border px-4 py-3">
-              <div className="text-[11px] font-semibold text-cf-text-3 uppercase tracking-wide mb-1">Pendentes</div>
-              <div className="flex items-end gap-2">
-                <span className="text-2xl font-bold" style={{ color: pending.length > 0 ? "#d97706" : "#94a3b8" }}>
-                  {pending.length}
-                </span>
-                {pending.length > 0 && (
-                  <span className="text-[11px] font-semibold text-amber-500 mb-0.5">aguardando análise</span>
-                )}
-              </div>
+          {/* KPIs inline no hero */}
+          <div style={{
+            display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 1,
+            background: "rgba(255,255,255,0.08)",
+            borderRadius: 16,
+            border: "1px solid rgba(255,255,255,0.1)",
+            overflow: "hidden",
+            backdropFilter: "blur(8px)",
+          }}>
+            <div style={{
+              padding: "20px 22px",
+              background: "rgba(15,31,92,0.45)",
+              display: "flex", flexDirection: "column", gap: 4,
+            }}>
+              <span style={{
+                fontSize: 10, fontWeight: 700, color: "#fcd34d",
+                textTransform: "uppercase", letterSpacing: "0.1em",
+              }}>Pendentes</span>
+              <span style={{
+                fontSize: 30, fontWeight: 900, color: "#fff", lineHeight: 1,
+                letterSpacing: "-0.02em", fontFeatureSettings: '"tnum"',
+              }}>{pending.length}</span>
+              <span style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>
+                {pending.length > 0 ? "aguardando análise" : "tudo em dia"}
+              </span>
             </div>
-            <div className="bg-white rounded-xl border border-cf-border px-4 py-3">
-              <div className="text-[11px] font-semibold text-cf-text-3 uppercase tracking-wide mb-1">Analisadas</div>
-              <div className="flex items-end gap-2">
-                <span className="text-2xl font-bold text-cf-text-1">{done.length}</span>
-                {done.length > 0 && (
-                  <span className="text-[11px] font-semibold text-green-600 mb-0.5">concluídas</span>
-                )}
-              </div>
+            <div style={{
+              padding: "20px 22px",
+              background: "rgba(15,31,92,0.45)",
+              display: "flex", flexDirection: "column", gap: 4,
+            }}>
+              <span style={{
+                fontSize: 10, fontWeight: 700, color: "#86efac",
+                textTransform: "uppercase", letterSpacing: "0.1em",
+              }}>Analisadas</span>
+              <span style={{
+                fontSize: 30, fontWeight: 900, color: "#fff", lineHeight: 1,
+                letterSpacing: "-0.02em", fontFeatureSettings: '"tnum"',
+              }}>{done.length}</span>
+              <span style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>
+                {done.length > 0 ? "concluídas" : "—"}
+              </span>
             </div>
-            <div className="bg-white rounded-xl border border-cf-border px-4 py-3">
-              <div className="text-[11px] font-semibold text-cf-text-3 uppercase tracking-wide mb-1">Última sync</div>
-              <div className="text-sm font-semibold text-cf-text-2">
+            <div style={{
+              padding: "20px 22px",
+              background: "rgba(15,31,92,0.45)",
+              display: "flex", flexDirection: "column", gap: 4,
+            }}>
+              <span style={{
+                fontSize: 10, fontWeight: 700, color: "#a8d96b",
+                textTransform: "uppercase", letterSpacing: "0.1em",
+              }}>Última sync</span>
+              <span style={{
+                fontSize: 30, fontWeight: 900, color: "#fff", lineHeight: 1,
+                letterSpacing: "-0.02em", fontFeatureSettings: '"tnum"',
+              }}>
                 {lastSync ? lastSync.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "—"}
-              </div>
+              </span>
+              <span style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>
+                {lastSync ? "atualizado" : "não sincronizado"}
+              </span>
             </div>
           </div>
-        </div>
+        </main>
+      </div>
+
+      {/* ── CONTENT (sobe sobre o hero) ── */}
+      <main style={{
+        maxWidth: 1100, margin: "-50px auto 0",
+        padding: "0 24px 80px", position: "relative", zIndex: 2,
+        // Pattern sutil dots navy 4% — identidade Capital sem ruído
+        backgroundImage: "radial-gradient(circle, rgba(32,59,136,0.06) 1px, transparent 1px)",
+        backgroundSize: "24px 24px",
+        backgroundPosition: "0 60px",
+      }}>
 
         {/* ── Erro global ────────────────────────────────────────────────── */}
         {error && (
@@ -268,81 +357,149 @@ export default function ImportarGoalfyPage() {
           </div>
         )}
 
-        {/* ── Webhook URL ─────────────────────────────────────────────────── */}
-        <div className="bg-white rounded-xl border border-cf-border p-4 mb-6">
-          <div className="flex items-center gap-2 mb-3">
-            <Link2 size={13} className="text-cf-navy" />
-            <span className="text-sm font-semibold text-cf-text-1">URL do Webhook</span>
-            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">Configure na Goalfy</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 text-xs bg-cf-bg text-cf-navy font-mono px-3 py-2.5 rounded-lg border border-cf-border truncate">
-              {webhookUrl}
-            </code>
-            <button
-              onClick={async () => {
-                await navigator.clipboard.writeText(webhookUrl).catch(() => {});
-                setCopied(true);
-                setTimeout(() => setCopied(false), 2000);
-              }}
-              className="flex items-center gap-1.5 px-3 py-2.5 rounded-lg text-xs font-semibold border transition-colors"
-              style={copied
-                ? { background: "#f0fdf4", color: "#16a34a", borderColor: "#bbf7d0" }
-                : { background: "white", color: "#203b88", borderColor: "#d1dcf0" }}
-            >
-              {copied ? <Check size={13} /> : <Copy size={13} />}
-              {copied ? "Copiado!" : "Copiar"}
-            </button>
-          </div>
-          <p className="text-[11px] text-cf-text-3 mt-2">
-            Na Goalfy: Automações → Webhook HTTP → Cole a URL acima → Método POST
-          </p>
-        </div>
+        {/* ── Pendentes ─ separados em IMPORTÁVEIS e ZUMBI ──────────────── */}
+        {(() => {
+          const isImportavel = (op: OperationWithStatus) => {
+            if (!Array.isArray(op.documents)) return false;
+            return op.documents.some(d => {
+              if (!d || typeof d.url !== "string") return false;
+              return d.url.startsWith("http://") || d.url.startsWith("https://");
+            });
+          };
+          const importaveis = pending.filter(isImportavel);
+          const zumbis      = pending.filter(op => !isImportavel(op));
 
-        {/* ── Pendentes ───────────────────────────────────────────────────── */}
-        {pending.length > 0 && (
-          <section className="mb-6">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-[11px] font-bold text-cf-text-3 uppercase tracking-widest">Aguardando análise</span>
-              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">
-                {pending.length}
-              </span>
-            </div>
-            <div className="flex flex-col gap-3">
-              {pending.map(op => (
-                <OperationCard
-                  key={op.id}
-                  op={op}
-                  phase={importPhase[op.id] ?? "idle"}
-                  importedId={imported[op.id]}
-                  onImport={() => handleImport(op)}
-                  onOpen={() => goToCollection(imported[op.id])}
-                />
-              ))}
-            </div>
-          </section>
-        )}
+          return (
+            <>
+              {/* IMPORTÁVEIS — destaque máximo */}
+              {importaveis.length > 0 && (
+                <section className="mb-6">
+                  <div style={{
+                    display: "flex", alignItems: "baseline", gap: 10, marginBottom: 24,
+                  }}>
+                    <h2 style={{
+                      fontSize: 18, fontWeight: 900, margin: 0,
+                      letterSpacing: "-0.02em",
+                      background: "linear-gradient(135deg, #5a9010 0%, #73b815 50%, #a8d96b 100%)",
+                      WebkitBackgroundClip: "text",
+                      WebkitTextFillColor: "transparent",
+                      backgroundClip: "text",
+                      fontStyle: "italic",
+                    }}>
+                      Aguardando análise
+                    </h2>
+                    <span style={{
+                      fontSize: 13, fontWeight: 700, color: "#94a3b8",
+                      fontFeatureSettings: '"tnum"',
+                    }}>
+                      {importaveis.length}
+                    </span>
+                  </div>
+                  <div style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))",
+                    gap: 16,
+                  }}>
+                    {importaveis.map(op => (
+                      <OperationCard
+                        key={op.id}
+                        op={op}
+                        phase={importPhase[op.id] ?? "idle"}
+                        importedId={imported[op.id]}
+                        onImport={() => handleImport(op)}
+                        onOpen={() => goToCollection(imported[op.id])}
+                      />
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* ZUMBIS — accordion fechado por padrão */}
+              {zumbis.length > 0 && (
+                <section className="mb-6">
+                  <button
+                    onClick={() => setZumbiOpen(o => !o)}
+                    className="flex items-center gap-3 mb-3 group w-full text-left"
+                    style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer" }}
+                  >
+                    <h3 style={{
+                      fontSize: 13, fontWeight: 700, color: "#64748b", margin: 0,
+                      letterSpacing: "-0.005em",
+                    }}>
+                      Cards sem documentos baixáveis
+                    </h3>
+                    <span style={{
+                      fontSize: 11, fontWeight: 800, padding: "2px 8px", borderRadius: 99,
+                      background: "#f1f5f9", color: "#64748b",
+                      border: "1px solid #e2e8f0",
+                    }}>
+                      {zumbis.length}
+                    </span>
+                    <span style={{ marginLeft: "auto", color: "#94a3b8" }}>
+                      {zumbiOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    </span>
+                  </button>
+                  {!zumbiOpen && (
+                    <p style={{ fontSize: 12, color: "#94a3b8", margin: "0 0 8px", fontStyle: "italic" }}>
+                      Cards antigos do Goalfy sem URLs de documento utilizáveis. Reenvie a automação para reprocessar.
+                    </p>
+                  )}
+                  {zumbiOpen && (
+                    <div style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))",
+                      gap: 12,
+                    }}>
+                      {zumbis.map(op => (
+                        <OperationCard
+                          key={op.id}
+                          op={op}
+                          phase={importPhase[op.id] ?? "idle"}
+                          importedId={imported[op.id]}
+                          onImport={() => handleImport(op)}
+                          onOpen={() => goToCollection(imported[op.id])}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
+            </>
+          );
+        })()}
 
         {/* ── Já analisadas — accordion ──────────────────────────────────── */}
         {done.length > 0 && (
           <section>
             <button
               onClick={() => setDoneOpen(o => !o)}
-              className="flex items-center gap-2 mb-3 group w-full text-left"
+              className="flex items-center gap-3 mb-3 group w-full text-left"
+              style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer" }}
             >
-              <span className="text-[11px] font-bold text-cf-text-3 uppercase tracking-widest group-hover:text-cf-text-2 transition-colors">
+              <h3 style={{
+                fontSize: 13, fontWeight: 700, color: "#64748b", margin: 0,
+                letterSpacing: "-0.005em",
+              }}>
                 Já analisadas
-              </span>
-              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-green-50 text-green-600 border border-green-200">
+              </h3>
+              <span style={{
+                fontSize: 11, fontWeight: 800, padding: "2px 8px", borderRadius: 99,
+                background: "#f0fdf4", color: "#16a34a",
+                border: "1px solid #86efac",
+              }}>
                 {done.length}
               </span>
-              <span className="ml-auto text-cf-text-3 group-hover:text-cf-text-2 transition-colors">
+              <span style={{ marginLeft: "auto", color: "#94a3b8" }}>
                 {doneOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
               </span>
             </button>
 
             {doneOpen && (
-              <div className="flex flex-col gap-2">
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))",
+                gap: 12,
+              }}>
                 {done.map(op => (
                   <OperationCard
                     key={op.id}
@@ -360,17 +517,73 @@ export default function ImportarGoalfyPage() {
 
         {/* ── Empty state ─────────────────────────────────────────────────── */}
         {operations.length === 0 && !error && (
-          <div className="flex flex-col items-center justify-center py-16 bg-white rounded-xl border border-cf-border text-center">
-            <div style={{
-              width: 56, height: 56, borderRadius: 16,
-              background: "linear-gradient(135deg,#f1f5f9,#e8efff)",
-              display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16,
+          <div style={{
+            position: "relative",
+            background: "linear-gradient(180deg, #ffffff 0%, #f5f7fb 100%)",
+            border: "1px solid #e8edf5",
+            borderRadius: 20,
+            padding: "56px 32px",
+            textAlign: "center",
+            overflow: "hidden",
+            boxShadow: "0 1px 3px rgba(15,23,42,0.04)",
+          }}>
+            {/* Padrão decorativo no canto */}
+            <div aria-hidden style={{
+              position: "absolute", top: -40, right: -40, width: 220, height: 220, borderRadius: "50%",
+              background: "radial-gradient(circle, rgba(168,217,107,0.12) 0%, transparent 70%)",
+            }} />
+            <div aria-hidden style={{
+              position: "absolute", bottom: -30, left: -30, width: 180, height: 180, borderRadius: "50%",
+              background: "radial-gradient(circle, rgba(32,59,136,0.06) 0%, transparent 70%)",
+            }} />
+
+            {/* Ilustração SVG ─ funil de webhook → análise */}
+            <svg
+              width="120" height="120" viewBox="0 0 120 120" fill="none"
+              style={{ margin: "0 auto 20px", display: "block", position: "relative", zIndex: 1 }}
+              aria-hidden
+            >
+              <defs>
+                <linearGradient id="emptyNavy" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stopColor="#203b88" />
+                  <stop offset="100%" stopColor="#2d4fad" />
+                </linearGradient>
+                <linearGradient id="emptyGreen" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stopColor="#a8d96b" />
+                  <stop offset="100%" stopColor="#73b815" />
+                </linearGradient>
+              </defs>
+              {/* Card de fundo (light) */}
+              <rect x="22" y="38" width="76" height="56" rx="10" fill="#f1f5f9" stroke="#cbd5e1" strokeWidth="1.5" strokeDasharray="4 3" />
+              {/* Linhas de placeholder */}
+              <rect x="32" y="50" width="32" height="4" rx="2" fill="#cbd5e1" />
+              <rect x="32" y="60" width="48" height="3" rx="1.5" fill="#e2e8f0" />
+              <rect x="32" y="68" width="24" height="3" rx="1.5" fill="#e2e8f0" />
+              {/* Botão raio principal — cor da marca */}
+              <circle cx="60" cy="32" r="20" fill="url(#emptyNavy)" />
+              <path d="M62 22 L52 36 L60 36 L58 44 L68 30 L60 30 Z" fill="url(#emptyGreen)" />
+              {/* Pontos decorativos */}
+              <circle cx="20" cy="28" r="3" fill="#a8d96b" opacity="0.6" />
+              <circle cx="100" cy="22" r="2.5" fill="#73b815" opacity="0.4" />
+              <circle cx="106" cy="100" r="3.5" fill="#203b88" opacity="0.18" />
+              <circle cx="14" cy="92" r="2.5" fill="#2d4fad" opacity="0.22" />
+            </svg>
+
+            <h3 style={{
+              fontSize: 18, fontWeight: 800, color: "#0f172a", margin: "0 0 6px",
+              letterSpacing: "-0.01em", position: "relative", zIndex: 1,
             }}>
-              <Zap size={26} color="#94a3b8" />
-            </div>
-            <p className="text-sm font-semibold text-cf-text-2 mb-1">Nenhuma operação recebida ainda</p>
-            <p className="text-xs text-cf-text-3 max-w-xs leading-relaxed">
-              Configure o webhook na Goalfy com a URL acima. Quando um card for criado, ele aparece aqui automaticamente.
+              Nenhuma operação recebida ainda
+            </h3>
+            <p style={{
+              fontSize: 13, color: "#64748b", maxWidth: 380, margin: "0 auto",
+              lineHeight: 1.55, position: "relative", zIndex: 1,
+            }}>
+              Quando um card for criado no Goalfy, ele aparece aqui automaticamente via webhook.
+              <br />
+              <span style={{ fontSize: 12, color: "#94a3b8" }}>
+                A página atualiza sozinha a cada 30 segundos.
+              </span>
             </p>
           </div>
         )}
@@ -421,125 +634,121 @@ function OperationCard({
     ? "#f59e0b"
     : "#203b88";
 
+  // Card "premium" — layout vertical com avatar grande, sombra colorida quando importável
+  const isImportavelEstado = !isZombie && !isAlreadyDone && !justDone && !isError && !isActive;
+  const cardShadow = isImportavelEstado
+    ? "0 1px 3px rgba(32,59,136,0.06), 0 8px 24px -12px rgba(32,59,136,0.18)"
+    : isActive
+      ? "0 0 0 3px rgba(59,130,246,0.08), 0 4px 12px -4px rgba(59,130,246,0.2)"
+      : justDone || isAlreadyDone
+        ? "0 1px 3px rgba(34,197,94,0.06), 0 6px 18px -10px rgba(34,197,94,0.15)"
+        : isZombie
+          ? "0 1px 3px rgba(217,119,6,0.04)"
+          : "0 1px 3px rgba(0,0,0,0.04)";
+
   return (
     <div
-      className="bg-white rounded-xl border border-cf-border transition-all overflow-hidden"
+      className="rounded-2xl border transition-all overflow-hidden"
       style={{
-        borderLeft: `3.5px solid ${leftBorderColor}`,
-        boxShadow: isActive
-          ? "0 0 0 3px rgba(59,130,246,0.07), 0 1px 4px rgba(0,0,0,0.05)"
-          : "0 1px 3px rgba(0,0,0,0.04)",
+        background: isImportavelEstado
+          ? "linear-gradient(180deg, #ffffff 0%, #fafbff 100%)"
+          : isZombie
+            ? "#fdfdfb"
+            : "#fff",
+        borderColor: isImportavelEstado
+          ? "rgba(32,59,136,0.18)"
+          : isZombie
+            ? "#fde68a"
+            : "#e5e7eb",
+        borderLeft: `4px solid ${leftBorderColor}`,
+        boxShadow: cardShadow,
+        opacity: isZombie ? 0.78 : 1,
       }}
     >
-      <div className="p-4">
-        {/* Linha 1: avatar + info + botão */}
-        <div className="flex items-center gap-3">
-
-          {/* Avatar com iniciais */}
+      <div style={{ padding: "18px 18px 16px" }}>
+        {/* Header: avatar grande + nome + tempo + status badge */}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 14, marginBottom: 12 }}>
+          {/* Avatar grande com gradient */}
           <div style={{
-            width: 42, height: 42, borderRadius: 12, flexShrink: 0,
-            background: isAlreadyDone ? "#f1f5f9" : bg,
+            width: 52, height: 52, borderRadius: 14, flexShrink: 0,
+            background: isAlreadyDone || justDone
+              ? "linear-gradient(135deg, #f1f5f9, #e2e8f0)"
+              : isZombie
+                ? "linear-gradient(135deg, #fef3c7, #fde68a)"
+                : `linear-gradient(135deg, ${bg}, ${bg}dd)`,
             display: "flex", alignItems: "center", justifyContent: "center",
-            fontWeight: 800, fontSize: 14, letterSpacing: "-0.02em",
-            color: isAlreadyDone ? "#94a3b8" : fg,
+            fontWeight: 900, fontSize: 17, letterSpacing: "-0.03em",
+            color: isAlreadyDone || justDone ? "#94a3b8" : isZombie ? "#b45309" : fg,
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)",
           }}>
             {initials}
           </div>
 
-          {/* Info */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-0.5">
-              <span className="text-[14px] font-bold text-cf-text-1 truncate leading-tight">
+          {/* Info nome + tempo + badge */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+              <span style={{
+                fontSize: 15, fontWeight: 800, color: "#0f172a",
+                letterSpacing: "-0.01em", lineHeight: 1.25,
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                maxWidth: "100%",
+              }}>
                 {op.company_name}
               </span>
               {(isAlreadyDone || justDone) && (
-                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-green-50 text-green-600 border border-green-200 flex-shrink-0">
+                <span style={{
+                  display: "inline-flex", alignItems: "center", gap: 3,
+                  fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 99,
+                  background: "#f0fdf4", color: "#16a34a",
+                  border: "1px solid #86efac", flexShrink: 0,
+                }}>
                   <CheckCircle2 size={9} /> Analisada
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-3 flex-wrap">
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
               {op.cnpj && (
-                <span className="inline-flex items-center gap-1 text-[11px] text-cf-text-3">
-                  <Building2 size={9} /> {op.cnpj}
+                <span style={{
+                  display: "inline-flex", alignItems: "center", gap: 4,
+                  fontSize: 11, color: "#64748b", fontWeight: 500,
+                }}>
+                  <Building2 size={10} /> {op.cnpj}
                 </span>
               )}
               {op.manager_name && (
-                <span className="inline-flex items-center gap-1 text-[11px] text-cf-text-3">
-                  <User size={9} /> {op.manager_name}
+                <span style={{
+                  display: "inline-flex", alignItems: "center", gap: 4,
+                  fontSize: 11, color: "#64748b", fontWeight: 500,
+                }}>
+                  <User size={10} /> {op.manager_name}
                 </span>
               )}
-              <span className="inline-flex items-center gap-1 text-[11px] text-cf-text-3">
-                <Clock size={9} /> {timeAgo(op.created_at)}
+              <span style={{
+                display: "inline-flex", alignItems: "center", gap: 4,
+                fontSize: 11, color: "#94a3b8", fontWeight: 500,
+              }}>
+                <Clock size={10} /> {timeAgo(op.created_at)}
               </span>
             </div>
-          </div>
-
-          {/* Botão de ação */}
-          <div className="flex-shrink-0">
-            {justDone && importedId ? (
-              <button
-                onClick={onOpen}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-90"
-                style={{ background: "linear-gradient(135deg,#1a2f6b,#203b88)" }}
-              >
-                <ArrowRight size={14} /> Abrir análise
-              </button>
-            ) : isAlreadyDone ? (
-              <button
-                onClick={onOpen}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-cf-navy bg-cf-bg border border-cf-border hover:bg-white transition-colors"
-              >
-                <ArrowRight size={12} /> Ver análise
-              </button>
-            ) : isActive ? (
-              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-blue-50 text-blue-600 border border-blue-100">
-                <Loader2 size={14} className="animate-spin" />
-                {phase === "downloading" ? "Baixando..." : "Extraindo..."}
-              </div>
-            ) : isError ? (
-              <button
-                onClick={onImport}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors"
-              >
-                <AlertTriangle size={14} /> Tentar novamente
-              </button>
-            ) : isZombie ? (
-              <div
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-amber-50 text-amber-700 border border-amber-200 cursor-not-allowed"
-                title="Card sem URLs de documento utilizáveis. Reenvie a automação do Goalfy para reprocessar."
-              >
-                <AlertTriangle size={14} /> Sem documentos baixáveis
-              </div>
-            ) : (
-              <button
-                onClick={onImport}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-90"
-                style={{ background: "linear-gradient(135deg,#1a2f6b,#203b88)" }}
-                title="Baixa os documentos do Goalfy e abre a tela de revisão"
-              >
-                <Sparkles size={14} /> Importar e revisar
-              </button>
-            )}
           </div>
         </div>
 
         {/* Barra de progresso */}
         {isActive && (
-          <div className="mt-3 pt-3 border-t border-cf-border">
-            <div className="flex items-center gap-3">
-              <div className="flex-1 h-1.5 rounded-full bg-blue-100 overflow-hidden">
+          <div style={{ marginBottom: 12, paddingBottom: 12, borderBottom: "1px solid #f1f5f9" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ flex: 1, height: 6, background: "#dbeafe", borderRadius: 99, overflow: "hidden" }}>
                 <div
-                  className="h-full rounded-full transition-all duration-700"
                   style={{
-                    width: phase === "downloading" ? "35%" : "80%",
+                    height: "100%", width: phase === "downloading" ? "35%" : "80%",
                     background: "linear-gradient(90deg,#3b82f6,#6366f1)",
+                    borderRadius: 99, transition: "width 0.7s cubic-bezier(.4,0,.2,1)",
                   }}
                 />
               </div>
-              <span className="text-[11px] text-blue-600 font-medium whitespace-nowrap">
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#3b82f6", whiteSpace: "nowrap" }}>
                 {phase === "downloading"
-                  ? `Baixando ${op.document_count} arquivo${op.document_count !== 1 ? "s" : ""}...`
+                  ? `Baixando ${op.document_count} arq.`
                   : "Extraindo com IA..."}
               </span>
             </div>
@@ -548,15 +757,27 @@ function OperationCard({
 
         {/* Chips de documentos */}
         {docsList.length > 0 && !isActive && (
-          <div className="flex gap-1.5 flex-wrap mt-3 pt-3 border-t border-cf-border">
+          <div style={{
+            display: "flex", gap: 6, flexWrap: "wrap",
+            marginTop: 4, marginBottom: 14,
+          }}>
             {docsList.map(d => (
               <span
                 key={d.id}
-                className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md"
                 style={{
-                  background: isAlreadyDone ? "#f8fafc" : "#f0f4ff",
-                  color: isAlreadyDone ? "#94a3b8" : "#203b88",
-                  border: `1px solid ${isAlreadyDone ? "#e2e8f0" : "#dce8f8"}`,
+                  display: "inline-flex", alignItems: "center", gap: 4,
+                  fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 6,
+                  background: isAlreadyDone || justDone
+                    ? "#f1f5f9"
+                    : isZombie
+                      ? "#fef9c3"
+                      : "#f0f9e0",
+                  color: isAlreadyDone || justDone
+                    ? "#94a3b8"
+                    : isZombie
+                      ? "#92400e"
+                      : "#5a9010",
+                  border: `1px solid ${isAlreadyDone || justDone ? "#e2e8f0" : isZombie ? "#fde68a" : "#c4e08a"}`,
                 }}
               >
                 <FileText size={9} /> {docLabel(d.type)}
@@ -564,6 +785,111 @@ function OperationCard({
             ))}
           </div>
         )}
+
+        {/* Botão de ação — full-width no rodapé do card */}
+        <div>
+          {justDone && importedId ? (
+            <button
+              onClick={onOpen}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                width: "100%", padding: "11px 16px", borderRadius: 11,
+                fontSize: 13, fontWeight: 700, color: "#fff",
+                background: "linear-gradient(135deg, #0f1f5c, #2d4fad)",
+                border: "none", cursor: "pointer",
+                boxShadow: "0 4px 12px -4px rgba(32,59,136,0.4)",
+                transition: "all 0.15s",
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.transform = "translateY(-1px)";
+                e.currentTarget.style.boxShadow = "0 8px 18px -4px rgba(32,59,136,0.5)";
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.transform = "translateY(0)";
+                e.currentTarget.style.boxShadow = "0 4px 12px -4px rgba(32,59,136,0.4)";
+              }}
+            >
+              <ArrowRight size={14} /> Abrir análise
+            </button>
+          ) : isAlreadyDone ? (
+            <button
+              onClick={onOpen}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                width: "100%", padding: "9px 14px", borderRadius: 10,
+                fontSize: 12, fontWeight: 700, color: "#203b88",
+                background: "#fff", border: "1.5px solid #c7d2fe",
+                cursor: "pointer", transition: "all 0.15s",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = "#f0f4ff"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "#fff"; }}
+            >
+              <ArrowRight size={12} /> Ver análise
+            </button>
+          ) : isActive ? (
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+              width: "100%", padding: "11px 16px", borderRadius: 11,
+              fontSize: 12, fontWeight: 700, color: "#3b82f6",
+              background: "#eff6ff", border: "1px solid #bfdbfe",
+            }}>
+              <Loader2 size={13} className="animate-spin" />
+              {phase === "downloading" ? "Baixando..." : "Extraindo..."}
+            </div>
+          ) : isError ? (
+            <button
+              onClick={onImport}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                width: "100%", padding: "11px 16px", borderRadius: 11,
+                fontSize: 13, fontWeight: 700, color: "#dc2626",
+                background: "#fef2f2", border: "1.5px solid #fca5a5",
+                cursor: "pointer", transition: "background 0.15s",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = "#fee2e2"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "#fef2f2"; }}
+            >
+              <AlertTriangle size={14} /> Tentar novamente
+            </button>
+          ) : isZombie ? (
+            <div
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                width: "100%", padding: "10px 14px", borderRadius: 10,
+                fontSize: 12, fontWeight: 700, color: "#92400e",
+                background: "#fffbeb", border: "1.5px dashed #fcd34d",
+                cursor: "not-allowed",
+              }}
+              title="Card sem URLs de documento utilizáveis. Reenvie a automação do Goalfy para reprocessar."
+            >
+              <AlertTriangle size={13} /> Sem documentos baixáveis
+            </div>
+          ) : (
+            <button
+              onClick={onImport}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                width: "100%", padding: "11px 16px", borderRadius: 11,
+                fontSize: 13, fontWeight: 700, color: "#fff",
+                background: "linear-gradient(135deg, #0f1f5c 0%, #203b88 50%, #2d4fad 100%)",
+                border: "none", cursor: "pointer",
+                boxShadow: "0 4px 14px -4px rgba(32,59,136,0.45), inset 0 1px 0 rgba(168,217,107,0.2)",
+                transition: "all 0.18s",
+              }}
+              title="Baixa os documentos do Goalfy e abre a tela de revisão"
+              onMouseEnter={e => {
+                e.currentTarget.style.transform = "translateY(-1px)";
+                e.currentTarget.style.boxShadow = "0 10px 22px -6px rgba(32,59,136,0.55), inset 0 1px 0 rgba(168,217,107,0.3)";
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.transform = "translateY(0)";
+                e.currentTarget.style.boxShadow = "0 4px 14px -4px rgba(32,59,136,0.45), inset 0 1px 0 rgba(168,217,107,0.2)";
+              }}
+            >
+              <Sparkles size={14} style={{ color: "#a8d96b" }} /> Importar e revisar
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
