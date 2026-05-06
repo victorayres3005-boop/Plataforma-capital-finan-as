@@ -11,6 +11,87 @@ Log datado de mudanças significativas. Adicionar entrada nova **no topo** quand
 
 ---
 
+## 2026-05-06 (noite) — Redesign /pareceres + /importar-goalfy + Rating IA 3 fases + DataBox sócios + custos R$ ✅
+
+**Disparador:** sequência longa de pedidos do Victor após o pacote da manhã (testes Vitest + bugs V2): aplicar 3 fases do Rating IA, atacar estética genérica das abas, finalizar configuração Goalfy com automação real, e corrigir falha apontada pela chefe (link DataBox sócios PF).
+
+**Cirurgias aceitas em produção:**
+
+| Área | Conteúdo | Commit |
+|---|---|---|
+| Aba `/custos` em Real | Removido input USD/BRL + dropdown; preços Gemini agora em R$ direto (Flash R$ 0,375 input / R$ 1,50 output, Pro R$ 6,25/R$ 50). STORAGE_KEY bumped pra `_v2` (descarta valores antigos USD do localStorage) | `9ca0ab2` |
+| Goalfy — Importar/Analisar UX | Botão renomeado pra "Importar e revisar"; toast Sonner com 3 estados (success/warning/error com count de docs); auto-navegação 1.5s pós-import; polling 30s quando aba ativa | `ab3f425` |
+| Goalfy — `documents` shape canônico | `/api/goalfy/importar` salvava `doc_type` (cards do `extracted_data` esperam `type`); `scr` (esperado `scr_bacen`). Adicionada `toCollectionType()` em webhookParser; filtra docs com `status="uploaded"`; falhados ficam em `ai_analysis.goalfy_failed_docs` para auditoria | `755ee13` |
+| Goalfy — UX preventiva zumbi | Cards sem URLs http/https utilizáveis ganham badge "Sem documentos baixáveis" + borda dashed amber; botão Importar substituído (não-clicável) + tooltip orientando a reenviar a automação Goalfy | `17c2d2d` |
+| Goalfy — Authorization seletivo | `/importar` enviava `Authorization: Token GOALFY_API_KEY` em TODA URL HTTP, incluindo Vercel Blob (que rejeita) → 0 docs baixados em smoke test. Agora detecta hostname `goalfy.com.br` e só injeta header pra essas URLs | `b56e536` |
+| Rating IA — Fase 1 (auditoria por pilar) | `ANALYSIS_PROMPT` ganha parágrafo `P_PILARES` no `textoCompleto`: Gemini comenta cada pilar V2 com peso e pontos, valida coerência entre resposta do analista e dados extraídos, aponta divergências (ex: "analista marcou sem inadimplência mas SCR mostra R$ 162.834 vencidos") | `1f0ed78` |
+| Rating IA — Fase 2 (rating sugerido paralelo) | `AIAnalysis.ratingSugeridoIA` (number 0-10) + `ratingSugeridoIAJustificativa` (string). Gemini calcula rating independente do Score V2 com critérios explícitos (eliminatórios ≤3, problemas moderados 4-6, saudáveis 7-9.5, excelência ≥9). Card "Sugestão IA" azul aparece lado a lado com Card "Comitê" no `/parecer`. PDF intacto (HIDE_AVALIACAO continua) | `c97f382` |
+| Rating IA — Fase 3 (sugestão por critério) | `AIAnalysis.respostasSugeridas[]` com `pilar_id`/`criterio_id`/`opcao_label`/`justificativa`. ScoreForm exibe badge "✓ Consenso" quando IA bate com auto-score determinístico OU "✨ IA: <opção>" quando divergente. Opção sugerida pela IA ganha borda dashed azul + ícone Sparkles + tooltip com justificativa. Auto-score determinístico continua como pre-fill principal | `d475bf8` |
+| `/pareceres` — refresh estética v1 | Hero navy compacto + 4 KPIs glassmorphism + filtros segmented control + cards lateral colorida pelo status + barra verde brand decorativa + accordion "Detalhar análise da carteira" + cards grid 2-col com Rating V2/IA em destaque + empty state SVG editorial | `5336075`, `7940ec9` |
+| `/importar-goalfy` — redesign com identidade Capital | Hero navy + Goalfy em gradient verde brand itálico (WebkitBackgroundClip) + KPIs glassmorphism (Pendentes/Analisadas/Última Sync) + URL webhook removida (já configurada) + separação importáveis vs zumbis (accordion fechado por padrão) + section "Aguardando análise" gradient verde itálico + cards premium grid 2-col com avatar 52px + empty state SVG funil-de-webhook-→-análise + pattern dots navy 6% no background | `1b9f56b` |
+| Fix DataBox sócios PF | Reportado pela chefe do Victor: relatório final só exibia link "🔗 Ver consulta DataBox360" para empresa, não para sócios PF. Backend já retornava `urlRelatorio` em `scrSocios[i].periodoAtual` mas template não renderizava. Adicionada renderização condicional no rodapé de cada bloco de sócio (linha 1962 de `lib/pdf/template.ts`), padrão visual idêntico ao da empresa | `ef28b51` |
+
+**Tentativas rejeitadas (revertidas na mesma sessão):**
+
+| Tentativa | Resultado |
+|---|---|
+| `/pareceres` redesign v2 (cards grid premium + accordion métricas + lista priorizada com pendentes primeiro + tipografia editorial) | "Gostei n, depois olhamos isso, combinado??" — revertido `git checkout` |
+| `/custos` hero navy estilo `/historico` | "ficou muito feio pqp" → tentativa de melhorar (KPIs em row própria + toolbar separada + barra verde) → "esse banner tá ruim" → "vamos arrumar esse design depois, vou descansar" → revertido |
+
+**Diagnóstico do CreditHub-first (telemetria via SQL):**
+- Trigger `company_snapshots` reescrito (4 → 33 análises mensuráveis em 30 dias). Adicionados `alavancagem` e `scr_vencidos_pct` (eram NULL pelo bug). Fix do `IS DISTINCT FROM` que impedia backfill `UPDATE no_op`. SQL: 3 statements (helper `parse_brl_to_numeric`, trigger reescrito, backfill via `SET status = status`).
+- Telemetria revelou que **64% das análises (21/33) caem em rating CRÍTICO (<5)** com média 2.3 — Victor confirmou que reflete o perfil real do portfolio FIDC; **política V2 calibrada certo**. Memória `project_rating_calibracao_2026_05_06.md` registra: rating é determinístico (`Score V2 ÷ 10`), Gemini só ECHO; não vale "treinar" Gemini pra dar rating.
+- Telemetria CreditHub-first: 89% das análises ainda dispararam BDC fallback (esperado <15%). Custo extra ~R$ 50/semana, ~R$ 2.600/ano. Investigação dos logs Vercel ficou bloqueada (CLI rate limited); decisão: aceitar como está, revisitar quando custo virar prioridade.
+
+**Lições registradas:**
+- `feedback_estabilidade_sobre_velocidade.md` (novo): Victor prefere parar a sessão a arriscar regressão. Quando ele expressa dúvida ou diz "está bom", aceitar — não empurrar.
+- `feedback_redesign_visual_workflow.md` (já existia, reforçada): redesign visual = mockup HTML primeiro. Aplicar direto na page.tsx foi rejeitado 2× nesta sessão de noite (`/pareceres` v2 + `/custos`).
+
+**Pendências operacionais (só Victor pode):**
+1. GitHub Settings → Branches → "Require status checks" → marcar `quality` (CI gate só bloqueia merge depois disso)
+2. Vercel → Env Variables → `GOALFY_WEBHOOK_SECRET` (status atual: aberto; a Sophia do suporte Goalfy foi contatada para confirmar se a automação suporta `?secret=` na URL)
+
+**Próximas frentes mapeadas (não atacadas):**
+- Histórico vivo de cedente — `/empresa/[cnpj]` JÁ EXISTE com timeline + KPIs, falta descoberta (rota `/cedentes`, item no menu lateral, link a partir de `/pareceres`). Victor avaliou e disse "n vamos fazer, não é necessário atualmente"
+- Refinamento estético `/custos` — pausado após rejeição da v1; próxima rodada precisa começar com mockups locais
+- Mock e component tests das 15 sections de revisão (`components/review/*`)
+- E2E Playwright funcionando
+
+---
+
+## 2026-05-06 (tarde) — Aba `/historico` cirúrgica + funil APEX + 28 skills awesome-claude-skills ✅
+
+**Disparador:** Victor abriu a sessão pedindo "melhorar a estética da aba de histórico". A iteração revelou duas dores: (1) lista misturava análises legítimas com rascunhos abandonados ("Sem título", "TESTE Claude", coletas de 0 docs); (2) o funil triangular SVG original parecia datado e pesado. O processo passou por mockups locais antes de cada deploy.
+
+**Cirurgias aceitas em produção (`app/historico/page.tsx`):**
+
+| Área | Conteúdo |
+|---|---|
+| Filtro junk ampliado | `isEmptyCollection` agora detecta: 0 docs sem rating/análise (já existia) + sem CNPJ + nome vazio/"Sem título"/"Empresa não identificada" + nome começando com "teste" ou "card teste" |
+| Separação visual da lista | Render dividido em 2 seções: **Análises finalizadas** (destaque, paginadas — grupos com pelo menos 1 coleta `finished`) + **Em coleta** (header colapsável, default colapsada). Novo state `showDrafts`; derivados `finalizedGroups`, `draftGroups`, `visibleFinalized`, `hasMoreFinalized`, `totalDraftEntries` |
+| Funil APEX | SVG triangular elaborado substituído por funil hairline-only: forma triangular preservada, gradiente único navy → verde, hairlines brancos como divisores, **números na legenda à direita** (não dentro do SVG). Header com título + 2 KPIs (Taxa aprov / Rating médio em DM Sans 22px). Footer com Em andamento/Condicionais/Reprovadas (sem emojis) |
+
+**Tentativas rejeitadas (revertidas na mesma sessão):**
+
+| Tentativa | Resultado |
+|---|---|
+| Variant B "Executivo" direto na page.tsx (hero gradient navy + funil pipeline horizontal) | "Achei muito ruim" — revertido |
+| Rota nova `/historico-intent` (fila "Pra você agir" + "Arquivo" flat; critérios 3d/5d/14d/90d) | "Achei bem bosta" — rota deletada |
+
+**Mockups guardados em `mockups/historico-redesign/`** (servir com `npx http-server -p 8787`):
+- `funil.html` — 3 propostas profissionais (Apex/Cascade/Ledger; APEX vencedor)
+- `intent.html` — modelo Pra agir + Arquivo (descartado)
+- `variant-a/b/c.html` — 3 estéticas iniciais (Refinado/Executivo/Operacional)
+- `index.html` — picker
+
+**Lição (registrada em `feedback_redesign_visual_workflow.md`):** para qualquer redesign visual significativo, **mockup local primeiro**. Aplicar direto na page.tsx foi rejeitado 2× nesta sessão apesar de hot reload + type-check passando. Cirurgias de DADOS (filtro/separação/agrupamento) podem ir direto; cirurgias VISUAIS (cores/formas/tipografia/layout) NÃO.
+
+**Outra entrega:** 28 skills do `https://github.com/ComposioHQ/awesome-claude-skills.git` instaladas em `~/.claude/skills/` (artifacts-builder, brand-guidelines, canvas-design, mcp-builder, skill-creator, theme-factory, webapp-testing, etc.). 3 subdirs do repo (`composio-skills`, `document-skills`, `connect-apps-plugin`) ficaram fora — são plugins, requerem `claude --plugin-dir`. Clone original em `C:\Users\Admin\Documents\awesome-claude-skills\` (preservado para `git pull` futuro).
+
+**Trabalho na aba está pausado** ("vamos configurar essa aba depois"). Próxima retomada parte do estado atual (funil APEX + filtro junk + separação finalizadas/em coleta).
+
+---
+
 ## 2026-05-06 — Suíte Vitest + CI gate + 8 bugs reais corrigidos (4 críticos da política V2 + Goalfy webhook) ✅
 
 **Disparador:** Sessão começou como "vamos para testes E2E com Vitest" e expandiu para corrigir bugs críticos descobertos pelos testes/Codex review. Plataforma ficou de 8.9 → 9.3.

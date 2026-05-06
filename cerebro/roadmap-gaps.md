@@ -9,14 +9,15 @@ tags: [capital-financas, roadmap, gaps, avaliacao]
 
 Estado da plataforma, gaps conhecidos e direção. Atualizar quando o próprio Victor recalibrar prioridades.
 
-## Avaliação atual: 9.3/10 (snapshot 2026-05-06)
+## Avaliação atual: ~9.5/10 (snapshot 2026-05-06 fim do dia)
 
-> Sessão 2026-05-06 entregou **258 testes Vitest** (era 0), CI gate em PR/push (`tsc + test` bloqueante), e **8 bugs reais corrigidos** — incluindo 4 críticos da política eliminatória V2 que estavam mortos em prod (parseBRL ignorando R$, CCF/protestos/processos lendo campos inexistentes). Próximo passo: **E2E Playwright funcionando** + **componentes React testados**.
+> Sessão maratona de 2026-05-06 (manhã + tarde + noite) entregou: (1) Suíte Vitest 261 testes + CI gate; (2) 9 bugs reais corrigidos (4 críticos V2 + 4 extract + DataBox sócios); (3) Goalfy webhook reescrito com download imediato + UX preventiva + polling 30s + auto-nav; (4) Aba `/custos` 100% em Real; (5) Trigger snapshot fixado (4 → 33 análises mensuráveis); (6) Rating IA — 3 fases (parecer crítico por pilar + sugestão paralela + sugestão por critério); (7) Redesign `/pareceres` aprovado em produção; (8) Redesign `/importar-goalfy` com identidade Capital aprovado em produção; (9) Aba `/historico` cirúrgica + funil APEX. Próximo passo: **mockups locais para `/custos` redesign** + **E2E Playwright funcionando** + **componentes React testados**.
 
 ### Snapshot histórico
 - **7.5/10** em 2026-04-19 — pós-fixes intensivos de abril
 - **8.9/10** em 2026-05-05 — pós-mobile + splits + design system + CreditHub-first
-- **9.3/10** em 2026-05-06 — pós-suíte Vitest (258 testes) + CI gate + 4 bugs eliminatórios V2 corrigidos + Goalfy webhook resilient
+- **9.3/10** em 2026-05-06 (manhã) — pós-suíte Vitest + CI gate + 4 bugs eliminatórios V2 corrigidos + Goalfy webhook resilient
+- **~9.5/10** em 2026-05-06 (fim do dia) — pós-redesigns `/pareceres` + `/importar-goalfy` + `/historico` + Rating IA 3 fases + DataBox sócios + custos R$
 
 ### Forte (8-9)
 
