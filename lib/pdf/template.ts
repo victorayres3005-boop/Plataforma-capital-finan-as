@@ -1959,7 +1959,10 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
           <div class="icell"><div class="l">Limite</div><div class="v sm mono ${numVal(sa.limiteCredito) === 0 ? "muted" : ""}">${numVal(sa.limiteCredito) > 0 ? fmtMoneyAbr(sa.limiteCredito) : "Não informado"}</div></div>
           <div class="icell"><div class="l">IFs</div><div class="v">${fmt(sa.qtdeInstituicoes)}</div></div>
         </div>
-        <div class="inf" style="margin-top:6px;margin-bottom:0">Período: <b>${esc(sa.periodoReferencia ?? "—")}</b>${sp ? ` · Anterior: <b>${esc(sp.periodoReferencia ?? "—")}</b>` : ""}</div>
+        <div class="inf" style="margin-top:6px;margin-bottom:0;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
+          <span>Período: <b>${esc(sa.periodoReferencia ?? "—")}</b>${sp ? ` · Anterior: <b>${esc(sp.periodoReferencia ?? "—")}</b>` : ""}</span>
+          ${sa.urlRelatorio ? `<a href="${esc(sa.urlRelatorio)}" target="_blank" rel="noopener noreferrer" style="font-size:11px;font-weight:600;color:var(--n8);text-decoration:none;display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid var(--n1);border-radius:4px;background:var(--n0)">🔗 Ver consulta DataBox360</a>` : ""}
+        </div>
       </div>`;
     }).join("");
     // Patrimônio & bens Assertiva PF
