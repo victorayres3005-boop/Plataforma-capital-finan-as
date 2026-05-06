@@ -731,6 +731,7 @@ Dívida total SCR: R$ ${_alav.totalDivida.toLocaleString("pt-BR", { minimumFract
 
           const sintesePrompt = PROMPT_SINTESE(_body.data as ExtractedData, _settings, _preReq);
 
+          const _aiStartedAt = Date.now();
           const [analysisSettled, sinteseSettled] = await Promise.allSettled([
             (async () => {
               try {
@@ -754,6 +755,7 @@ Dívida total SCR: R$ ${_alav.totalDivida.toLocaleString("pt-BR", { minimumFract
           if (analysisSettled.status === "rejected") throw analysisSettled.reason;
           const analysisResult = analysisSettled.value as GeminiResult;
           analysisText = analysisResult.text;
+          console.log(`[analyze] delivered model=${analysisResult.model} durationMs=${Date.now() - _aiStartedAt} inputTok=${analysisResult.inputTokens} outputTok=${analysisResult.outputTokens}`);
           const sinteseExecutiva = sinteseSettled.status === "fulfilled"
             ? ((sinteseSettled.value as GeminiResult)?.text?.trim() || "")
             : "";

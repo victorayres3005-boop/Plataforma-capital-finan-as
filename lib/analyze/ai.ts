@@ -44,8 +44,12 @@ export async function callGemini(prompt: string, data: string): Promise<GeminiRe
     { text: "\n\n--- DADOS EXTRAÍDOS ---\n\n" + data },
   ];
 
+  let modelosTentados = 0;
+  let ultimoModelo = "";
   for (const apiKey of GEMINI_API_KEYS) {
     for (const model of GEMINI_MODELS) {
+      modelosTentados++;
+      ultimoModelo = model;
       let rateLimitRetries = 0;
       const MAX_RATE_RETRIES = 1;
 
@@ -132,6 +136,7 @@ export async function callGemini(prompt: string, data: string): Promise<GeminiRe
       }
     }
   }
+  console.error(`[analyze] GEMINI_EXHAUSTED após ${modelosTentados} tentativa(s) (último=${ultimoModelo}) — nenhum modelo entregou resposta`);
   throw new Error("GEMINI_EXHAUSTED");
 }
 
