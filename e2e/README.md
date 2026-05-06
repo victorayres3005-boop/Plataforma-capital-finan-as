@@ -26,6 +26,7 @@ PLAYWRIGHT_BASE_URL=https://plataformacapital-xxx.vercel.app npm run test:e2e
 | `auth.setup.ts` | Setup project: loga uma vez via formulário e salva storageState em `playwright/.auth/user.json` (consumido pelos `*.authenticated.spec.ts`) | ✅ 2026-05-05 |
 | `upload.authenticated.spec.ts` | Upload real de Cartão CNPJ via setInputFiles + PDF gerado em runtime via pdf-lib + stubs E2E (network helper) | ✅ 2026-05-05 |
 | `review.authenticated.spec.ts` | Auto-fill de Data de Constituição na Review (contrato sem data herda do CNPJ + badge "do cartão CNPJ") — usa data-testid em pontos críticos pra estabilidade | ✅ 2026-05-05 |
+| `generate.authenticated.spec.ts` | Loop completo Upload → Review → GenerateStep — valida que página de exportação carrega com botões PDF/HTML visíveis. Não gera arquivo real (Puppeteer caro em CI) | ✅ 2026-05-05 |
 | `upload.spec.ts` | Upload de PDFs anonimizados → coleta criada | ⏳ próxima sessão |
 | `review.spec.ts` | Review carrega + auto-fill data constituição funciona | ⏳ próxima sessão |
 | `generate.spec.ts` | Geração PDF dispara download | ⏳ próxima sessão |

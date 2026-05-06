@@ -477,6 +477,8 @@ export default function ReviewStep({ data, onComplete, onBack, onDataChange }: R
             {/* Gerar Relatório */}
             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "3px" }}>
               <button
+                data-testid="review-gerar-relatorio-btn"
+                data-state={(pode || forcarAvancar) ? "ready" : "blocked"}
                 onClick={() => {
                   // Captura diff de correcoes do analista (fire-and-forget, nao bloqueia)
                   try {
@@ -524,6 +526,7 @@ export default function ReviewStep({ data, onComplete, onBack, onDataChange }: R
               </button>
               {!pode && !forcarAvancar && (
                 <button
+                  data-testid="review-prosseguir-mesmo-assim"
                   onClick={() => setForcarAvancar(true)}
                   style={{ fontSize: "10px", color: "#9CA3AF", background: "none", border: "none", textDecoration: "underline", cursor: "pointer", padding: 0 }}
                 >

@@ -59,6 +59,7 @@ export default function ExportSection({
             return (
               <button
                 key={label}
+                data-testid={`export-${fmt}-${label.toLowerCase().replace(/\s+/g, "-")}`}
                 onClick={fn}
                 disabled={!!generatingFormat}
                 className={`flex-[1_1_140px] flex items-center gap-2.5 px-3.5 py-3 rounded-lg border relative text-left transition-all duration-150 hover:shadow-sm ${
