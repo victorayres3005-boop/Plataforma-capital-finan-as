@@ -207,3 +207,86 @@ Token cache renova automaticamente 60s antes de expirar. Se sumir, basta nova re
 4. Procurar `AI_TIMEOUT_52s` → bateu cap do Hobby plan
 
 Padrão defensivo `safeNum()` em `BureauPrices` previne crash quando bureau retorna `undefined` em campo numérico.
+
+## Renovação de token Goalfy + audit `\n` em env vars
+
+**Sintoma:** `/api/cron/goalfy-sync` retornando 0 cards ou erro `401 Unauthorized` na API Goalfy. Token Goalfy é JWT com TTL — expira sem aviso.
+
+**Bug recorrente:** ao colar valores no Vercel/`.env.local`, é comum sobrar `\n` literal antes da aspa de fechamento (ex: `KEY="value\n"`). Em runtime o env vira a string `value\n`, quebrando URLs, paths e Authorization headers. Aconteceu na Assertiva e no Goalfy (3 vars de uma vez em 2026-05-06).
+
+### Passo a passo
+
+```bash
+# 1. Renovar token JWT no painel Goalfy (Victor faz)
+#    Settings → API → gerar novo token
+
+# 2. Validar token novo contra a API antes de gravar
+NEW_TOKEN="eyJ0eXAi..."  # o token gerado
+curl -sS -o /dev/null -w "HTTP %{http_code}\n" \
+  -H "Authorization: Token $NEW_TOKEN" \
+  "https://api.goalfy.com.br/api/user"
+# esperado: HTTP 200. Se 401 → token errado/inválido.
+
+# 3. Listar boards visíveis com o novo token (confirma BOARD_ID)
+curl -sS -H "Authorization: Token $NEW_TOKEN" \
+  "https://api.goalfy.com.br/api/boards" | \
+  node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8')); (d.boards||[]).forEach(b => console.log(b.id, '|', b.title));"
+# Esperar ver "Análise de Crédito" → confirma BOARD_ID = 38e78384-2a7d-49a2-9127-3b65ecb4e97f
+
+# 4. Audit de \n literal em todas vars Goalfy do .env.local
+grep -E "^GOALFY" .env.local | while read line; do
+  val=$(echo "$line" | cut -d= -f2-)
+  has=$(echo -n "$val" | grep -c '\\n')
+  echo "$(echo $line | cut -d= -f1) | has \\n=$has | last: $(echo -n "$val" | tail -c 4)"
+done
+# Cada last 4 chars deve ser ...XX" (sem \n antes da aspa).
+
+# 5. Atualizar Vercel (rm + add — vercel CLI não tem update direto)
+for v in GOALFY_API_KEY GOALFY_BASE_URL GOALFY_BOARD_ID; do
+  vercel env rm "$v" production --yes
+done
+printf "%s" "$NEW_TOKEN"                            | vercel env add GOALFY_API_KEY  production
+printf "%s" "https://api.goalfy.com.br"             | vercel env add GOALFY_BASE_URL production
+printf "%s" "38e78384-2a7d-49a2-9127-3b65ecb4e97f"  | vercel env add GOALFY_BOARD_ID production
+# CRÍTICO: usar `printf "%s"` (sem newline) — `echo` adiciona \n e reproduz o bug!
+
+# 6. Trigger redeploy do Vercel para serverless pegar env nova (cold-start)
+LAST=$(vercel ls --prod 2>&1 | grep "Ready" | head -1 | awk '{print $4}')
+vercel redeploy "$LAST"
+# espera ~2min até "Aliased: https://plataformacapital.vercel.app"
+
+# 7. Atualizar .env.local local com o mesmo token e reiniciar dev
+npx kill-port 3017 && npm run dev &
+```
+
+### Configuração inicial do GOALFY_WEBHOOK_SECRET (se ainda faltar)
+
+```bash
+# 1. Gerar secret 64 hex chars
+SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+
+# 2. Adicionar no Vercel + .env.local
+printf "%s" "$SECRET" | vercel env add GOALFY_WEBHOOK_SECRET production
+echo "GOALFY_WEBHOOK_SECRET=\"$SECRET\"" >> .env.local
+
+# 3. No painel Goalfy → automação webhook → atualizar URL de
+#    https://plataformacapital.vercel.app/api/goalfy/receber
+#    para
+#    https://plataformacapital.vercel.app/api/goalfy/receber?secret=<SECRET>
+```
+
+**Sem secret = endpoint aberto** (qualquer um pode injetar coletas). O código loga warning `GOALFY_WEBHOOK_SECRET não configurado — webhook está ABERTO`.
+
+### Endpoints Goalfy de referência
+
+| Endpoint | Método | Purpose |
+|---|---|---|
+| `/api/user` | GET | Validar token (esperado 200) |
+| `/api/boards` | GET | Listar boards (achar BOARD_ID correto) |
+| `/api/cards/board/{id}` | GET | Pull cards (usado por `/api/cron/goalfy-sync`) |
+
+`/api/cards?boardId={id}` também funciona, mas o código atual usa `/api/cards/board/{id}`.
+
+### Como saber se o pull cron está saudável
+
+`vercel logs --filter "/api/cron/goalfy-sync"` — esperado ver `synced: N, total: N`. Se ver `Goalfy API 401` ou `Goalfy API 404`, voltar ao passo 2 (revalidar token / BOARD_ID).
