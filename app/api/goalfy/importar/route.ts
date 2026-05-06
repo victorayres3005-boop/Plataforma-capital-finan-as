@@ -63,12 +63,16 @@ export async function POST(req: Request) {
         //   (1) URL HTTP completa (ex.: presigned S3 da Goalfy ou link público) → GET direto
         //   (2) Caminho interno (ex.: "uuid/arquivo.pdf") → POST /api/files/download autenticado.
         //       Reabilitado em 2026-05-05: antes a guarda early-return matava esse fluxo.
+        // Authorization header SÓ vai pra URLs do Goalfy — Vercel Blob (onde /receber
+        // salva re-uploads) rejeita esse header e dispara 401/403 (bug histórico que
+        // fazia o card "TESTE" dar 0 documentos baixados em 2026-05-06).
         let fileRes: Response;
         if (isHttp) {
+          const isGoalfyHost = /(?:^|\.)goalfy\.com\.br$/i.test(new URL(urlStr).hostname);
           fileRes = await fetch(urlStr, {
-            headers: goalfyApiKey ? { Authorization: `Token ${goalfyApiKey}` } : {},
+            headers: (goalfyApiKey && isGoalfyHost) ? { Authorization: `Token ${goalfyApiKey}` } : {},
           });
-          console.log(`[goalfy/importar] GET direto ${doc.filename} → ${fileRes.status}`);
+          console.log(`[goalfy/importar] GET direto ${doc.filename} (auth=${isGoalfyHost ? "sim" : "não"}) → ${fileRes.status}`);
         } else {
           if (!goalfyApiKey) {
             console.warn(`[goalfy/importar] sem GOALFY_API_KEY → não consegue baixar caminho interno "${urlStr}"`);
