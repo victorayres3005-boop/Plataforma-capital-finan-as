@@ -42,6 +42,22 @@ export function parseJSON<T>(raw: string): T {
   }
 }
 
+/** Última posição de `}` que ocorre fora de uma string JSON, ou -1. */
+function findLastBraceOutsideString(s: string): number {
+  let last = -1;
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (escape) { escape = false; continue; }
+    if (c === "\\") { escape = true; continue; }
+    if (c === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (c === "}") last = i;
+  }
+  return last;
+}
+
 /**
  * Tenta recuperar JSON truncado pelo modelo cortando no último objeto completo.
  * Estratégia: encontra a última posição onde a string termina em "}" (fechando
@@ -51,8 +67,10 @@ export function parseJSON<T>(raw: string): T {
  * (curva_abc_clientes, faturamento_por_mes, anos[], etc.).
  */
 function tryRecoverTruncatedJSON<T>(s: string): T | null {
-  // Acha o último "}" que fecha um item de objeto (não a chave externa do JSON)
-  const lastObjClose = s.lastIndexOf("}");
+  // Acha o último "}" que fecha um item de objeto FORA de string —
+  // strings podem conter "}" literal (ex: "obs": "valor 1.000} aprox")
+  // e lastIndexOf("}") sem contexto pode cair lá e produzir lixo.
+  const lastObjClose = findLastBraceOutsideString(s);
   if (lastObjClose < 0) return null;
   let candidate = s.slice(0, lastObjClose + 1);
 

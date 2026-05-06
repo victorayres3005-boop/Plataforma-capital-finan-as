@@ -86,14 +86,16 @@ export function calcularCobertura(data: Record<string, unknown>): CoberturaResul
   if (protestosConsultado) {
     chBonus += CH_WEIGHTS.protestos;
     const qtd = parseInt(String(protestos?.vigentesQtd ?? "0"), 10) || 0;
-    const val = String(protestos?.vigentesValor ?? "0").replace(/\D/g, "");
+    // parseBRL respeita formato BR (ex: "R$ 1.234,56" → 1234.56);
+    // antes era replace(/\D/g, "") que misinterpretava "R$ 1.234,56" como 123456.
+    const valNum = parseBRL(protestos?.vigentesValor);
     const limpo = qtd === 0;
     chSinais.push({
       chave: "protestos",
       label: "Protestos",
       valor: limpo
         ? "Sem protestos vigentes"
-        : `${qtd} protesto(s) vigente(s) — R$ ${parseInt(val || "0").toLocaleString("pt-BR")}`,
+        : `${qtd} protesto(s) vigente(s) — R$ ${valNum.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
       limpo,
     });
   }
@@ -252,7 +254,11 @@ Documentos ausentes: ${faltantesStr}${chBlock}
 export function parseBRL(val: unknown): number {
   if (typeof val === "number") return val;
   if (!val || typeof val !== "string") return 0;
-  return parseFloat(val.replace(/\./g, "").replace(",", ".")) || 0;
+  // Remove prefixos monetários (R$, espaços) — adapters de extração entregam
+  // valores como "R$ 1.234,56" via _fmtMoneyBR. Sem este strip, parseFloat
+  // tropeçava no R e retornava 0, derrubando eliminatórios SCR/alavancagem.
+  const cleaned = val.replace(/[R$\s]/g, "").replace(/\./g, "").replace(",", ".");
+  return parseFloat(cleaned) || 0;
 }
 
 // ─────────────────────────────────────────
@@ -336,8 +342,11 @@ export function calcularPreRequisitos(data: Record<string, unknown>, settings: F
   const protestos = (data.protestos ?? {}) as Record<string, unknown>;
   const processos = (data.processos ?? {}) as Record<string, unknown>;
   const scr = (data.scr ?? {}) as Record<string, unknown>;
+  const ccf = (data.ccf ?? {}) as Record<string, unknown>;
 
-  const ccfQtd = Number(protestos.ccfQuantidade ?? 0);
+  // Shape canônico: data.ccf.qtdRegistros (mesmo usado em calcularCobertura).
+  // Aceita protestos.ccfQuantidade como fallback histórico (shape antigo).
+  const ccfQtd = Number(ccf.qtdRegistros ?? protestos.ccfQuantidade ?? 0);
   if (ccfQtd > 0) {
     motivoReprovacao.push(`CCF: ${ccfQtd} ocorrencia(s) de cheques sem fundos — criterio eliminatorio`);
   }
@@ -373,20 +382,33 @@ export function calcularPreRequisitos(data: Record<string, unknown>, settings: F
   }
 
   // ── Protestos vigentes — eliminatório configurável ──
-  const protestosVigentes = Number(protestos.quantidadeVigentes ?? protestos.quantidade ?? 0);
+  // Shape canônico: protestos.vigentesQtd (mesmo usado em calcularCobertura).
+  // Aceita quantidadeVigentes/quantidade como fallback histórico.
+  const protestosVigentes = Number(
+    protestos.vigentesQtd ?? protestos.quantidadeVigentes ?? protestos.quantidade ?? 0,
+  );
   const protestosMax = settings.protestos_max ?? DEFAULT_FUND_SETTINGS.protestos_max;
   if (protestosVigentes > protestosMax) {
     motivoReprovacao.push(`${protestosVigentes} protestos vigentes acima do limite de ${protestosMax}`);
   }
 
   // ── Processos passivos — eliminatório configurável ──
-  const processosLista = (processos.processos as Array<Record<string, unknown>>) ?? [];
-  const processosPassivos = processosLista.filter(p =>
-    String(p.tipo ?? "").toLowerCase().includes("passivo") ||
-    String(p.polo ?? "").toLowerCase().includes("passivo") ||
-    String(p.polo ?? "").toLowerCase().includes("reu") ||
-    String(p.polo ?? "").toLowerCase().includes("réu")
-  ).length;
+  // Shape canônico: processos.passivosTotal (mesmo usado em calcularCobertura).
+  // Aceita iteração de processos.processos[] como fallback APENAS se o canônico
+  // estiver ausente — passivosTotal===0 é valor legítimo (empresa sem passivos)
+  // e não deve ativar o fallback.
+  let processosPassivos: number;
+  if (processos.passivosTotal != null) {
+    processosPassivos = Number(processos.passivosTotal);
+  } else {
+    const processosLista = (processos.processos as Array<Record<string, unknown>>) ?? [];
+    processosPassivos = processosLista.filter(p =>
+      String(p.tipo ?? "").toLowerCase().includes("passivo") ||
+      String(p.polo ?? "").toLowerCase().includes("passivo") ||
+      String(p.polo ?? "").toLowerCase().includes("reu") ||
+      String(p.polo ?? "").toLowerCase().includes("réu")
+    ).length;
+  }
   const processosMax = settings.processos_passivos_max ?? DEFAULT_FUND_SETTINGS.processos_passivos_max;
   if (processosPassivos > processosMax) {
     motivoReprovacao.push(`${processosPassivos} processos passivos acima do limite de ${processosMax}`);

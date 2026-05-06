@@ -233,8 +233,9 @@ export function adaptSCRNew(raw: Record<string, unknown>): Partial<SCRData> {
   // de faixas, pois Gemini às vezes misplaces valores entre faixas mas acerta o total.
   const vencN = _sumNums([venc.de_15_a_30_dias, venc.de_31_a_60_dias, venc.de_61_a_90_dias, venc.de_91_a_180_dias, venc.de_181_a_360_dias, venc.acima_de_360_dias]);
   const prejN = _sumNums([prej.ate_12_meses, prej.acima_12_meses]);
-  const vencDocTotal = venc.total != null ? Number(venc.total) : 0;
-  const prejDocTotal = prej.total != null ? Number(prej.total) : 0;
+  // _sumNums já trata BR ("5.000,00"), EN ("5000.00") e number — Number() puro retorna NaN em string BR.
+  const vencDocTotal = venc.total != null ? _sumNums([venc.total]) : 0;
+  const prejDocTotal = prej.total != null ? _sumNums([prej.total]) : 0;
   // Effective = total do documento se disponível; suma das faixas como fallback
   const vencEffective = vencDocTotal > 0 ? vencDocTotal : vencN;
   const prejEffective = prejDocTotal > 0 ? prejDocTotal : prejN;
@@ -469,7 +470,14 @@ export function adaptCurvaABCNew(raw: Record<string, unknown>): Partial<CurvaABC
   let acc = 0;
   const clientes: ClienteCurvaABC[] = clientesParsed.map(({ raw: c, valor, pct }, idx) => {
     acc += pct;
-    const classe = _s(c.classificacao) || (acc <= 80 ? "A" : acc <= 95 ? "B" : "C");
+    // Cumulativa é a fonte da verdade — o prompt instrui Gemini a classificar
+    // por percentual acumulado, mas nem sempre obedece. Logamos divergências.
+    const classeCumulativa = acc <= 80 ? "A" : acc <= 95 ? "B" : "C";
+    const classeRaw = _s(c.classificacao);
+    if (classeRaw && classeRaw !== classeCumulativa) {
+      console.warn(`[curva_abc] classe raw "${classeRaw}" diverge de cumulativa "${classeCumulativa}" em "${_s(c.cliente)}" (acc=${acc.toFixed(2)}%)`);
+    }
+    const classe = classeCumulativa;
     return {
       posicao: idx + 1,
       nome: _s(c.cliente),
@@ -832,8 +840,8 @@ export function adaptVisitaNew(raw: Record<string, unknown>): Partial<RelatorioV
   const isGenericRole = /^(gerente|analista|gerente de neg[óo]cios|analista de cr[ée]dito|respons[áa]vel|gerente comercial)\s*\.?$/i.test(gerenteRaw);
   const gerenteNome = isGenericRole ? "" : gerenteRaw;
 
-  // Modalidade
-  const modRaw = _s(params.modalidade_operacao).toLowerCase();
+  // Modalidade — normaliza diacríticos para casar "Híbrida"/"Comissária" etc.
+  const modRaw = _s(params.modalidade_operacao).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
   const modalidade: RelatorioVisitaData["modalidade"] =
     /comiss/.test(modRaw) ? "comissaria" : /conv/.test(modRaw) ? "convencional" : /hibr/.test(modRaw) ? "hibrida" : undefined;
 
