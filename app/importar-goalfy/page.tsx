@@ -394,6 +394,13 @@ function OperationCard({
   const justDone      = phase === "done" || (op.already_imported && !!importedId);
   const isActive      = phase === "downloading" || phase === "extracting";
   const isError       = phase === "error";
+  // Card está "zumbi": sem documentos OU todos documentos sem URL utilizável.
+  // Acontece quando webhook do Goalfy chegou com payload incompleto OU o card
+  // foi criado antes do fix do /receber (URLs S3 já expiradas).
+  // Importar não vai trazer nada — bloqueia preventivamente.
+  const semDocsUteis = !op.documents.length ||
+    op.documents.every(d => !d.url || (!d.url.startsWith("http://") && !d.url.startsWith("https://")));
+  const isZombie = semDocsUteis && !isAlreadyDone && !justDone;
 
   const [fg, bg] = avatarColor(op.company_name);
   const initials  = companyInitials(op.company_name);
@@ -405,6 +412,8 @@ function OperationCard({
     ? "#22c55e"
     : isActive
     ? "#3b82f6"
+    : isZombie
+    ? "#f59e0b"
     : "#203b88";
 
   return (
@@ -490,6 +499,13 @@ function OperationCard({
               >
                 <AlertTriangle size={14} /> Tentar novamente
               </button>
+            ) : isZombie ? (
+              <div
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-amber-50 text-amber-700 border border-amber-200 cursor-not-allowed"
+                title="Card sem URLs de documento utilizáveis. Reenvie a automação do Goalfy para reprocessar."
+              >
+                <AlertTriangle size={14} /> Sem documentos baixáveis
+              </div>
             ) : (
               <button
                 onClick={onImport}
