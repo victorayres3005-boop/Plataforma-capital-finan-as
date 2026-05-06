@@ -341,12 +341,6 @@ export default function ParecerPage() {
               }}>
                 Portfólio de Crédito
               </h1>
-              <p style={{
-                fontSize: 14, color: "rgba(255,255,255,0.7)", margin: "10px 0 0",
-                maxWidth: 540, lineHeight: 1.5,
-              }}>
-                Pareceres formais do comitê com decisões, rating V2 e limites aprovados — um snapshot completo da carteira de cedentes.
-              </p>
             </div>
             {pareceres.length > 0 && (
               <button
