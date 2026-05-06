@@ -11,6 +11,63 @@ Log datado de mudanças significativas. Adicionar entrada nova **no topo** quand
 
 ---
 
+## 2026-05-06 (madrugada) — Funil APEX `/historico` + fix modalidade pleito + Goalfy infra saneada + 28 skills ✅
+
+**Disparador:** Victor abriu pedindo "melhorar a estética da aba de histórico". A sessão expandiu para: refatoração do funil de crédito, fix cosmético na modalidade do pleito, saneamento completo da infra Goalfy (token expirado + `\n` literal em 3 vars + WEBHOOK_SECRET faltando), e bulk install de skills do `awesome-claude-skills` do ComposioHQ. Modelo: **mockups locais antes de cada deploy** depois de duas rejeições diretas.
+
+**Cirurgias aceitas em produção:**
+
+| Área | Conteúdo | Commit |
+|---|---|---|
+| `/historico` — Funil APEX | SVG triangular elaborado substituído por funil hairline-only: forma triangular preservada, gradiente único navy → verde brand, hairlines brancos como divisores, números na **legenda à direita** (não dentro do SVG). Header com h2 + 2 KPIs grandes (Taxa de aprovação / Rating médio em DM Sans 22px tabular-nums). Footer com Em andamento/Condicionais/Reprovadas (sem emojis) | `5412300` |
+| PDF — Modalidade do pleito apresentável | Cards "MODALIDADE" da Síntese Preliminar (B9 Pleito, `lib/generators/pdf/sections/sintese.ts:1064`) e da Conformidade (`conformidade.ts:177`) agora exibem `Híbrida` / `Comissária` / `Convencional` em vez do lowercase normalizado pelo adapter. Lookup `MOD_LABEL` com fallback "—" | `a6989ca` |
+| Documentação | Runbook em `cerebro/runbooks.md` cobrindo "Renovação de token Goalfy + audit `\n` em env vars" — 7 passos (validar token, listar boards, audit `\n`, rm+add Vercel com `printf "%s"`, redeploy, restart dev) + bloco separado de setup inicial do `WEBHOOK_SECRET` | `6c76a41` |
+
+**Goalfy — infra completa saneada (não-código, em runtime):**
+- **Token JWT** renovado (anterior expirado, retornava 401 em `/api/user`)
+- **3 vars no Vercel** (`GOALFY_API_KEY`, `GOALFY_BASE_URL`, `GOALFY_BOARD_ID`) tinham `\n` literal antes da aspa de fechamento → `vercel env rm` + `vercel env add` com `printf "%s"` (CRÍTICO usar printf, não echo). Mesma sujeira no `.env.local` corrigida via Edit
+- **`GOALFY_WEBHOOK_SECRET` adicionado** ao Vercel + `.env.local` (string random 64 hex) — endpoint `/api/goalfy/receber` estava aberto em produção
+- **Vercel redeploy** disparado via `vercel redeploy <last-prod-url>` → aliased em `https://plataformacapital.vercel.app`
+- **Dev server local** restartado (`kill-port 3017 && npm run dev`)
+- **End-to-end test:** `GET /api/cards/board/{board}` → HTTP 200
+- **Pendência exclusivamente do Victor:** atualizar URL no painel Goalfy → automação webhook precisa apontar para `/api/goalfy/receber?secret=28e5417defeccbfe2082fa8d39f230cb02e5a2e4db0785b074787bad74c49b61`
+
+**Cirurgias descartadas (chegaram a ser implementadas localmente, type-check passou, Victor decidiu não deployar):**
+
+| Cirurgia | Decisão |
+|---|---|
+| `isEmptyCollection` ampliado (esconde "Sem título" sem CNPJ, "TESTE Claude", "Card teste oficial", coletas de 0 docs) | Aplicado local, depois `git checkout HEAD --` revertido a pedido do Victor |
+| Separação visual da lista em "Análises finalizadas" + "Em coleta" colapsável | Idem — descartado |
+
+**Tentativas rejeitadas mais cedo na sessão (não repetir sem brief novo):**
+
+| Tentativa | Resultado |
+|---|---|
+| Variant B "Executivo" aplicado direto em `app/historico/page.tsx` (hero gradient navy + funil pipeline horizontal) | "Achei muito ruim" — revertido |
+| Rota nova `/historico-intent` (modelo "Pra você agir + Arquivo" com critérios 3d/5d/14d/90d) | "Achei bem bosta" — rota deletada |
+
+**Mockups guardados em `mockups/historico-redesign/`** (servir com `npx http-server -p 8787`):
+- `funil.html` — 3 propostas (Apex/Cascade/Ledger; APEX vencedor, **deployado**)
+- `intent.html` — modelo Pra agir + Arquivo (descartado)
+- `variant-a/b/c.html` — 3 estéticas iniciais (Refinado/Executivo/Operacional)
+- `index.html` — picker
+
+**Outras entregas:**
+- **28 skills** do `https://github.com/ComposioHQ/awesome-claude-skills.git` instaladas em `~/.claude/skills/` via `cp -r` para cada subdir com `SKILL.md` no root. Auto-detectadas pelo Claude Code (system reminder confirmou). Sem conflito com skills custom (`capital-pdf-report`, `capital-rating-analysis`). 3 subdirs (`composio-skills`, `document-skills`, `connect-apps-plugin`) ficaram fora — são plugins, requerem `claude --plugin-dir`. Clone original em `C:\Users\Admin\Documents\awesome-claude-skills\` preservado para `git pull` futuro.
+
+**Lições registradas em memória:**
+- `feedback_redesign_visual_workflow.md`: para qualquer redesign visual significativo, **mockup local primeiro** — aplicar direto na page.tsx foi rejeitado 2× nesta sessão apesar de hot reload + type-check passando. Cirurgias de DADOS (filtro/separação/agrupamento) podem ir direto; cirurgias VISUAIS (cores/formas/tipografia/layout) NÃO.
+- `feedback_estabilidade_sobre_velocidade.md` (já existia, reforçada): Victor prefere descartar trabalho pronto a deployar coisa que não tem certeza ("pode descartar" foi a frase final para 2 cirurgias funcionais).
+
+**Memórias registradas:**
+- `project_historico_redesign_2026_05_06.md` — estado final do `/historico` (apenas APEX em prod)
+- `project_goalfy_token_renewal_2026_05_06.md` — saneamento Goalfy
+- `project_skills_awesome_install_2026_05_06.md` — 28 skills instaladas
+
+**Memory invariante atualizada:** `/api/cron/goalfy-sync` agora **requer `CRON_SECRET`** (retorna 503 sem ele). Memória antiga em `project_goalfy_integration.md` dizia "Auth: não requer CRON_SECRET" — desatualizada. O cron job da Vercel deve estar configurado com header autorizado, e tentativas locais de bater no endpoint sem secret retornam 503.
+
+---
+
 ## 2026-05-06 (noite) — Redesign /pareceres + /importar-goalfy + Rating IA 3 fases + DataBox sócios + custos R$ ✅
 
 **Disparador:** sequência longa de pedidos do Victor após o pacote da manhã (testes Vitest + bugs V2): aplicar 3 fases do Rating IA, atacar estética genérica das abas, finalizar configuração Goalfy com automação real, e corrigir falha apontada pela chefe (link DataBox sócios PF).
