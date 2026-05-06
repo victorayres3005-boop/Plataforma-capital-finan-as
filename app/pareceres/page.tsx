@@ -69,18 +69,50 @@ const V2_CONFIG: Record<RatingV2, { color: string; bg: string; label: string }> 
 function KpiCard({ label, value, sub, color, icon: Icon }: {
   label: string; value: string; sub?: string; color?: string; icon?: React.ElementType;
 }) {
+  const accent = color ?? "#203b88";
   return (
     <div style={{
-      background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14,
-      padding: "20px 22px", display: "flex", flexDirection: "column", gap: 4,
-      boxShadow: "0 1px 4px rgba(0,0,0,0.03)",
+      position: "relative",
+      background: "#fff",
+      border: "1px solid #e5e7eb",
+      borderRadius: 16,
+      padding: "22px 22px 20px",
+      display: "flex", flexDirection: "column", gap: 6,
+      boxShadow: "0 1px 3px rgba(15,23,42,0.04), 0 4px 14px -8px rgba(15,23,42,0.06)",
+      overflow: "hidden",
+      transition: "transform 0.2s, box-shadow 0.2s",
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 2 }}>
-        {Icon && <Icon size={14} style={{ color: color ?? "#94a3b8" }} />}
-        <span style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</span>
+      {/* Barra superior temática */}
+      <div style={{
+        position: "absolute", top: 0, left: 0, right: 0, height: 3,
+        background: `linear-gradient(90deg, ${accent}, ${accent}99)`,
+      }} />
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        {Icon && (
+          <div style={{
+            width: 28, height: 28, borderRadius: 8,
+            background: `${accent}14`,
+            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+          }}>
+            <Icon size={14} style={{ color: accent }} />
+          </div>
+        )}
+        <span style={{
+          fontSize: 11, fontWeight: 700, color: "#64748b",
+          textTransform: "uppercase", letterSpacing: "0.08em",
+        }}>{label}</span>
       </div>
-      <span style={{ fontSize: 26, fontWeight: 800, color: color ?? "#0f172a", lineHeight: 1.1 }}>{value}</span>
-      {sub && <span style={{ fontSize: 11, color: "#94a3b8" }}>{sub}</span>}
+      <span style={{
+        fontSize: 32, fontWeight: 900, color: accent, lineHeight: 1,
+        fontFeatureSettings: '"tnum"',
+        letterSpacing: "-0.02em",
+      }}>{value}</span>
+      {sub && (
+        <span style={{
+          fontSize: 11, color: "#94a3b8", marginTop: 2,
+          letterSpacing: "0.01em",
+        }}>{sub}</span>
+      )}
     </div>
   );
 }
@@ -90,23 +122,26 @@ function RatingBar({ rating, count, total }: { rating: RatingV2; count: number; 
   const cfg = V2_CONFIG[rating];
   const pct = total > 0 ? Math.round((count / total) * 100) : 0;
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
       <div style={{
-        width: 26, height: 26, borderRadius: 6, flexShrink: 0,
-        background: cfg.bg, border: `1px solid ${cfg.color}44`,
+        width: 30, height: 30, borderRadius: 8, flexShrink: 0,
+        background: `linear-gradient(135deg, ${cfg.bg}, #fff)`,
+        border: `1.5px solid ${cfg.color}66`,
         display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: 12, fontWeight: 800, color: cfg.color,
+        fontSize: 13, fontWeight: 900, color: cfg.color,
+        boxShadow: count > 0 ? `0 0 0 3px ${cfg.color}10` : "none",
       }}>{rating}</div>
       <div style={{ flex: 1 }}>
-        <div style={{ height: 8, background: "#f1f5f9", borderRadius: 99, overflow: "hidden" }}>
+        <div style={{ height: 10, background: "#f1f5f9", borderRadius: 99, overflow: "hidden" }}>
           <div style={{
-            height: "100%", width: `${pct}%`, background: cfg.color,
-            borderRadius: 99, transition: "width 0.4s ease",
+            height: "100%", width: `${pct}%`,
+            background: `linear-gradient(90deg, ${cfg.color}, ${cfg.color}cc)`,
+            borderRadius: 99, transition: "width 0.5s cubic-bezier(.4,0,.2,1)",
           }} />
         </div>
       </div>
-      <span style={{ fontSize: 12, fontWeight: 700, color: "#64748b", minWidth: 28, textAlign: "right" }}>{count}</span>
-      <span style={{ fontSize: 11, color: "#94a3b8", minWidth: 32 }}>{pct}%</span>
+      <span style={{ fontSize: 13, fontWeight: 800, color: cfg.color, minWidth: 28, textAlign: "right", fontFeatureSettings: '"tnum"' }}>{count}</span>
+      <span style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", minWidth: 36, textAlign: "right" }}>{pct}%</span>
     </div>
   );
 }
@@ -253,81 +288,148 @@ export default function ParecerPage() {
   ];
 
   return (
-    <div style={{ minHeight: "100vh", background: "#f8fafc" }}>
-      <main style={{ maxWidth: 960, margin: "0 auto", padding: "32px 24px 80px" }}>
+    <div style={{ minHeight: "100vh", background: "#f5f7fb" }}>
 
-        {/* ── Header ── */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 28 }}>
+      {/* ── HERO BANNER full-width ── */}
+      <div style={{
+        background: "linear-gradient(135deg, #0f1f5c 0%, #203b88 45%, #2d4fad 100%)",
+        position: "relative",
+        overflow: "hidden",
+        paddingBottom: 80,
+      }}>
+        {/* Padrão decorativo (círculos brancos sutis) */}
+        <div aria-hidden style={{
+          position: "absolute", top: -100, right: -100, width: 380, height: 380, borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(168,217,107,0.18) 0%, transparent 70%)",
+        }} />
+        <div aria-hidden style={{
+          position: "absolute", bottom: -80, left: "30%", width: 260, height: 260, borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%)",
+        }} />
+
+        <main style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 24px 0", position: "relative", zIndex: 1 }}>
+          {/* Breadcrumb */}
           <button
             onClick={() => router.push("/")}
-            style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#64748b", background: "none", border: "1px solid #e2e8f0", borderRadius: 7, padding: "5px 10px", cursor: "pointer" }}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600,
+              color: "rgba(255,255,255,0.7)", background: "transparent", border: "none", padding: "4px 0",
+              cursor: "pointer", marginBottom: 24, transition: "color 0.15s",
+            }}
+            onMouseEnter={e => (e.currentTarget.style.color = "#a8d96b")}
+            onMouseLeave={e => (e.currentTarget.style.color = "rgba(255,255,255,0.7)")}
           >
-            <ArrowLeft size={13} /> Início
+            <ArrowLeft size={13} /> Voltar ao Início
           </button>
-          <div style={{ flex: 1 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ width: 34, height: 34, borderRadius: 9, background: "linear-gradient(135deg, #1a2f6b, #203b88)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <ClipboardList size={16} style={{ color: "#a8d96b" }} />
-              </div>
-              <div>
-                <h1 style={{ fontSize: 18, fontWeight: 800, color: "#0f172a", margin: 0 }}>Portfólio de Crédito</h1>
-                <p style={{ fontSize: 12, color: "#94a3b8", margin: 0 }}>Pareceres formais do comitê · Política V2</p>
-              </div>
-            </div>
-          </div>
-          {pareceres.length > 0 && (
-            <button
-              onClick={exportCsv}
-              style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#203b88", background: "#f0f4ff", border: "1px solid #c7d2fe", borderRadius: 8, padding: "7px 14px", cursor: "pointer" }}
-            >
-              <Download size={13} /> Exportar CSV
-            </button>
-          )}
-        </div>
 
-        {/* ── KPI Cards ── */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
-          <KpiCard
-            label="Total Analisados"
-            value={String(pareceres.length + pending.length)}
-            sub={`${pareceres.length} com parecer formal`}
-            icon={BarChart3}
-            color="#203b88"
-          />
-          <KpiCard
-            label="Aprovados"
-            value={String(aprovados + condicionais)}
-            sub={`${aprovados} plenos · ${condicionais} condicionais`}
-            icon={CheckCircle2}
-            color="#16a34a"
-          />
-          <KpiCard
-            label="Reprovados"
-            value={String(reprovados)}
-            sub={`${pending.length} sem parecer ainda`}
-            icon={XCircle}
-            color="#dc2626"
-          />
-          <KpiCard
-            label="Limite em Carteira"
-            value={fmtBRL(limiteTotal)}
-            sub="aprovados + condicionais"
-            icon={DollarSign}
-            color="#7c3aed"
-          />
-        </div>
+          {/* Título + ações */}
+          <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 24, flexWrap: "wrap", marginBottom: 32 }}>
+            <div style={{ flex: 1, minWidth: 280 }}>
+              <div style={{
+                display: "inline-flex", alignItems: "center", gap: 8, marginBottom: 14,
+                padding: "5px 12px", borderRadius: 99,
+                background: "rgba(168,217,107,0.18)", border: "1px solid rgba(168,217,107,0.35)",
+              }}>
+                <ClipboardList size={12} style={{ color: "#a8d96b" }} />
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#a8d96b", letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                  Política de Crédito V2
+                </span>
+              </div>
+              <h1 style={{
+                fontSize: 40, fontWeight: 900, color: "#fff", margin: 0,
+                letterSpacing: "-0.03em", lineHeight: 1.05,
+              }}>
+                Portfólio de Crédito
+              </h1>
+              <p style={{
+                fontSize: 14, color: "rgba(255,255,255,0.7)", margin: "10px 0 0",
+                maxWidth: 540, lineHeight: 1.5,
+              }}>
+                Pareceres formais do comitê com decisões, rating V2 e limites aprovados — um snapshot completo da carteira de cedentes.
+              </p>
+            </div>
+            {pareceres.length > 0 && (
+              <button
+                onClick={exportCsv}
+                style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  fontSize: 12, fontWeight: 700, color: "#0f1f5c",
+                  background: "#fff", border: "none",
+                  borderRadius: 10, padding: "10px 18px", cursor: "pointer",
+                  transition: "all 0.15s",
+                  boxShadow: "0 8px 24px -8px rgba(0,0,0,0.4)",
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.transform = "translateY(-1px)";
+                  e.currentTarget.style.boxShadow = "0 12px 28px -10px rgba(0,0,0,0.5)";
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.boxShadow = "0 8px 24px -8px rgba(0,0,0,0.4)";
+                }}
+              >
+                <Download size={13} /> Exportar CSV
+              </button>
+            )}
+          </div>
+
+          {/* KPIs inline no hero */}
+          <div style={{
+            display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 1,
+            background: "rgba(255,255,255,0.08)",
+            borderRadius: 16,
+            border: "1px solid rgba(255,255,255,0.1)",
+            overflow: "hidden",
+            backdropFilter: "blur(8px)",
+          }}>
+            {[
+              { label: "Total Analisados", value: String(pareceres.length + pending.length), sub: `${pareceres.length} com parecer`, accent: "#a8d96b" },
+              { label: "Aprovados", value: String(aprovados + condicionais), sub: `${aprovados} plenos · ${condicionais} cond.`, accent: "#86efac" },
+              { label: "Reprovados", value: String(reprovados), sub: `${pending.length} sem parecer`, accent: "#fca5a5" },
+              { label: "Limite em Carteira", value: fmtBRL(limiteTotal), sub: "aprovados + cond.", accent: "#c4b5fd" },
+            ].map((kpi, i) => (
+              <div key={i} style={{
+                padding: "20px 22px",
+                background: "rgba(15,31,92,0.45)",
+                display: "flex", flexDirection: "column", gap: 4,
+              }}>
+                <span style={{
+                  fontSize: 10, fontWeight: 700, color: kpi.accent,
+                  textTransform: "uppercase", letterSpacing: "0.1em",
+                }}>{kpi.label}</span>
+                <span style={{
+                  fontSize: 30, fontWeight: 900, color: "#fff", lineHeight: 1,
+                  letterSpacing: "-0.02em", fontFeatureSettings: '"tnum"',
+                }}>{kpi.value}</span>
+                <span style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>{kpi.sub}</span>
+              </div>
+            ))}
+          </div>
+        </main>
+      </div>
+
+      {/* ── CONTENT (sobe sobre o hero) ── */}
+      <main style={{ maxWidth: 1100, margin: "-50px auto 0", padding: "0 24px 80px", position: "relative", zIndex: 2 }}>
 
         {/* ── Distribuição V2 + Tendência ── */}
         {totalComV2 > 0 && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
             {/* Rating V2 distribution */}
-            <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, padding: "20px 22px", boxShadow: "0 1px 4px rgba(0,0,0,0.03)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
-                <BarChart3 size={14} style={{ color: "#203b88" }} />
-                <span style={{ fontSize: 12, fontWeight: 700, color: "#0f172a" }}>Distribuição Rating V2</span>
-                <span style={{ fontSize: 10, color: "#94a3b8", marginLeft: "auto" }}>{totalComV2} com score</span>
+            <div style={{
+              background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16,
+              padding: "22px 24px",
+              boxShadow: "0 1px 3px rgba(15,23,42,0.04), 0 4px 14px -8px rgba(15,23,42,0.06)",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18, paddingBottom: 14, borderBottom: "1px solid #f1f5f9" }}>
+                <div style={{ width: 28, height: 28, borderRadius: 8, background: "#eef3fb", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <BarChart3 size={14} style={{ color: "#203b88" }} />
+                </div>
+                <span style={{ fontSize: 13, fontWeight: 800, color: "#0f172a", letterSpacing: "-0.01em" }}>Distribuição Rating V2</span>
+                <span style={{ fontSize: 10, fontWeight: 700, color: "#64748b", marginLeft: "auto", background: "#f1f5f9", padding: "2px 8px", borderRadius: 99 }}>
+                  {totalComV2} com score
+                </span>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
                 {v2Counts.map(({ rating, count }) => (
                   <RatingBar key={rating} rating={rating} count={count} total={totalComV2} />
                 ))}
@@ -335,32 +437,55 @@ export default function ParecerPage() {
             </div>
 
             {/* Decisões resumo */}
-            <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, padding: "20px 22px", boxShadow: "0 1px 4px rgba(0,0,0,0.03)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
-                <TrendingUp size={14} style={{ color: "#203b88" }} />
-                <span style={{ fontSize: 12, fontWeight: 700, color: "#0f172a" }}>Funil de Decisões</span>
+            <div style={{
+              background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16,
+              padding: "22px 24px",
+              boxShadow: "0 1px 3px rgba(15,23,42,0.04), 0 4px 14px -8px rgba(15,23,42,0.06)",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18, paddingBottom: 14, borderBottom: "1px solid #f1f5f9" }}>
+                <div style={{ width: 28, height: 28, borderRadius: 8, background: "#f0f9e0", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <TrendingUp size={14} style={{ color: "#5a9010" }} />
+                </div>
+                <span style={{ fontSize: 13, fontWeight: 800, color: "#0f172a", letterSpacing: "-0.01em" }}>Funil de Decisões</span>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
                 {(["APROVADO","APROVACAO_CONDICIONAL","REPROVADO","PENDENTE","QUESTIONAMENTO"] as DecisaoComite[]).map(d => {
                   const cfg = DECISAO_CONFIG[d];
                   const count = pareceres.filter(p => p.decisao_comite === d).length;
                   const pct = pareceres.length > 0 ? Math.round((count / pareceres.length) * 100) : 0;
                   return (
-                    <div key={d} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <cfg.Icon size={14} style={{ color: cfg.color, flexShrink: 0 }} />
-                      <span style={{ fontSize: 12, color: "#64748b", width: 110 }}>{cfg.label}</span>
-                      <div style={{ flex: 1, height: 8, background: "#f1f5f9", borderRadius: 99, overflow: "hidden" }}>
-                        <div style={{ height: "100%", width: `${pct}%`, background: cfg.color, borderRadius: 99, transition: "width 0.4s ease" }} />
+                    <div key={d} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <div style={{
+                        width: 24, height: 24, borderRadius: 6, flexShrink: 0,
+                        background: count > 0 ? cfg.bg : "#f8fafc",
+                        border: `1px solid ${count > 0 ? cfg.border : "#e2e8f0"}`,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                      }}>
+                        <cfg.Icon size={12} style={{ color: count > 0 ? cfg.color : "#cbd5e1" }} />
                       </div>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "#64748b", minWidth: 28, textAlign: "right" }}>{count}</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: count > 0 ? "#0f172a" : "#94a3b8", width: 110 }}>{cfg.label}</span>
+                      <div style={{ flex: 1, height: 10, background: "#f1f5f9", borderRadius: 99, overflow: "hidden" }}>
+                        <div style={{
+                          height: "100%", width: `${pct}%`,
+                          background: count > 0 ? `linear-gradient(90deg, ${cfg.color}, ${cfg.color}cc)` : "transparent",
+                          borderRadius: 99, transition: "width 0.5s cubic-bezier(.4,0,.2,1)",
+                        }} />
+                      </div>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: count > 0 ? cfg.color : "#cbd5e1", minWidth: 28, textAlign: "right", fontFeatureSettings: '"tnum"' }}>{count}</span>
                     </div>
                   );
                 })}
               </div>
               {pending.length > 0 && (
-                <div style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid #f1f5f9", display: "flex", alignItems: "center", gap: 6 }}>
-                  <Clock size={12} style={{ color: "#d97706" }} />
-                  <span style={{ fontSize: 11, color: "#d97706", fontWeight: 600 }}>{pending.length} coleta{pending.length !== 1 ? "s" : ""} finalizada{pending.length !== 1 ? "s" : ""} sem parecer formal</span>
+                <div style={{
+                  marginTop: 18, padding: "10px 12px",
+                  background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 10,
+                  display: "flex", alignItems: "center", gap: 8,
+                }}>
+                  <Clock size={13} style={{ color: "#d97706" }} />
+                  <span style={{ fontSize: 12, color: "#92400e", fontWeight: 600 }}>
+                    {pending.length} coleta{pending.length !== 1 ? "s" : ""} finalizada{pending.length !== 1 ? "s" : ""} sem parecer formal
+                  </span>
                 </div>
               )}
             </div>
@@ -386,17 +511,28 @@ export default function ParecerPage() {
               aria-label="Buscar por empresa ou CNPJ"
             />
           </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", flex: 1 }}>
+          <div style={{
+            display: "flex", flexWrap: "wrap", gap: 4,
+            padding: 4,
+            background: "#f1f5f9",
+            borderRadius: 12,
+            border: "1px solid #e2e8f0",
+            flex: 1,
+          }}>
             {FILTERS.map(f => (
               <button
                 key={f.value}
                 onClick={() => setFilter(f.value)}
                 style={{
-                  padding: "6px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer",
-                  background: filter === f.value ? "#203b88" : "white",
-                  color: filter === f.value ? "white" : "#64748b",
-                  border: `1px solid ${filter === f.value ? "#203b88" : "#e2e8f0"}`,
-                  transition: "all 0.15s",
+                  padding: "7px 13px", borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                  background: filter === f.value ? "#fff" : "transparent",
+                  color: filter === f.value ? "#0f172a" : "#64748b",
+                  border: "none",
+                  boxShadow: filter === f.value
+                    ? "0 1px 2px rgba(15,23,42,0.06), 0 2px 6px rgba(15,23,42,0.04)"
+                    : "none",
+                  transition: "all 0.15s ease",
+                  fontFeatureSettings: '"tnum"',
                 }}
               >
                 {f.label}
@@ -432,12 +568,21 @@ export default function ParecerPage() {
                 const date = new Date(c.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
                 return (
                   <div key={`pending-${c.id}`} style={{
-                    background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12,
-                    padding: "14px 18px", display: "flex", alignItems: "center", gap: 14,
-                    boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+                    background: "#fff",
+                    border: "1px solid #fde68a",
+                    borderLeft: "4px solid #d97706",
+                    borderRadius: 12,
+                    padding: "16px 18px", display: "flex", alignItems: "center", gap: 14,
+                    boxShadow: "0 1px 3px rgba(217,119,6,0.06)",
+                    transition: "transform 0.15s, box-shadow 0.15s",
                   }}>
-                    <div style={{ width: 38, height: 38, borderRadius: 9, background: "#fef3c7", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      <Building2 size={17} style={{ color: "#d97706" }} />
+                    <div style={{
+                      width: 42, height: 42, borderRadius: 10,
+                      background: "linear-gradient(135deg, #fef3c7, #fde68a)",
+                      display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)",
+                    }}>
+                      <Building2 size={18} style={{ color: "#b45309" }} />
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
@@ -473,13 +618,22 @@ export default function ParecerPage() {
 
               return (
                 <div key={`parecer-${p.id}-${idx}`} style={{
-                  background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12,
-                  padding: "14px 18px", display: "flex", alignItems: "center", gap: 14,
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+                  background: "#fff",
+                  border: "1px solid #e5e7eb",
+                  borderLeft: `4px solid ${cfg.color}`,
+                  borderRadius: 12,
+                  padding: "16px 18px", display: "flex", alignItems: "center", gap: 14,
+                  boxShadow: `0 1px 3px ${cfg.color}10`,
+                  transition: "transform 0.15s, box-shadow 0.15s",
                 }}>
                   {/* Icon */}
-                  <div style={{ width: 38, height: 38, borderRadius: 9, background: "#f0f4ff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    <Building2 size={17} style={{ color: "#203b88" }} />
+                  <div style={{
+                    width: 42, height: 42, borderRadius: 10,
+                    background: `linear-gradient(135deg, ${cfg.bg}, #fff)`,
+                    border: `1px solid ${cfg.color}22`,
+                    display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                  }}>
+                    <Building2 size={18} style={{ color: cfg.color }} />
                   </div>
 
                   {/* Info */}
