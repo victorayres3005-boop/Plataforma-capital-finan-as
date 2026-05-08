@@ -1166,7 +1166,17 @@ function pageSintese(params: PDFReportParams, date: string): string {
     ${stitle("Localização")}
     ${mapHtml}
 
-    <!-- 4b. Endividamento — SCR Bacen (resumo executivo, acima do quadro societário) -->
+    <!-- 5. Sócios (Quadro societário) — vem ANTES do Endividamento SCR
+         (decisão Victor 2026-05-08): primeiro identifica QUEM são os sócios,
+         depois mostra a situação financeira deles + da empresa. -->
+    ${stitle("Quadro societário")}
+    <table class="soc-tbl">
+      <thead><tr><th>Sócio</th><th>CPF/CNPJ</th><th>Qualificação</th><th>Part.</th><th>Patrim. Líq. / Renda Est.</th></tr></thead>
+      <tbody>${socRows || `<tr><td colspan="5" style="color:var(--x4);text-align:center">—</td></tr>`}</tbody>
+    </table>
+    <div class="soc-extra">Grupo Econômico: <b>${d.grupoEconomico?.empresas?.length > 0 ? d.grupoEconomico.empresas.length + " empresa(s) identificada(s)" : "Não identificado"}</b></div>
+
+    <!-- 5a. Endividamento — SCR Bacen (logo após o Quadro Societário) -->
     ${(() => {
       const scrEmp = d.scr;
       const scrSocs = d.scrSocios ?? [];
@@ -1234,14 +1244,6 @@ function pageSintese(params: PDFReportParams, date: string): string {
 
       return `${stitle("Endividamento — SCR Bacen")}${empBlock}${socBlock}`;
     })()}
-
-    <!-- 5. Sócios -->
-    ${stitle("Quadro societário")}
-    <table class="soc-tbl">
-      <thead><tr><th>Sócio</th><th>CPF/CNPJ</th><th>Qualificação</th><th>Part.</th><th>Patrim. Líq. / Renda Est.</th></tr></thead>
-      <tbody>${socRows || `<tr><td colspan="5" style="color:var(--x4);text-align:center">—</td></tr>`}</tbody>
-    </table>
-    <div class="soc-extra">Grupo Econômico: <b>${d.grupoEconomico?.empresas?.length > 0 ? d.grupoEconomico.empresas.length + " empresa(s) identificada(s)" : "Não identificado"}</b></div>
 
     <!-- 5c. Alertas KYC sócios (óbito / CPF irregular) -->
     ${(() => {
