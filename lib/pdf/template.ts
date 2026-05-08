@@ -1529,7 +1529,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
 
         // Vínculo
         let chipVinculo = `<span style="color:var(--x4);font-size:10px">—</span>`;
-        if (s?.vinculos.temVinculo) {
+        if (s?.vinculos?.temVinculo) {
           const tipos: string[] = [];
           if (s.vinculos.cpfSocioComum.length > 0) tipos.push("CPF comum");
           if (s.vinculos.maesComuns.length > 0) tipos.push("mãe comum");
@@ -1542,7 +1542,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
         const nomeLimpo = s?.razaoSocial ?? c.nome;
         const ufExtra = s?.uf ? ` · ${esc(s.uf)}` : "";
 
-        const rowBg = s?.vinculos.temVinculo ? ` style="background:#FEF2F2"` : "";
+        const rowBg = s?.vinculos?.temVinculo ? ` style="background:#FEF2F2"` : "";
 
         // Cells separadas: Protestos / Processos
         // Sem bureau (s ausente) → "—" cinza
@@ -1578,7 +1578,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
         </tr>`;
       }).join("");
 
-      const totalComVinculo = (d.sacadosAnalisados ?? []).filter(s => s.vinculos.temVinculo).length;
+      const totalComVinculo = (d.sacadosAnalisados ?? []).filter(s => s.vinculos?.temVinculo).length;
       const totalSacadosAnalisados = (d.sacadosAnalisados ?? []).length;
       const totalClientesABC = abcLocal.totalClientesNaBase ?? 0;
 
