@@ -1271,50 +1271,75 @@ function pageSintese(params: PDFReportParams, date: string): string {
         porSocio[key].push(e);
       });
 
+      // Normaliza situação evitando bug histórico de "INATIVA".includes("ATIVA")
+      // → vinha aparecendo como ATIVA empresas que estavam INATIVA/INAPTA/BAIXADA.
+      // Word-boundary + ordem específica (variantes negativas primeiro).
+      const normSituacao = (sit: string | undefined): string => {
+        const s = (sit ?? "").toUpperCase().trim();
+        if (!s) return "";
+        if (/\bINAPTA\b/.test(s))   return "INAPTA";
+        if (/\bINATIVA\b/.test(s))  return "INATIVA";
+        if (/\bBAIXADA\b/.test(s))  return "BAIXADA";
+        if (/\bSUSPENSA\b/.test(s)) return "SUSPENSA";
+        if (/\bNULA\b/.test(s))     return "NULA";
+        if (/\bATIVA\b/.test(s))    return "ATIVA";
+        return s; // preserva original se não bate em nenhum termo canônico
+      };
       const sitClass = (sit: string) => {
-        const u = (sit ?? "").toUpperCase();
-        if (u.includes("ATIVA")) return "ativa";
-        if (u.includes("BAIXA")) return "baixada";
-        if (u.includes("SUSP")) return "suspensa";
-        if (u.includes("INAPT")) return "inapta";
+        const n = normSituacao(sit);
+        if (n === "ATIVA")    return "ativa";
+        if (n === "BAIXADA")  return "baixada";
+        if (n === "SUSPENSA") return "suspensa";
+        if (n === "INAPTA" || n === "INATIVA") return "inapta";
         return "outro";
       };
 
       const socioBlocks = Object.entries(porSocio).map(([socio, emps]) => {
         const empsAtivas = emps.filter(e => {
           const cnpjNum = (e.cnpj ?? "").replace(/\D/g, "");
-          const isAtiva = (e.situacao ?? "").toUpperCase().includes("ATIVA");
-          return cnpjNum.length === 14 && isAtiva;
+          // Mostra só empresas REALMENTE ativas (INATIVA/INAPTA/BAIXADA são
+          // filtradas — entram em bloco separado abaixo se quiser ver depois).
+          return cnpjNum.length === 14 && normSituacao(e.situacao) === "ATIVA";
         });
-        if (empsAtivas.length === 0) return "";
-        const rows = empsAtivas.map(e => {
+        const empsNaoAtivas = emps.filter(e => {
+          const cnpjNum = (e.cnpj ?? "").replace(/\D/g, "");
+          if (cnpjNum.length !== 14) return false;
+          const n = normSituacao(e.situacao);
+          return n !== "" && n !== "ATIVA";
+        });
+        if (empsAtivas.length === 0 && empsNaoAtivas.length === 0) return "";
+        const renderRow = (e: typeof emps[0]) => {
           const cnpjFmt = e.cnpj ? e.cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5") : "—";
           const sitCls = sitClass(e.situacao ?? "");
+          const sitDisplay = normSituacao(e.situacao) || (e.situacao ?? "—");
           const hasSCR = e.scrTotal && e.scrTotal !== "—";
           const hasVenc = !!e.scrVencidos;
           const hasProt = e.protestos && e.protestos !== "—";
           const hasProc = e.processos && e.processos !== "—";
           const hasVal  = e.valorProcessos && e.valorProcessos !== "—";
           return `<tr>
-            <td><b>${esc(e.razaoSocial)}</b>${e.participacao ? `<span style="color:var(--x4);font-size:var(--fs-tag);margin-left:6px">${esc(e.participacao)}</span>` : ""}</td>
+            <td><b>${esc(e.razaoSocial)}</b></td>
             <td class="mono">${cnpjFmt}</td>
-            <td><span class="ge-badge ${sitCls}">${esc(e.situacao ?? "—")}</span></td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums;color:${e.participacao ? "var(--n8)" : "var(--x4)"};font-weight:${e.participacao ? "600" : "400"}">${e.participacao ? esc(e.participacao) : "—"}</td>
+            <td><span class="ge-badge ${sitCls}">${esc(sitDisplay)}</span></td>
             <td class="mono" style="color:${hasSCR ? "var(--n9)" : "var(--x4)"}">${hasSCR ? fmtMoneyAbr(e.scrTotal) : "—"}</td>
             <td class="mono" style="text-align:right;color:${hasVenc ? "var(--r6)" : "var(--x4)"};font-weight:${hasVenc ? "700" : "400"}">${hasVenc ? fmtMoneyAbr(e.scrVencidos) : "—"}</td>
             <td style="text-align:center;color:${hasProt && e.protestos !== "0" ? "var(--r6)" : "var(--g6)"};font-weight:600">${hasProt ? e.protestos : "—"}</td>
             <td style="text-align:center;color:${hasProc && e.processos !== "0" ? "var(--r6)" : "var(--g6)"};font-weight:600">${hasProc ? e.processos : "—"}</td>
             <td class="mono" style="color:${hasVal && e.valorProcessos !== "R$ 0,00" ? "var(--r6)" : "var(--x4)"};font-size:var(--fs-tag)">${hasVal ? esc(e.valorProcessos!) : "—"}</td>
           </tr>`;
-        }).join("");
+        };
+        const rowsAtivas = empsAtivas.map(renderRow).join("");
+        const rowsNaoAtivas = empsNaoAtivas.map(renderRow).join("");
+        const totalEmps = empsAtivas.length + empsNaoAtivas.length;
+        const headerCols = `<thead><tr><th>Razão Social</th><th>CNPJ</th><th style="text-align:right">% Part.</th><th>Situação</th><th>SCR Total</th><th style="text-align:right;color:var(--r6)">Vencidos</th><th style="text-align:center">Prot.</th><th style="text-align:center">Proc.</th><th style="text-align:right">Valor Proc.</th></tr></thead>`;
 
         return `<div class="ge-socio-hdr">
           <span style="font-size:14px">👤</span> Via sócio: ${esc(socio)}
-          <span style="font-weight:500;color:var(--n8);margin-left:auto">${empsAtivas.length} empresa${empsAtivas.length > 1 ? "s" : ""}</span>
+          <span style="font-weight:500;color:var(--n8);margin-left:auto">${totalEmps} empresa${totalEmps > 1 ? "s" : ""}${empsNaoAtivas.length > 0 ? ` <span style="color:var(--x4)">(${empsAtivas.length} ativa${empsAtivas.length !== 1 ? "s" : ""})</span>` : ""}</span>
         </div>
-        <table class="ge-tbl">
-          <thead><tr><th>Razão Social</th><th>CNPJ</th><th>Situação</th><th>SCR Total</th><th style="text-align:right;color:var(--r6)">Vencidos</th><th style="text-align:center">Prot.</th><th style="text-align:center">Proc.</th><th style="text-align:right">Valor Proc.</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>`;
+        ${rowsAtivas ? `<table class="ge-tbl">${headerCols}<tbody>${rowsAtivas}</tbody></table>` : ""}
+        ${rowsNaoAtivas ? `<div style="font-size:10px;font-weight:600;color:var(--x4);text-transform:uppercase;letter-spacing:0.05em;margin:8px 0 4px">⚠ Empresas não-ativas (${empsNaoAtivas.length})</div><table class="ge-tbl" style="opacity:0.85">${headerCols}<tbody>${rowsNaoAtivas}</tbody></table>` : ""}`;
       }).join("");
 
       const alertaParentesco = ge.alertaParentesco && (ge.parentescosDetectados ?? []).length > 0

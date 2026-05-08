@@ -11,6 +11,30 @@ import { parseBRL } from "@/lib/generators/report-shared";
 const CREDITHUB_API_URL = process.env.CREDITHUB_API_URL || "";
 const CREDITHUB_API_KEY = process.env.CREDITHUB_API_KEY || "";
 
+/**
+ * Normaliza situação cadastral da Receita evitando o bug histórico de
+ * `"INATIVA".includes("ATIVA") === true`. Usa word-boundary regex e ordem
+ * específica (variantes que contêm "ATIVA" são checadas primeiro).
+ *
+ * Termos canônicos da Receita Federal: ATIVA | BAIXADA | SUSPENSA | INAPTA |
+ * INATIVA | NULA. Se nenhum bater, retorna string vazia (chamador decide
+ * fallback — geralmente preserva o texto original).
+ */
+export function normalizeSituacaoCadastral(raw: string | null | undefined): string {
+  const s = String(raw ?? "").toUpperCase().trim();
+  if (!s) return "";
+  // Ordem importa: INATIVA/INAPTA/BAIXADA contêm ou NÃO contêm ATIVA, mas
+  // checar primeiro evita ambiguidade. Word-boundary `\b` previne match em
+  // substrings (ex.: "INATIVA" não bate em /\bATIVA\b/).
+  if (/\bINAPTA\b/.test(s))   return "INAPTA";
+  if (/\bINATIVA\b/.test(s))  return "INATIVA";
+  if (/\bBAIXADA\b/.test(s))  return "BAIXADA";
+  if (/\bSUSPENSA\b/.test(s)) return "SUSPENSA";
+  if (/\bNULA\b/.test(s))     return "NULA";
+  if (/\bATIVA\b/.test(s))    return "ATIVA";
+  return "";
+}
+
 export interface CreditHubEnrichment {
   capitalSocialCNPJ?: string;
   porte?: string;
@@ -1204,9 +1228,13 @@ async function enriquecerEmpresasGrupoEconomico(
         }
 
         // Situação via Receita Federal (se vier no retorno)
+        // BUG histórico (corrigido 2026-05-08): `sit.includes("ATIVA")` fazia
+        // "INATIVA" virar "ATIVA" porque INATIVA contém ATIVA como substring.
+        // Agora usamos word-boundary + ordem específica (INATIVA/INAPTA/BAIXADA
+        // ANTES de ATIVA) pra zero falso positivo.
         const sit = String(d?.situacaoCadastral ?? d?.situacao ?? "").toUpperCase();
         if (sit && emp.situacao === "VERIFICAR") {
-          emp.situacao = sit.includes("ATIVA") ? "ATIVA" : sit || "VERIFICAR";
+          emp.situacao = normalizeSituacaoCadastral(sit) || sit || "VERIFICAR";
         }
 
         console.log(`[credithub][enrich] ${cnpj.slice(0,4)}*** protestos=${protQtd} processos=${procQtd}`);
