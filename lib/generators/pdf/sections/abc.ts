@@ -54,6 +54,15 @@ export function renderABC(ctx: PdfCtx): void {
 
   const GAP = 3.5;
 
+  // Index sacados analisados por CNPJ canonicalizado para enriquecer linhas
+  // com bureau (score / protestos / processos / vínculo). Mesma lógica do HTML.
+  const sacadosArr = data.sacadosAnalisados ?? [];
+  const sacadosByCnpj = new Map<string, typeof sacadosArr[number]>();
+  sacadosArr.forEach((s) => {
+    const k = (s.cnpj ?? "").replace(/\D/g, "");
+    if (k) sacadosByCnpj.set(k, s);
+  });
+
   const stitle = (label: string) => {
     const y = pos.y;
     doc.setFont("helvetica", "bold");
@@ -129,12 +138,20 @@ export function renderABC(ctx: PdfCtx): void {
     pos.y = y0 + CH + 5;
   }
 
-  // Table
+  // Table (8 colunas: # · Sacado/CNPJ · Fat · %Rec(acum) · Score · Prot · Proc · Cl)
   const shown = abc.clientes.slice(0, 10);
-  const RH = 11; const HH = 9;
+  const RH = 12; const HH = 9;
   const TH = HH + shown.length * RH + 8;
   checkPageBreak(ctx, TH + 6);
   const y0 = pos.y;
+
+  // Posições x das colunas (right-edge para colunas right-aligned, center para Prot/Proc/Cl)
+  const xFat   = ML + CW * 0.50;
+  const xPct   = ML + CW * 0.62;
+  const xScore = ML + CW * 0.76;
+  const xProt  = ML + CW * 0.84;
+  const xProc  = ML + CW * 0.92;
+  const xCl    = ML + CW - 2;
 
   doc.setFillColor(...P.x0);
   doc.setDrawColor(...P.x2);
@@ -146,21 +163,35 @@ export function renderABC(ctx: PdfCtx): void {
   doc.roundedRect(ML, y0, CW, HH, 2, 2, "F");
   doc.rect(ML, y0+3, CW, HH-3, "F");
   doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(...P.wh);
-  doc.text("#",           ML + 7.5,      y0 + 6.5, { align: "center" });
-  doc.text("Cliente",     ML + 17,        y0 + 6.5);
-  doc.text("Faturamento", ML + CW*0.60,  y0 + 6.5, { align: "right" });
-  doc.text("% Rec.",      ML + CW*0.74,  y0 + 6.5, { align: "right" });
-  doc.text("% Acum.",     ML + CW*0.87,  y0 + 6.5, { align: "right" });
-  doc.text("Cl.",         ML + CW - 2,   y0 + 6.5, { align: "right" });
-
-  const maxFat = Math.max(1, ...shown.map(c => parseMoneyToNumber(c.valorFaturado || "0")));
+  doc.text("#",           ML + 7.5, y0 + 6.5, { align: "center" });
+  doc.text("Sacado",      ML + 14,  y0 + 6.5);
+  doc.text("Faturamento", xFat,     y0 + 6.5, { align: "right" });
+  doc.text("% (acum)",    xPct,     y0 + 6.5, { align: "right" });
+  doc.text("Score",       xScore,   y0 + 6.5, { align: "right" });
+  doc.text("Prot.",       xProt,    y0 + 6.5, { align: "center" });
+  doc.text("Proc.",       xProc,    y0 + 6.5, { align: "center" });
+  doc.text("Cl.",         xCl,      y0 + 6.5, { align: "right" });
 
   // Compute cumulative percentages from scratch (spec: CALCULAR, not trust the data)
   let cumulPct = 0;
 
   shown.forEach((c, i) => {
     const ry = y0 + HH + i * RH;
-    if (i % 2 !== 0) {
+
+    // Lookup do sacado enriquecido por CNPJ (PJ apenas)
+    const cnpjCanon = (c.cnpjCpf ?? "").replace(/\D/g, "");
+    let s = cnpjCanon.length === 14 ? sacadosByCnpj.get(cnpjCanon) : undefined;
+    if (!s) {
+      const m = (c.nome ?? "").match(/(\d{2}\.?\d{3}\.?\d{3}[/.-]?\d{4}[-.]?\d{2})/);
+      if (m) s = sacadosByCnpj.get(m[1].replace(/\D/g, ""));
+    }
+    const isPF = cnpjCanon.length === 11;
+    const temVinculo = !!s?.vinculos?.temVinculo;
+
+    // Background — vermelho-claro se vínculo, alterna se não
+    if (temVinculo) {
+      doc.setFillColor(...P.r0);
+    } else if (i % 2 !== 0) {
       doc.setFillColor(...P.wh);
     } else {
       doc.setFillColor(...P.x0);
@@ -173,37 +204,77 @@ export function renderABC(ctx: PdfCtx): void {
     doc.setFont("helvetica","bold"); doc.setFontSize(6.5); doc.setTextColor(...P.wh);
     doc.text(String(i+1), ML + 7.5, ry + RH/2 + 1.5, { align: "center" });
 
-    // Name + bar
+    // Nome (linha 1) + CNPJ/UF (linha 2 menor)
+    const nomeLimpo = s?.razaoSocial ?? c.nome ?? "—";
     doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(...P.x9);
-    doc.text(tr(c.nome || "—", 30), ML + 14, ry + 5.5);
-    const fat = parseMoneyToNumber(c.valorFaturado || "0");
-    const barW = Math.max(fat / maxFat * (CW * 0.35), 1);
-    doc.setFillColor(...P.n7);
-    doc.roundedRect(ML + 14, ry + 7.5, barW, 1.5, 0.5, 0.5, "F");
+    doc.text(tr(nomeLimpo, 36), ML + 14, ry + 5);
+    if (cnpjCanon.length === 14 || s?.uf) {
+      const cnpjFmt = cnpjCanon.length === 14
+        ? cnpjCanon.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5")
+        : "";
+      const sub = [cnpjFmt, s?.uf].filter(Boolean).join(" · ");
+      if (sub) {
+        doc.setFont("helvetica","normal"); doc.setFontSize(5.5); doc.setTextColor(...P.x5);
+        doc.text(sub, ML + 14, ry + 9.5);
+      }
+    } else if (isPF) {
+      doc.setFont("helvetica","normal"); doc.setFontSize(5.5); doc.setTextColor(...P.x5);
+      doc.text("PF", ML + 14, ry + 9.5);
+    }
 
     // Faturamento
+    const fat = parseMoneyToNumber(c.valorFaturado || "0");
     doc.setFont("helvetica","normal"); doc.setFontSize(7); doc.setTextColor(...P.x7);
-    doc.text(mo(fat), ML + CW*0.60, ry + 6, { align: "right" });
+    doc.text(mo(fat), xFat, ry + 7, { align: "right" });
 
-    // % Rec
+    // % Rec + acumulado em segunda linha menor
     const pct = parseFloat(c.percentualReceita || "0");
-    doc.setFont("helvetica","bold"); doc.setTextColor(...P.x7);
-    doc.text(fmtBR(pct, 1) + "%", ML + CW*0.74, ry + 6, { align: "right" });
-
-    // % Acum
     cumulPct += pct;
-    doc.setFont("helvetica","bold"); doc.setTextColor(...P.x7);
-    doc.text(fmtBR(cumulPct, 1) + "%", ML + CW*0.87, ry + 6, { align: "right" });
+    doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(...P.x7);
+    doc.text(fmtBR(pct, 1) + "%", xPct, ry + 5, { align: "right" });
+    doc.setFont("helvetica","normal"); doc.setFontSize(5.5); doc.setTextColor(...P.x5);
+    doc.text("acum " + fmtBR(cumulPct, 0) + "%", xPct, ry + 9.5, { align: "right" });
 
-    // Classe based on cumul
+    // Score (valor + classe pequena ao lado)
+    if (s?.score) {
+      doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(...P.x9);
+      doc.text(String(s.score), xScore, ry + 7, { align: "right" });
+      if (s.scoreClasse) {
+        const sw = doc.getTextWidth(String(s.score));
+        doc.setFont("helvetica","normal"); doc.setFontSize(5.5); doc.setTextColor(...P.x5);
+        doc.text(s.scoreClasse, xScore - sw - 1.5, ry + 7, { align: "right" });
+      }
+    } else {
+      doc.setFont("helvetica","normal"); doc.setFontSize(6); doc.setTextColor(...P.x4);
+      doc.text(isPF ? "PF" : "—", xScore, ry + 7, { align: "right" });
+    }
+
+    // Protestos · Processos — número vermelho se >0, ✓ verde se 0, "—" cinza se sem dado
+    const protQtd = s?.protestosQtd;
+    const procQtd = s?.processosPassivos;
+    const cellNum = (xc: number, val: number | undefined) => {
+      if (val === undefined) {
+        doc.setFont("helvetica","normal"); doc.setFontSize(6); doc.setTextColor(...P.x4);
+        doc.text("—", xc, ry + 7, { align: "center" });
+      } else if (val === 0) {
+        doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(...P.g6);
+        doc.text("✓", xc, ry + 7, { align: "center" });
+      } else {
+        doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(...P.r6);
+        doc.text(String(val), xc, ry + 7, { align: "center" });
+      }
+    };
+    cellNum(xProt, protQtd);
+    cellNum(xProc, procQtd);
+
+    // Classe ABC (calculada a partir do acumulado)
     const cl = cumulPct <= 80 ? "A" : cumulPct <= 95 ? "B" : "C";
     const cBg: [number,number,number] = cl==="A"?P.r1:cl==="B"?P.a1:P.x1;
     const cFg: [number,number,number] = cl==="A"?P.r6:cl==="B"?P.a5:P.x5;
-    const clx = ML + CW - 2;
     doc.setFillColor(...cBg);
-    doc.roundedRect(clx - 9, ry + 2, 9, 5, 1, 1, "F");
+    doc.roundedRect(xCl - 9, ry + (RH-5)/2, 9, 5, 1, 1, "F");
     doc.setFont("helvetica","bold"); doc.setFontSize(6); doc.setTextColor(...cFg);
-    doc.text(cl, clx - 4.5, ry + 5.5, { align: "center" });
+    doc.text(cl, xCl - 4.5, ry + RH/2 + 1.5, { align: "center" });
 
     doc.setDrawColor(...P.x1); doc.setLineWidth(0.15);
     doc.line(ML+2, ry+RH, ML+CW-2, ry+RH);
@@ -211,10 +282,26 @@ export function renderABC(ctx: PdfCtx): void {
 
   // Summary
   const sumY = y0 + TH - 6;
+  const totalComVinculo = sacadosArr.filter(s => s.vinculos?.temVinculo).length;
+  const enriquecidos = sacadosArr.length;
+  const sumLine = [
+    `Top 3: ${top3pct > 0 ? fmtBR(top3pct,0) : "—"}%`,
+    `Top 5: ${top5pct > 0 ? fmtBR(top5pct,0) : "—"}%`,
+    `Total clientes: ${totalCli}`,
+    enriquecidos > 0 ? `Bureau: ${enriquecidos} sacado(s) consultado(s)` : "",
+    totalComVinculo > 0 ? `${totalComVinculo} com vínculo` : "",
+  ].filter(Boolean).join(" · ");
   doc.setFont("helvetica","normal"); doc.setFontSize(6.5); doc.setTextColor(...P.x5);
-  doc.text(`Top 3: ${top3pct > 0 ? fmtBR(top3pct,0) : "—"}% · Top 5: ${top5pct > 0 ? fmtBR(top5pct,0) : "—"}% · Total clientes: ${totalCli}`, ML + 4, sumY);
+  doc.text(sumLine, ML + 4, sumY);
 
   pos.y = y0 + TH + 5;
+
+  // Legenda compacta — explica os ícones da tabela
+  if (enriquecidos > 0) {
+    doc.setFont("helvetica","normal"); doc.setFontSize(6); doc.setTextColor(...P.x5);
+    doc.text("Prot./Proc.: ✓ = sem ocorrência · número = qtd · — = sem dado", ML + 4, pos.y);
+    pos.y += 4;
+  }
 
   // Alerts
   const top1 = shown[0];
@@ -223,4 +310,5 @@ export function renderABC(ctx: PdfCtx): void {
     if (top1pct > 30) alertRow("alta", `${tr(top1.nome || "Cliente 1", 35)} concentra ${fmtBR(top1pct,0)}% da receita — acima do limite recomendado de 20%`);
   }
   if (top3pct > 50) alertRow("mod", `Alta concentração — top 3 clientes = ${fmtBR(top3pct,0)}% da receita`);
+  if (totalComVinculo > 0) alertRow("alta", `${totalComVinculo} sacado(s) com vínculo detectado com o cedente — verificar parte relacionada antes da operação`);
 }

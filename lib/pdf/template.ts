@@ -1544,15 +1544,20 @@ function pageSintese(params: PDFReportParams, date: string): string {
 
         const rowBg = s?.vinculos.temVinculo ? ` style="background:#FEF2F2"` : "";
 
-        // Risco compacto: Np · Mpr (vermelho) ou ✓ (verde) ou — (cinza)
-        const protQtd = s?.protestosQtd ?? 0;
-        const procQtd = s?.processosPassivos ?? 0;
-        const temRisco = !!s && (protQtd > 0 || procQtd > 0);
-        const riscoCell = !s
+        // Cells separadas: Protestos / Processos
+        // Sem bureau (s ausente) → "—" cinza
+        // Bureau consultado, qtd 0 → "✓" verde
+        // Bureau consultado, qtd > 0 → número vermelho com valor total em linha menor
+        const protCell = !s
           ? `<span style="color:var(--x4);font-size:10px">—</span>`
-          : temRisco
-            ? `<div style="font-weight:700;color:#991B1B;line-height:1.3">${protQtd > 0 ? `${protQtd}p` : `<span style="color:var(--x4);font-weight:400">0p</span>`}<span style="color:var(--x4);font-weight:400"> · </span>${procQtd > 0 ? `${procQtd}pr` : `<span style="color:var(--x4);font-weight:400">0pr</span>`}${(s.protestosValorTotal || s.processosValorTotal) ? `<div style="font-size:9px;color:var(--x5);font-weight:400">${[s.protestosValorTotal, s.processosValorTotal].filter(Boolean).join(" + ")}</div>` : ""}</div>`
-            : `<span style="color:var(--g6);font-weight:700">✓</span>`;
+          : (s.protestosQtd ?? 0) === 0
+            ? `<span style="color:var(--g6);font-weight:700">✓</span>`
+            : `<div style="font-weight:700;color:#991B1B;line-height:1.25">${s.protestosQtd}${s.protestosValorTotal ? `<div style="font-size:9px;color:var(--x5);font-weight:400">${esc(s.protestosValorTotal)}</div>` : ""}</div>`;
+        const procCell = !s
+          ? `<span style="color:var(--x4);font-size:10px">—</span>`
+          : (s.processosPassivos ?? 0) === 0
+            ? `<span style="color:var(--g6);font-weight:700">✓</span>`
+            : `<div style="font-weight:700;color:#991B1B;line-height:1.25">${s.processosPassivos}${s.processosValorTotal ? `<div style="font-size:9px;color:var(--x5);font-weight:400">${esc(s.processosValorTotal)}</div>` : ""}</div>`;
 
         // % Rec com acumulado em linha menor
         const pctCell = `<b>${fmtPct(c.percentualReceita)}</b><div style="font-size:9px;color:var(--x5);font-weight:400">acum ${fmtPct(c.percentualAcumulado)}</div>`;
@@ -1567,7 +1572,8 @@ function pageSintese(params: PDFReportParams, date: string): string {
           <td class="r mono" style="font-weight:600;color:var(--n9)">${fmtMoney(c.valorFaturado)}</td>
           <td class="r">${pctCell}</td>
           <td class="r mono">${scoreCell}</td>
-          <td style="text-align:center">${riscoCell}</td>
+          <td style="text-align:center">${protCell}</td>
+          <td style="text-align:center">${procCell}</td>
           <td>${chipVinculo}</td>
         </tr>`;
       }).join("");
@@ -1591,12 +1597,13 @@ function pageSintese(params: PDFReportParams, date: string): string {
             <th class="r" style="width:100px">Faturamento</th>
             <th class="r" style="width:90px">% Rec. (acum)</th>
             <th class="r" style="width:78px">Score</th>
-            <th style="text-align:center;width:80px" title="Protestos · Processos passivos">Risco</th>
-            <th style="width:130px">Vínculo</th>
+            <th style="text-align:center;width:54px" title="Protestos vigentes">Prot.</th>
+            <th style="text-align:center;width:54px" title="Processos passivos">Proc.</th>
+            <th style="width:120px">Vínculo</th>
           </tr></thead>
           <tbody>${linhas}</tbody>
         </table>
-        <div style="padding:8px 14px;background:var(--n0);border-top:1px solid var(--n1);font-size:10px;color:var(--x5)"><b>p</b>=protestos · <b>pr</b>=processos passivos · 🚩=parte relacionada com cedente</div>
+        <div style="padding:8px 14px;background:var(--n0);border-top:1px solid var(--n1);font-size:10px;color:var(--x5)"><b>✓</b>=sem ocorrência · número=qtd (com valor total) · <b>—</b>=sem dado · 🚩=parte relacionada com cedente</div>
       </div>
       </div>`;
     })()}
