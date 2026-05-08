@@ -99,11 +99,16 @@ export function buildCollectionDocs(data: ExtractedData): CollectionDocument[] {
   if (data.ccf && (data.ccf.qtdRegistros > 0 || (data.ccf.bancos && data.ccf.bancos.length > 0))) {
     docs.push({ type: "ccf" as CollectionDocument["type"], filename: "ccf.pdf", extracted_data: asRec(data.ccf), uploaded_at: ts() });
   }
-  if (data.score || (data.bureausConsultados && data.bureausConsultados.length > 0)) {
+  const temSacadosAnalisados = (data.sacadosAnalisados?.length ?? 0) > 0;
+  if (data.score || (data.bureausConsultados && data.bureausConsultados.length > 0) || temSacadosAnalisados) {
     docs.push({
       type: "bureau_meta" as CollectionDocument["type"],
       filename: "bureau-meta.json",
-      extracted_data: asRec({ score: data.score ?? null, bureausConsultados: data.bureausConsultados ?? [] }),
+      extracted_data: asRec({
+        score: data.score ?? null,
+        bureausConsultados: data.bureausConsultados ?? [],
+        sacadosAnalisados: data.sacadosAnalisados ?? [],
+      }),
       uploaded_at: ts(),
     });
   }

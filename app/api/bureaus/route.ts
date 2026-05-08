@@ -14,6 +14,10 @@ import { mergeBureauResults } from "@/lib/bureaus/merger";
 import { enrichProcessosWithDataJud } from "@/lib/bureaus/datajud";
 import { cacheGet, cacheSet, cacheClear, cacheClearAll, cacheSize } from "@/lib/bureaus/cache";
 import { consultarSCREmpresa, consultarSCRSocios, consultarSCRGrupoEconomico } from "@/lib/bureaus/databox360";
+import { extractTopSacados } from "@/lib/sacados/extractTopSacados";
+import { consultarSacadosAnalisados } from "@/lib/sacados/consultarSacados";
+import { extractUFFromEndereco } from "@/lib/sacados/consultarSacados";
+import type { SocioComMae } from "@/lib/sacados/matchVinculos";
 import type { ExtractedData } from "@/types";
 import type { CreditHubResult } from "@/lib/bureaus/credithub";
 import { createClient } from "@supabase/supabase-js";
@@ -249,6 +253,70 @@ export async function POST(req: NextRequest) {
 
     const merged = mergeBureauResults(data, results);
 
+    // FASE 3 — Sacados da Curva ABC (top 5 PJ)
+    // Consulta CH + BDC para os principais sacados e cruza sócios para detectar
+    // partes relacionadas / vínculo familiar com o cedente. Ver lib/sacados/*.
+    let sacadosCount = 0;
+    try {
+      const topSacados = extractTopSacados(data?.curvaABC, 5);
+      if (topSacados.length > 0) {
+        console.log(`[bureaus][sacados] Curva ABC: ${topSacados.length} sacado(s) PJ a analisar`);
+
+        const sociosCedenteRaw = (data.qsa?.quadroSocietario ?? []).map((s) => ({
+          nome: s.nome,
+          cpfCnpj: s.cpfCnpj,
+        }));
+        const enderecoCedente = data.cnpj?.endereco;
+        const ufCedente = extractUFFromEndereco(enderecoCedente);
+
+        // Mães dos sócios cedente: reaproveita BDC se já consultado;
+        // senão, dispara só `/pessoas` (não consulta `/empresas` pra economizar).
+        let sociosCedenteComMae: SocioComMae[] = [];
+        if (bigdatacorpResult?.socios?.length) {
+          sociosCedenteComMae = bigdatacorpResult.socios.map((s) => ({
+            nome: s.nome,
+            cpf: s.cpf,
+            motherName: s.motherName,
+          }));
+        } else if (cpfsParaBDC.length > 0) {
+          try {
+            const r = await withTimeout(
+              consultarBDCSocios(cpfsParaBDC),
+              BUREAU_TIMEOUT,
+              "bdc-socios-cedente-mae",
+            );
+            sociosCedenteComMae = r.socios.map((s) => ({
+              nome: s.nome,
+              cpf: s.cpf,
+              motherName: s.motherName,
+            }));
+            console.log(`[bureaus][sacados] BDC sócios cedente (mães): ${sociosCedenteComMae.length}`);
+          } catch (err) {
+            console.warn(`[bureaus][sacados] BDC sócios cedente falhou:`, err instanceof Error ? err.message : err);
+          }
+        }
+
+        const sacados = await consultarSacadosAnalisados({
+          topSacados,
+          cedente: {
+            sociosCedente: sociosCedenteRaw,
+            ufCedente,
+            enderecoCedente,
+            sociosCedenteComMae,
+          },
+        });
+
+        if (sacados.length > 0) {
+          merged.sacadosAnalisados = sacados;
+          sacadosCount = sacados.length;
+          const comVinculo = sacados.filter((s) => s.vinculos.temVinculo).length;
+          console.log(`[bureaus][sacados] ${sacados.length} sacado(s) analisado(s), ${comVinculo} com vínculo detectado`);
+        }
+      }
+    } catch (err) {
+      console.warn(`[bureaus][sacados] falha geral:`, err instanceof Error ? err.message : err);
+    }
+
     // PEFIN + REFIN (CreditHub IRQL)
     if (pefinRefin.status === "fulfilled") {
       if (pefinRefin.value.pefin) merged.pefin = pefinRefin.value.pefin;
@@ -331,6 +399,12 @@ export async function POST(req: NextRequest) {
         const sb = createClient(supabaseUrl, supabaseKey);
         const numSociosPF = (data?.qsa?.quadroSocietario ?? [])
           .filter((s: { cpfCnpj?: string }) => s.cpfCnpj && s.cpfCnpj.replace(/\D/g, "").length === 11).length;
+        // Sacados analisados — cada um dispara CH + BDC empresa, e BDC /pessoas
+        // pra cada sócio PF do sacado. Conta para visibilidade de custo em /custos.
+        const sacadosBdcPessoasCount = (merged.sacadosAnalisados ?? []).reduce(
+          (sum, s) => sum + s.socios.filter((sc) => (sc.cpf ?? "").length === 11).length,
+          0,
+        );
         const bureau_calls = {
           credithub:            results.credithub?.success && !results.credithub?.mock ? 1 : 0,
           assertiva_pj:         results.assertiva?.success && !results.assertiva?.mock  ? 1 : 0,
@@ -339,6 +413,9 @@ export async function POST(req: NextRequest) {
           bdc_socio:            results.bigdatacorp?.success && !results.bigdatacorp?.mock ? numSociosPF : 0,
           databox360_empresa:   !db360EmpresaResult?.mock && db360EmpresaResult?.scr ? 1 : 0,
           databox360_socio:     db360SociosMerged.length,
+          sacado_credithub:     sacadosCount,
+          sacado_bdc_empresa:   sacadosCount,
+          sacado_bdc_pessoa:    sacadosBdcPessoasCount,
         };
         await sb.from("api_usage_logs").insert({
           collection_id: collection_id ?? null,

@@ -598,6 +598,84 @@ export interface CurvaABCData {
   segmentos?: string[];
 }
 
+// ─── Sacados analisados (top 5 da Curva ABC com CNPJ) ───
+//
+// Para cada sacado material da Curva ABC consultamos CreditHub + BDC e
+// cruzamos sócios contra o cedente para detectar partes relacionadas.
+// Ver lib/sacados/* e ADR registrado em cerebro/decisoes.md.
+
+export interface SacadoSocio {
+  nome: string;
+  cpf?: string;          // canônico só dígitos quando disponível
+  participacao?: string; // "50%", "25,5%", etc.
+}
+
+export interface VinculoCpfComum {
+  cpf: string;             // CPF que aparece nas duas pontas (só dígitos)
+  nomeSocioCedente: string;
+  nomeSocioSacado: string;
+}
+
+export interface VinculoSobrenomeUF {
+  sobrenome: string;     // sobrenome compartilhado (não-comum)
+  uf: string;            // UF coincidente entre as duas empresas
+  nomeSocioCedente: string;
+  nomeSocioSacado: string;
+}
+
+export interface VinculoParentescoBDC {
+  cpf: string;           // CPF do sócio com vínculo declarado pelo BDC
+  nome: string;
+  tipo: string;          // "Pai", "Mãe", "Cônjuge", "Irmão", etc.
+  origem: "cedente" | "sacado";
+}
+
+/**
+ * Mãe comum entre um sócio do cedente e um sócio do sacado.
+ * Indica que os dois são quase certamente irmãos (= parente direto).
+ * Vem do BDC `/pessoas` campo `motherName`.
+ */
+export interface VinculoMaeComum {
+  maeComum: string;            // nome normalizado da mãe (uppercase, sem acento)
+  socioCedenteNome: string;
+  socioCedenteCpf?: string;    // só dígitos quando disponível
+  socioSacadoNome: string;
+  socioSacadoCpf?: string;
+}
+
+export interface VinculosSacado {
+  cpfSocioComum: VinculoCpfComum[];
+  sobrenomesUF: VinculoSobrenomeUF[];
+  enderecoIdentico: boolean;
+  enderecoCedente?: string;        // forma normalizada usada no match
+  enderecoSacado?: string;
+  parentescoBDC: VinculoParentescoBDC[];
+  maesComuns: VinculoMaeComum[];
+  /** True quando QUALQUER um dos critérios acima tem hit. */
+  temVinculo: boolean;
+}
+
+export interface SacadoAnalisado {
+  cnpj: string;                       // só dígitos
+  razaoSocial: string;
+  posicao?: number;                   // posição na Curva ABC
+  participacaoFaturamentoPct?: string; // ex.: "12,3%"
+  valorFaturado?: string;             // ex.: "R$ 1.234.567,00"
+  classe?: string;                    // "A" | "B" | "C"
+  // ── Bureau ──
+  socios: SacadoSocio[];
+  enderecoCompleto?: string;          // forma humana ("Rua X, 100 - Centro - SP")
+  uf?: string;
+  scoreSerasa?: number;               // 0-1000 (CreditHub)
+  protestosQtd?: number;
+  protestosValorTotal?: string;
+  processosPassivos?: number;
+  processosValorTotal?: string;
+  fonteBureau?: "credithub" | "bdc" | "ambos";
+  // ── Cruzamento ──
+  vinculos: VinculosSacado;
+}
+
 // ─── Grupo Econômico ───
 export interface EmpresaGrupo {
   razaoSocial: string;
@@ -775,6 +853,8 @@ export interface ExtractedData {
   processos: ProcessosData;
   grupoEconomico: GrupoEconomicoData;
   curvaABC?: CurvaABCData;
+  /** Top 5 sacados PJ da Curva ABC com bureau + cruzamento de partes relacionadas. */
+  sacadosAnalisados?: SacadoAnalisado[];
   dre?: DREData;
   balanco?: BalancoData;
   irSocios?: IRSocioData[];

@@ -61,7 +61,7 @@ export function recomputeSCRTotals<T extends Partial<SCRData>>(scr: T): T {
  * Retorna 0 quando não consegue parsear — entradas inválidas vão pro final
  * (interpretadas como "mais antigas") na ordenação DESC.
  */
-function periodoRefToKey(raw: unknown): number {
+export function periodoRefToKey(raw: unknown): number {
   if (raw == null) return 0;
   const s = String(raw).trim().toLowerCase();
   if (!s) return 0;
@@ -152,14 +152,16 @@ export function hydrateFromCollection(docs: { type: string; extracted_data: Reco
   for (const doc of docs) {
     if (doc.type === "scr_bacen") continue;
 
-    // bureau_meta guarda score + bureausConsultados no mesmo documento
+    // bureau_meta guarda score + bureausConsultados + sacadosAnalisados
     if (doc.type === "bureau_meta" && doc.extracted_data) {
-      const { score, bureausConsultados } = doc.extracted_data as {
+      const { score, bureausConsultados, sacadosAnalisados } = doc.extracted_data as {
         score?: ExtractedData["score"];
         bureausConsultados?: string[];
+        sacadosAnalisados?: ExtractedData["sacadosAnalisados"];
       };
       if (score) result.score = score;
       if (bureausConsultados && bureausConsultados.length > 0) result.bureausConsultados = bureausConsultados;
+      if (sacadosAnalisados && sacadosAnalisados.length > 0) result.sacadosAnalisados = sacadosAnalisados;
       continue;
     }
 

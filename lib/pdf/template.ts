@@ -2,7 +2,7 @@ import type { PDFReportParams } from "@/lib/generators/pdf";
 import type { FundCriterion } from "@/types";
 import type { RespostaCriterio } from "@/types/politica-credito";
 import { CAPITAL_LOGO_B64 } from "@/lib/assets/capital-logo-b64";
-import { recomputeSCRTotals } from "@/lib/hydrateFromCollection";
+import { recomputeSCRTotals, periodoRefToKey } from "@/lib/hydrateFromCollection";
 import { calcScrTotal } from "@/lib/scrTotal";
 
 // ─── Logo base64 ─────────────────────────────────────────────────────────────
@@ -920,10 +920,13 @@ function pageSintese(params: PDFReportParams, date: string): string {
   const scrAnt = d.scrAnterior;
   let scrTable = "";
   if (scr && scrAnt) {
-    // Sort by period: scrCur = more recent (Atual), scrPrv = older (Anterior)
-    const parseScrPrd = (s: string) => { const p = (s ?? "").split("/"); return p.length === 2 ? parseInt(p[1], 10) * 100 + parseInt(p[0], 10) : 0; };
-    const scrCur = parseScrPrd(scr.periodoReferencia ?? "") >= parseScrPrd(scrAnt.periodoReferencia ?? "") ? scr : scrAnt;
-    const scrPrv = parseScrPrd(scr.periodoReferencia ?? "") >= parseScrPrd(scrAnt.periodoReferencia ?? "") ? scrAnt : scr;
+    // Sort by period: scrCur = more recent (Atual), scrPrv = older (Anterior).
+    // Antes parseava só "MM/YYYY" (BACEN); DataBox360 retorna "YYYY-MM" e caía em 0,
+    // gerando ordem indeterminada na comparação. periodoRefToKey aceita ambos.
+    const kCur = periodoRefToKey(scr.periodoReferencia);
+    const kAnt = periodoRefToKey(scrAnt.periodoReferencia);
+    const scrCur = kCur >= kAnt ? scr : scrAnt;
+    const scrPrv = kCur >= kAnt ? scrAnt : scr;
     // Compute totals from components (BACEN Responsabilidade Total = A Vencer + Vencidos + Prejuízos)
     const calcScrTotal = (s: typeof scr) => numVal(s.carteiraCurtoPrazo || s.carteiraAVencer || "0") + numVal(s.carteiraLongoPrazo || "0") + numVal(s.vencidos || "0") + numVal(s.prejuizos || "0");
     type SCRRow = {label:string;curr:string;prev:string;varCls:string;varVal:string};
@@ -1172,6 +1175,75 @@ function pageSintese(params: PDFReportParams, date: string): string {
     <!-- 4. Localização -->
     ${stitle("Localização")}
     ${mapHtml}
+
+    <!-- 4b. Endividamento — SCR Bacen (resumo executivo, acima do quadro societário) -->
+    ${(() => {
+      const scrEmp = d.scr;
+      const scrSocs = d.scrSocios ?? [];
+      const temScrEmp = scrEmp && (
+        numVal(scrEmp.carteiraAVencer ?? "0") > 0 ||
+        numVal(scrEmp.vencidos ?? "0") > 0 ||
+        numVal(scrEmp.prejuizos ?? "0") > 0 ||
+        numVal(scrEmp.totalDividasAtivas ?? "0") > 0
+      );
+      const temScrSoc = scrSocs.length > 0;
+      if (!temScrEmp && !temScrSoc) return "";
+
+      let empBlock = "";
+      if (temScrEmp && scrEmp) {
+        const totalEmp =
+          numVal(scrEmp.carteiraCurtoPrazo ?? scrEmp.carteiraAVencer ?? "0") +
+          numVal(scrEmp.carteiraLongoPrazo ?? "0") +
+          numVal(scrEmp.vencidos ?? "0") +
+          numVal(scrEmp.prejuizos ?? "0");
+        const vencEmp = numVal(scrEmp.vencidos ?? "0");
+        const prejEmp = numVal(scrEmp.prejuizos ?? "0");
+        empBlock = `
+        <div class="kpi-snap c4" style="margin-bottom:10px">
+          <div class="icell ${totalEmp > 0 ? "navy" : ""}">
+            <div class="l">Total Dívidas Ativas</div>
+            <div class="v sm mono">${fmtMoneyAbr(totalEmp)}</div>
+          </div>
+          <div class="icell ${vencEmp > 0 ? "danger" : "success"}">
+            <div class="l">Vencidos</div>
+            <div class="v sm mono ${vencEmp > 0 ? "red" : "green"}">${fmtMoneyAbr(scrEmp.vencidos)}</div>
+          </div>
+          <div class="icell ${prejEmp > 0 ? "danger" : ""}">
+            <div class="l">Prejuízos</div>
+            <div class="v sm mono ${prejEmp > 0 ? "red" : ""}">${prejEmp > 0 ? fmtMoneyAbr(scrEmp.prejuizos) : "—"}</div>
+          </div>
+          <div class="icell">
+            <div class="l">IFs · Operações</div>
+            <div class="v sm">${fmt(scrEmp.qtdeInstituicoes)} · ${fmt(scrEmp.qtdeOperacoes)}</div>
+          </div>
+        </div>`;
+      }
+
+      let socBlock = "";
+      if (temScrSoc) {
+        const rows = scrSocs.map(ss => {
+          const sa = ss.periodoAtual;
+          const respAtiva = numVal(sa.carteiraAVencer ?? "0") + numVal(sa.vencidos ?? "0");
+          const venc = numVal(sa.vencidos ?? "0");
+          const prej = numVal(sa.prejuizos ?? "0");
+          return `<tr>
+            <td class="b" style="white-space:nowrap">${esc(ss.nomeSocio)}<div style="font-size:9px;color:var(--x5);font-family:'JetBrains Mono',monospace;font-weight:400">${fmtCpf(ss.cpfSocio)}</div></td>
+            <td class="r mono">${fmtMoneyAbr(String(respAtiva))}</td>
+            <td class="r mono ${venc > 0 ? "red" : ""}">${venc > 0 ? fmtMoneyAbr(sa.vencidos) : "—"}</td>
+            <td class="r mono ${prej > 0 ? "red" : ""}">${prej > 0 ? fmtMoneyAbr(sa.prejuizos) : "—"}</td>
+            <td class="r">${fmt(sa.qtdeInstituicoes)}</td>
+          </tr>`;
+        }).join("");
+        socBlock = `
+        <div style="font-size:11px;font-weight:700;color:var(--x4);text-transform:uppercase;letter-spacing:0.05em;margin:6px 0 4px">Endividamento dos sócios (DataBox360)</div>
+        <table class="tbl" style="margin-bottom:0">
+          <thead><tr><th>Sócio</th><th class="r">Resp. Ativa</th><th class="r">Vencidos</th><th class="r">Prejuízos</th><th class="r">IFs</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+      }
+
+      return `${stitle("Endividamento — SCR Bacen")}${empBlock}${socBlock}`;
+    })()}
 
     <!-- 5. Sócios -->
     ${stitle("Quadro societário")}
@@ -1430,6 +1502,50 @@ function pageSintese(params: PDFReportParams, date: string): string {
 
     <!-- 8. Curva ABC -->
     ${abcHtml}
+
+    <!-- 8b. Sacados — Bureau + Partes Relacionadas (resumo; detalhe na pág 9) -->
+    ${(() => {
+      const sacados = d.sacadosAnalisados ?? [];
+      if (sacados.length === 0) return "";
+      const fmtCnpj14 = (c: string) =>
+        c?.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5") ?? "—";
+
+      const linhasSacados = sacados.map((s) => {
+        // Resumo dos vínculos: chips curtos
+        const tiposVinculo: string[] = [];
+        if (s.vinculos.cpfSocioComum.length > 0) tiposVinculo.push("CPF comum");
+        if (s.vinculos.maesComuns.length > 0) tiposVinculo.push("mãe comum");
+        if (s.vinculos.parentescoBDC.length > 0) tiposVinculo.push("parentesco");
+        if (s.vinculos.enderecoIdentico) tiposVinculo.push("endereço");
+        if (s.vinculos.sobrenomesUF.length > 0) tiposVinculo.push("sobrenome+UF");
+
+        const chipVinculo = s.vinculos.temVinculo
+          ? `<span style="display:inline-block;padding:2px 6px;background:#FEE2E2;color:#991B1B;border:1px solid #FCA5A5;border-radius:3px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em" title="${esc(tiposVinculo.join(", "))}">🚩 ${esc(tiposVinculo[0] ?? "vínculo")}${tiposVinculo.length > 1 ? ` +${tiposVinculo.length - 1}` : ""}</span>`
+          : `<span style="color:var(--x4);font-size:10px">—</span>`;
+
+        const protRed = (s.protestosQtd ?? 0) > 0;
+        const procRed = (s.processosPassivos ?? 0) > 0;
+
+        return `<tr${s.vinculos.temVinculo ? ` style="background:#FEF2F2"` : ""}>
+          <td><span class="abc-rank">${s.posicao ?? "—"}</span></td>
+          <td class="b">${esc(s.razaoSocial)}<div style="font-size:9px;color:var(--x5);font-family:'JetBrains Mono',monospace;font-weight:400;margin-top:1px">${fmtCnpj14(s.cnpj)}${s.uf ? ` · ${esc(s.uf)}` : ""}</div></td>
+          <td>${s.classe ? `<span class="abc-cl ${(s.classe ?? "c").toLowerCase()}">${esc(s.classe)}</span>` : "—"}</td>
+          <td class="r">${s.scoreSerasa ?? "—"}</td>
+          <td class="r ${protRed ? "red" : ""}">${s.protestosQtd ?? 0}</td>
+          <td class="r ${procRed ? "red" : ""}">${s.processosPassivos ?? 0}</td>
+          <td>${chipVinculo}</td>
+        </tr>`;
+      }).join("");
+
+      const totalComVinculo = sacados.filter(s => s.vinculos.temVinculo).length;
+
+      return `${stitle("Sacados — Bureau + Partes Relacionadas")}
+      ${totalComVinculo > 0 ? `<div class="alert alta" style="margin-bottom:8px"><span class="atag">ATENÇÃO</span> <b>${totalComVinculo} de ${sacados.length}</b> sacado(s) com vínculo detectado — detalhe completo na pág 9.</div>` : ""}
+      <table class="abc-tbl" style="margin-bottom:0">
+        <thead><tr><th style="width:40px">#</th><th>Sacado</th><th style="width:48px">Classe</th><th class="r" style="width:60px">Score</th><th class="r" style="width:48px">Protestos</th><th class="r" style="width:60px">Processos</th><th style="width:120px">Vínculo</th></tr></thead>
+        <tbody>${linhasSacados}</tbody>
+      </table>`;
+    })()}
 
     <!-- 9. Pleito -->
     ${pleitoHtml}
@@ -2215,7 +2331,88 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
     ${abc.alertaConcentracao && abc.clientes[0] ? `<div class="alert alta" style="margin-top:8px"><span class="atag">ALTA</span> ${esc(abc.clientes[0].nome)} concentra ${fmtPct(abc.clientes[0].percentualReceita)} da receita — acima do limite recomendado</div>` : ""}`;
   }
 
-  const content = `${dreSection}${balSection}${abcSection}`;
+  // ── Sacados analisados (top 5 PJ da Curva ABC com bureau + cruzamento) ──
+  let sacadosSection = "";
+  const sacados = params.data.sacadosAnalisados ?? [];
+  if (sacados.length > 0) {
+    const fmtCnpj14 = (c: string) =>
+      c?.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5") ?? "—";
+
+    const sacadoBlocks = sacados.map((s) => {
+      // Conjunto de tipos de vínculo detectados — formatado como chips
+      const tiposVinculo: string[] = [];
+      if (s.vinculos.cpfSocioComum.length > 0) tiposVinculo.push("CPF de sócio em comum");
+      if (s.vinculos.maesComuns.length > 0) tiposVinculo.push("mãe comum");
+      if (s.vinculos.parentescoBDC.length > 0) tiposVinculo.push("parentesco");
+      if (s.vinculos.enderecoIdentico) tiposVinculo.push("endereço idêntico");
+      if (s.vinculos.sobrenomesUF.length > 0) tiposVinculo.push("sobrenome + UF");
+
+      // Detalhamento expandido — qual sócio cedente bate com qual sócio sacado
+      const detalheLinhas: string[] = [];
+      s.vinculos.cpfSocioComum.forEach((v) => {
+        detalheLinhas.push(`<li><b>CPF comum</b> — ${esc(v.nomeSocioCedente)} (cedente) ↔ ${esc(v.nomeSocioSacado)} (sacado)</li>`);
+      });
+      s.vinculos.maesComuns.forEach((v) => {
+        detalheLinhas.push(`<li><b>Mesma mãe</b> — ${esc(v.socioCedenteNome)} ↔ ${esc(v.socioSacadoNome)} (mãe: ${esc(v.maeComum)})</li>`);
+      });
+      s.vinculos.parentescoBDC.forEach((v) => {
+        detalheLinhas.push(`<li><b>Parentesco BDC</b> — ${esc(v.nome)} (${esc(v.tipo)}, origem: ${esc(v.origem)})</li>`);
+      });
+      if (s.vinculos.enderecoIdentico) {
+        detalheLinhas.push(`<li><b>Endereço idêntico</b> — ${esc(s.vinculos.enderecoCedente ?? "")}</li>`);
+      }
+      s.vinculos.sobrenomesUF.forEach((v) => {
+        detalheLinhas.push(`<li><b>Sobrenome ${esc(v.sobrenome)}</b> (${esc(v.uf)}) — ${esc(v.nomeSocioCedente)} ↔ ${esc(v.nomeSocioSacado)}</li>`);
+      });
+
+      const chipVinculo = s.vinculos.temVinculo
+        ? `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:#FEE2E2;color:#991B1B;border:1px solid #FCA5A5;border-radius:4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em">🚩 Parte relacionada</span>`
+        : `<span style="display:inline-flex;padding:3px 8px;background:var(--x1);color:var(--x5);border-radius:4px;font-size:10px;font-weight:600">Sem vínculo</span>`;
+
+      const fonteLabel: Record<string, string> = {
+        credithub: "CreditHub",
+        bdc: "BigDataCorp",
+        ambos: "CH + BDC",
+      };
+      const fonteChip = s.fonteBureau
+        ? `<span style="font-size:9px;color:var(--x5);padding:2px 6px;background:var(--x1);border-radius:3px;text-transform:uppercase;letter-spacing:0.04em">${esc(fonteLabel[s.fonteBureau] ?? s.fonteBureau)}</span>`
+        : "";
+
+      const protRed = (s.protestosQtd ?? 0) > 0;
+      const procRed = (s.processosPassivos ?? 0) > 0;
+
+      return `
+      <div style="margin-bottom:12px;padding:14px;background:var(--x0);border-radius:8px;border:1px solid var(--x2);${s.vinculos.temVinculo ? "border-left:4px solid #DC2626;" : ""}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px;flex-wrap:wrap">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;font-weight:700;color:var(--n9);margin-bottom:2px">
+              <span style="display:inline-block;background:var(--n8);color:#fff;font-size:10px;padding:2px 6px;border-radius:3px;margin-right:6px;font-weight:700">${s.posicao ?? "—"}</span>
+              ${esc(s.razaoSocial)}
+            </div>
+            <div style="font-size:10px;color:var(--x5);font-family:'JetBrains Mono',monospace">${fmtCnpj14(s.cnpj)}${s.uf ? ` · ${esc(s.uf)}` : ""}${s.classe ? ` · Classe <b>${esc(s.classe)}</b>` : ""}${s.participacaoFaturamentoPct ? ` · ${esc(s.participacaoFaturamentoPct)} do faturamento` : ""}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">${fonteChip}${chipVinculo}</div>
+        </div>
+        <div class="istrip c4">
+          <div class="icell"><div class="l">Score Serasa</div><div class="v sm">${s.scoreSerasa ?? "—"}</div></div>
+          <div class="icell ${protRed ? "danger" : ""}"><div class="l">Protestos vigentes</div><div class="v sm ${protRed ? "red" : ""}">${s.protestosQtd ?? 0}${s.protestosValorTotal ? ` <span style="font-size:9px;color:var(--x5)">${esc(s.protestosValorTotal)}</span>` : ""}</div></div>
+          <div class="icell ${procRed ? "danger" : ""}"><div class="l">Processos passivos</div><div class="v sm ${procRed ? "red" : ""}">${s.processosPassivos ?? 0}${s.processosValorTotal ? ` <span style="font-size:9px;color:var(--x5)">${esc(s.processosValorTotal)}</span>` : ""}</div></div>
+          <div class="icell"><div class="l">Sócios identificados</div><div class="v sm">${s.socios.length}</div></div>
+        </div>
+        ${tiposVinculo.length > 0 ? `<div style="margin-top:8px;font-size:10px;color:var(--x5)"><b style="color:#991B1B">Vínculos detectados:</b> ${tiposVinculo.map(t => esc(t)).join(" · ")}</div>` : ""}
+        ${detalheLinhas.length > 0 ? `<ul style="margin:6px 0 0;padding-left:18px;font-size:10px;color:var(--x4);line-height:1.5">${detalheLinhas.join("")}</ul>` : ""}
+      </div>`;
+    }).join("");
+
+    const totalComVinculo = sacados.filter(s => s.vinculos.temVinculo).length;
+    sacadosSection = `
+    ${stitle("12 · Análise dos Top 5 Sacados — Bureau + Partes Relacionadas")}
+    <div style="font-size:11px;color:var(--x5);margin-bottom:10px">Consulta CreditHub + BigDataCorp para os principais sacados da Curva ABC. Cruzamento de sócios indica possível parte relacionada (CPF comum, mãe comum, endereço, sobrenome + UF).</div>
+    ${totalComVinculo > 0 ? `<div class="alert alta" style="margin-bottom:10px"><span class="atag">ATENÇÃO</span> <b>${totalComVinculo} de ${sacados.length}</b> sacado(s) com vínculo detectado com o cedente — verificar relacionamento societário/familiar antes da operação.</div>` : ""}
+    ${sacadoBlocks}`;
+  }
+
+  const content = `${dreSection}${balSection}${abcSection}${sacadosSection}`;
   return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de DRE/balanço/ABC não disponíveis</div>`, 9, date);
 }
 
