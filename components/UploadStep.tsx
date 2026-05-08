@@ -206,7 +206,8 @@ const SECTIONS: SectionConfig[] = [
   { key: 'curva_abc',        title: 'Curva ABC — Top Clientes',          description: 'Carteira de clientes com concentração de receita',               icon: <PieChart size={19} />,         stepNumber: '▿', required: false },
   { key: 'ir_socio',         title: 'IR dos Sócios (opcional)',          description: 'Declaração de imposto de renda dos sócios',                      icon: <FileKey size={19} />,          stepNumber: '▿', required: false },
   { key: 'relatorio_visita', title: 'Relatório de Visita',               description: 'Relatório da visita presencial à empresa',                       icon: <ClipboardList size={19} />,    stepNumber: '▿', required: false },
-  { key: 'divida_ativa',     title: 'Dívida Ativa (PGFN/UF/Município)',  description: 'Certidão de débitos inscritos em Dívida Ativa',                 icon: <FileKey size={19} />,          stepNumber: '▿', required: false },
+  // Dívida Ativa removida do upload em 2026-05-08: agora vem automático
+  // via BDC government_debtors no orquestrador /api/bureaus.
   { key: 'cenprot',          title: 'CENPROT — Central de Protestos',    description: 'Certidão oficial do IEPTB-BR',                                  icon: <FileKey size={19} />,          stepNumber: '▿', required: false },
   { key: 'gefip',            title: 'GEFIP / FGTS / INSS',               description: 'Recolhimentos previdenciários e trabalhistas',                  icon: <Receipt size={19} />,          stepNumber: '▿', required: false },
 ];
