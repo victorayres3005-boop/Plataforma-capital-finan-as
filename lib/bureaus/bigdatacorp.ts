@@ -1,8 +1,8 @@
 import type { CNPJData, QSASocio, ProcessosData, ProtestosData, ProtestoDetalhe, ParentescoDetectado } from "@/types";
 
-const BDC_BASE = "https://plataforma.bigdatacorp.com.br";
+export const BDC_BASE = "https://plataforma.bigdatacorp.com.br";
 
-function bdcHeaders() {
+export function bdcHeaders() {
   return {
     "accept": "application/json",
     "content-type": "application/json",
@@ -11,7 +11,7 @@ function bdcHeaders() {
   };
 }
 
-function hasCredentials(): boolean {
+export function hasCredentials(): boolean {
   return !!(process.env.BDC_TOKEN && process.env.BDC_TOKEN_ID);
 }
 
