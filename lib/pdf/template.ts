@@ -1544,64 +1544,60 @@ function pageSintese(params: PDFReportParams, date: string): string {
 
         const rowBg = s?.vinculos.temVinculo ? ` style="background:#FEF2F2"` : "";
 
-        // Métricas combinadas: Faturamento (R$) em destaque + % Rec. (acum) abaixo
-        const metricasCell = `
-          <div style="font-weight:700;color:var(--n9)">${fmtMoney(c.valorFaturado)}</div>
-          <div style="font-size:10px;color:var(--n8);font-weight:600;margin-top:2px">${fmtPct(c.percentualReceita)}</div>
-          <div style="font-size:9px;color:var(--x5);font-weight:400">acum ${fmtPct(c.percentualAcumulado)}</div>
-        `;
-
-        // Status: Risco (Np · Mpr / ✓ / —) + chip de Vínculo abaixo (se houver)
+        // Risco compacto: Np · Mpr (vermelho) ou ✓ (verde) ou — (cinza)
         const protQtd = s?.protestosQtd ?? 0;
         const procQtd = s?.processosPassivos ?? 0;
         const temRisco = !!s && (protQtd > 0 || procQtd > 0);
-        const riscoLine = !s
-          ? `<span style="color:var(--x4)">— sem dados</span>`
+        const riscoCell = !s
+          ? `<span style="color:var(--x4);font-size:10px">—</span>`
           : temRisco
-            ? `${protQtd > 0 ? `<span style="color:#991B1B;font-weight:700">${protQtd}p</span>` : `<span style="color:var(--x4)">0p</span>`}<span style="color:var(--x4)"> · </span>${procQtd > 0 ? `<span style="color:#991B1B;font-weight:700">${procQtd}pr</span>` : `<span style="color:var(--x4)">0pr</span>`}`
-            : `<span style="color:#15803d;font-weight:700">✓ sem registros</span>`;
-        const valorRiscoLine = temRisco && (s?.protestosValorTotal || s?.processosValorTotal)
-          ? `<div style="font-size:9px;color:var(--x5);font-weight:400">${[s?.protestosValorTotal, s?.processosValorTotal].filter(Boolean).join(" + ")}</div>`
-          : "";
-        const statusCell = `
-          <div style="line-height:1.4">${riscoLine}</div>
-          ${valorRiscoLine}
-          ${s?.vinculos.temVinculo ? `<div style="margin-top:3px">${chipVinculo}</div>` : ""}
-        `;
+            ? `<div style="font-weight:700;color:#991B1B;line-height:1.3">${protQtd > 0 ? `${protQtd}p` : `<span style="color:var(--x4);font-weight:400">0p</span>`}<span style="color:var(--x4);font-weight:400"> · </span>${procQtd > 0 ? `${procQtd}pr` : `<span style="color:var(--x4);font-weight:400">0pr</span>`}${(s.protestosValorTotal || s.processosValorTotal) ? `<div style="font-size:9px;color:var(--x5);font-weight:400">${[s.protestosValorTotal, s.processosValorTotal].filter(Boolean).join(" + ")}</div>` : ""}</div>`
+            : `<span style="color:var(--g6);font-weight:700">✓</span>`;
+
+        // % Rec com acumulado em linha menor
+        const pctCell = `<b>${fmtPct(c.percentualReceita)}</b><div style="font-size:9px;color:var(--x5);font-weight:400">acum ${fmtPct(c.percentualAcumulado)}</div>`;
 
         return `<tr${rowBg}>
-          <td style="vertical-align:top;padding-top:8px"><span class="abc-rank">${i + 1}</span></td>
-          <td class="b" style="vertical-align:top">
-            <div style="display:flex;align-items:center;gap:6px">
-              <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nomeLimpo)}</span>
-              <span class="abc-cl ${clsCls}" style="flex-shrink:0">${esc(c.classe)}</span>
-            </div>
+          <td style="text-align:center;color:var(--x5);font-weight:600">${i + 1}</td>
+          <td>
+            <b>${esc(nomeLimpo)}</b>
             ${cnpjFmt ? `<div style="font-size:9px;color:var(--x5);font-family:'JetBrains Mono',monospace;font-weight:400;margin-top:1px">${cnpjFmt}${ufExtra}</div>` : ""}
-            <div class="abc-bar" style="width:${barW}%"></div>
           </td>
-          <td class="r" style="vertical-align:top">${metricasCell}</td>
-          <td class="r" style="vertical-align:top">${scoreCell}</td>
-          <td style="vertical-align:top">${statusCell}</td>
+          <td style="text-align:center"><span class="abc-cl ${clsCls}">${esc(c.classe)}</span></td>
+          <td class="r mono" style="font-weight:600;color:var(--n9)">${fmtMoney(c.valorFaturado)}</td>
+          <td class="r">${pctCell}</td>
+          <td class="r mono">${scoreCell}</td>
+          <td style="text-align:center">${riscoCell}</td>
+          <td>${chipVinculo}</td>
         </tr>`;
       }).join("");
 
       const totalComVinculo = (d.sacadosAnalisados ?? []).filter(s => s.vinculos.temVinculo).length;
       const totalSacadosAnalisados = (d.sacadosAnalisados ?? []).length;
+      const totalClientesABC = abcLocal.totalClientesNaBase ?? 0;
 
-      return `${stitle("Curva ABC — Top 5 + Bureau + Partes Relacionadas")}
-      ${totalComVinculo > 0 ? `<div class="alert alta" style="margin-bottom:8px"><span class="atag">ATENÇÃO</span> <b>${totalComVinculo} de ${totalSacadosAnalisados}</b> sacado(s) com vínculo detectado — detalhe completo na pág 9.</div>` : ""}
-      <div class="abc-wrap">
-        <table class="abc-tbl">
+      return `${stitle("Curva ABC — Top 5 Sacados + Bureau")}
+      <div class="ge-block">
+        <div class="ge-header">
+          <span class="title">Top ${top.length} sacados por concentração de receita</span>
+          <span class="count">${totalClientesABC} cliente${totalClientesABC > 1 ? "s" : ""} na base · Top 3: ${fmtPct(abcLocal.concentracaoTop3)} · Top 5: ${fmtPct(abcLocal.concentracaoTop5)}</span>
+        </div>
+        ${totalComVinculo > 0 ? `<div style="padding:8px 14px;background:#FEF2F2;border-bottom:1px solid var(--x1);font-size:11px;color:#991B1B"><b>⚠ ${totalComVinculo} de ${totalSacadosAnalisados}</b> sacado(s) com vínculo detectado — detalhe na pág 9.</div>` : ""}
+        <table class="ge-tbl">
           <thead><tr>
-            <th style="width:34px">#</th>
+            <th style="width:30px">#</th>
             <th>Sacado</th>
-            <th class="r" style="width:120px">Faturamento / %</th>
+            <th style="width:54px;text-align:center">Cl.</th>
+            <th class="r" style="width:100px">Faturamento</th>
+            <th class="r" style="width:90px">% Rec. (acum)</th>
             <th class="r" style="width:78px">Score</th>
-            <th style="width:160px" title="Protestos · Processos · Vínculo">Status / Risco</th>
+            <th style="text-align:center;width:80px" title="Protestos · Processos passivos">Risco</th>
+            <th style="width:130px">Vínculo</th>
           </tr></thead>
           <tbody>${linhas}</tbody>
         </table>
-        <div class="abc-summary">Top 3: <b>${fmtPct(abcLocal.concentracaoTop3)}</b> · Top 5: <b>${fmtPct(abcLocal.concentracaoTop5)}</b> · Total clientes: <b>${abcLocal.totalClientesNaBase}</b> · <span style="font-size:9px;color:var(--x5)"><b>p</b>=protestos · <b>pr</b>=processos passivos · 🚩=parte relacionada</span></div>
+        <div style="padding:8px 14px;background:var(--n0);border-top:1px solid var(--n1);font-size:10px;color:var(--x5)"><b>p</b>=protestos · <b>pr</b>=processos passivos · 🚩=parte relacionada com cedente</div>
+      </div>
       </div>`;
     })()}
 
