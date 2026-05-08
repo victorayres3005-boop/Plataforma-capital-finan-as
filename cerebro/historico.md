@@ -11,6 +11,177 @@ Log datado de mudanças significativas. Adicionar entrada nova **no topo** quand
 
 ---
 
+## 2026-05-08 — Maratona: Sacados ABC + Bureau + Vínculos · Sugestão Analista · Análise Contábil · 3 docs novos
+
+**Disparador:** chefe pediu (1) na curva ABC, consultar bureau dos sacados PJ e cruzar sócios para detectar partes relacionadas; (2) SCR completo na parte superior da análise; (3) Sugestão do Analista junto do Pleito + caixa de Análise Contábil para a Vanessa; (4) 3 documentos novos uploadáveis (Dívida Ativa, CENPROT, GEFIP).
+
+**7 commits deployados em produção:**
+
+| Commit | Conteúdo |
+|---|---|
+| `5b76a01` | feat(sacados): análise top 5 sacados PJ + endividamento sócios na síntese |
+| `7d0a6ea` | fix(sacados): recupera CNPJ embutido no nome quando cnpjCpf vazio + log defensivo |
+| `7cd6282` | feat(sacados): funde Curva ABC + Bureau em tabela única na síntese + score Assertiva |
+| `73e6add` | feat(sintese): Sugestão do Analista (junto do Pleito) + Análise Contábil — Vanessa |
+| `db21055` | feat(extract): backend para 3 documentos novos — Dívida Ativa + CENPROT + GEFIP |
+| `081dee1` | feat(docs): UI + persistência + render PDF para os 3 docs |
+
+### Sacados ABC (Fases A→D) — código novo em `lib/sacados/`
+
+- **`extractTopSacados.ts`** — top 5 PJ da Curva ABC, dedup por CNPJ, ordena por valor desc. Fallback regex `extractCnpjFromText` + `stripCnpjFromName` para quando o extrator concatena nome+CNPJ ("LTDA-15756860/0001-27" — caso real prod).
+- **`matchVinculos.ts`** — 5 matchers: CPF comum, sobrenome+UF (suprime 37 sobrenomes ultra-comuns), endereço idêntico, parentesco BDC, **mãe comum** via BDC `/pessoas`.
+- **`consultarSacados.ts`** — orquestrador: CH + BDC + Assertiva paralelo + BDC `/pessoas` para mães. Cache 24h `sacado:<cnpj>`. **Score do sacado vem da Assertiva** (CH não retorna numérico) — cell mostra "720 B" (pontos + classe).
+- **`/api/bureaus/route.ts`** — Fase 3 nova após `mergeBureauResults`. Reaproveita BDC sócios cedente quando já consultado; senão dispara só `/pessoas` (não `/empresas`). `bureau_calls` ganha `sacado_credithub`, `sacado_bdc_empresa`, `sacado_bdc_pessoa`, `sacado_assertiva_pj`.
+- **74 testes Vitest novos** em `lib/sacados/__tests__/`.
+
+### Tabela única na síntese (após pedido do Victor)
+
+A "Curva ABC (Top 5)" original e a "Sacados — Bureau" foram fundidas. Itera sobre `curvaABC.clientes.slice(0,5)` (preserva ranking) + lookup em `sacadosAnalisados` por CNPJ canonicalizado. Sacados PF mostram `<span>PF</span>` para preservar transparência. Cards detalhados com chip 🚩 vermelho continuam na pág 9.
+
+### Mini-bloco SCR + endividamento sócios na pág 3
+
+Bloco "Endividamento — SCR Bacen" entre o mapa e o QSA. KPIs c4 da empresa (Total Dívidas, Vencidos, Prejuízos, IFs · Operações) + tabela compacta de sócios PF. Tabela completa da pág 8 continua existindo (granularidades diferentes — overview vs drill-down).
+
+### Sugestão do Analista + Análise Contábil
+
+- `RelatorioVisitaData.sugestaoAnalista: string` — textarea no `SectionRelatorioVisita` logo após Pleito + Modalidade
+- `ExtractedData.analiseContabil: string` (top-level) — `SectionAnaliseContabil` novo (item 11), accent azul
+- Síntese pág 3: caixa amber "Sugestão do Analista" + caixa azul-claro "Análise Contábil — Vanessa" abaixo do Pleito
+- Persistência: sugestão dentro de `relatorio_visita`; `analiseContabil` dentro de `bureau_meta` (sem migration)
+
+### 3 documentos novos (Fase 2)
+
+| Doc | Tipo / Schema | Render |
+|---|---|---|
+| **Dívida Ativa** (PGFN/UF/Município) | `DividaAtivaData` com registros `{origem, numeroInscricao, valor, situacao, dataInscricao, natureza}` | Pág 7, após CCF |
+| **CENPROT** (IEPTB-BR) | `CenprotData` com registros `{cartorio, cidade, uf, data, valor, devedor, cedente, protocolo}` | Pág 7, com **cross-validation com bureau** (banner amber quando `cenprot.qtdRegistros !== protestos.vigentesQtd`) |
+| **GEFIP** / FGTS / INSS | `GefipData` com `competencias[]` por mês + flag `competenciasEmAtraso` | Pág 9 (tabela mensal completa) + Pág 3 (resumo executivo c4) |
+
+Pipeline: `PROMPT_DIVIDA_ATIVA`/`PROMPT_CENPROT`/`PROMPT_GEFIP` em `lib/extract/prompts.ts`; `fillXxxDefaults` em `fillDefaults.ts`; cases novos em `app/api/extract/route.ts`. UploadStep com 3 sections opcionais. Sections read-only em `components/review/SectionDividaAtiva|Cenprot|Gefip.tsx`.
+
+### Custo extra estimado por análise
+
+5 sacados × 3 bureaus + ~10-15 BDC pessoas (sócios para mães) = **~30 calls extras**. Cache 24h `sacado:<cnpj>` corta drasticamente em re-análises.
+
+### Incidente operacional: concorrência destrutiva
+
+Outro agente trabalhando em paralelo na feature "Pleito Comitê — quadro editável" (commit `bfd7d51` durante a sessão). Na 1ª tentativa da Fase 2, mudanças em `types/index.ts`, `lib/extract/*` e `app/api/extract/route.ts` foram silenciosamente revertidas para HEAD durante o trabalho. Estratégia que funcionou: backend num commit/push isolado **antes** do frontend, fixando no remote.
+
+### Pendências
+
+- **Smoke test em prod** — análise real com Curva ABC populada para validar a Fase 3 + nova tabela
+- **Bug ortogonal aberto:** Curva ABC voltando R$ 0,00 / 0% nas linhas (extração do documento — não da minha feature)
+- Sem testes para os 3 docs novos — adicionar quando aparecer caso real
+
+---
+
+## 2026-05-08 (noite) — Edição inline de Pontos Fortes / Fracos / Alertas em /r/{id} 🚧
+
+**Disparador:** Chefe da Débora pediu "Deixar campos de pontos fortes, pontos fracos e alerta como editáveis, pq eu e Vanessa vamos incluir nossas percepções, e queria que fosse editável no próprio relatório HTML".
+
+**Decisões de produto (Victor):**
+- Persistência: salvar no Supabase (3 colunas JSONB novas).
+- Acesso: link normal `/r/{id}` é read-only para o cliente final; link com `?k=<edit_token>` (16 chars, único por relatório) habilita edição. Token entregue só pra Victor/Vanessa após o `Compartilhar`.
+- PDF "atualizado": botão "Salvar como PDF" do navegador (já existia) — não regerar jsPDF a partir das edições. Fase 2 se pedirem.
+- Autor: seletor Victor/Vanessa salvo em `updated_by`.
+
+**Arquivos deployados (commit `c16c100`):**
+
+| Área | Conteúdo |
+|---|---|
+| Migration 16 | `pontos_fortes/pontos_fracos/alertas JSONB` + `edit_token TEXT` + `updated_at/updated_by` em `shared_reports`. **Pendente aplicação no Supabase** — Victor sem acesso ao Studio, retoma 2026-05-09. |
+| Rota POST `/api/r/[id]/edit` | Recebe `{fortes[], fracos[], alertas[], autor, token}`. Valida token contra `edit_token` do registro (não usa auth Supabase — público com token). Sanitiza listas (máx 12 itens, 600 chars cada, 40 chars no autor). 401 para token inválido, 403 quando token não bate, 404 sem registro, 410 expirado. |
+| `/api/share-report` | Gera `edit_token` (16 chars alfanum.) junto com o `id`; persiste e devolve `editUrl` + `editToken` na response. Mensagem de erro clara quando colunas ausentes (`code 42703`). |
+| `/r/[id]` route | SELECT inclui `pontos_fortes/fracos/alertas/edit_token`. Função `applyOverrides` substitui blocos HTML entre marcadores `<!--EDIT:sec:START/END-->` quando há overrides. `__EDIT_TOKEN__` substituído pelo token real APENAS quando `?k=` bate (sem `k`, vira string vazia → JS do editor faz `return` early). `Cache-Control: no-store` em modo edição. **Coexiste** com `injectPleitoComite` da migration 17 (merge cuidadoso pra não regredir aquela feature). |
+| Template HTML | Cada bloco `ana-col f/w/a` virou `data-edit-section="fortes\|fracos\|alertas"` envolvendo `<!--EDIT:sec:START-->...<!--EDIT:sec:END-->`. Helper `renderItems(arr)` escapa via `esc()`. Barra flutuante `.edit-bar` (top-right, fixed) com seletor Autor + Editar/Salvar/Cancelar. JS embutido: `+ Adicionar` por seção, × inline para remover, snapshot/cancel, `beforeunload` se editando, toast verde "Alterações salvas". `@media print` esconde toda UI de edição. |
+| `GenerateStep.tsx` | Bug fix: `html.replace("__BASE_URL__", ...)` só pegava a primeira ocorrência, mas agora há 2 (printBtn + edit fetch). Trocado por `split/join`. Captura `editUrl` da response e passa pra `ExportSection`. |
+| `ExportSection.tsx` | Após compartilhar, mostra **2 cards lado a lado**: link público (cinza, vai pro cliente) e link de edição (âmbar, "interno — não compartilhar"), com botão Copiar individual. |
+
+**Achado crítico durante a sessão:** o commit `bfd7d51` (Pleito Comitê, criado entre minhas edições por outra sessão) já tinha incluído as mudanças do `template.ts` que eu fiz, mas SEM as peças correspondentes (route.ts overrides, share-report token, endpoint /edit, migration 16). Em prod isso ficava inerte (o JS do editor faz `return` se `__EDIT_TOKEN__` permanece literal), então não havia bug visível — mas era uma feature pela metade. Meu commit fechou. Tive que **reverter manualmente o `route.ts` e fazer merge** das duas features para não regredir o Pleito Comitê.
+
+**Fora do escopo:**
+- Codex review automático: subagent precisa de permissão Bash que não foi concedida no fluxo. Pulado nesta sessão; review fica para próxima.
+- Middleware bloqueando `/r/*` (achado prévio em `project_middleware_r_bloqueado_2026_05_08.md`): **se confirmado em prod, afeta esta feature também** — `/api/r/[id]/edit` e leitura de `/r/[id]?k=...` retornam 401/redirect. Adicionar `"/r/"` e `"/api/r/"` em `PUBLIC_PREFIXES` é o fix de 1 linha. Não foi tocado nesta sessão.
+
+**Validação em produção (próxima ação para Victor):**
+1. Rodar SQL da migration 16 no Supabase quando o Studio voltar.
+2. Confirmar `/r/{id}` ainda renderiza corretamente.
+3. Compartilhar um relatório novo, copiar `editUrl` (segundo card âmbar).
+4. Abrir `editUrl`, clicar Editar, mexer em fortes/fracos/alertas, Salvar.
+5. Reabrir o link público — confirmar que reflete (pode demorar até 1h pelo cache na Vercel).
+6. Bonus: testar `?k=` errado — não deve mostrar a barra de edição.
+
+**Pendência cruzada com a sessão da tarde:** migration 16 e 17 ambas pendentes no Supabase. Rodar as duas no mesmo dia.
+
+---
+
+## 2026-05-08 (tarde) — Pleito Comitê: quadro editável ao lado do Pleito Cedente em /r/{id} 🚧
+
+**Disparador:** Chefe da Débora pediu "Deixar ao lado de Pleito Comercial um campo editável pra gente preencher no momento do comitê, para não utilizarmos mais Word na apresentação".
+
+**Decisões de produto (Victor):**
+- Persistência: salvar no Supabase (autosave debounced 800ms)
+- Campos: espelhar os 15 do Pleito do cedente (Limite Global, Tranche, Limite Convencional/Comissária/Sacados, Taxas, Boleto, Prazos, TAC, Tranche Checagem)
+- Layout: lado a lado (cedente | comitê) — grid 1fr|1fr
+- Acesso: edição livre — id de 10 chars já é semi-secreto
+- PDF: precisa também — implementação ficou trivial porque PDF é Puppeteer renderizando o HTML em `emulateMediaType("print")`
+
+**Arquivos deployados (commit `bfd7d51`):**
+
+| Área | Conteúdo |
+|---|---|
+| Migration 17 | `pleito_comite JSONB` + `pleito_comite_updated_at TIMESTAMPTZ` em `shared_reports`. **Aplicação no Supabase pendente — Victor perdeu acesso ao painel, vai retomar amanhã.** |
+| Rota PATCH | `app/api/r/[id]/pleito-comite/route.ts` — público (sem auth), valida id, sanitiza valores (whitelist 15 keys, max 80 chars cada). Distinto da `/edit` (fortes/fracos/alertas) que exige token. |
+| Rota PDF pública | `app/api/r/[id]/pdf/route.ts` — variante de `/api/exportar-pdf-html` sem auth Supabase. Valida id em `shared_reports`, mesmo fluxo Puppeteer. Necessária pois comitê externo (sem login) precisa baixar o PDF. |
+| Template HTML | Pleito reorganizado em grid 1fr\|1fr: cedente esquerda, comitê direita com 15 `<input data-pc-key="..." />`. CSS `.pc-input` (estados saving/saved/error) + `@media print` remove bordas. JS embutido com autosave debounced 800ms + indicador "Salvo às HH:mm". |
+| FAB "Salvar como PDF" | Sincroniza `setAttribute('value', el.value)` em todos `.pc-input` antes de extrair `outerHTML` (necessário porque serialização HTML lê do atributo, não da property DOM). Detecta `/r/{id}` na URL pra escolher rota pública vs. autenticada. |
+| `/r/[id]` route | SELECT inclui `pleito_comite`. Função `injectPleitoComite()` substitui `value=""` pelo valor salvo via regex em inputs com `data-pc-key`. `Cache-Control` vira `no-store` quando há pleito preenchido. |
+
+**Achado crítico que economizou trabalho:** O PDF nunca foi gerado por jsPDF a partir de dados — `lib/generators/pdf/index.ts` é código legado não usado no fluxo principal. O fluxo real é Puppeteer renderizando HTML em modo print. Logo Fase 4 ("PDF do comitê") ficou trivial e não precisou tocar `sintese.ts`.
+
+**Fora do escopo da sessão:**
+- **Fase 3 (auth por token):** descartada — Victor escolheu "edição livre" mesmo após considerar reusar o `edit_token` da migration 16
+- **Edição inline de Fortes/Fracos/Alertas (Vanessa):** trabalho parcial pré-existente no working tree (`/api/r/[id]/edit/route.ts` + migration 16) — **NÃO commitado** nesta sessão pra isolar deploy do Pleito Comitê
+- **Fix BPQL/PEFIN parseBRL (Onda A):** trabalho pré-existente em `lib/bureaus/credithub.ts` (já deployado pela manhã no commit `9e3a08a`)
+
+**Pendências antes de validar em prod:**
+1. ⏳ **Migration 17 no Supabase** — Victor recupera acesso amanhã e cola o ALTER TABLE
+2. **Regerar HTMLs de relatórios existentes** se quiser ter o quadro do comitê neles
+3. CHROMIUM_URL precisa estar setado em prod (já está — mesma var do exportar-pdf-html)
+
+**Observação técnica:** `shared_reports.html` armazena HTML estático no banco. HTMLs antigos não terão os inputs do quadro do comitê — precisa regerar pra cada relatório que for ao comitê.
+
+---
+
+## 2026-05-08 (madrugada) — IR detalha Dívidas/Ônus + descoberta e fix do PEFIN quebrado em prod desde sempre ✅
+
+**Disparador:** Débora (chefe) pediu pra incluir "endividamento contendo Dívida e ônus" na leitura do IR. Em seguida, Victor relatou que o relatório mostrava REFIN/PEFIN como "não consultados".
+
+**Cirurgias deployadas:**
+
+| Área | Conteúdo | Commit |
+|---|---|---|
+| IR — Dívidas/Ônus detalhadas | ReviewStep (`SectionIRSocios.tsx`) ganha card vermelho read-only listando cada item de `dividasOnusReais[]` com total no header. HTML (`template.ts:2515`) renderiza tabela detalhada dentro do card de cada sócio. PDF (`socios.ts:298`) ganha alerta de fallback para IR antigo sem array (mostra apenas total agregado). Pipeline já extraía via Gemini — só faltava expor. | `53bad9a` |
+| **CreditHub PEFIN — fix duplo crítico** | (1) Sintaxe BPQL: CNPJ agora entre aspas simples (`WHERE 'DOCUMENTO' = '<cnpj>'`) — sem aspas o IRQL respondia 500 `BPQLParserException: Token unknown`, e o relatório mostrava "Não consultado" desde sempre. (2) Parser substituído de XML (`<ROW>...</ROW>`) para JSON (`parsed.spc[]`) — mesmo com sintaxe correta o parser antigo nunca acharia nada. Defesa adicional contra body XML mesmo com HTTP 200. Função `spcArrayToPefinData` mapeia `NomeAssociado→credor`, `Valor (BR)→valor`, `DataDeInclusao→data`, `NumeroContrato→contrato`. Helper `brDateKey` converte DD/MM/YYYY para YYYY-MM-DD antes do localeCompare. | `9e3a08a` |
+| REFIN/Serasa — desligado oficial | Adapter `SERASA` (e variantes `EXPERIAN`, `SERASA EXPERIAN`, `BOAVISTA`, `SCPC`) retornam `Adapter unknown` no IRQL com a chave atual. Removida a chamada de fetch — `refin` fica `undefined` com warning explícito (`[credithub] REFIN: adapter Serasa indisponível no IRQL — verificar contrato CreditHub`). Pendência: contatar CreditHub para liberar dataset Serasa ou indicar rota correta. | `9e3a08a` |
+| Hardening — gitignore | `.env.production`, `.env.production.*`, `.env*.tmp` adicionados. Antes só `.env*.local` e `.env.vercel.tmp` estavam ignorados; um `vercel env pull --environment=production .env.production.tmp` poderia entrar em commit acidental. | `2e639fa` |
+
+**Validação live (CNPJ Banco do Brasil 00.000.000/0001-91, contra IRQL produção):**
+- Query antiga: HTTP 500 `BPQLParserException: Token unknown. Query Parameter = ['DOCUMENTO' = 00000000000191]`
+- Query corrigida: HTTP 200 com 6+ registros SPC reais (SANEPAR, CPFL, PGE-MT, TJ-SP, EDP, ...) totalizando R$ 142k+
+- `USING 'SERASA' ...`: HTTP 500 `Adapter unknown - SERASA` (e variantes)
+- Apenas `SCPCNET` funciona — e ele já é fonte do PEFIN
+
+**Diagnóstico colateral:** o log `[analyze] Bloqueado: CNPJ ausente — impossível identificar o cedente` (route.ts:384) é validação **intencional** — bloqueia análises sem `data.cnpj.cnpj` ou `data.cnpj.razaoSocial`. Não é bug. Em retomada de coleta antiga, se `buildCollectionDocs` nunca persistiu o doc `cnpj` (ele filtra na fonte), o hidrate devolve vazio e o /analyze recusa — comportamento consistente, não regressão.
+
+**Onda A (parseBRL em parseProcessos/CNPJEnrichment/QSAEnrichment) preservada no working tree** — não foi commitada. Fica para Victor revisar quando voltar à Onda.
+
+**Codex review automático:** rodou para o commit IR (`53bad9a`), achou 1 bug real (duplicação de soma entre alertRow e tblTitle no PDF) e 1 warning (gates inconsistentes) — corrigidos antes do push. Para o fix PEFIN (`9e3a08a`) o subagente codex pediu permissão de Bash que não estava disponível; revisão manual cobriu os pontos críticos.
+
+**Deploy:** `dpl_35EWURKTkWibmZwRXGCqqZtn3o8s` em `https://plataformacapital.vercel.app` — Ready às 23:59:47-03 do dia 07/05.
+
+---
+
 ## 2026-05-06 (madrugada) — Funil APEX `/historico` + fix modalidade pleito + Goalfy infra saneada + 28 skills ✅
 
 **Disparador:** Victor abriu pedindo "melhorar a estética da aba de histórico". A sessão expandiu para: refatoração do funil de crédito, fix cosmético na modalidade do pleito, saneamento completo da infra Goalfy (token expirado + `\n` literal em 3 vars + WEBHOOK_SECRET faltando), e bulk install de skills do `awesome-claude-skills` do ComposioHQ. Modelo: **mockups locais antes de cada deploy** depois de duas rejeições diretas.

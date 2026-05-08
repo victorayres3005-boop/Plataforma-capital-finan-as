@@ -52,16 +52,57 @@ Cada `pageXxx()` em `template.ts` retorna `string` (HTML do conteúdo da página
 |---|---|---|
 | 1 | `pageCapa` | Capa navy: logo, score V2 hero, rating badge, código verificação |
 | 2 | `pageChecklist` | 16 docs, KPIs cobertura, bureaus, Serasa, Conformidade elegibilidade |
-| 3 | `pageSintese` | 11 blocos: empresa+rating, info, segmento, mapa, sócios+IR, risco, faturamento, ABC, pleito, fortes/fracos/alertas, percepção |
+| 3 | `pageSintese` | empresa+rating, info, segmento, mapa, **mini-bloco SCR + endividamento sócios**, sócios+IR, risco, faturamento, **Curva ABC fundida com Sacados+Bureau+Vínculos**, **pleito (cedente \| comitê)**, **Sugestão Analista**, **Análise Contábil**, **resumo GEFIP**, fortes/fracos/alertas, percepção |
 | 4 | `pageParecer` | Resumo, pontos fortes/fracos, perguntas visita, observações |
 | 5 | `pageParametros` | Taxas/limites, Limite Crédito Calculado |
 | 6 | `pageFaturamento` | KPIs (FMM/total/tendência), gráfico barras, FMM por ano, tabela mensal |
-| 7 | `pageProtestosProcessos` | Protestos, Processos, CCF (KPI + tabela bancos) |
+| 7 | `pageProtestosProcessos` | Protestos, Processos, CCF, **Dívida Ativa**, **CENPROT (com cross-validation com bureau)** |
 | 8 | `pageSCRDRE` | SCR comparativo, Modalidades, SCR Sócios PF, DRE |
-| 9 | `pageBalancoABC` | Balanço + indicadores, Curva ABC top-7 |
+| 9 | `pageBalancoABC` | Balanço + indicadores, Curva ABC top-10, **cards detalhados de Sacados (com vínculos)**, **GEFIP completo (tabela mensal)** |
 | 10 | `pageIRVisita` | IR sócios, Histórico consultas, Relatório visita, Referências |
 | 11 | `pageScoreV2` | Score V2 (só se `params.scoreV2` não-null) |
 | 12 | `pageParecer` (final) | Parecer final IA |
+
+## Seções novas (2026-05-08)
+
+**Síntese pág 3:**
+- Mini-bloco "Endividamento — SCR Bacen" entre o mapa e o QSA. KPIs c4 da empresa + tabela compacta sócios PF. Visão executiva — detalhe completo na pág 8.
+- Tabela única "Curva ABC — Top 5 + Bureau + Partes Relacionadas" (fundiu a tabela antiga "Curva ABC Top 5" com a "Sacados — Bureau"). Itera sobre `curvaABC.clientes.slice(0,5)` + lookup em `sacadosAnalisados` por CNPJ canonicalizado. Sacados PF mostram "PF" no Score. Banner ALTA quando há vínculos.
+- "Sugestão do Analista" (caixa amber) abaixo do Pleito — texto livre lido no comitê.
+- "Análise Contábil — Vanessa" (caixa azul-claro) abaixo da Sugestão.
+- Resumo GEFIP (KPIs c4) abaixo da Análise Contábil.
+
+**Pág 7 (Protestos/Processos):**
+- Dívida Ativa após CCF: banner ALTA + tabela completa (origem/inscrição/valor/situação/data/natureza). Certidão negativa → banner verde.
+- CENPROT após Dívida Ativa: cross-validation com bureau (banner amber MOD quando `cenprot.qtdRegistros !== protestos.vigentesQtd`) + tabela (cartório/cidade/data/valor/cedente).
+
+**Pág 9 (BalançoABC):**
+- Cards detalhados de Sacados (5 cards com KPIs, chip 🚩 vermelho quando `temVinculo`, listagem expandida de quem-bate-com-quem).
+- GEFIP completo: banner + KPIs c4 (período, funcionários, totais FGTS/INSS) + tabela competência a competência com linhas vermelhas em atrasos.
+
+## Pleito — Cedente vs. Comitê *(2026-05-08)*
+
+Bloco "Pleito" na pageSintese é grid 1fr|1fr com **dois quadros** lado a lado:
+
+**Pleito Cedente** (esquerda, read-only) — 15 linhas em tabela `.tbl` lendo de `data.relatorioVisita`. Vazio renderiza como `—` em cinza claro.
+
+**Pleito Comitê** (direita, editável no HTML) — 15 `<input class="pc-input" data-pc-key="...">` com mesmas labels. Inputs ficam editáveis no `/r/{id}` (HTML público); apenas leitura quando o relatório é apenas previewed em outro contexto.
+
+**Whitelist dos 15 keys** (canônicos em `data-pc-key`):
+`limiteTotal, tranche, limiteConvencional, limiteComissaria, limitePorSacado, limitePrincipaisSacados, taxaConvencional, taxaComissaria, valorCobrancaBoleto, prazoMaximoOp, cobrancaTAC, prazoRecompraCedente, prazoEnvioCartorio, trancheChecagem, prazoTranche`
+
+**Persistência:**
+- Autosave debounced 800ms (script no rodapé do template) → `PATCH /api/r/{id}/pleito-comite` → coluna `shared_reports.pleito_comite JSONB`
+- Read-back: `app/r/[id]/route.ts` chama `injectPleitoComite()` que substitui `value=""` pelo valor salvo via regex em inputs com `data-pc-key`
+- Cache: `Cache-Control: no-store` quando há pleito preenchido (pra recargas refletirem edições); cache normal de 1h quando vazio
+
+**Edição é livre** (sem token). Distinto da edição inline de fortes/fracos/alertas que exige `?k=edit_token`.
+
+**Print/PDF:** CSS `@media print { .pc-input { border:none; background:transparent } }` faz inputs aparecerem como texto plano. Antes de gerar PDF, FAB sincroniza `setAttribute('value', el.value)` em todos `.pc-input` — sem isso `outerHTML` serializa o atributo `value=""` original (não o que o usuário digitou).
+
+**Rotas relacionadas:**
+- `PATCH /api/r/{id}/pleito-comite` — autosave (público)
+- `POST /api/r/{id}/pdf` — gera PDF do relatório atual (público, valida id em shared_reports). Necessário pois `/api/exportar-pdf-html` exige auth Supabase e comitê externo precisa baixar.
 
 ## `pageScoreV2` — detalhamento
 

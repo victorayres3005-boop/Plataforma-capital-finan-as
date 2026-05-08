@@ -18,6 +18,8 @@ Migrations principais:
 - `12_audit_and_versions.sql`
 - `14_company_snapshots.sql`
 - `15_shared_reports.sql`
+- `16_shared_reports_editable.sql` *(2026-05-08 noite — edição inline fortes/fracos/alertas; **deployada via commit `c16c100`**; pendente aplicação no Supabase — Victor sem acesso ao Studio, retoma 2026-05-09)*
+- `17_shared_reports_pleito_comite.sql` *(2026-05-08 — coluna `pleito_comite JSONB` + `pleito_comite_updated_at`; **pendente aplicação no Supabase**)*
 - `18_api_usage_logs.sql`
 - `credithub_cache.sql`
 - `supabase-fund-settings.sql`
@@ -35,7 +37,7 @@ Migrations principais:
 | `document_collections` | Coleta = uma análise. `extracted_data`, `documents[]`, `ai_analysis`, `fund_status`, `observacoes`, `status`, `finished_at` |
 | `score_operacoes` | Score V2 do analista: `score_result` (agregado) + `respostas[]` (individual) |
 | `pareceres` | Parecer final aprovado, vinculado a `collection_id` |
-| `shared_reports` | HTML pré-renderizado (servido em `/r/[id]`). `MAX_HTML_BYTES = 5MB` |
+| `shared_reports` | HTML pré-renderizado (servido em `/r/[id]`). `MAX_HTML_BYTES = 5MB`. Colunas extras: `pontos_fortes/pontos_fracos/alertas JSONB` + `edit_token` (mig. 16, edição inline com `?k=`) e `pleito_comite JSONB` + `pleito_comite_updated_at` (mig. 17, edição livre do quadro do comitê em /r/{id}) |
 | `politica_credito_config` | Política V2 viva por `user_id` (5 pilares + parâmetros). **Fonte única de verdade.** |
 | `fund_settings` | Fallback de última instância para parâmetros. Coluna `exibir_conformidade boolean DEFAULT false`. |
 | `operacoes` | Operações de crédito. Enum `modalidade` aceita `'recomprada'` (adicionado 2026-05-03). |

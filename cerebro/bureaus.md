@@ -11,7 +11,7 @@ Visão consolidada das integrações de dados externos. **Desde 2026-05-05** o o
 **Endpoints principais:**
 - `GET /simples/{key}/{cpf|cnpj}` — payload rico (≈30 chaves) com envelope `{completed, data:{...}}` — usar `data ?? raw`
 - `GET /v1/grupo-economico/{doc}` — dedicado pra grupo econômico (Bearer auth)
-- `consultarPefinRefin(cnpj)` via IRQL XML
+- `consultarPefinRefin(cnpj)` via IRQL — query BPQL, **resposta JSON** (não XML)
 
 **`/simples` — campos PJ:** `rfb`, `cnpj`, `razaoSocial`, `nomeFantasia`, `dataAbertura`, `cnae(/Descricao/Grupo/Subgrupo)`, `tipoEmpresa`, `naturezaJuridica`, `regimeTributario`, `enderecos[]`, `telefones[]`, `emails[]`, `quadroSocietario[]`, `participacoesEmpresas[]`, `quantidade_dividas`, `valor_total_dividas`, `historico_consultas[]`, `processos[]`, `protestos.cartorios[]/qtdProtestos`, `ccf.{bancos,qtdRegistros,historico}`.
 
@@ -22,6 +22,27 @@ Visão consolidada das integrações de dados externos. **Desde 2026-05-05** o o
 **Critério "vazio" (gatilho do fallback BDC):** `success=false` OU `mock=true` OU (sem `cnpjEnrichment.cnaePrincipal` E sem `qsaEnrichment.quadroSocietario`).
 
 ⚠️ Endpoint `/api/ch-diag` **tinha chave hardcoded como fallback** (removida em 2026-04-30 hardening).
+
+### PEFIN / REFIN — IRQL BPQL  *(corrigido em 2026-05-08)*
+
+**Query correta** (via `consultarPefinRefin`):
+```
+USING 'SCPCNET' SELECT FROM 'PROTESTOS'.'SCPCNET' WHERE 'DOCUMENTO' = '<cnpj_numerico>'
+```
+
+⚠️ **Invariantes do BPQL:**
+- CNPJ tem que estar **entre aspas simples** — sem aspas o IRQL responde 500 `BPQLParserException: Token unknown`. Bug que viveu meses em produção e fazia o relatório mostrar "Não consultado" em todas as análises.
+- Resposta de sucesso é **JSON puro** (não XML BPQL). Estrutura: `{ dadosCadastrais: [...], spc: [{NomeAssociado, Valor, DataDeInclusao, DataDoVencimento, NumeroContrato, Entidade, ...}] }`.
+- Resposta de erro vem em **XML BPQL** (`<BPQL><header><exception ...>`) mesmo com HTTP 200 em alguns adapters — sempre checar prefixo `<` antes de `JSON.parse`.
+
+**Mapeamento `spc[]` → `PefinReginData`:** `NomeAssociado→credor`, `Valor (BR)→valor` (parseMoneyRobust), `DataDeInclusao→data` (preferência) ou `DataDoVencimento`, `NumeroContrato→contrato`, `Entidade→modalidade`. Ordenação por `brDateKey(data)` (DD/MM/YYYY → YYYY-MM-DD).
+
+**REFIN/Serasa — indisponível na chave atual:** todos os adapters tentados (`SERASA`, `SERASA EXPERIAN`, `EXPERIAN`, `BOAVISTA`, `SCPC`) retornam `Adapter unknown - <nome>`. Apenas `SCPCNET` funciona — e ele é fonte do PEFIN. Pendência: confirmar com a CreditHub o nome correto do adapter Serasa ou se é dataset pago à parte. Enquanto isso, `consultarPefinRefin` retorna `refin: undefined` com warning explícito e **não** consome quota com fetch fadado a falhar.
+
+**Defesas no parser:**
+- `body.trimStart().startsWith("<")` → trata como exception XML, loga e retorna undefined
+- `Array.isArray(parsed.spc)` → fallback para `[]` se o IRQL mudar formato
+- `undefined` (não consultado) ≠ `{qtd:0}` (consultado, sem pendências) — distinção crítica para evitar falso negativo no relatório
 
 ## BigDataCorp (BDC) — `lib/bureaus/bigdatacorp.ts`  *(fallback total)*
 
@@ -143,6 +164,14 @@ Proxy server-side único para 3 produtos Google: Static Maps, Street View, Place
 **Logs:** `BDC ignorado (economia de custo)` quando CH responde; `fallback BDC ativado` com sinais (success/mock/cnae/qsa) quando dispara.
 
 **Latência:** caso comum ~25s. Pior caso (fallback) ~50s.
+
+**Fase 3 (sacados Curva ABC, 2026-05-08):** se `data.curvaABC` tem CNPJs, dispara para os top 5 PJ:
+- CH `/simples` + BDC `/empresas` + Assertiva PJ **paralelo** (diverge do ADR-011 — chefe pediu "tanto CreditHub quanto BigData" explícito; Assertiva entra para fornecer score numérico, que CH não traz)
+- Para cada sacado, depois de BDC empresa, dispara BDC `/pessoas` para os sócios PF (necessário para `motherName` no matcher de mãe comum)
+- Para o cedente, reaproveita BDC sócios se Fase 2 já consultou; senão dispara só `/pessoas` (não `/empresas`) para pegar mães
+- Cache `sacado:<cnpj>` 24h via `bureau_cache`
+- 5 matchers de vínculo em `lib/sacados/matchVinculos.ts`: CPF comum, sobrenome+UF, endereço idêntico, parentesco BDC, mãe comum
+- `bureau_calls` ganha `sacado_credithub`, `sacado_bdc_empresa`, `sacado_bdc_pessoa`, `sacado_assertiva_pj`
 
 ## Tabela rápida: dado → bureau
 

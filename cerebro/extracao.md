@@ -127,6 +127,27 @@ Ordem de fallback: `gemini-2.5-flash` → `gemini-2.5-pro` → `gemini-2.5-flash
 - Coluna SCR Total: DataBox360 cap 5 empresas. Auto-detecta sandbox (totais idênticos → "—").
 - Seção 08 da Revisão (read-only).
 
+### `divida_ativa` (novo 2026-05-08)
+- Modo padrão: TEXTO.
+- Certidão de débitos inscritos em Dívida Ativa (PGFN, Receita Federal, SEFAZ estadual, fazenda municipal).
+- Extrai lista completa de inscrições com `{origem, numeroInscricao, valor, situacao, dataInscricao, natureza}`.
+- Reconhece "NADA CONSTA" / "Certidão Negativa" → seta `certidaoNegativa: true` + `qtdRegistros: 0`.
+- Seção 12 da Revisão (read-only). Render na pág 7 do PDF, após CCF.
+
+### `cenprot` (novo 2026-05-08)
+- Modo padrão: TEXTO.
+- Certidão oficial da Central Nacional de Protestos (IEPTB-BR) — pode contradizer bureau.
+- Extrai lista de protestos com `{cartorio, cidade, uf, data, valor, devedor, cedente, protocolo}`.
+- **Cross-validation com bureau:** quando `cenprot.qtdRegistros !== protestos.vigentesQtd`, banner amber na Section + alert MOD no PDF pág 7.
+- Seção 13 da Revisão (read-only).
+
+### `gefip` (novo 2026-05-08)
+- Modo padrão: TEXTO.
+- GEFIP / SEFIP / eSocial / FGTS Digital — recolhimentos previdenciários e trabalhistas.
+- Extrai `{competenciaInicio, competenciaFim, totalFuncionarios, valorFgtsTotal, valorInssTotal, competenciasEmAtraso, competencias[]}` onde cada competência tem `{mes, funcionarios, valorFgts, valorInss, situacao}`.
+- Detecta atraso por situação não-regular ("Em atraso", "Não recolhido", etc.) — incrementa `competenciasEmAtraso`.
+- Seção 14 da Revisão (read-only). Render: pág 9 (tabela mensal completa) + pág 3 (resumo executivo c4 — overview no comitê + drill-down).
+
 ## Validação Zod
 
 Todos os tipos têm schema Zod em `lib/extract/schemas.ts`. Falhas acumulam em `zodWarnings` — não bloqueiam. Permite Gemini retornar campos extras (`.passthrough()`).
