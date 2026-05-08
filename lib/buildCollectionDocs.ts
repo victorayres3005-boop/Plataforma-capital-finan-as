@@ -99,6 +99,15 @@ export function buildCollectionDocs(data: ExtractedData): CollectionDocument[] {
   if (data.ccf && (data.ccf.qtdRegistros > 0 || (data.ccf.bancos && data.ccf.bancos.length > 0))) {
     docs.push({ type: "ccf" as CollectionDocument["type"], filename: "ccf.pdf", extracted_data: asRec(data.ccf), uploaded_at: ts() });
   }
+  if (data.dividaAtiva && (data.dividaAtiva.qtdRegistros > 0 || data.dividaAtiva.certidaoNegativa)) {
+    docs.push({ type: "divida_ativa" as CollectionDocument["type"], filename: "divida-ativa.pdf", extracted_data: asRec(data.dividaAtiva), uploaded_at: ts() });
+  }
+  if (data.cenprot && (data.cenprot.qtdRegistros > 0 || data.cenprot.certidaoNegativa)) {
+    docs.push({ type: "cenprot" as CollectionDocument["type"], filename: "cenprot.pdf", extracted_data: asRec(data.cenprot), uploaded_at: ts() });
+  }
+  if (data.gefip && ((data.gefip.competencias?.length ?? 0) > 0 || data.gefip.competenciaInicio)) {
+    docs.push({ type: "gefip" as CollectionDocument["type"], filename: "gefip.pdf", extracted_data: asRec(data.gefip), uploaded_at: ts() });
+  }
   const temSacadosAnalisados = (data.sacadosAnalisados?.length ?? 0) > 0;
   const temAnaliseContabil = !!(data.analiseContabil && data.analiseContabil.trim());
   if (data.score || (data.bureausConsultados && data.bureausConsultados.length > 0) || temSacadosAnalisados || temAnaliseContabil) {

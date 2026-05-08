@@ -12,7 +12,7 @@ import { toast } from "sonner";
 
 // ─── Types ───
 
-type DocKey = 'cnpj' | 'qsa' | 'contrato' | 'faturamento' | 'scr' | 'scrAnterior' | 'scr_socio' | 'scr_socio_anterior' | 'dre' | 'balanco' | 'curva_abc' | 'ir_socio' | 'relatorio_visita';
+type DocKey = 'cnpj' | 'qsa' | 'contrato' | 'faturamento' | 'scr' | 'scrAnterior' | 'scr_socio' | 'scr_socio_anterior' | 'dre' | 'balanco' | 'curva_abc' | 'ir_socio' | 'relatorio_visita' | 'divida_ativa' | 'cenprot' | 'gefip';
 
 interface SectionState {
   files: File[];
@@ -107,6 +107,9 @@ export interface OriginalFiles {
   curva_abc: File[];
   ir_socio: File[];
   relatorio_visita: File[];
+  divida_ativa: File[];
+  cenprot: File[];
+  gefip: File[];
 }
 
 // ─── Defaults ───
@@ -203,6 +206,9 @@ const SECTIONS: SectionConfig[] = [
   { key: 'curva_abc',        title: 'Curva ABC — Top Clientes',          description: 'Carteira de clientes com concentração de receita',               icon: <PieChart size={19} />,         stepNumber: '▿', required: false },
   { key: 'ir_socio',         title: 'IR dos Sócios (opcional)',          description: 'Declaração de imposto de renda dos sócios',                      icon: <FileKey size={19} />,          stepNumber: '▿', required: false },
   { key: 'relatorio_visita', title: 'Relatório de Visita',               description: 'Relatório da visita presencial à empresa',                       icon: <ClipboardList size={19} />,    stepNumber: '▿', required: false },
+  { key: 'divida_ativa',     title: 'Dívida Ativa (PGFN/UF/Município)',  description: 'Certidão de débitos inscritos em Dívida Ativa',                 icon: <FileKey size={19} />,          stepNumber: '▿', required: false },
+  { key: 'cenprot',          title: 'CENPROT — Central de Protestos',    description: 'Certidão oficial do IEPTB-BR',                                  icon: <FileKey size={19} />,          stepNumber: '▿', required: false },
+  { key: 'gefip',            title: 'GEFIP / FGTS / INSS',               description: 'Recolhimentos previdenciários e trabalhistas',                  icon: <Receipt size={19} />,          stepNumber: '▿', required: false },
 ];
 
 const REQUIRED_KEYS: DocKey[] = ['cnpj', 'qsa', 'contrato', 'faturamento'];
@@ -250,6 +256,7 @@ const DOC_TYPE_TO_KEY: Record<string, DocKey | null> = {
   cnpj: 'cnpj', qsa: 'qsa', contrato_social: 'contrato', faturamento: 'faturamento',
   scr_bacen: 'scr', scr_socio: 'scr_socio', scr_socio_anterior: 'scr_socio_anterior', dre: 'dre', balanco: 'balanco', curva_abc: 'curva_abc',
   ir_socio: 'ir_socio', relatorio_visita: 'relatorio_visita',
+  divida_ativa: 'divida_ativa', cenprot: 'cenprot', gefip: 'gefip',
   protestos: null, processos: null, grupo_economico: null, outro: null,
 };
 
@@ -259,6 +266,7 @@ function buildInitialSections(resumedDocs: CollectionDocument[]): Record<DocKey,
     cnpj: empty(), qsa: empty(), contrato: empty(), faturamento: empty(),
     scr: empty(), scrAnterior: empty(), scr_socio: empty(), scr_socio_anterior: empty(), dre: empty(), balanco: empty(),
     curva_abc: empty(), ir_socio: empty(), relatorio_visita: empty(),
+    divida_ativa: empty(), cenprot: empty(), gefip: empty(),
   };
 
   const scrDocs = resumedDocs.filter(d => d.type === 'scr_bacen');
@@ -347,6 +355,9 @@ export default function UploadStep({
       curva_abc:        { files: [], processing: false, processedCount: 0, errorCount: 0 },
       ir_socio:         { files: [], processing: false, processedCount: 0, errorCount: 0 },
       relatorio_visita: { files: [], processing: false, processedCount: 0, errorCount: 0 },
+      divida_ativa:     { files: [], processing: false, processedCount: 0, errorCount: 0 },
+      cenprot:          { files: [], processing: false, processedCount: 0, errorCount: 0 },
+      gefip:            { files: [], processing: false, processedCount: 0, errorCount: 0 },
     }
   );
 
@@ -836,6 +847,9 @@ export default function UploadStep({
         const fieldMap: Partial<Record<DocKey, keyof ExtractedData>> = {
           curva_abc: 'curvaABC',
           relatorio_visita: 'relatorioVisita',
+          divida_ativa: 'dividaAtiva',
+          cenprot: 'cenprot',
+          gefip: 'gefip',
         };
         const field = (fieldMap[type] ?? type) as keyof ExtractedData;
         (cleared as unknown as Record<string, unknown>)[field] = undefined;
@@ -975,6 +989,9 @@ export default function UploadStep({
         const fieldMap: Partial<Record<DocKey, keyof ExtractedData>> = {
           curva_abc: 'curvaABC',
           relatorio_visita: 'relatorioVisita',
+          divida_ativa: 'dividaAtiva',
+          cenprot: 'cenprot',
+          gefip: 'gefip',
         };
         const field = (fieldMap[type] ?? type) as keyof ExtractedData;
         const currentData = prev[field];
@@ -1156,6 +1173,9 @@ export default function UploadStep({
       curva_abc: sections.curva_abc.files,
       ir_socio: sections.ir_socio.files,
       relatorio_visita: sections.relatorio_visita.files,
+      divida_ativa: sections.divida_ativa.files,
+      cenprot: sections.cenprot.files,
+      gefip: sections.gefip.files,
     };
 
     // Registra quais seções tinham arquivos extraídos para que page.tsx possa

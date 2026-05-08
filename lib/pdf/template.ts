@@ -1617,6 +1617,24 @@ function pageSintese(params: PDFReportParams, date: string): string {
       <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-left:4px solid #2563EB;border-radius:8px;padding:14px 16px;margin-bottom:12px;font-size:12.5px;line-height:1.55;color:#1F2937">${html}</div>`;
     })()}
 
+    <!-- 9d. GEFIP — resumo executivo (detalhe na pág 9) -->
+    ${(() => {
+      const g = d.gefip;
+      if (!g || (g.competencias?.length ?? 0) === 0) return "";
+      const atrasos = g.competenciasEmAtraso ?? 0;
+      const danger = atrasos > 0;
+      return `${stitle("Compliance Trabalhista (GEFIP)")}
+      <div class="kpi-snap c4" style="margin-bottom:10px">
+        <div class="icell ${danger ? "danger" : "success"}">
+          <div class="l">Situação</div>
+          <div class="v sm ${danger ? "red" : "green"}">${danger ? `${atrasos} em atraso` : "Regular"}</div>
+        </div>
+        <div class="icell"><div class="l">Período</div><div class="v sm">${esc(g.competenciaInicio || "—")} → ${esc(g.competenciaFim || "—")}</div></div>
+        <div class="icell"><div class="l">Funcionários</div><div class="v sm">${g.totalFuncionarios ?? 0}</div></div>
+        <div class="icell"><div class="l">FGTS + INSS</div><div class="v sm mono" style="font-size:10px">${esc(g.valorFgtsTotal || "—")} / ${esc(g.valorInssTotal || "—")}</div></div>
+      </div>`;
+    })()}
+
     <!-- 10. Análise -->
     ${analiseHtml}
 
@@ -2035,6 +2053,52 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
         </table>` : ""}
         ${ccfQtd > 0 && tendLabel === "crescimento" ? `<div class="alert mod"><span class="atag">MOD</span> CCF em crescimento — ${ccfQtd} registro(s) com tendência de alta nos últimos 6 meses</div>` : ccfQtd > 0 ? `<div class="alert alta"><span class="atag">ALTA</span> ${ccfQtd} registro(s) de cheque sem fundo identificado(s)</div>` : ""}
       `;
+    })()}
+
+    ${(() => {
+      const da = params.data.dividaAtiva;
+      if (!da || (da.qtdRegistros === 0 && !da.certidaoNegativa)) return "";
+      if (da.certidaoNegativa) {
+        return `${stitle("Dívida Ativa (PGFN/UF/Município)")}
+        <div class="alert" style="background:#f0fdf4;border-color:#bbf7d0;color:#15803d"><span class="atag" style="background:#16a34a;color:#fff">NEGATIVA</span> Certidão negativa — sem débitos inscritos${da.dataConsulta ? ` (consulta ${esc(da.dataConsulta)})` : ""}</div>`;
+      }
+      const rows = (da.registros ?? []).map(r => `<tr>
+        <td>${esc(r.origem || "—")}</td>
+        <td class="mono" style="font-size:10px">${esc(r.numeroInscricao || "—")}</td>
+        <td class="r red mono">${esc(r.valor || "—")}</td>
+        <td>${esc(r.situacao || "—")}</td>
+        <td style="white-space:nowrap">${esc(r.dataInscricao || "—")}</td>
+        <td>${esc(r.natureza || "—")}</td>
+      </tr>`).join("");
+      return `${stitle("Dívida Ativa (PGFN/UF/Município)")}
+      <div class="alert alta"><span class="atag">ALTA</span> <b>${da.qtdRegistros}</b> inscrição(ões) — total <b>${esc(da.valorTotal || "—")}</b>${da.dataConsulta ? ` · consulta ${esc(da.dataConsulta)}` : ""}</div>
+      ${rows ? `<table class="tbl"><thead><tr><th>Origem</th><th>Inscrição</th><th class="r">Valor</th><th>Situação</th><th>Data</th><th>Natureza</th></tr></thead><tbody>${rows}</tbody></table>` : ""}`;
+    })()}
+
+    ${(() => {
+      const cen = params.data.cenprot;
+      if (!cen || (cen.qtdRegistros === 0 && !cen.certidaoNegativa)) return "";
+      const bureauVig = parseInt(params.data.protestos?.vigentesQtd || "0", 10);
+      const div = cen.qtdRegistros !== bureauVig;
+      const divergenciaBlock = div
+        ? `<div class="alert mod"><span class="atag">MOD</span> Divergência: bureau registra <b>${bureauVig}</b> protesto(s) vigente(s); CENPROT (oficial) registra <b>${cen.qtdRegistros}</b>. Verificar manualmente.</div>`
+        : "";
+      if (cen.certidaoNegativa) {
+        return `${stitle("CENPROT — Certidão Oficial de Protestos")}
+        ${divergenciaBlock}
+        <div class="alert" style="background:#f0fdf4;border-color:#bbf7d0;color:#15803d"><span class="atag" style="background:#16a34a;color:#fff">NEGATIVA</span> Certidão CENPROT negativa${cen.dataConsulta ? ` (emitida ${esc(cen.dataConsulta)})` : ""}</div>`;
+      }
+      const rows = (cen.registros ?? []).map(r => `<tr>
+        <td>${esc(r.cartorio || "—")}</td>
+        <td style="white-space:nowrap">${esc([r.cidade, r.uf].filter(Boolean).join("/") || "—")}</td>
+        <td style="white-space:nowrap">${esc(r.data || "—")}</td>
+        <td class="r red mono">${esc(r.valor || "—")}</td>
+        <td>${esc(r.cedente || "—")}</td>
+      </tr>`).join("");
+      return `${stitle("CENPROT — Certidão Oficial de Protestos")}
+      ${divergenciaBlock}
+      <div class="alert alta"><span class="atag">ALTA</span> <b>${cen.qtdRegistros}</b> protesto(s) certificado(s) — total <b>${esc(cen.valorTotal || "—")}</b>${cen.dataConsulta ? ` · emitida ${esc(cen.dataConsulta)}` : ""}</div>
+      ${rows ? `<table class="tbl"><thead><tr><th>Cartório</th><th>Cidade/UF</th><th>Data</th><th class="r">Valor</th><th>Cedente</th></tr></thead><tbody>${rows}</tbody></table>` : ""}`;
     })()}
   `;
 
@@ -2479,7 +2543,38 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
     ${sacadoBlocks}`;
   }
 
-  const content = `${dreSection}${balSection}${abcSection}${sacadosSection}`;
+  // ── GEFIP / FGTS / INSS — Compliance Trabalhista ──
+  let gefipSection = "";
+  const gefip = params.data.gefip;
+  if (gefip && (gefip.competencias?.length ?? 0) > 0) {
+    const atrasos = gefip.competenciasEmAtraso ?? 0;
+    const danger = atrasos > 0;
+    const compRows = gefip.competencias.map(c => {
+      const atraso = !!c.situacao && !/recolhid|quitad|regular/i.test(c.situacao);
+      return `<tr style="${atraso ? "background:#FEF2F2" : ""}">
+        <td class="b mono" style="font-size:10px">${esc(c.mes || "—")}</td>
+        <td class="r">${c.funcionarios ?? 0}</td>
+        <td class="r mono ${atraso ? "red" : ""}">${esc(c.valorFgts || "—")}</td>
+        <td class="r mono ${atraso ? "red" : ""}">${esc(c.valorInss || "—")}</td>
+        <td><span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;background:${atraso ? "#fee2e2" : "#dcfce7"};color:${atraso ? "#991b1b" : "#15803d"}">${esc(c.situacao || "—")}</span></td>
+      </tr>`;
+    }).join("");
+    gefipSection = `
+    ${stitle("12 · GEFIP / FGTS / INSS — Compliance Trabalhista")}
+    ${danger ? `<div class="alert alta"><span class="atag">ALTA</span> <b>${atrasos}</b> competência(s) em atraso — passivo trabalhista identificado.</div>` : `<div class="alert" style="background:#f0fdf4;border-color:#bbf7d0;color:#15803d"><span class="atag" style="background:#16a34a;color:#fff">REGULAR</span> Recolhimentos em dia.</div>`}
+    <div class="kpi-snap c4" style="margin-bottom:10px">
+      <div class="icell"><div class="l">Período</div><div class="v sm">${esc(gefip.competenciaInicio || "—")} → ${esc(gefip.competenciaFim || "—")}</div></div>
+      <div class="icell"><div class="l">Funcionários</div><div class="v sm">${gefip.totalFuncionarios ?? 0}</div></div>
+      <div class="icell"><div class="l">Total FGTS</div><div class="v sm mono">${esc(gefip.valorFgtsTotal || "—")}</div></div>
+      <div class="icell"><div class="l">Total INSS</div><div class="v sm mono">${esc(gefip.valorInssTotal || "—")}</div></div>
+    </div>
+    <table class="tbl">
+      <thead><tr><th>Competência</th><th class="r">Funcs</th><th class="r">FGTS</th><th class="r">INSS</th><th>Situação</th></tr></thead>
+      <tbody>${compRows}</tbody>
+    </table>`;
+  }
+
+  const content = `${dreSection}${balSection}${abcSection}${sacadosSection}${gefipSection}`;
   return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de DRE/balanço/ABC não disponíveis</div>`, 9, date);
 }
 

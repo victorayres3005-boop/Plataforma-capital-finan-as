@@ -165,7 +165,7 @@ export default function HomePage() {
   const savedNav = loadNavState();
   const [step, setStep] = useState<AppStep>(savedNav?.step || "upload");
   const [extractedData, setExtractedData] = useState<ExtractedData>(defaultData);
-  const [originalFiles, setOriginalFiles] = useState<OriginalFiles>({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] });
+  const [originalFiles, setOriginalFiles] = useState<OriginalFiles>({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [], divida_ativa: [], cenprot: [], gefip: [] });
   const [resumedDocs, setResumedDocs] = useState<import("@/types").CollectionDocument[] | undefined>(undefined);
   // ── Auto-save no Supabase ──
   // Estrategia anti-bug:
@@ -395,7 +395,7 @@ export default function HomePage() {
       setExtractedData(defaultData);
       setCollectionId(null);
       setLocalDraft(null);
-      setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] });
+      setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [], divida_ativa: [], cenprot: [], gefip: [] });
       try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
     };
     window.addEventListener("cf:go-to-dashboard", handler);
@@ -926,7 +926,7 @@ export default function HomePage() {
               const totalColetas2 = filtered.length;
               const finalizadasFilt2 = filtered.filter(c => c.status === "finished").length;
               const empresas2 = new Set(filtered.map(c => c.company_name || c.label).filter(Boolean)).size;
-              const handleNovaColeta = () => { setShowDashboard(false); setStep("upload"); setExtractedData(defaultData); setResumedDocs(undefined); setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] }); setLocalDraft(null); try { localStorage.removeItem(DRAFT_KEY); } catch {/**/} setCollectionId(null); confirmedDocsRef.current = []; try { const url = new URL(window.location.href); url.searchParams.delete("resume"); url.searchParams.delete("step"); window.history.replaceState({}, "", url.toString()); } catch {/**/} };
+              const handleNovaColeta = () => { setShowDashboard(false); setStep("upload"); setExtractedData(defaultData); setResumedDocs(undefined); setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [], divida_ativa: [], cenprot: [], gefip: [] }); setLocalDraft(null); try { localStorage.removeItem(DRAFT_KEY); } catch {/**/} setCollectionId(null); confirmedDocsRef.current = []; try { const url = new URL(window.location.href); url.searchParams.delete("resume"); url.searchParams.delete("step"); window.history.replaceState({}, "", url.toString()); } catch {/**/} };
 
               const kpis = [
                 {
@@ -1427,7 +1427,7 @@ export default function HomePage() {
             {collections.length === 0 && (
               <OnboardingTooltip id="nova-coleta" message="Clique aqui para iniciar a analise de um novo cedente. Voce vai fazer upload dos documentos e a IA cuida do resto." position="bottom" isSeen={isTooltipSeen("nova-coleta")} onSeen={() => markTooltipSeen("nova-coleta")}>
                 <button
-                  onClick={() => { setShowDashboard(false); setStep("upload"); setExtractedData(defaultData); setResumedDocs(undefined); setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] }); setLocalDraft(null); try { localStorage.removeItem(DRAFT_KEY); } catch {/**/} setCollectionId(null); confirmedDocsRef.current = []; try { const url = new URL(window.location.href); url.searchParams.delete("resume"); url.searchParams.delete("step"); window.history.replaceState({}, "", url.toString()); } catch {/**/} }}
+                  onClick={() => { setShowDashboard(false); setStep("upload"); setExtractedData(defaultData); setResumedDocs(undefined); setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [], divida_ativa: [], cenprot: [], gefip: [] }); setLocalDraft(null); try { localStorage.removeItem(DRAFT_KEY); } catch {/**/} setCollectionId(null); confirmedDocsRef.current = []; try { const url = new URL(window.location.href); url.searchParams.delete("resume"); url.searchParams.delete("step"); window.history.replaceState({}, "", url.toString()); } catch {/**/} }}
                   style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "12px 28px", borderRadius: "8px", background: "#203b88", color: "white", fontSize: "14px", fontWeight: 700, border: "none", cursor: "pointer", boxShadow: "none", marginBottom: "32px", width: "100%" }}
                 >
                   <Plus size={18} /> Nova Coleta de Documentos
@@ -1468,7 +1468,7 @@ export default function HomePage() {
                     <a href="/historico" className="text-xs font-semibold text-cf-navy hover:underline">Ver histórico</a>
                     <OnboardingTooltip id="nova-coleta" message="Clique aqui para iniciar a analise de um novo cedente." position="bottom" isSeen={isTooltipSeen("nova-coleta")} onSeen={() => markTooltipSeen("nova-coleta")}>
                       <button
-                        onClick={() => { setShowDashboard(false); setStep("upload"); setExtractedData(defaultData); setResumedDocs(undefined); setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] }); setLocalDraft(null); try { localStorage.removeItem(DRAFT_KEY); } catch {/**/} setCollectionId(null); confirmedDocsRef.current = []; try { const url = new URL(window.location.href); url.searchParams.delete("resume"); url.searchParams.delete("step"); window.history.replaceState({}, "", url.toString()); } catch {/**/} }}
+                        onClick={() => { setShowDashboard(false); setStep("upload"); setExtractedData(defaultData); setResumedDocs(undefined); setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [], divida_ativa: [], cenprot: [], gefip: [] }); setLocalDraft(null); try { localStorage.removeItem(DRAFT_KEY); } catch {/**/} setCollectionId(null); confirmedDocsRef.current = []; try { const url = new URL(window.location.href); url.searchParams.delete("resume"); url.searchParams.delete("step"); window.history.replaceState({}, "", url.toString()); } catch {/**/} }}
                         style={{ display: "inline-flex", alignItems: "center", gap: "5px", padding: "6px 14px", borderRadius: "8px", background: "#203b88", color: "white", fontSize: "12px", fontWeight: 700, border: "none", cursor: "pointer", boxShadow: "none", minHeight: "auto" }}
                       >
                         <Plus size={13} /> Nova Coleta
@@ -1687,7 +1687,7 @@ export default function HomePage() {
         })() : step === "generate" ? (
 
         <div key="generate" className="w-full animate-fade-in">
-          <GenerateStep data={extractedData} originalFiles={originalFiles} collectionId={collectionId} onCollectionIdChange={setCollectionId} onBack={() => setStep("review")} onReset={() => { setShowDashboard(true); setStep("upload"); setExtractedData(defaultData); setResumedDocs(undefined); setCollectionId(null); confirmedDocsRef.current = []; setLocalDraft(null); try { localStorage.removeItem(DRAFT_KEY); } catch {/**/} try { const url = new URL(window.location.href); url.searchParams.delete("resume"); url.searchParams.delete("step"); window.history.replaceState({}, "", url.toString()); } catch {/**/} setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [] }); }} onNotify={handleNotify} onFirstCollection={markFirstCollectionDone} onAbrirScoreForm={() => { setStep("review"); setTimeout(() => { document.getElementById("score-section")?.scrollIntoView({ behavior: "smooth" }); }, 300); }} />
+          <GenerateStep data={extractedData} originalFiles={originalFiles} collectionId={collectionId} onCollectionIdChange={setCollectionId} onBack={() => setStep("review")} onReset={() => { setShowDashboard(true); setStep("upload"); setExtractedData(defaultData); setResumedDocs(undefined); setCollectionId(null); confirmedDocsRef.current = []; setLocalDraft(null); try { localStorage.removeItem(DRAFT_KEY); } catch {/**/} try { const url = new URL(window.location.href); url.searchParams.delete("resume"); url.searchParams.delete("step"); window.history.replaceState({}, "", url.toString()); } catch {/**/} setOriginalFiles({ cnpj: [], qsa: [], contrato: [], faturamento: [], scr: [], scrAnterior: [], scr_socio: [], scr_socio_anterior: [], dre: [], balanco: [], curva_abc: [], ir_socio: [], relatorio_visita: [], divida_ativa: [], cenprot: [], gefip: [] }); }} onNotify={handleNotify} onFirstCollection={markFirstCollectionDone} onAbrirScoreForm={() => { setStep("review"); setTimeout(() => { document.getElementById("score-section")?.scrollIntoView({ behavior: "smooth" }); }, 300); }} />
         </div>
 
         ) : (

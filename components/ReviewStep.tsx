@@ -19,6 +19,9 @@ import { SectionProtestos } from "./review/SectionProtestos";
 import { SectionProcessos } from "./review/SectionProcessos";
 import { SectionGrupoEconomico } from "./review/SectionGrupoEconomico";
 import { SectionAnaliseContabil } from "./review/SectionAnaliseContabil";
+import { SectionDividaAtiva } from "./review/SectionDividaAtiva";
+import { SectionCenprot } from "./review/SectionCenprot";
+import { SectionGefip } from "./review/SectionGefip";
 
 export const DRAFT_KEY = "cf_review_draft_v2";
 
@@ -88,6 +91,7 @@ export default function ReviewStep({ data, onComplete, onBack, onDataChange }: R
       dre: false, balanco: false, curvaABC: false, irSocios: false, relatorioVisita: false,
       scrSocios: false, protestos: false, processos: false, grupoEconomico: false,
       analiseContabil: false,
+      dividaAtiva: false, cenprot: false, gefip: false,
     };
     if (typeof window === "undefined") return defaults;
     try {
@@ -429,6 +433,9 @@ export default function ReviewStep({ data, onComplete, onBack, onDataChange }: R
         expanded={open.analiseContabil}
         onToggle={() => toggle("analiseContabil")}
       />
+      <SectionDividaAtiva data={form.dividaAtiva} expanded={open.dividaAtiva} onToggle={() => toggle("dividaAtiva")} />
+      <SectionCenprot data={form.cenprot} bureauProtestos={form.protestos} expanded={open.cenprot} onToggle={() => toggle("cenprot")} />
+      <SectionGefip data={form.gefip} expanded={open.gefip} onToggle={() => toggle("gefip")} />
 
       {/* Spacer sections já estão com pb-20 no container */}
 

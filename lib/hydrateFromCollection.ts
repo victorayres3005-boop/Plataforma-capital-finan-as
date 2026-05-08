@@ -147,6 +147,9 @@ export function hydrateFromCollection(docs: { type: string; extracted_data: Reco
     ir_socio: "irSocios",
     relatorio_visita: "relatorioVisita",
     ccf: "ccf",
+    divida_ativa: "dividaAtiva",
+    cenprot: "cenprot",
+    gefip: "gefip",
   };
 
   for (const doc of docs) {
