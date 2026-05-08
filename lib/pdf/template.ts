@@ -1304,7 +1304,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
         </tr>`;
       }).join("");
 
-      return `${stitle("Endividamento dos Sócios (SCR Bacen)")}
+      return `${stitle("Posição de Crédito dos Sócios — SCR")}
       <table class="tbl" style="margin-bottom:0">
         <thead><tr><th>Sócio</th><th class="r">Resp. Ativa</th><th class="r">Vencidos</th><th class="r">Prejuízos</th><th class="r">IFs</th></tr></thead>
         <tbody>${rows}</tbody>
@@ -1582,7 +1582,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
       const totalSacadosAnalisados = (d.sacadosAnalisados ?? []).length;
       const totalClientesABC = abcLocal.totalClientesNaBase ?? 0;
 
-      return `${stitle("Curva ABC — Top 5 Sacados + Bureau")}
+      return `${stitle("Principais Sacados da Carteira")}
       <div class="ge-block">
         <div class="ge-header">
           <span class="title">Top ${top.length} sacados por concentração de receita</span>
