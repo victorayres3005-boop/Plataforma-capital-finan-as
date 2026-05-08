@@ -1581,16 +1581,39 @@ function pageSintese(params: PDFReportParams, date: string): string {
 
         const rowBg = s?.vinculos.temVinculo ? ` style="background:#FEF2F2"` : "";
 
+        // Risco unificado: fundir protestos + processos numa coluna só
+        // ("3p · 5pr" + valor combinado quando houver). Reduz ruído visual.
+        const protQtd = s?.protestosQtd ?? 0;
+        const procQtd = s?.processosPassivos ?? 0;
+        const temRisco = !!s && (protQtd > 0 || procQtd > 0);
+        const riscoCell = !s
+          ? `<span style="color:var(--x4)">—</span>`
+          : temRisco
+            ? `<div style="line-height:1.3">
+                ${protQtd > 0 ? `<span style="color:#991B1B;font-weight:700">${protQtd}p</span>` : `<span style="color:var(--x4)">0p</span>`}
+                <span style="color:var(--x4)">·</span>
+                ${procQtd > 0 ? `<span style="color:#991B1B;font-weight:700">${procQtd}pr</span>` : `<span style="color:var(--x4)">0pr</span>`}
+                ${(s.protestosValorTotal || s.processosValorTotal) ? `<div style="font-size:9px;color:var(--x5);font-weight:400">${[s.protestosValorTotal, s.processosValorTotal].filter(Boolean).join(" + ")}</div>` : ""}
+              </div>`
+            : `<span style="color:#15803d;font-weight:700">✓</span>`;
+
+        // % com acumulado entre parênteses na mesma cell
+        const pctCell = `<b>${fmtPct(c.percentualReceita)}</b><div style="font-size:9px;color:var(--x5);font-weight:400">acum ${fmtPct(c.percentualAcumulado)}</div>`;
+
         return `<tr${rowBg}>
           <td><span class="abc-rank">${i + 1}</span></td>
-          <td class="b">${esc(nomeLimpo)}${cnpjFmt ? `<div style="font-size:9px;color:var(--x5);font-family:'JetBrains Mono',monospace;font-weight:400;margin-top:1px">${cnpjFmt}${ufExtra}</div>` : ""}<div class="abc-bar" style="width:${barW}%"></div></td>
+          <td class="b">
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nomeLimpo)}</span>
+              <span class="abc-cl ${clsCls}" style="flex-shrink:0">${esc(c.classe)}</span>
+            </div>
+            ${cnpjFmt ? `<div style="font-size:9px;color:var(--x5);font-family:'JetBrains Mono',monospace;font-weight:400;margin-top:1px">${cnpjFmt}${ufExtra}</div>` : ""}
+            <div class="abc-bar" style="width:${barW}%"></div>
+          </td>
           <td class="r">${fmtMoney(c.valorFaturado)}</td>
-          <td class="r bold">${fmtPct(c.percentualReceita)}</td>
-          <td class="r bold">${fmtPct(c.percentualAcumulado)}</td>
-          <td><span class="abc-cl ${clsCls}">${esc(c.classe)}</span></td>
+          <td class="r">${pctCell}</td>
           <td class="r">${scoreCell}</td>
-          <td class="r ${protRed ? "red" : ""}">${s ? `${s.protestosQtd ?? 0}${s.protestosValorTotal ? `<div style="font-size:9px;color:var(--x5);font-weight:400">${esc(s.protestosValorTotal)}</div>` : ""}` : "—"}</td>
-          <td class="r ${procRed ? "red" : ""}">${s ? `${s.processosPassivos ?? 0}${s.processosValorTotal ? `<div style="font-size:9px;color:var(--x5);font-weight:400">${esc(s.processosValorTotal)}</div>` : ""}` : "—"}</td>
+          <td class="r">${riscoCell}</td>
           <td>${chipVinculo}</td>
         </tr>`;
       }).join("");
@@ -1605,18 +1628,15 @@ function pageSintese(params: PDFReportParams, date: string): string {
           <thead><tr>
             <th style="width:34px">#</th>
             <th>Sacado</th>
-            <th class="r" style="width:90px">Faturamento</th>
-            <th class="r" style="width:54px">% Rec.</th>
-            <th class="r" style="width:60px">% Acum.</th>
-            <th style="width:42px">Cl.</th>
-            <th class="r" style="width:64px">Score</th>
-            <th class="r" style="width:54px">Protestos</th>
-            <th class="r" style="width:62px">Processos</th>
+            <th class="r" style="width:100px">Faturamento</th>
+            <th class="r" style="width:78px">% Rec.</th>
+            <th class="r" style="width:68px">Score</th>
+            <th class="r" style="width:90px" title="Protestos · Processos passivos">Risco</th>
             <th style="width:110px">Vínculo</th>
           </tr></thead>
           <tbody>${linhas}</tbody>
         </table>
-        <div class="abc-summary">Top 3: <b>${fmtPct(abcLocal.concentracaoTop3)}</b> · Top 5: <b>${fmtPct(abcLocal.concentracaoTop5)}</b> · Total clientes: <b>${abcLocal.totalClientesNaBase}</b></div>
+        <div class="abc-summary">Top 3: <b>${fmtPct(abcLocal.concentracaoTop3)}</b> · Top 5: <b>${fmtPct(abcLocal.concentracaoTop5)}</b> · Total clientes: <b>${abcLocal.totalClientesNaBase}</b> · <span style="font-size:9px;color:var(--x5)">Risco: <b>p</b>=protestos · <b>pr</b>=processos passivos</span></div>
       </div>`;
     })()}
 
