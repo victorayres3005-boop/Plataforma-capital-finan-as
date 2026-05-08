@@ -248,6 +248,95 @@ export async function consultarSocios(cpfs: string[]): Promise<BigDataCorpSocios
   return { socios, sociosFalecidos, alertaParentesco: parentescosDetectados.length > 0, parentescosDetectados };
 }
 
+// ── consultarDividaAtivaBDC ──────────────────────────────────────────────────
+// Dispara isoladamente o dataset government_debtors em /empresas para popular
+// data.dividaAtiva quando o analista NÃO subiu certidão. Não substitui upload
+// manual — o orquestrador prioriza o upload sobre essa fonte.
+
+export interface DividaAtivaBDCResult {
+  success: boolean;
+  data?: {
+    qtdRegistros: number;
+    valorTotal: string;
+    registros: Array<{
+      origem: string;
+      numeroInscricao: string;
+      valor: string;
+      situacao: string;
+      dataInscricao: string;
+      natureza?: string;
+    }>;
+    certidaoNegativa: boolean;
+    dataConsulta: string;
+  };
+  error?: string;
+}
+
+export async function consultarDividaAtivaBDC(cnpj: string): Promise<DividaAtivaBDCResult> {
+  const cnpjNum = cnpj.replace(/\D/g, "");
+  if (cnpjNum.length !== 14) return { success: false, error: "CNPJ inválido" };
+  if (!hasCredentials()) return { success: false, error: "BDC sem credenciais" };
+
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), 10000);
+  try {
+    const res = await fetch(`${BDC_BASE}/empresas`, {
+      method: "POST",
+      headers: bdcHeaders(),
+      body: JSON.stringify({
+        q: `doc{${cnpjNum}}`,
+        Datasets: "government_debtors",
+        Tags: { host: "pendente_capital", process: "divida_ativa" },
+      }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(tid);
+    if (!res.ok) {
+      console.warn(`[bigdatacorp][divida-ativa] HTTP ${res.status}`);
+      return { success: false, error: `HTTP ${res.status}` };
+    }
+
+    const json = (await res.json()) as Record<string, unknown>;
+    const arr = Array.isArray(json.Result) ? (json.Result as Record<string, unknown>[]) : [];
+    if (arr.length === 0) return { success: false, error: "sem Result do BDC" };
+
+    const gd = getSection(arr[0], "government_debtors");
+    if (!gd) return { success: false, error: "section government_debtors ausente" };
+
+    const totalVal = _num(gd.TotalDebtValue ?? gd.TotalValue);
+    const totalDebts = _num(gd.TotalDebts ?? gd.Count);
+    const debtsArr = Array.isArray(gd.Debts) ? (gd.Debts as Record<string, unknown>[]) : [];
+
+    const registros = debtsArr.map((d) => ({
+      origem: _str(d.DebtOrigin ?? d.Origin ?? d.Orgao) || "PGFN",
+      numeroInscricao: _str(d.RegistrationNumber ?? d.InscriptionNumber ?? d.InscriptionCode ?? ""),
+      valor: _moeda(_num(d.ConsolidatedValue ?? d.Value ?? d.DebtValue)),
+      situacao: _str(d.RegistrationSituation ?? d.Situation ?? d.Situacao) || "Ativa",
+      dataInscricao: _dateStr(d.RegistrationDate ?? d.InscriptionDate ?? d.DataInscricao),
+      natureza: _str(d.DebtType ?? d.Nature ?? d.Natureza) || undefined,
+    }));
+
+    const qtd = totalDebts || registros.length;
+    console.log(`[bigdatacorp][divida-ativa] CNPJ=${cnpjNum.slice(0, 8)}*** qtd=${qtd} total=${totalVal}`);
+
+    return {
+      success: true,
+      data: {
+        qtdRegistros: qtd,
+        valorTotal: totalVal > 0 ? _moeda(totalVal) : "R$ 0,00",
+        registros,
+        certidaoNegativa: qtd === 0,
+        dataConsulta: new Date().toISOString(),
+      },
+    };
+  } catch (err) {
+    clearTimeout(tid);
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn("[bigdatacorp][divida-ativa] erro:", msg);
+    return { success: false, error: msg };
+  }
+}
+
 // ── consultarProcessosGrupoEconomico ──────────────────────────────────────────
 // Para cada empresa vinculada aos sócios (via BDC pessoas), consulta processos.
 // Cap: 10 CNPJs por chamada para respeitar o timeout de 60s do Vercel.

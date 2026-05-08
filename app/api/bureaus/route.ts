@@ -8,7 +8,7 @@ import { consultarSPC } from "@/lib/bureaus/spc";
 import { consultarQuod } from "@/lib/bureaus/quod";
 import { consultarBrasilApi } from "@/lib/bureaus/brasilapi";
 import { consultarSancoes } from "@/lib/bureaus/transparencia";
-import { consultarEmpresa as consultarBigDataCorp, consultarSocios as consultarBDCSocios } from "@/lib/bureaus/bigdatacorp";
+import { consultarEmpresa as consultarBigDataCorp, consultarSocios as consultarBDCSocios, consultarDividaAtivaBDC } from "@/lib/bureaus/bigdatacorp";
 import { consultarEmpresa as consultarAssertiva, consultarSocios as consultarSociosAssertiva } from "@/lib/bureaus/assertiva";
 import { mergeBureauResults } from "@/lib/bureaus/merger";
 import { enrichProcessosWithDataJud } from "@/lib/bureaus/datajud";
@@ -117,7 +117,7 @@ export async function POST(req: NextRequest) {
     // BDC é caro e renova token toda semana; entra apenas como fallback se CH vier vazio.
     // 90s cobre o pior caso: token DataBox360 (40s × 2 tentativas) + chamada SCR (15s)
     const BUREAU_TIMEOUT = 90_000;
-    const [credithub, serasa, spc, quod, grupoEconomico, brasilapi, sancoes, assertivaEmpresa, assertivaSocios, db360Empresa, db360Socios, pefinRefin] = await Promise.allSettled([
+    const [credithub, serasa, spc, quod, grupoEconomico, brasilapi, sancoes, assertivaEmpresa, assertivaSocios, db360Empresa, db360Socios, pefinRefin, dividaAtivaBDC] = await Promise.allSettled([
       withTimeout(consultarCreditHubComCache(cnpj, creditHubRaw), BUREAU_TIMEOUT, "credithub"),
       withTimeout(consultarSerasa(cnpj), BUREAU_TIMEOUT, "serasa"),
       withTimeout(consultarSPC(cnpj), BUREAU_TIMEOUT, "spc"),
@@ -130,6 +130,9 @@ export async function POST(req: NextRequest) {
       withTimeout(consultarSCREmpresa(cnpj), BUREAU_TIMEOUT, "databox360-empresa"),
       withTimeout(consultarSCRSocios(sociosParaGrupo), BUREAU_TIMEOUT, "databox360-socios"),
       withTimeout(consultarPefinRefin(cnpj), BUREAU_TIMEOUT, "credithub-pefin-refin"),
+      // BDC government_debtors isolado — popula data.dividaAtiva quando o
+      // analista NÃO subiu certidão. Upload manual tem prioridade no merge.
+      withTimeout(consultarDividaAtivaBDC(cnpj), BUREAU_TIMEOUT, "bdc-divida-ativa"),
     ]);
 
     const grupoEconomicoResult = grupoEconomico.status === "fulfilled" ? grupoEconomico.value : undefined;
@@ -252,6 +255,23 @@ export async function POST(req: NextRequest) {
     ].filter(Boolean);
 
     const merged = mergeBureauResults(data, results);
+
+    // ── Dívida Ativa via BDC ──────────────────────────────────────────────────
+    // Upload manual de certidão tem prioridade (analista valida o documento).
+    // Se não houver upload, tenta popular com BDC government_debtors.
+    if (!data.dividaAtiva || !data.dividaAtiva.dataConsulta) {
+      const bdcDA = dividaAtivaBDC.status === "fulfilled" ? dividaAtivaBDC.value : undefined;
+      if (bdcDA?.success && bdcDA.data) {
+        merged.dividaAtiva = bdcDA.data;
+        console.log(
+          `[bureaus][divida-ativa] populado via BDC: qtd=${bdcDA.data.qtdRegistros} ${bdcDA.data.certidaoNegativa ? "(negativa)" : `total=${bdcDA.data.valorTotal}`}`
+        );
+      } else {
+        console.log(`[bureaus][divida-ativa] BDC não retornou dado: ${bdcDA?.error ?? "indisponível"}`);
+      }
+    } else {
+      console.log(`[bureaus][divida-ativa] preservando upload manual do analista`);
+    }
 
     // FASE 3 — Sacados da Curva ABC (top 5 PJ)
     // Consulta CH + BDC para os principais sacados e cruza sócios para detectar
