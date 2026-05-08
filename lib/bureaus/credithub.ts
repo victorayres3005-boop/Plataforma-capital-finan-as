@@ -1635,47 +1635,26 @@ export async function consultarPefinRefin(cnpj: string): Promise<{ pefin?: Pefin
     console.warn(`[credithub] PEFIN consulta falhou: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  // REFIN — SERASA (mesma cirurgia que destravou o PEFIN: USING + aspas no CNPJ)
-  // Em commit 9e3a08a o PEFIN saiu de 500 BPQL pra 200 JSON adicionando USING'<adapter>'
-  // e aspas no CNPJ. REFIN pode ter sofrido com o mesmo bug — adapter "SERASA"
-  // pode estar disponível na chave, só não foi sondado com sintaxe correta.
-  // Se chave não tiver Serasa, log mostra exception clara e refin fica undefined.
-  let refin: PefinReginData | undefined;
-  const refinQuery = `USING 'SERASA' SELECT FROM 'PROTESTOS'.'SERASA' WHERE 'DOCUMENTO' = '${cnpjNum}'`;
-  try {
-    const r = await fetchIRQL(refinQuery);
-    if (r.error) {
-      console.warn(`[credithub] REFIN ${r.error} — tratando como não consultado`);
-      // Log diagnóstico do body cru pra investigar formato da resposta
-      if (r.raw && r.raw.length < 500) {
-        console.warn(`[credithub] REFIN body: ${r.raw.slice(0, 500)}`);
-      }
-    } else if (r.json) {
-      // Tenta múltiplos formatos: spc[] (mesma estrutura do SCPCNET), serasa[],
-      // ou top-level array (alguns adapters retornam direto).
-      const parsed = r.json as { spc?: SCPCNETRow[]; serasa?: SCPCNETRow[]; refin?: SCPCNETRow[] };
-      const rows: SCPCNETRow[] = Array.isArray(parsed.spc)
-        ? parsed.spc
-        : Array.isArray(parsed.serasa)
-          ? parsed.serasa
-          : Array.isArray(parsed.refin)
-            ? parsed.refin
-            : Array.isArray(r.json)
-              ? (r.json as SCPCNETRow[])
-              : [];
-      refin = spcArrayToPefinData(rows);
-      console.log(`[credithub] REFIN: ${refin.qtd} registros R$ ${refin.valor.toLocaleString("pt-BR")}`);
-      // Diagnóstico inicial: quando registros = 0 mas estamos falando de empresa
-      // que potencialmente tem inadimplência, vale ver as keys top-level pra
-      // confirmar que não estamos perdendo um array com nome diferente.
-      if (refin.qtd === 0) {
-        const keys = Object.keys((r.json && typeof r.json === "object") ? r.json as object : {});
-        console.log(`[credithub] REFIN response keys: [${keys.join(", ")}]`);
-      }
-    }
-  } catch (err) {
-    console.warn(`[credithub] REFIN consulta falhou: ${err instanceof Error ? err.message : String(err)}`);
-  }
+  // REFIN/Serasa: DESLIGADO PREVENTIVAMENTE.
+  //
+  // Investigação 2026-05-08 (Victor): testamos a query com sintaxe correta
+  // (`USING 'SERASA' SELECT FROM 'PROTESTOS'.'SERASA' WHERE 'DOCUMENTO' = '<cnpj>'`)
+  // e a CreditHub respondeu HTTP 500 com:
+  //
+  //   <exception code="2" source="BPQLParserException" push="true">
+  //     Adapter unknown - SERASA
+  //   </exception>
+  //
+  // Não é bug de sintaxe (foi parseado OK). É falta do produto Serasa REFIN
+  // na chave atual da conta CreditHub. Pra reativar:
+  //   1. Contatar suporte CreditHub e ativar produto Serasa REFIN no contrato
+  //   2. Confirmar nome do adapter (talvez não seja "SERASA" mesmo; pode ser
+  //      "EXPERIAN", "SERASAEXP" — pedir lista de adapters habilitados)
+  //   3. Reativar o fetch removendo este return e ajustando o adapter
+  //
+  // Mantemos undefined sem fazer fetch pra não gastar 1 chamada/análise em
+  // erro garantido nem poluir logs com warnings repetidos.
+  const refin: PefinReginData | undefined = undefined;
 
   return { pefin, refin };
 }
