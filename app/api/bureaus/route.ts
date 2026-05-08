@@ -2,7 +2,7 @@ export const maxDuration = 300;
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
-import { consultarCreditHub, consultarGrupoEconomicoSocios, consultarPefinRefin } from "@/lib/bureaus/credithub";
+import { consultarCreditHub, consultarGrupoEconomicoSocios, consultarPefinRefin, buscarCNPJPorNome } from "@/lib/bureaus/credithub";
 import { consultarSerasa } from "@/lib/bureaus/serasa";
 import { consultarSPC } from "@/lib/bureaus/spc";
 import { consultarQuod } from "@/lib/bureaus/quod";
@@ -258,6 +258,33 @@ export async function POST(req: NextRequest) {
     // partes relacionadas / vínculo familiar com o cedente. Ver lib/sacados/*.
     let sacadosCount = 0;
     try {
+      // PRE-ENRICH: muitas Curvas ABC vêm sem CNPJ no JSON extraído (Gemini só
+      // pegou nome). Antes de filtrar top 5, busca CNPJ via publica.cnpj.ws
+      // pra cada cliente top 10 que ainda esteja sem CNPJ — destrava Fase 3.
+      // Cap em top 10 (depois extractTopSacados pega top 5 efetivos).
+      if (data?.curvaABC?.clientes?.length) {
+        const PRE_ENRICH_CAP = 10;
+        const candidates = data.curvaABC.clientes.slice(0, PRE_ENRICH_CAP).filter(c => {
+          const cnpjNum = (c.cnpjCpf ?? "").replace(/\D/g, "");
+          if (cnpjNum.length === 14) return false; // já tem CNPJ
+          return !!(c.nome && c.nome.trim().length >= 5);
+        });
+        if (candidates.length > 0) {
+          console.log(`[bureaus][sacados] ${candidates.length} cliente(s) Curva ABC sem CNPJ — buscando via publica.cnpj.ws`);
+          const t0 = Date.now();
+          let achados = 0;
+          await Promise.allSettled(candidates.map(async c => {
+            const cnpj = await buscarCNPJPorNome(c.nome);
+            if (cnpj) {
+              c.cnpjCpf = cnpj;
+              achados++;
+              console.log(`[bureaus][sacados] CNPJ por nome: "${c.nome.slice(0, 40)}" → ${cnpj.slice(0, 4)}***`);
+            }
+          }));
+          console.log(`[bureaus][sacados] busca por nome: ${achados}/${candidates.length} CNPJs encontrados em ${Date.now() - t0}ms`);
+        }
+      }
+
       const topSacados = extractTopSacados(data?.curvaABC, 5);
       const totalClientesABC = data?.curvaABC?.clientes?.length ?? 0;
       console.log(`[bureaus][sacados] Curva ABC: ${totalClientesABC} cliente(s) na base, ${topSacados.length} top PJ extraído(s)`);

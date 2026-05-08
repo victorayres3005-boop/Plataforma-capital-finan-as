@@ -1145,7 +1145,7 @@ function extrairEmpresasDeProcessos(
 }
 
 // ── Busca CNPJ por nome via publica.cnpj.ws ──────────────────────────────────
-async function buscarCNPJPorNome(nomeEmpresa: string): Promise<string> {
+export async function buscarCNPJPorNome(nomeEmpresa: string): Promise<string> {
   const q = encodeURIComponent(nomeEmpresa.slice(0, 60));
   try {
     const res = await fetch(`https://publica.cnpj.ws/cnpj?q=${q}&quantidade=3`, {
