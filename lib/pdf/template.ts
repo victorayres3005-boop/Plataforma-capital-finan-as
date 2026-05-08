@@ -1168,7 +1168,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
 
     <!-- 5. Sócios (Quadro societário) — vem ANTES do Endividamento SCR
          (decisão Victor 2026-05-08): primeiro identifica QUEM são os sócios,
-         depois mostra a situação financeira deles + da empresa. -->
+         depois Grupo Econômico (empresas vinculadas), depois Endividamento. -->
     ${stitle("Quadro societário")}
     <table class="soc-tbl">
       <thead><tr><th>Sócio</th><th>CPF/CNPJ</th><th>Qualificação</th><th>Part.</th><th>Patrim. Líq. / Renda Est.</th></tr></thead>
@@ -1176,91 +1176,9 @@ function pageSintese(params: PDFReportParams, date: string): string {
     </table>
     <div class="soc-extra">Grupo Econômico: <b>${d.grupoEconomico?.empresas?.length > 0 ? d.grupoEconomico.empresas.length + " empresa(s) identificada(s)" : "Não identificado"}</b></div>
 
-    <!-- 5a. Endividamento — SCR Bacen (logo após o Quadro Societário) -->
-    ${(() => {
-      const scrEmp = d.scr;
-      const scrSocs = d.scrSocios ?? [];
-      const temScrEmp = scrEmp && (
-        numVal(scrEmp.carteiraAVencer ?? "0") > 0 ||
-        numVal(scrEmp.vencidos ?? "0") > 0 ||
-        numVal(scrEmp.prejuizos ?? "0") > 0 ||
-        numVal(scrEmp.totalDividasAtivas ?? "0") > 0
-      );
-      const temScrSoc = scrSocs.length > 0;
-      if (!temScrEmp && !temScrSoc) return "";
-
-      let empBlock = "";
-      if (temScrEmp && scrEmp) {
-        const totalEmp =
-          numVal(scrEmp.carteiraCurtoPrazo ?? scrEmp.carteiraAVencer ?? "0") +
-          numVal(scrEmp.carteiraLongoPrazo ?? "0") +
-          numVal(scrEmp.vencidos ?? "0") +
-          numVal(scrEmp.prejuizos ?? "0");
-        const vencEmp = numVal(scrEmp.vencidos ?? "0");
-        const prejEmp = numVal(scrEmp.prejuizos ?? "0");
-        empBlock = `
-        <div class="kpi-snap c4" style="margin-bottom:10px">
-          <div class="icell ${totalEmp > 0 ? "navy" : ""}">
-            <div class="l">Total Dívidas Ativas</div>
-            <div class="v sm mono">${fmtMoneyAbr(totalEmp)}</div>
-          </div>
-          <div class="icell ${vencEmp > 0 ? "danger" : "success"}">
-            <div class="l">Vencidos</div>
-            <div class="v sm mono ${vencEmp > 0 ? "red" : "green"}">${fmtMoneyAbr(scrEmp.vencidos)}</div>
-          </div>
-          <div class="icell ${prejEmp > 0 ? "danger" : ""}">
-            <div class="l">Prejuízos</div>
-            <div class="v sm mono ${prejEmp > 0 ? "red" : ""}">${prejEmp > 0 ? fmtMoneyAbr(scrEmp.prejuizos) : "—"}</div>
-          </div>
-          <div class="icell">
-            <div class="l">IFs · Operações</div>
-            <div class="v sm">${fmt(scrEmp.qtdeInstituicoes)} · ${fmt(scrEmp.qtdeOperacoes)}</div>
-          </div>
-        </div>`;
-      }
-
-      let socBlock = "";
-      if (temScrSoc) {
-        const rows = scrSocs.map(ss => {
-          const sa = ss.periodoAtual;
-          const respAtiva = numVal(sa.carteiraAVencer ?? "0") + numVal(sa.vencidos ?? "0");
-          const venc = numVal(sa.vencidos ?? "0");
-          const prej = numVal(sa.prejuizos ?? "0");
-          return `<tr>
-            <td class="b" style="white-space:nowrap">${esc(ss.nomeSocio)}<div style="font-size:9px;color:var(--x5);font-family:'JetBrains Mono',monospace;font-weight:400">${fmtCpf(ss.cpfSocio)}</div></td>
-            <td class="r mono">${fmtMoneyAbr(String(respAtiva))}</td>
-            <td class="r mono ${venc > 0 ? "red" : ""}">${venc > 0 ? fmtMoneyAbr(sa.vencidos) : "—"}</td>
-            <td class="r mono ${prej > 0 ? "red" : ""}">${prej > 0 ? fmtMoneyAbr(sa.prejuizos) : "—"}</td>
-            <td class="r">${fmt(sa.qtdeInstituicoes)}</td>
-          </tr>`;
-        }).join("");
-        socBlock = `
-        <div style="font-size:11px;font-weight:700;color:var(--x4);text-transform:uppercase;letter-spacing:0.05em;margin:6px 0 4px">Endividamento dos sócios (DataBox360)</div>
-        <table class="tbl" style="margin-bottom:0">
-          <thead><tr><th>Sócio</th><th class="r">Resp. Ativa</th><th class="r">Vencidos</th><th class="r">Prejuízos</th><th class="r">IFs</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>`;
-      }
-
-      return `${stitle("Endividamento — SCR Bacen")}${empBlock}${socBlock}`;
-    })()}
-
-    <!-- 5c. Alertas KYC sócios (óbito / CPF irregular) -->
-    ${(() => {
-      const alertas: string[] = [];
-      if ((d as any).sociosFalecidos?.length) {
-        const nomes = ((d as any).sociosFalecidos as string[]).map(n => `<b>${esc(n)}</b>`).join(", ");
-        alertas.push(`<div class="alert alta" style="margin-top:8px"><span class="atag">CRÍTICO</span> Sócio(s) com indicação de óbito: ${nomes}. Verificar sucessão e situação jurídica da empresa.</div>`);
-      }
-      const sociosIrr = (d.qsa?.quadroSocietario ?? []).filter((s: any) => s.taxIdStatus && s.taxIdStatus !== "REGULAR");
-      if (sociosIrr.length > 0) {
-        const lista = sociosIrr.map((s: any) => `<b>${esc(s.nome)}</b> (${esc(String(s.taxIdStatus).replace(/_/g, " "))})`).join(", ");
-        alertas.push(`<div class="alert mod" style="margin-top:8px"><span class="atag">RESTRITIVO</span> CPF com situação irregular: ${lista}. Consultar Receita Federal.</div>`);
-      }
-      return alertas.join("");
-    })()}
-
-    <!-- 5b. Grupo Econômico dos Sócios -->
+    <!-- 5b. Grupo Econômico dos Sócios — logo após o Quadro Societário
+         (decisão Victor 2026-05-08): empresas vinculadas via sócios fica perto
+         da identificação dos sócios, antes do Endividamento SCR. -->
     ${(() => {
       const ge = d.grupoEconomico;
       if (!ge?.empresas?.length) return "";
@@ -1363,6 +1281,90 @@ function pageSintese(params: PDFReportParams, date: string): string {
         ${alertaParentesco}
         ${scrSandboxNote}
       </div>`;
+    })()}
+
+    <!-- 5c. Endividamento — SCR Bacen (logo após o Grupo Econômico) -->
+    ${(() => {
+      const scrEmp = d.scr;
+      const scrSocs = d.scrSocios ?? [];
+      const temScrEmp = scrEmp && (
+        numVal(scrEmp.carteiraAVencer ?? "0") > 0 ||
+        numVal(scrEmp.vencidos ?? "0") > 0 ||
+        numVal(scrEmp.prejuizos ?? "0") > 0 ||
+        numVal(scrEmp.totalDividasAtivas ?? "0") > 0
+      );
+      const temScrSoc = scrSocs.length > 0;
+      if (!temScrEmp && !temScrSoc) return "";
+
+      let empBlock = "";
+      if (temScrEmp && scrEmp) {
+        const totalEmp =
+          numVal(scrEmp.carteiraCurtoPrazo ?? scrEmp.carteiraAVencer ?? "0") +
+          numVal(scrEmp.carteiraLongoPrazo ?? "0") +
+          numVal(scrEmp.vencidos ?? "0") +
+          numVal(scrEmp.prejuizos ?? "0");
+        const vencEmp = numVal(scrEmp.vencidos ?? "0");
+        const prejEmp = numVal(scrEmp.prejuizos ?? "0");
+        empBlock = `
+        <div class="kpi-snap c4" style="margin-bottom:10px">
+          <div class="icell ${totalEmp > 0 ? "navy" : ""}">
+            <div class="l">Total Dívidas Ativas</div>
+            <div class="v sm mono">${fmtMoneyAbr(totalEmp)}</div>
+          </div>
+          <div class="icell ${vencEmp > 0 ? "danger" : "success"}">
+            <div class="l">Vencidos</div>
+            <div class="v sm mono ${vencEmp > 0 ? "red" : "green"}">${fmtMoneyAbr(scrEmp.vencidos)}</div>
+          </div>
+          <div class="icell ${prejEmp > 0 ? "danger" : ""}">
+            <div class="l">Prejuízos</div>
+            <div class="v sm mono ${prejEmp > 0 ? "red" : ""}">${prejEmp > 0 ? fmtMoneyAbr(scrEmp.prejuizos) : "—"}</div>
+          </div>
+          <div class="icell">
+            <div class="l">IFs · Operações</div>
+            <div class="v sm">${fmt(scrEmp.qtdeInstituicoes)} · ${fmt(scrEmp.qtdeOperacoes)}</div>
+          </div>
+        </div>`;
+      }
+
+      let socBlock = "";
+      if (temScrSoc) {
+        const rows = scrSocs.map(ss => {
+          const sa = ss.periodoAtual;
+          const respAtiva = numVal(sa.carteiraAVencer ?? "0") + numVal(sa.vencidos ?? "0");
+          const venc = numVal(sa.vencidos ?? "0");
+          const prej = numVal(sa.prejuizos ?? "0");
+          return `<tr>
+            <td class="b" style="white-space:nowrap">${esc(ss.nomeSocio)}<div style="font-size:9px;color:var(--x5);font-family:'JetBrains Mono',monospace;font-weight:400">${fmtCpf(ss.cpfSocio)}</div></td>
+            <td class="r mono">${fmtMoneyAbr(String(respAtiva))}</td>
+            <td class="r mono ${venc > 0 ? "red" : ""}">${venc > 0 ? fmtMoneyAbr(sa.vencidos) : "—"}</td>
+            <td class="r mono ${prej > 0 ? "red" : ""}">${prej > 0 ? fmtMoneyAbr(sa.prejuizos) : "—"}</td>
+            <td class="r">${fmt(sa.qtdeInstituicoes)}</td>
+          </tr>`;
+        }).join("");
+        socBlock = `
+        <div style="font-size:11px;font-weight:700;color:var(--x4);text-transform:uppercase;letter-spacing:0.05em;margin:6px 0 4px">Endividamento dos sócios (DataBox360)</div>
+        <table class="tbl" style="margin-bottom:0">
+          <thead><tr><th>Sócio</th><th class="r">Resp. Ativa</th><th class="r">Vencidos</th><th class="r">Prejuízos</th><th class="r">IFs</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+      }
+
+      return `${stitle("Endividamento — SCR Bacen")}${empBlock}${socBlock}`;
+    })()}
+
+    <!-- 5d. Alertas KYC sócios (óbito / CPF irregular) -->
+    ${(() => {
+      const alertas: string[] = [];
+      if ((d as any).sociosFalecidos?.length) {
+        const nomes = ((d as any).sociosFalecidos as string[]).map(n => `<b>${esc(n)}</b>`).join(", ");
+        alertas.push(`<div class="alert alta" style="margin-top:8px"><span class="atag">CRÍTICO</span> Sócio(s) com indicação de óbito: ${nomes}. Verificar sucessão e situação jurídica da empresa.</div>`);
+      }
+      const sociosIrr = (d.qsa?.quadroSocietario ?? []).filter((s: any) => s.taxIdStatus && s.taxIdStatus !== "REGULAR");
+      if (sociosIrr.length > 0) {
+        const lista = sociosIrr.map((s: any) => `<b>${esc(s.nome)}</b> (${esc(String(s.taxIdStatus).replace(/_/g, " "))})`).join(", ");
+        alertas.push(`<div class="alert mod" style="margin-top:8px"><span class="atag">RESTRITIVO</span> CPF com situação irregular: ${lista}. Consultar Receita Federal.</div>`);
+      }
+      return alertas.join("");
     })()}
 
     <!-- 6. Risco Consolidado -->
