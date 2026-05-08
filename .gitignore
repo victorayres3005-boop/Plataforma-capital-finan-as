@@ -62,3 +62,6 @@ C*Temp*.json
 .env.production.*
 .env*.tmp
 supabase/.temp/
+
+# Backups Supabase (dados sensíveis - nunca commitar)
+backup-supabase-*/
