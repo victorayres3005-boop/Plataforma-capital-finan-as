@@ -32,6 +32,12 @@ import {
 import { cacheGet, cacheSet } from "@/lib/bureaus/cache";
 import { calcularVinculos, type SocioComMae } from "./matchVinculos";
 import { onlyDigits, type TopSacadoEntry } from "./extractTopSacados";
+import {
+  resolveCnpjPorNome,
+  emptyMetrics,
+  recordMetric,
+  formatMetrics,
+} from "./resolveCnpjPorNome";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Helpers de extração
@@ -320,6 +326,14 @@ export interface ConsultarSacadosAnalisadosInput {
   };
   /** Pula cache em todas as consultas — uso em tests + debug. */
   skipCache?: boolean;
+  /**
+   * POC: tenta resolver CNPJ por razão social para sacados que vieram da
+   * Curva ABC sem CNPJ. Resolução é sequencial (rate limit publica.cnpj.ws).
+   * Default: false (mantém comportamento legado — sacados sem CNPJ não
+   * passam por aqui porque `extractTopSacados` os descarta a menos que
+   * `includeWithoutCnpj` esteja ligado).
+   */
+  resolveCnpjFromName?: boolean;
 }
 
 /**
@@ -332,8 +346,41 @@ export async function consultarSacadosAnalisados(
 ): Promise<SacadoAnalisado[]> {
   if (!input.topSacados?.length) return [];
 
+  // ── Pré-passo POC: resolver CNPJ por razão social ──
+  // Sequencial pra respeitar rate limit gratuito do publica.cnpj.ws (~3req/s).
+  // Sacados que não resolvem ficam com cnpj="" e serão descartados na consulta.
+  let topSacados = input.topSacados;
+  if (input.resolveCnpjFromName) {
+    const semCnpj = input.topSacados.filter((s) => !s.cnpj || s.cnpj.length !== 14);
+    if (semCnpj.length > 0) {
+      const metrics = emptyMetrics();
+      const resolvedMap = new Map<string, string>(); // razaoSocial → cnpj
+      for (const s of semCnpj) {
+        const r = await resolveCnpjPorNome(s.razaoSocial, {
+          ufCedente: input.cedente.ufCedente,
+          skipCache: input.skipCache,
+        });
+        recordMetric(metrics, r);
+        if (r.cnpj) resolvedMap.set(s.razaoSocial, r.cnpj);
+      }
+      console.log(formatMetrics(metrics));
+      topSacados = input.topSacados.map((s) => {
+        if (s.cnpj && s.cnpj.length === 14) return s;
+        const resolved = resolvedMap.get(s.razaoSocial);
+        return resolved ? { ...s, cnpj: resolved } : s;
+      });
+    }
+  }
+
+  // Filtra sacados que ainda não têm CNPJ resolvido — não tem como consultar
+  // bureau sem documento. Eles aparecerão na tabela ABC da UI mas sem dados
+  // enriquecidos (igual ao comportamento atual quando o documento original
+  // já não tinha CNPJ).
+  const consultaveis = topSacados.filter((s) => s.cnpj && s.cnpj.length === 14);
+  if (consultaveis.length === 0) return [];
+
   const results = await Promise.allSettled(
-    input.topSacados.map((s) =>
+    consultaveis.map((s) =>
       consultarSacado(s, { skipCache: input.skipCache })
     )
   );
@@ -342,7 +389,7 @@ export async function consultarSacadosAnalisados(
   for (let i = 0; i < results.length; i++) {
     const r = results[i];
     if (r.status !== "fulfilled") {
-      console.warn(`[sacados] consulta falhou ${input.topSacados[i].cnpj}:`, r.reason);
+      console.warn(`[sacados] consulta falhou ${consultaveis[i].cnpj}:`, r.reason);
       continue;
     }
     const { mapeado, sociosComMae } = r.value;

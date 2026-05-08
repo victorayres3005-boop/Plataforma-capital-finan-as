@@ -82,23 +82,37 @@ function toNumber(v: string | number | undefined | null): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+export interface ExtractTopSacadosOptions {
+  /**
+   * Quando true, sacados PJ sem CNPJ válido também passam — com `cnpj: ""`.
+   * Caller deve resolver via `resolveCnpjPorNome` antes de consultar bureau.
+   * Sacados com CPF (11 dígitos) continuam sendo descartados.
+   * Default: false (comportamento legado).
+   */
+  includeWithoutCnpj?: boolean;
+}
+
 /**
  * Pega top N sacados PJ da Curva ABC, ordenados por valor faturado desc.
  *
  * Filtros aplicados:
- *   - cnpjCpf precisa ser CNPJ válido (14 dígitos, não repetido)
+ *   - cnpjCpf precisa ser CNPJ válido (14 dígitos, não repetido) — exceto se
+ *     `includeWithoutCnpj` true, aí passam com `cnpj: ""` para resolução posterior
+ *   - sacados com CPF (11 dígitos puros, sem indício de CNPJ) sempre descartados
  *   - nome precisa ser não-vazio
- *   - dedup por CNPJ (mantém a primeira ocorrência — geralmente a de maior valor)
+ *   - dedup por CNPJ quando presente; quando ausente, dedup por nome normalizado
  *
  * Empates de valor mantêm ordem estável (preserva `posicao` original).
  */
 export function extractTopSacados(
   curva: CurvaABCData | undefined | null,
-  limit: number = DEFAULT_LIMIT
+  limit: number = DEFAULT_LIMIT,
+  opts: ExtractTopSacadosOptions = {}
 ): TopSacadoEntry[] {
   if (!curva?.clientes?.length) return [];
 
-  const seen = new Set<string>();
+  const seenCnpj = new Set<string>();
+  const seenNames = new Set<string>();
   const out: TopSacadoEntry[] = [];
 
   // Indexa com posição original para ordenação estável quando valor empata
@@ -115,28 +129,40 @@ export function extractTopSacados(
   for (const { c } of indexed) {
     if (out.length >= limit) break;
 
-    // Estratégia em 3 níveis:
-    //   1. cnpjCpf populado e válido — caminho feliz
-    //   2. cnpjCpf vazio/CPF/lixo, mas tem CNPJ embutido no nome (caso real reportado em prod 2026-05-08)
-    //   3. nada — descarta
     let cnpj = onlyDigits(c.cnpjCpf);
     let cleanedName = (c.nome || "").trim();
     let usedFallback = false;
 
     if (!isLikelyCnpj(cnpj)) {
+      // Tenta extrair CNPJ embutido no nome
       const cnpjFromName = extractCnpjFromText(c.nome);
       if (cnpjFromName) {
         cnpj = cnpjFromName;
         cleanedName = stripCnpjFromName(c.nome);
         usedFallback = true;
+      } else if (opts.includeWithoutCnpj) {
+        // POC: deixa passar sem CNPJ (caller resolve por nome).
+        // Mas só se não for CPF (11 dígitos puros).
+        if (cnpj.length === 11) continue;
+        cnpj = "";
       } else {
         continue;
       }
     }
 
-    if (seen.has(cnpj)) continue;
+    if (cnpj && seenCnpj.has(cnpj)) continue;
     if (!cleanedName) continue;
-    seen.add(cnpj);
+
+    // Dedup por nome só quando CNPJ ausente (evita duplicar mesmo sacado em
+    // duas linhas com grafias levemente diferentes durante a fase de resolução).
+    if (!cnpj) {
+      const nk = cleanedName.toUpperCase().replace(/\s+/g, " ").trim();
+      if (seenNames.has(nk)) continue;
+      seenNames.add(nk);
+    } else {
+      seenCnpj.add(cnpj);
+    }
+
     out.push(makeEntry(c, cnpj, cleanedName));
     if (usedFallback) {
       console.log(`[extractTopSacados] CNPJ recuperado do nome: ${cnpj} (${cleanedName})`);

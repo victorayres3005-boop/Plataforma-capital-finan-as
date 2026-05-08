@@ -285,7 +285,13 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      const topSacados = extractTopSacados(data?.curvaABC, 5);
+      // POC: feature flag opt-in. Quando ENABLE_SACADO_NAME_RESOLVER=true,
+      // sacados sem CNPJ passam pro pipeline e são resolvidos por razão social
+      // antes da consulta ao bureau. Default: false (comportamento legado).
+      const RESOLVE_BY_NAME = process.env.ENABLE_SACADO_NAME_RESOLVER === "true";
+      const topSacados = extractTopSacados(data?.curvaABC, 5, {
+        includeWithoutCnpj: RESOLVE_BY_NAME,
+      });
       const totalClientesABC = data?.curvaABC?.clientes?.length ?? 0;
       console.log(`[bureaus][sacados] Curva ABC: ${totalClientesABC} cliente(s) na base, ${topSacados.length} top PJ extraído(s)`);
       if (topSacados.length === 0 && totalClientesABC > 0) {
@@ -342,6 +348,7 @@ export async function POST(req: NextRequest) {
             enderecoCedente,
             sociosCedenteComMae,
           },
+          resolveCnpjFromName: RESOLVE_BY_NAME,
         });
 
         if (sacados.length > 0) {
