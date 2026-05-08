@@ -1503,37 +1503,33 @@ export async function consultarCreditHub(cnpj: string, rawDataFromClient?: unkno
 
 // ─── PEFIN / REFIN via IRQL ─────────────────────────────────────────────────
 
-function parseIRQLRows(xml: string): Array<Record<string, string>> {
-  const rows: Array<Record<string, string>> = [];
-  const rowPat = /<ROW[^>]*>([\s\S]*?)<\/ROW>/gi;
-  let rm;
-  while ((rm = rowPat.exec(xml)) !== null) {
-    const row: Record<string, string> = {};
-    const fPat = /<([A-Z_0-9]+)[^>]*>([^<]*)<\/\1>/gi;
-    let fm;
-    while ((fm = fPat.exec(rm[1])) !== null) {
-      row[fm[1]] = fm[2].trim();
-    }
-    if (Object.keys(row).length > 0) rows.push(row);
-  }
-  return rows;
+// Converte data BR "DD/MM/YYYY" para chave ordenável "YYYY-MM-DD".
+// Retorna string vazia para entradas inválidas — assim o sort empurra para o fim.
+function brDateKey(d: string | undefined | null): string {
+  if (!d) return "";
+  const m = d.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : "";
 }
 
-function pickField(row: Record<string, string>, ...keys: string[]): string | undefined {
-  for (const k of keys) if (row[k]) return row[k];
-  return undefined;
-}
+type SCPCNETRow = {
+  NomeAssociado?: string;
+  Valor?: string;
+  DataDeInclusao?: string;
+  DataDoVencimento?: string;
+  NumeroContrato?: string;
+  Entidade?: string;
+};
 
-function rowsToPefinData(rows: Array<Record<string, string>>): PefinReginData {
-  const lista = rows.map(r => ({
-    data:      pickField(r, "DATA_OCORRENCIA", "DATA", "DT_INCLUSAO", "DT_OCORRENCIA", "DATA_ENTRADA"),
-    valor:     parseMoneyRobust(pickField(r, "VALOR", "VL_TOTAL", "VALOR_TOTAL", "VL_OCORRENCIA", "VALOR_OCORRENCIA") ?? "0"),
-    credor:    pickField(r, "NOME_CREDOR", "CREDOR", "NOME_EMPRESA", "INFORMANTE", "ORIGEM"),
-    modalidade: pickField(r, "MODALIDADE", "TIPO", "NATUREZA", "TIPO_OCORRENCIA", "DESCRICAO"),
-    contrato:  pickField(r, "CONTRATO", "NUMERO_CONTRATO", "NUM_CONTRATO", "REFERENCIA"),
+function spcArrayToPefinData(spc: SCPCNETRow[]): PefinReginData {
+  const lista = spc.map(r => ({
+    data:       r.DataDeInclusao || r.DataDoVencimento,
+    valor:      parseMoneyRobust(r.Valor ?? "0"),
+    credor:     r.NomeAssociado,
+    modalidade: r.Entidade || undefined,
+    contrato:   r.NumeroContrato,
   }));
   const total  = lista.reduce((s, r) => s + (r.valor ?? 0), 0);
-  const sorted = [...lista].sort((a, b) => (b.data ?? "").localeCompare(a.data ?? ""));
+  const sorted = [...lista].sort((a, b) => brDateKey(b.data).localeCompare(brDateKey(a.data)));
   return {
     qtd:          lista.length,
     valor:        total,
@@ -1543,34 +1539,53 @@ function rowsToPefinData(rows: Array<Record<string, string>>): PefinReginData {
   };
 }
 
+// Resposta do IRQL é JSON quando a query é aceita, ou XML BPQL quando há erro
+// de parser/adapter. Em qualquer falha retorna undefined — o relatório distingue
+// undefined ("não consultado") de { qtd: 0 } ("consultado, sem pendências"),
+// evitando falso negativo silencioso.
 export async function consultarPefinRefin(cnpj: string): Promise<{ pefin?: PefinReginData; refin?: PefinReginData }> {
-  if (!CREDITHUB_API_KEY) return {};
-  const cnpjNum = cnpj.replace(/\D/g, "");
-  const IRQL = "https://irql.credithub.com.br";
-  const qPefin = encodeURIComponent(`USING 'SCPCNET' SELECT FROM 'PROTESTOS'.'SCPCNET' WHERE 'DOCUMENTO' = ${cnpjNum}`);
-  const qRefin = encodeURIComponent(`SELECT FROM 'PROTESTOS'.'SERASA' WHERE 'DOCUMENTO' = ${cnpjNum}`);
+  if (!CREDITHUB_API_KEY) {
+    console.warn("[credithub] PEFIN/REFIN não consultado — CREDITHUB_API_KEY ausente");
+    return {};
+  }
+  // REFIN/Serasa via IRQL não tem adapter funcional na chave atual ("Adapter
+  // unknown - SERASA"). Mantemos undefined explícito até a CreditHub liberar o
+  // dataset Serasa ou indicar a rota correta. Não tentamos o fetch para não
+  // gastar quota nem confundir os logs.
+  console.warn("[credithub] REFIN: adapter Serasa indisponível no IRQL — verificar contrato CreditHub");
+  const refin: PefinReginData | undefined = undefined;
 
-  const [pefinR, refinR] = await Promise.allSettled([
-    fetch(`${IRQL}/?q=${qPefin}&apiKey=${CREDITHUB_API_KEY}`, { cache: "no-store", signal: AbortSignal.timeout(15000) }),
-    fetch(`${IRQL}/?q=${qRefin}&apiKey=${CREDITHUB_API_KEY}`, { cache: "no-store", signal: AbortSignal.timeout(15000) }),
-  ]);
+  const cnpjNum = cnpj.replace(/\D/g, "");
+  const params = new URLSearchParams({
+    q: `USING 'SCPCNET' SELECT FROM 'PROTESTOS'.'SCPCNET' WHERE 'DOCUMENTO' = '${cnpjNum}'`,
+    apiKey: CREDITHUB_API_KEY,
+  });
 
   let pefin: PefinReginData | undefined;
-  let refin:  PefinReginData | undefined;
-
-  if (pefinR.status === "fulfilled") {
-    try {
-      const xml  = await pefinR.value.text();
-      const rows = parseIRQLRows(xml);
-      pefin = rowsToPefinData(rows);
-    } catch { /* silencioso */ }
-  }
-  if (refinR.status === "fulfilled") {
-    try {
-      const xml  = await refinR.value.text();
-      const rows = parseIRQLRows(xml);
-      refin = rowsToPefinData(rows);
-    } catch { /* silencioso */ }
+  try {
+    const res = await fetch(`https://irql.credithub.com.br/?${params.toString()}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) {
+      console.warn(`[credithub] PEFIN HTTP ${res.status} ${res.statusText} — tratando como não consultado`);
+    } else {
+      const body = await res.text();
+      // Sintaxe quebrada vem em XML BPQL ainda que o status seja 200 em alguns
+      // adapters — defendemos com check de prefixo antes do JSON.parse.
+      if (body.trimStart().startsWith("<")) {
+        const exMatch = body.match(/<exception[^>]*>([^<]+)<\/exception>/i);
+        console.warn(`[credithub] PEFIN resposta XML/BPQL — ${exMatch?.[1] ?? "erro desconhecido"}`);
+      } else {
+        const parsed = JSON.parse(body) as { spc?: SCPCNETRow[] };
+        const spc = Array.isArray(parsed.spc) ? parsed.spc : [];
+        pefin = spcArrayToPefinData(spc);
+        console.log(`[credithub] PEFIN: ${pefin.qtd} registros R$ ${pefin.valor.toLocaleString("pt-BR")}`);
+      }
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[credithub] PEFIN consulta falhou: ${msg}`);
   }
 
   return { pefin, refin };
