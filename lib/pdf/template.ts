@@ -2511,6 +2511,22 @@ function pageIRVisita(params: PDFReportParams, date: string): string {
             <div class="icell" style="grid-column:span 3"><div class="l" style="color:var(--x4)">Participações em sociedades declaradas no Grupo 03 da DIRPF</div></div>
           </div>`;
         })()}
+        ${(() => {
+          const divs = ir.dividasOnusReais ?? [];
+          if (divs.length === 0) return "";
+          const totalDivs = divs.reduce((s, d) => s + (d.situacao_atual ?? 0), 0);
+          const rows = divs.map(d => `<tr>
+            <td style="padding:4px 8px;border-top:1px solid var(--r1);color:var(--n8);font-size:10px">${esc(d.discriminacao || "—")}</td>
+            <td style="padding:4px 8px;border-top:1px solid var(--r1);text-align:right;font-family:'JetBrains Mono',monospace;color:var(--r6);font-weight:600;font-size:10px;white-space:nowrap">${fmtMoneyAbr(d.situacao_atual ?? 0)}</td>
+          </tr>`).join("");
+          return `<div style="margin:8px 0 8px;border:1px solid var(--r2);background:var(--r0);border-radius:8px;overflow:hidden">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:rgba(220,38,38,0.08);border-bottom:1px solid var(--r2)">
+              <span style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--r6)">Dívidas e Ônus Reais</span>
+              <span style="font-size:11px;font-weight:700;color:var(--r6);font-family:'JetBrains Mono',monospace">${fmtMoneyAbr(totalDivs)}</span>
+            </div>
+            <table style="width:100%;border-collapse:collapse">${rows}</table>
+          </div>`;
+        })()}
         ${!ir.debitosEmAberto ? `<div class="alert ok" style="margin:0"><span class="atag">OK</span> Sem débitos com a Receita Federal</div>` : `<div class="alert alta" style="margin:0"><span class="atag">ALTA</span> Débitos em aberto: ${esc(ir.descricaoDebitos ?? "")}</div>`}
         ${(() => {
           const quotasV = numVal((ir as { participacoesSocietarias?: string }).participacoesSocietarias ?? (ir as { outrosBens?: string }).outrosBens ?? "0");

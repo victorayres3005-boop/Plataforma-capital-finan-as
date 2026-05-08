@@ -301,6 +301,8 @@ export function renderSocios(ctx: PdfCtx): void {
       tblTitle("DÍVIDAS E ÔNUS REAIS", divTotal, P.r0, P.r1, P.r6);
       divsArr.forEach((d, i) => tblRow(d.discriminacao, mo(d.situacao_atual), i));
       pos.y += 3;
+    } else if (totalDivN2 > 0) {
+      alertRow("alta", `${ir.nomeSocio || "Sócio"} — Dívidas e Ônus declarados: ${mo(totalDivN2)} (sem detalhamento extraído)`);
     }
 
     // ── Tabela 3: Pagamentos Relevantes ──

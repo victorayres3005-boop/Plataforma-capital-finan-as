@@ -75,6 +75,26 @@ export function SectionIRSocios({ data, set, add, remove, expanded, onToggle }: 
                 <Field label="Descrição dos Débitos" value={socio.descricaoDebitos || ""} onChange={v => set(idx, "descricaoDebitos", v)} multiline span2 />
               )}
               <Field label="Observações" value={socio.observacoes} onChange={v => set(idx, "observacoes", v)} multiline span2 />
+              {socio.dividasOnusReais && socio.dividasOnusReais.length > 0 && (
+                <div className="col-span-2 mt-1 rounded-xl border border-red-200 bg-red-50 overflow-hidden">
+                  <div className="flex items-center justify-between px-3 py-2 bg-red-100/60 border-b border-red-200">
+                    <span className="text-[11px] font-bold uppercase tracking-wide text-red-700">Dívidas e Ônus Reais (extraído do IR)</span>
+                    <span className="text-[11px] font-bold text-red-700 tabular-nums">
+                      {(socio.dividasOnusReais ?? []).reduce((s, d) => s + (d.situacao_atual ?? 0), 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                    </span>
+                  </div>
+                  <ul className="divide-y divide-red-200">
+                    {(socio.dividasOnusReais ?? []).map((d, i) => (
+                      <li key={i} className="flex items-start justify-between gap-3 px-3 py-2 text-[12px]">
+                        <span className="text-cf-text-2 break-words flex-1">{d.discriminacao || "—"}</span>
+                        <span className="font-semibold text-red-700 tabular-nums whitespace-nowrap">
+                          {(d.situacao_atual ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           </div>
         ))}
