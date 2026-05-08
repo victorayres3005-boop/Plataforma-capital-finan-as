@@ -1039,11 +1039,25 @@ function pageSintese(params: PDFReportParams, date: string): string {
   const alertsArr = (params.alerts ?? [])
     .filter(a => (a.severity === "CRÍTICO" || a.severity === "RESTRITIVO") && a.message?.trim() && a.message.trim() !== "—")
     .slice(0, 5).map(a => a.message);
+  // Cada bloco entre marcadores EDIT:<sec>:START/END é substituível pelo
+  // route.ts em /r/[id] quando há overrides salvos no Supabase.
+  const renderItems = (arr: string[]): string =>
+    arr.map(x => `<div class="ana-item" data-edit-item>${esc(x)}</div>`).join("")
+    || '<div class="ana-item ana-item-empty" data-edit-empty style="color:var(--x4)">—</div>';
   const analiseHtml = `${stitle("Análise")}
   <div class="ana-grid">
-    <div class="ana-col f"><div class="ana-h">Pontos Fortes</div>${fortes.map(f=>`<div class="ana-item">${esc(f)}</div>`).join("") || '<div class="ana-item" style="color:var(--x4)">—</div>'}</div>
-    <div class="ana-col w"><div class="ana-h">Pontos Fracos</div>${fracos.map(f=>`<div class="ana-item">${esc(f)}</div>`).join("") || '<div class="ana-item" style="color:var(--x4)">—</div>'}</div>
-    <div class="ana-col a"><div class="ana-h">Alertas</div>${alertsArr.map(a=>`<div class="ana-item">${esc(a)}</div>`).join("") || '<div class="ana-item" style="color:var(--x4)">—</div>'}</div>
+    <div class="ana-col f" data-edit-section="fortes">
+      <div class="ana-h">Pontos Fortes</div>
+      <div class="ana-list" data-edit-list="fortes"><!--EDIT:fortes:START-->${renderItems(fortes)}<!--EDIT:fortes:END--></div>
+    </div>
+    <div class="ana-col w" data-edit-section="fracos">
+      <div class="ana-h">Pontos Fracos</div>
+      <div class="ana-list" data-edit-list="fracos"><!--EDIT:fracos:START-->${renderItems(fracos)}<!--EDIT:fracos:END--></div>
+    </div>
+    <div class="ana-col a" data-edit-section="alertas">
+      <div class="ana-h">Alertas</div>
+      <div class="ana-list" data-edit-list="alertas"><!--EDIT:alertas:START-->${renderItems(alertsArr)}<!--EDIT:alertas:END--></div>
+    </div>
   </div>`;
 
   // Percepção — prioridade: texto manual do analista > resumo gerado pela IA
@@ -3009,6 +3023,189 @@ document.getElementById('printBtn').addEventListener('click', async function() {
 });
 </script>
 <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+
+<!-- ═══ Editor de Pontos Fortes / Fracos / Alertas (só ativa com ?k=token válido) ═══ -->
+<style>
+  .edit-bar{position:fixed;top:16px;right:16px;z-index:9998;display:none;align-items:center;gap:8px;padding:8px 12px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 6px 24px rgba(15,23,42,.12);font-family:'DM Sans',sans-serif;font-size:12px}
+  .edit-bar.show{display:flex}
+  .edit-bar button{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:6px;border:1px solid #cbd5e1;background:#fff;color:#1f2937;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}
+  .edit-bar button:hover{background:#f8fafc}
+  .edit-bar button.primary{background:#1a2b5e;border-color:#1a2b5e;color:#fff}
+  .edit-bar button.primary:hover{background:#243a80}
+  .edit-bar button.danger{background:#fff;border-color:#fecaca;color:#b91c1c}
+  .edit-bar button:disabled{opacity:.5;cursor:not-allowed}
+  .edit-bar select{padding:5px 8px;border-radius:6px;border:1px solid #cbd5e1;font-size:12px;font-family:inherit;background:#fff}
+  .edit-bar .meta{color:#64748b;font-size:11px;margin-right:4px}
+  body.editing [data-edit-section]{outline:2px dashed #84BF41;outline-offset:6px;border-radius:8px;position:relative}
+  body.editing [data-edit-item]{cursor:text;padding:4px 22px 4px 8px;border-radius:4px;position:relative;transition:background .1s;display:block}
+  body.editing [data-edit-item]:hover{background:rgba(132,191,65,.08)}
+  body.editing [data-edit-item][contenteditable="true"]:focus{outline:1px solid #84BF41;background:#fff}
+  body.editing .ana-item-empty{display:none}
+  .edit-rm{position:absolute;top:50%;right:4px;transform:translateY(-50%);width:18px;height:18px;border-radius:50%;border:none;background:#fee2e2;color:#b91c1c;font-size:13px;line-height:1;cursor:pointer;display:none;align-items:center;justify-content:center;padding:0;font-family:inherit}
+  body.editing .edit-rm{display:inline-flex}
+  .edit-add{display:none;margin-top:8px;padding:5px 10px;font-size:11px;border:1px dashed #84BF41;background:#f0f9e6;color:#5a8a2a;border-radius:5px;cursor:pointer;font-family:inherit;font-weight:600}
+  body.editing .edit-add{display:inline-block}
+  .edit-saved{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:9999;padding:10px 18px;background:#16a34a;color:#fff;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.15);display:none}
+  .edit-saved.show{display:block}
+  @media print{.edit-bar,.edit-add,.edit-rm,.edit-saved{display:none!important}}
+</style>
+<div class="edit-bar" id="editBar">
+  <span class="meta">Autor:</span>
+  <select id="editAutor">
+    <option value="Victor">Victor</option>
+    <option value="Vanessa">Vanessa</option>
+  </select>
+  <button id="editToggle">&#9998; Editar</button>
+  <button id="editSave" class="primary" style="display:none">&#128190; Salvar</button>
+  <button id="editCancel" style="display:none">Cancelar</button>
+</div>
+<div class="edit-saved" id="editSaved">Alterações salvas</div>
+<script>
+(function(){
+  var TOKEN = "__EDIT_TOKEN__";
+  // route.ts substitui __EDIT_TOKEN__ por token real (quando ?k= bate) ou string vazia.
+  if (!TOKEN || TOKEN === "__" + "EDIT_TOKEN__") return;
+  var m = location.pathname.match(/\/r\/([a-z0-9]{8,16})/);
+  if (!m) return;
+  var REPORT_ID = m[1];
+
+  var bar     = document.getElementById('editBar');
+  var btnTog  = document.getElementById('editToggle');
+  var btnSave = document.getElementById('editSave');
+  var btnCanc = document.getElementById('editCancel');
+  var selAut  = document.getElementById('editAutor');
+  var toast   = document.getElementById('editSaved');
+  bar.classList.add('show');
+
+  var SECTIONS = ['fortes','fracos','alertas'];
+  var snapshot = null;
+  var editing = false;
+
+  function lists(){ return SECTIONS.map(function(s){ return [s, document.querySelector('[data-edit-list="'+s+'"]')]; }); }
+
+  function takeSnapshot(){
+    var snap = {};
+    lists().forEach(function(p){ snap[p[0]] = p[1] ? p[1].innerHTML : ''; });
+    return snap;
+  }
+  function restoreSnapshot(snap){
+    lists().forEach(function(p){ if (p[1] && snap[p[0]] != null) p[1].innerHTML = snap[p[0]]; });
+  }
+
+  function decorate(list){
+    Array.prototype.forEach.call(list.querySelectorAll('[data-edit-item]'), function(item){
+      item.setAttribute('contenteditable','true');
+      if (!item.querySelector('.edit-rm')){
+        var rm = document.createElement('button');
+        rm.type='button'; rm.className='edit-rm'; rm.textContent='×'; rm.title='Remover';
+        rm.contentEditable = 'false';
+        rm.addEventListener('click', function(e){ e.preventDefault(); item.remove(); });
+        item.appendChild(rm);
+      }
+    });
+    if (!list.parentElement.querySelector('.edit-add')){
+      var add = document.createElement('button');
+      add.type='button'; add.className='edit-add'; add.textContent='+ Adicionar';
+      add.addEventListener('click', function(){
+        var d = document.createElement('div');
+        d.className='ana-item'; d.setAttribute('data-edit-item','');
+        d.setAttribute('contenteditable','true');
+        d.textContent='Novo ponto';
+        var rm = document.createElement('button');
+        rm.type='button'; rm.className='edit-rm'; rm.textContent='×'; rm.contentEditable='false';
+        rm.addEventListener('click', function(){ d.remove(); });
+        d.appendChild(rm);
+        list.appendChild(d);
+        d.focus();
+        var range = document.createRange(); range.selectNodeContents(d); range.collapse(false);
+        var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+      });
+      list.parentElement.appendChild(add);
+    }
+  }
+  function undecorate(list){
+    Array.prototype.forEach.call(list.querySelectorAll('[data-edit-item]'), function(item){
+      item.removeAttribute('contenteditable');
+      var rm = item.querySelector('.edit-rm'); if (rm) rm.remove();
+    });
+    var add = list.parentElement.querySelector('.edit-add'); if (add) add.remove();
+  }
+
+  function startEdit(){
+    snapshot = takeSnapshot();
+    lists().forEach(function(p){ if (p[1]) decorate(p[1]); });
+    document.body.classList.add('editing');
+    btnTog.style.display='none';
+    btnSave.style.display='inline-flex';
+    btnCanc.style.display='inline-flex';
+    editing = true;
+  }
+  function cancelEdit(){
+    if (snapshot) restoreSnapshot(snapshot);
+    lists().forEach(function(p){ if (p[1]) undecorate(p[1]); });
+    document.body.classList.remove('editing');
+    btnTog.style.display='inline-flex';
+    btnSave.style.display='none';
+    btnCanc.style.display='none';
+    editing = false;
+  }
+  function collect(){
+    var out = {};
+    lists().forEach(function(p){
+      var sec = p[0], list = p[1];
+      if (!list) { out[sec] = []; return; }
+      var items = list.querySelectorAll('[data-edit-item]');
+      var arr = [];
+      Array.prototype.forEach.call(items, function(item){
+        var clone = item.cloneNode(true);
+        var rm = clone.querySelector('.edit-rm'); if (rm) rm.remove();
+        var t = (clone.textContent || '').trim();
+        if (t) arr.push(t);
+      });
+      out[sec] = arr;
+    });
+    return out;
+  }
+  function saveEdit(){
+    var data = collect();
+    btnSave.disabled = true; btnSave.textContent = 'Salvando...';
+    fetch('__BASE_URL__/api/r/' + REPORT_ID + '/edit', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        fortes:  data.fortes,
+        fracos:  data.fracos,
+        alertas: data.alertas,
+        autor:   selAut.value,
+        token:   TOKEN
+      })
+    }).then(function(r){
+      if (!r.ok) return r.text().then(function(t){ throw new Error(t || ('HTTP '+r.status)); });
+      return r.json();
+    }).then(function(){
+      lists().forEach(function(p){ if (p[1]) undecorate(p[1]); });
+      document.body.classList.remove('editing');
+      btnTog.style.display='inline-flex';
+      btnSave.style.display='none';
+      btnCanc.style.display='none';
+      editing = false;
+      toast.classList.add('show');
+      setTimeout(function(){ toast.classList.remove('show'); }, 2200);
+    }).catch(function(e){
+      alert('Erro ao salvar: ' + (e && e.message ? e.message : e));
+    }).finally(function(){
+      btnSave.disabled = false; btnSave.innerHTML = '&#128190; Salvar';
+    });
+  }
+  btnTog.addEventListener('click', startEdit);
+  btnCanc.addEventListener('click', cancelEdit);
+  btnSave.addEventListener('click', saveEdit);
+  window.addEventListener('beforeunload', function(e){
+    if (editing){ e.preventDefault(); e.returnValue = ''; }
+  });
+})();
+</script>
+
 ${pages}
 </body>
 </html>`;

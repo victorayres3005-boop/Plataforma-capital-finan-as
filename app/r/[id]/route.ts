@@ -3,6 +3,31 @@ import { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
 
+function esc(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// Hidrata os inputs do Pleito Comitê (data-pc-key="...") com valores salvos.
+// Edição é livre (sem token) — segue decisão de produto.
+function injectPleitoComite(html: string, raw: unknown): string {
+  if (!raw || typeof raw !== "object") return html;
+  const values = raw as Record<string, unknown>;
+  const hasAny = Object.values(values).some(v => typeof v === "string" && v.trim());
+  if (!hasAny) return html;
+  return html.replace(
+    /(data-pc-key=")([a-zA-Z]+)(" value=")("\s)/g,
+    (match, p1, key, p3, p4) => {
+      const v = values[key];
+      if (typeof v !== "string" || !v.trim()) return match;
+      return `${p1}${key}${p3}${esc(v)}${p4}`;
+    }
+  );
+}
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: { id: string } }
@@ -22,7 +47,7 @@ export async function GET(
   const supabase = createClient(url, key);
   const { data, error } = await supabase
     .from("shared_reports")
-    .select("html, expires_at, company")
+    .select("html, expires_at, company, pleito_comite")
     .eq("id", id)
     .single();
 
@@ -33,7 +58,6 @@ export async function GET(
     });
   }
 
-  // Verifica expiração
   if (data.expires_at && new Date(data.expires_at) < new Date()) {
     return new Response(expiredPage(), {
       status: 410,
@@ -41,11 +65,20 @@ export async function GET(
     });
   }
 
-  return new Response(data.html, {
+  // Pleito Comitê: edição livre; injeta valores salvos sempre que houver.
+  const html = injectPleitoComite(data.html as string, data.pleito_comite);
+
+  // Pleito Comitê é editável sem token: qualquer leitura precisa refletir o último save.
+  // Sem pleito preenchido, mantém cache normal pra não onerar o banco.
+  const hasPleitoComite = !!data.pleito_comite && Object.values(data.pleito_comite as Record<string, unknown>).some(v => typeof v === "string" && v.trim());
+
+  return new Response(html, {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": "public, max-age=3600, s-maxage=3600",
+      "Cache-Control": hasPleitoComite
+        ? "no-store, no-cache, must-revalidate"
+        : "public, max-age=3600, s-maxage=3600",
     },
   });
 }
