@@ -895,7 +895,14 @@ function parseEmpresasVinculadas(d: any, cpfSocio: string, nomeSocio: string): G
       const razao = p.razaoSocial ?? p.nomeEmpresa ?? p.nome ?? p.empresa ?? p.razao_social ?? p.nome_empresa ?? "—";
       const relacao = p.qualificacao ?? p.tipoParticipacao ?? p.cargo ?? p.funcao ?? p.relacao ?? p.tipo ?? p.tipoVinculo ?? p.tipo_vinculo ?? "via Sócio";
       const participacao = p.participacao ?? p.percentual ?? p.percentualParticipacao ?? p.percentual_participacao ?? p.quota ?? "";
-      const situacaoRaw = p.situacaoCadastral ?? p.situacao ?? p.situacaoEmpresa ?? p.status ?? p.situacao_cadastral ?? "ATIVA";
+      // BUG histórico (corrigido 2026-05-08): havia default `?? "ATIVA"` aqui.
+      // Quando CreditHub não retornava campo de situação, TODA empresa vinculada
+      // virava ATIVA falsamente. Causa real do sintoma reportado pela chefe
+      // ("empresas como ATIVAS mas são INAPTAS"). Default vira "VERIFICAR" pra
+      // depois ser reescrito por enriquecerEmpresasGrupoEconomico (com sit real
+      // do /simples) ou consultarRFBPorCPF (com sit real da Receita pública).
+      const situacaoRaw = p.situacaoCadastral ?? p.situacao ?? p.situacaoEmpresa ?? p.status ?? p.situacao_cadastral ?? "";
+      const situacaoNormalizada = normalizeSituacaoCadastral(situacaoRaw);
       return {
         razaoSocial: razao,
         cnpj: cnpjRaw.length === 14 ? cnpjRaw : "",
@@ -906,7 +913,7 @@ function parseEmpresasVinculadas(d: any, cpfSocio: string, nomeSocio: string): G
         socioOrigem: nomeSocio,
         cpfSocio,
         participacao: String(participacao),
-        situacao: String(situacaoRaw).toUpperCase(),
+        situacao: situacaoNormalizada || (situacaoRaw ? String(situacaoRaw).toUpperCase() : "VERIFICAR"),
       };
     });
 }
@@ -1270,7 +1277,10 @@ async function buscarEmpresaPropriaRFB(
     }
     const data = await res.json() as Record<string, unknown>;
     const razao = String(data?.razao_social ?? data?.nome_fantasia ?? "—").toUpperCase();
-    const sit   = String(data?.descricao_situacao_cadastral ?? "ATIVA").toUpperCase();
+    // Removido default "ATIVA" e .includes() — usa normalizeSituacaoCadastral
+    // (mesmo bug que afetava parseEmpresasVinculadas).
+    const sitRaw = String(data?.descricao_situacao_cadastral ?? "").toUpperCase();
+    const sit = normalizeSituacaoCadastral(sitRaw) || sitRaw || "VERIFICAR";
     console.log(`[credithub][cpf][rfb] CPF=${cpfSocio.slice(0,3)}*** empresa própria: ${razao} — ${sit}`);
     return [{
       razaoSocial: razao,
@@ -1282,7 +1292,7 @@ async function buscarEmpresaPropriaRFB(
       socioOrigem: nomeSocio,
       cpfSocio,
       participacao: "",
-      situacao: sit.includes("ATIVA") ? "ATIVA" : sit,
+      situacao: sit,
     }];
   } catch (err: unknown) {
     console.warn(`[credithub][cpf][rfb] erro ao consultar publica.cnpj.ws:`, String(err instanceof Error ? err.message : err));
