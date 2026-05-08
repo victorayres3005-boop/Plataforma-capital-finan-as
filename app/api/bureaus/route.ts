@@ -427,6 +427,7 @@ export async function POST(req: NextRequest) {
           sacado_credithub:     sacadosCount,
           sacado_bdc_empresa:   sacadosCount,
           sacado_bdc_pessoa:    sacadosBdcPessoasCount,
+          sacado_assertiva_pj:  sacadosCount,
         };
         await sb.from("api_usage_logs").insert({
           collection_id: collection_id ?? null,

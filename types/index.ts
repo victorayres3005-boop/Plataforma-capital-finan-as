@@ -666,7 +666,10 @@ export interface SacadoAnalisado {
   socios: SacadoSocio[];
   enderecoCompleto?: string;          // forma humana ("Rua X, 100 - Centro - SP")
   uf?: string;
-  scoreSerasa?: number;               // 0-1000 (CreditHub)
+  /** Score PJ 0-1000 — origem atual: Assertiva (CreditHub não expõe score numérico). */
+  score?: number;
+  /** Classificação A-F do Assertiva, quando disponível. */
+  scoreClasse?: string;
   protestosQtd?: number;
   protestosValorTotal?: string;
   processosPassivos?: number;

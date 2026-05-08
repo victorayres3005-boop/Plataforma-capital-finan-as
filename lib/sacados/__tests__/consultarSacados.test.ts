@@ -6,6 +6,29 @@ import {
 import type { TopSacadoEntry } from "@/lib/sacados/extractTopSacados";
 import type { CreditHubResult } from "@/lib/bureaus/credithub";
 import type { BigDataCorpResult } from "@/lib/bureaus/bigdatacorp";
+import type { AssertivaResult } from "@/lib/bureaus/assertiva";
+
+function assertivaOk(over: Partial<AssertivaResult["empresa"]> = {}): AssertivaResult {
+  return {
+    success: true,
+    mock: false,
+    empresa: {
+      cnpj: "12345678000199",
+      scoreAssertivaPJ: 720,
+      scoreClasse: "B",
+      negativacoesAssertiva: 0,
+      rendaPresumidaPJ: "R$ 1.000.000,00",
+      protestosQtd: 0,
+      protestosValor: 0,
+      protestoCompleto: true,
+      protestosLista: [],
+      consultasTotal: 0,
+      consultasRecentes: [],
+      consultasUltima: "",
+      ...over,
+    } as AssertivaResult["empresa"],
+  };
+}
 
 function topSacado(over: Partial<TopSacadoEntry> = {}): TopSacadoEntry {
   return {
@@ -180,6 +203,32 @@ describe("mapearSacado", () => {
       bdc: bdcOk(),
     });
     expect(out.fonteBureau).toBe("bdc");
+  });
+
+  it("score e scoreClasse vêm do Assertiva quando fornecido", () => {
+    const out = mapearSacado({
+      topSacado: topSacado(),
+      ch: chOk(),
+      bdc: bdcOk(),
+      assertiva: assertivaOk({ scoreAssertivaPJ: 850, scoreClasse: "A" }),
+    });
+    expect(out.score).toBe(850);
+    expect(out.scoreClasse).toBe("A");
+  });
+
+  it("score fica undefined quando Assertiva ausente ou score=0", () => {
+    const out1 = mapearSacado({ topSacado: topSacado(), ch: chOk(), bdc: bdcOk() });
+    expect(out1.score).toBeUndefined();
+    expect(out1.scoreClasse).toBeUndefined();
+
+    const out2 = mapearSacado({
+      topSacado: topSacado(),
+      ch: chOk(),
+      bdc: bdcOk(),
+      assertiva: assertivaOk({ scoreAssertivaPJ: 0, scoreClasse: "" }),
+    });
+    expect(out2.score).toBeUndefined();
+    expect(out2.scoreClasse).toBeUndefined();
   });
 
   it("preserva campos da TopSacadoEntry (posicao, classe, percentual)", () => {

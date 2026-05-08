@@ -25,6 +25,10 @@ import {
   type BigDataCorpResult,
   type BigDataCorpSocioData,
 } from "@/lib/bureaus/bigdatacorp";
+import {
+  consultarEmpresa as consultarAssertivaEmpresa,
+  type AssertivaResult,
+} from "@/lib/bureaus/assertiva";
 import { cacheGet, cacheSet } from "@/lib/bureaus/cache";
 import { calcularVinculos, type SocioComMae } from "./matchVinculos";
 import { onlyDigits, type TopSacadoEntry } from "./extractTopSacados";
@@ -118,7 +122,7 @@ function pickEndereco(
   return ch?.cnpjEnrichment?.endereco || bdc?.cnpjEnrichment?.endereco || undefined;
 }
 
-/** Determina fonte (CH/BDC/ambos) para auditoria. */
+/** Determina fonte (CH/BDC/ambos) para auditoria. Assertiva entra à parte. */
 function determineFonte(
   ch: CreditHubResult | undefined,
   bdc: BigDataCorpResult | undefined
@@ -139,6 +143,8 @@ export interface MapearSacadoInput {
   topSacado: TopSacadoEntry;
   ch: CreditHubResult | undefined;
   bdc: BigDataCorpResult | undefined;
+  /** Quando ausente, score/scoreClasse ficam undefined. */
+  assertiva?: AssertivaResult | undefined;
 }
 
 export type SacadoMapeado = Omit<SacadoAnalisado, "vinculos">;
@@ -148,12 +154,16 @@ export type SacadoMapeado = Omit<SacadoAnalisado, "vinculos">;
  * Não consulta nada — recebe os resultados prontos.
  */
 export function mapearSacado(input: MapearSacadoInput): SacadoMapeado {
-  const { topSacado, ch, bdc } = input;
+  const { topSacado, ch, bdc, assertiva } = input;
   const protestos = summarizeProtestos(ch?.protestos ?? bdc?.protestos);
   const processos = summarizeProcessos(ch?.processos ?? bdc?.processos);
   const enderecoCompleto = pickEndereco(bdc, ch);
   const uf = extractUFFromEndereco(enderecoCompleto);
   const fonteBureau = determineFonte(ch, bdc);
+  // Score PJ vem do Assertiva (`resposta.score.pontos`). CreditHub `/simples`
+  // não devolve score numérico hoje.
+  const score = assertiva?.empresa?.scoreAssertivaPJ;
+  const scoreClasse = assertiva?.empresa?.scoreClasse;
 
   return {
     cnpj: topSacado.cnpj,
@@ -165,9 +175,8 @@ export function mapearSacado(input: MapearSacadoInput): SacadoMapeado {
     socios: pickSocios(bdc, ch),
     enderecoCompleto,
     uf,
-    // scoreSerasa: o `consultarCreditHub` não retorna score numérico (só flag
-    // de integração). Reativar quando expusermos `serasaScore` em CreditHubResult.
-    scoreSerasa: undefined,
+    score: typeof score === "number" && score > 0 ? score : undefined,
+    scoreClasse: scoreClasse || undefined,
     protestosQtd: protestos.qtd,
     protestosValorTotal: protestos.valor,
     processosPassivos: processos.passivos,
@@ -212,14 +221,16 @@ export async function consultarSacado(
     }
   }
 
-  console.log(`[sacados] consultando ${cnpj} (CH + BDC paralelo)`);
-  const [chRes, bdcRes] = await Promise.allSettled([
+  console.log(`[sacados] consultando ${cnpj} (CH + BDC + Assertiva paralelo)`);
+  const [chRes, bdcRes, assRes] = await Promise.allSettled([
     consultarCreditHub(cnpj),
     consultarBigDataCorpEmpresa(cnpj),
+    consultarAssertivaEmpresa(cnpj),
   ]);
 
   const ch = chRes.status === "fulfilled" ? chRes.value : undefined;
   const bdc = bdcRes.status === "fulfilled" ? bdcRes.value : undefined;
+  const assertiva = assRes.status === "fulfilled" ? assRes.value : undefined;
 
   // Extrai CPFs dos sócios PF do sacado (preferência CH; BDC se CH vazio)
   const sociosPJ = ch?.qsaEnrichment?.quadroSocietario ?? bdc?.qsaEnrichment?.quadroSocietario ?? [];
@@ -245,10 +256,10 @@ export async function consultarSacado(
     motherName: s.motherName,
   }));
 
-  const mapeado = mapearSacado({ topSacado, ch, bdc });
+  const mapeado = mapearSacado({ topSacado, ch, bdc, assertiva });
   const data: SacadoCachedData = { mapeado, sociosComMae };
 
-  if (!opts.skipCache && (ch?.success || bdc?.success)) {
+  if (!opts.skipCache && (ch?.success || bdc?.success || assertiva?.success)) {
     await cacheSet(cacheKey, data);
   }
   return data;

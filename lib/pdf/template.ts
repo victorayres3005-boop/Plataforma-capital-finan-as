@@ -990,32 +990,8 @@ function pageSintese(params: PDFReportParams, date: string): string {
     }
   }
 
-  // Curva ABC (inline in page 2)
-  const abc = d.curvaABC;
-  let abcHtml = "";
-  if (abc && abc.clientes.length > 0) {
-    const maxVal = numVal(abc.clientes[0]?.valorFaturado ?? "0");
-    const rows2 = abc.clientes.slice(0, 5).map((c, i) => {
-      const barW = maxVal > 0 ? Math.round((numVal(c.valorFaturado)/maxVal)*100) : 0;
-      const clsCls = (c.classe ?? "c").toLowerCase();
-      return `<tr>
-        <td><span class="abc-rank">${i+1}</span></td>
-        <td><b>${esc(c.nome)}</b><div class="abc-bar" style="width:${barW}%"></div></td>
-        <td class="r">${fmtMoney(c.valorFaturado)}</td>
-        <td class="r bold">${fmtPct(c.percentualReceita)}</td>
-        <td class="r bold">${fmtPct(c.percentualAcumulado)}</td>
-        <td><span class="abc-cl ${clsCls}">${esc(c.classe)}</span></td>
-      </tr>`;
-    }).join("");
-    abcHtml = `${stitle("Curva ABC (Top 5)")}
-    <div class="abc-wrap">
-      <table class="abc-tbl">
-        <thead><tr><th style="width:40px">#</th><th>Cliente</th><th class="r">Faturamento</th><th class="r">% Rec.</th><th class="r">% Acum.</th><th style="width:50px">Cl.</th></tr></thead>
-        <tbody>${rows2}</tbody>
-      </table>
-      <div class="abc-summary">Top 3: <b>${fmtPct(abc.concentracaoTop3)}</b> · Top 5: <b>${fmtPct(abc.concentracaoTop5)}</b> · Total clientes: <b>${abc.totalClientesNaBase}</b></div>
-    </div>`;
-  }
+  // Curva ABC + Sacados — agora renderizado como tabela única dentro de .s-wrap
+  // (ver bloco "8. Curva ABC + Bureau + Partes Relacionadas" abaixo).
 
   // Pleito (from relatorioVisita) — tabela completa de parâmetros
   const rv = d.relatorioVisita;
@@ -1500,51 +1476,109 @@ function pageSintese(params: PDFReportParams, date: string): string {
       </div>
     </div>
 
-    <!-- 8. Curva ABC -->
-    ${abcHtml}
-
-    <!-- 8b. Sacados — Bureau + Partes Relacionadas (resumo; detalhe na pág 9) -->
+    <!-- 8. Curva ABC + Bureau + Partes Relacionadas (tabela única) -->
     ${(() => {
-      const sacados = d.sacadosAnalisados ?? [];
-      if (sacados.length === 0) return "";
+      const abcLocal = d.curvaABC;
+      if (!abcLocal || abcLocal.clientes.length === 0) return "";
+
       const fmtCnpj14 = (c: string) =>
         c?.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5") ?? "—";
 
-      const linhasSacados = sacados.map((s) => {
-        // Resumo dos vínculos: chips curtos
-        const tiposVinculo: string[] = [];
-        if (s.vinculos.cpfSocioComum.length > 0) tiposVinculo.push("CPF comum");
-        if (s.vinculos.maesComuns.length > 0) tiposVinculo.push("mãe comum");
-        if (s.vinculos.parentescoBDC.length > 0) tiposVinculo.push("parentesco");
-        if (s.vinculos.enderecoIdentico) tiposVinculo.push("endereço");
-        if (s.vinculos.sobrenomesUF.length > 0) tiposVinculo.push("sobrenome+UF");
+      // Index dos sacados analisados por CNPJ canonicalizado para lookup O(1).
+      // CNPJ pode vir formatado ou cru no JSON original — sempre compara só dígitos.
+      const sacadosArr = d.sacadosAnalisados ?? [];
+      const sacadosByCnpj = new Map<string, typeof sacadosArr[number]>();
+      sacadosArr.forEach((s) => {
+        const k = (s.cnpj ?? "").replace(/\D/g, "");
+        if (k) sacadosByCnpj.set(k, s);
+      });
 
-        const chipVinculo = s.vinculos.temVinculo
-          ? `<span style="display:inline-block;padding:2px 6px;background:#FEE2E2;color:#991B1B;border:1px solid #FCA5A5;border-radius:3px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em" title="${esc(tiposVinculo.join(", "))}">🚩 ${esc(tiposVinculo[0] ?? "vínculo")}${tiposVinculo.length > 1 ? ` +${tiposVinculo.length - 1}` : ""}</span>`
-          : `<span style="color:var(--x4);font-size:10px">—</span>`;
+      // Top 5 da Curva ABC (preserva ranking de concentração — pode incluir CPF/PF)
+      const top = abcLocal.clientes.slice(0, 5);
+      const maxValSint = numVal(top[0]?.valorFaturado ?? "0");
 
-        const protRed = (s.protestosQtd ?? 0) > 0;
-        const procRed = (s.processosPassivos ?? 0) > 0;
+      const linhas = top.map((c, i) => {
+        const cnpjCanon = (c.cnpjCpf ?? "").replace(/\D/g, "");
+        // Tenta lookup por cnpjCpf direto e por CNPJ embutido no nome (caso prod 2026-05-08)
+        let s = cnpjCanon.length === 14 ? sacadosByCnpj.get(cnpjCanon) : undefined;
+        if (!s) {
+          const m = (c.nome ?? "").match(/(\d{2}\.?\d{3}\.?\d{3}[/.-]?\d{4}[-.]?\d{2})/);
+          if (m) {
+            const cnpjFromName = m[1].replace(/\D/g, "");
+            s = sacadosByCnpj.get(cnpjFromName);
+          }
+        }
 
-        return `<tr${s.vinculos.temVinculo ? ` style="background:#FEF2F2"` : ""}>
-          <td><span class="abc-rank">${s.posicao ?? "—"}</span></td>
-          <td class="b">${esc(s.razaoSocial)}<div style="font-size:9px;color:var(--x5);font-family:'JetBrains Mono',monospace;font-weight:400;margin-top:1px">${fmtCnpj14(s.cnpj)}${s.uf ? ` · ${esc(s.uf)}` : ""}</div></td>
-          <td>${s.classe ? `<span class="abc-cl ${(s.classe ?? "c").toLowerCase()}">${esc(s.classe)}</span>` : "—"}</td>
-          <td class="r">${s.scoreSerasa ?? "—"}</td>
-          <td class="r ${protRed ? "red" : ""}">${s.protestosQtd ?? 0}</td>
-          <td class="r ${procRed ? "red" : ""}">${s.processosPassivos ?? 0}</td>
+        const isPF = cnpjCanon.length === 11;
+        const barW = maxValSint > 0 ? Math.round((numVal(c.valorFaturado) / maxValSint) * 100) : 0;
+        const clsCls = (c.classe ?? "c").toLowerCase();
+        const cnpjFmt = s?.cnpj
+          ? fmtCnpj14(s.cnpj)
+          : cnpjCanon.length === 14
+            ? fmtCnpj14(cnpjCanon)
+            : "";
+
+        // Bureau cells — só preenchem quando há sacado analisado
+        const protRed = (s?.protestosQtd ?? 0) > 0;
+        const procRed = (s?.processosPassivos ?? 0) > 0;
+        const scoreCell = s?.score
+          ? `${s.score}${s.scoreClasse ? ` <span style="font-size:9px;color:var(--x5)">${esc(s.scoreClasse)}</span>` : ""}`
+          : isPF ? `<span style="font-size:9px;color:var(--x4)">PF</span>` : "—";
+
+        // Vínculo
+        let chipVinculo = `<span style="color:var(--x4);font-size:10px">—</span>`;
+        if (s?.vinculos.temVinculo) {
+          const tipos: string[] = [];
+          if (s.vinculos.cpfSocioComum.length > 0) tipos.push("CPF comum");
+          if (s.vinculos.maesComuns.length > 0) tipos.push("mãe comum");
+          if (s.vinculos.parentescoBDC.length > 0) tipos.push("parentesco");
+          if (s.vinculos.enderecoIdentico) tipos.push("endereço");
+          if (s.vinculos.sobrenomesUF.length > 0) tipos.push("sobrenome+UF");
+          chipVinculo = `<span style="display:inline-block;padding:2px 6px;background:#FEE2E2;color:#991B1B;border:1px solid #FCA5A5;border-radius:3px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em" title="${esc(tipos.join(", "))}">🚩 ${esc(tipos[0] ?? "vínculo")}${tipos.length > 1 ? ` +${tipos.length - 1}` : ""}</span>`;
+        }
+
+        const nomeLimpo = s?.razaoSocial ?? c.nome;
+        const ufExtra = s?.uf ? ` · ${esc(s.uf)}` : "";
+
+        const rowBg = s?.vinculos.temVinculo ? ` style="background:#FEF2F2"` : "";
+
+        return `<tr${rowBg}>
+          <td><span class="abc-rank">${i + 1}</span></td>
+          <td class="b">${esc(nomeLimpo)}${cnpjFmt ? `<div style="font-size:9px;color:var(--x5);font-family:'JetBrains Mono',monospace;font-weight:400;margin-top:1px">${cnpjFmt}${ufExtra}</div>` : ""}<div class="abc-bar" style="width:${barW}%"></div></td>
+          <td class="r">${fmtMoney(c.valorFaturado)}</td>
+          <td class="r bold">${fmtPct(c.percentualReceita)}</td>
+          <td class="r bold">${fmtPct(c.percentualAcumulado)}</td>
+          <td><span class="abc-cl ${clsCls}">${esc(c.classe)}</span></td>
+          <td class="r">${scoreCell}</td>
+          <td class="r ${protRed ? "red" : ""}">${s?.protestosQtd ?? "—"}</td>
+          <td class="r ${procRed ? "red" : ""}">${s?.processosPassivos ?? "—"}</td>
           <td>${chipVinculo}</td>
         </tr>`;
       }).join("");
 
-      const totalComVinculo = sacados.filter(s => s.vinculos.temVinculo).length;
+      const totalComVinculo = (d.sacadosAnalisados ?? []).filter(s => s.vinculos.temVinculo).length;
+      const totalSacadosAnalisados = (d.sacadosAnalisados ?? []).length;
 
-      return `${stitle("Sacados — Bureau + Partes Relacionadas")}
-      ${totalComVinculo > 0 ? `<div class="alert alta" style="margin-bottom:8px"><span class="atag">ATENÇÃO</span> <b>${totalComVinculo} de ${sacados.length}</b> sacado(s) com vínculo detectado — detalhe completo na pág 9.</div>` : ""}
-      <table class="abc-tbl" style="margin-bottom:0">
-        <thead><tr><th style="width:40px">#</th><th>Sacado</th><th style="width:48px">Classe</th><th class="r" style="width:60px">Score</th><th class="r" style="width:48px">Protestos</th><th class="r" style="width:60px">Processos</th><th style="width:120px">Vínculo</th></tr></thead>
-        <tbody>${linhasSacados}</tbody>
-      </table>`;
+      return `${stitle("Curva ABC — Top 5 + Bureau + Partes Relacionadas")}
+      ${totalComVinculo > 0 ? `<div class="alert alta" style="margin-bottom:8px"><span class="atag">ATENÇÃO</span> <b>${totalComVinculo} de ${totalSacadosAnalisados}</b> sacado(s) com vínculo detectado — detalhe completo na pág 9.</div>` : ""}
+      <div class="abc-wrap">
+        <table class="abc-tbl">
+          <thead><tr>
+            <th style="width:34px">#</th>
+            <th>Sacado</th>
+            <th class="r" style="width:90px">Faturamento</th>
+            <th class="r" style="width:54px">% Rec.</th>
+            <th class="r" style="width:60px">% Acum.</th>
+            <th style="width:42px">Cl.</th>
+            <th class="r" style="width:64px">Score</th>
+            <th class="r" style="width:54px">Protestos</th>
+            <th class="r" style="width:62px">Processos</th>
+            <th style="width:110px">Vínculo</th>
+          </tr></thead>
+          <tbody>${linhas}</tbody>
+        </table>
+        <div class="abc-summary">Top 3: <b>${fmtPct(abcLocal.concentracaoTop3)}</b> · Top 5: <b>${fmtPct(abcLocal.concentracaoTop5)}</b> · Total clientes: <b>${abcLocal.totalClientesNaBase}</b></div>
+      </div>`;
     })()}
 
     <!-- 9. Pleito -->
@@ -2394,7 +2428,7 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">${fonteChip}${chipVinculo}</div>
         </div>
         <div class="istrip c4">
-          <div class="icell"><div class="l">Score Serasa</div><div class="v sm">${s.scoreSerasa ?? "—"}</div></div>
+          <div class="icell"><div class="l">Score (Assertiva)</div><div class="v sm">${s.score ?? "—"}${s.scoreClasse ? ` <span style="font-size:9px;color:var(--x5)">${esc(s.scoreClasse)}</span>` : ""}</div></div>
           <div class="icell ${protRed ? "danger" : ""}"><div class="l">Protestos vigentes</div><div class="v sm ${protRed ? "red" : ""}">${s.protestosQtd ?? 0}${s.protestosValorTotal ? ` <span style="font-size:9px;color:var(--x5)">${esc(s.protestosValorTotal)}</span>` : ""}</div></div>
           <div class="icell ${procRed ? "danger" : ""}"><div class="l">Processos passivos</div><div class="v sm ${procRed ? "red" : ""}">${s.processosPassivos ?? 0}${s.processosValorTotal ? ` <span style="font-size:9px;color:var(--x5)">${esc(s.processosValorTotal)}</span>` : ""}</div></div>
           <div class="icell"><div class="l">Sócios identificados</div><div class="v sm">${s.socios.length}</div></div>
