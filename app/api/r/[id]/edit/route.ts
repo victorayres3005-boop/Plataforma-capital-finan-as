@@ -8,11 +8,13 @@ export const maxDuration = 15;
 const MAX_ITEMS_PER_LIST = 12;
 const MAX_CHARS_PER_ITEM = 600;
 const MAX_AUTOR_LEN = 40;
+const MAX_PERCEPCAO_LEN = 4000; // ~600 palavras — espaço suficiente p/ parecer livre
 
 type EditPayload = {
   fortes?: unknown;
   fracos?: unknown;
   alertas?: unknown;
+  percepcao?: unknown;
   autor?: unknown;
   token?: unknown;
 };
@@ -25,6 +27,21 @@ function sanitizeList(raw: unknown): string[] {
     .filter(s => s.length > 0)
     .map(s => (s.length > MAX_CHARS_PER_ITEM ? s.slice(0, MAX_CHARS_PER_ITEM) : s))
     .slice(0, MAX_ITEMS_PER_LIST);
+}
+
+// Percepção é texto livre (não lista). Preserva quebras de linha, comprime
+// espaços horizontais e limita comprimento.
+function sanitizeText(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const t = raw
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map(line => line.replace(/[ \t]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if (!t) return null;
+  return t.length > MAX_PERCEPCAO_LEN ? t.slice(0, MAX_PERCEPCAO_LEN) : t;
 }
 
 export async function POST(
@@ -57,6 +74,7 @@ export async function POST(
   const fortes  = sanitizeList(body.fortes);
   const fracos  = sanitizeList(body.fracos);
   const alertas = sanitizeList(body.alertas);
+  const percepcao = sanitizeText(body.percepcao);
   const autorRaw = typeof body.autor === "string" ? body.autor.trim() : "";
   const autor = autorRaw.slice(0, MAX_AUTOR_LEN) || null;
 
@@ -84,6 +102,7 @@ export async function POST(
       pontos_fortes: fortes,
       pontos_fracos: fracos,
       alertas,
+      percepcao,
       updated_at: new Date().toISOString(),
       updated_by: autor,
     })
@@ -92,11 +111,11 @@ export async function POST(
   if (updErr) {
     const isColumnMissing = updErr.code === "42703";
     const userMsg = isColumnMissing
-      ? "Colunas de edição ausentes — execute migração 16_shared_reports_editable.sql"
+      ? "Colunas de edição ausentes — execute migrações 16 e 17 em supabase/migrations/"
       : updErr.message;
     console.error("[r/edit] supabase update error:", updErr.message, updErr.code);
     return Response.json({ error: userMsg }, { status: 500 });
   }
 
-  return Response.json({ ok: true, fortes, fracos, alertas, autor });
+  return Response.json({ ok: true, fortes, fracos, alertas, percepcao, autor });
 }

@@ -22,6 +22,9 @@ const PUBLIC_PREFIXES: readonly string[] = [
   "/api/goalfy/webhook",
   "/api/cron/",
   "/api/debug-bureaus",
+  // Relatórios públicos compartilháveis (autenticação via edit_token na URL)
+  "/r/",
+  "/api/r/",
 ];
 
 function isPublicRoute(pathname: string): boolean {

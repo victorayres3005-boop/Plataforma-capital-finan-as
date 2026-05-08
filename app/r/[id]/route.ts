@@ -32,6 +32,13 @@ function applyOverrides(html: string, overrides: Partial<Record<Section, string[
   return out;
 }
 
+// Percepção: texto livre, preserva quebras de linha como <br>. Sanitiza HTML.
+function applyPercepcao(html: string, texto: string): string {
+  const safe = esc(texto).replace(/\n/g, "<br>");
+  const re = /<!--EDIT:percepcao:START-->[\s\S]*?<!--EDIT:percepcao:END-->/;
+  return html.replace(re, `<!--EDIT:percepcao:START--><div class="perc-text" data-edit-percepcao style="text-align:justify">${safe}</div><!--EDIT:percepcao:END-->`);
+}
+
 // Hidrata os inputs do Pleito Comitê (data-pc-key="...") com valores salvos.
 // Edição é livre (sem token) — segue decisão de produto da sessão Pleito Comitê.
 function injectPleitoComite(html: string, raw: unknown): string {
@@ -68,7 +75,7 @@ export async function GET(
   const supabase = createClient(url, key);
   const { data, error } = await supabase
     .from("shared_reports")
-    .select("html, expires_at, company, pontos_fortes, pontos_fracos, alertas, edit_token, pleito_comite")
+    .select("html, expires_at, company, pontos_fortes, pontos_fracos, alertas, percepcao, edit_token, pleito_comite")
     .eq("id", id)
     .single();
 
@@ -88,13 +95,18 @@ export async function GET(
 
   let html = data.html as string;
 
-  // Aplica overrides salvos pela edição inline (apenas as 3 seções fortes/fracos/alertas).
+  // Aplica overrides salvos pela edição inline (fortes/fracos/alertas — listas).
   const overrides: Partial<Record<Section, string[]>> = {};
   if (Array.isArray(data.pontos_fortes)) overrides.fortes = data.pontos_fortes as string[];
   if (Array.isArray(data.pontos_fracos)) overrides.fracos = data.pontos_fracos as string[];
   if (Array.isArray(data.alertas))       overrides.alertas = data.alertas       as string[];
   if (Object.keys(overrides).length > 0) {
     html = applyOverrides(html, overrides);
+  }
+
+  // Percepção é texto livre (não lista) — substitui inteiro entre os marcadores.
+  if (typeof data.percepcao === "string" && data.percepcao.trim()) {
+    html = applyPercepcao(html, data.percepcao);
   }
 
   // Pleito Comitê: edição livre; injeta valores salvos sempre que houver.

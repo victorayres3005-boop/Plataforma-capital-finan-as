@@ -121,7 +121,6 @@ function page(content: string, pageNum: number, date: string): string {
   </div>
   <div class="ct">${content}</div>
   <div class="ftr">
-    <img src="data:image/png;base64,${LOGO_B64}" alt="Capital Finanças" style="height:13px;object-fit:contain;display:block;opacity:0.5" />
     <span>Capital Finanças · Relatório de Due Diligence · Documento Confidencial</span>
     <span>Pág. ${pageNum}</span>
   </div>
@@ -1073,9 +1072,9 @@ function pageSintese(params: PDFReportParams, date: string): string {
   const isManualPerc = !!(params.observacoes?.trim());
   const resumo = params.observacoes?.trim() || params.resumoExecutivo || (typeof params.aiAnalysis?.parecer === "object" ? params.aiAnalysis.parecer.resumoExecutivo : "") || "";
   const percHtml = `${stitle("Percepção do analista")}
-  <div class="perc">
+  <div class="perc" data-edit-section="percepcao">
     ${isManualPerc ? `<span class="badge-manual">&#9998; Percep&ccedil;&atilde;o do Analista</span>` : ""}
-    <div class="perc-text" style="text-align:justify">${esc(resumo) || "—"}</div>
+    <!--EDIT:percepcao:START--><div class="perc-text" data-edit-percepcao style="text-align:justify">${esc(resumo) || "—"}</div><!--EDIT:percepcao:END-->
     ${HIDE_AVALIACAO ? "" : `<div class="perc-rec">Recomendação: <span class="dec" style="background:${decBg};font-size:10px">${fmtDecision(params.decision)}</span></div>`}
   </div>`;
 
@@ -3222,6 +3221,9 @@ document.getElementById('printBtn').addEventListener('click', async function() {
   body.editing [data-edit-item]{cursor:text;padding:4px 22px 4px 8px;border-radius:4px;position:relative;transition:background .1s;display:block}
   body.editing [data-edit-item]:hover{background:rgba(132,191,65,.08)}
   body.editing [data-edit-item][contenteditable="true"]:focus{outline:1px solid #84BF41;background:#fff}
+  body.editing [data-edit-percepcao]{cursor:text;padding:8px;border-radius:6px;min-height:40px;transition:background .1s}
+  body.editing [data-edit-percepcao]:hover{background:rgba(132,191,65,.06)}
+  body.editing [data-edit-percepcao][contenteditable="true"]:focus{outline:1px solid #84BF41;background:#fff}
   body.editing .ana-item-empty{display:none}
   .edit-rm{position:absolute;top:50%;right:4px;transform:translateY(-50%);width:18px;height:18px;border-radius:50%;border:none;background:#fee2e2;color:#b91c1c;font-size:13px;line-height:1;cursor:pointer;display:none;align-items:center;justify-content:center;padding:0;font-family:inherit}
   body.editing .edit-rm{display:inline-flex}
@@ -3261,17 +3263,23 @@ document.getElementById('printBtn').addEventListener('click', async function() {
 
   var SECTIONS = ['fortes','fracos','alertas'];
   var snapshot = null;
+  var snapshotPerc = null;
   var editing = false;
 
   function lists(){ return SECTIONS.map(function(s){ return [s, document.querySelector('[data-edit-list="'+s+'"]')]; }); }
+  function percEl(){ return document.querySelector('[data-edit-percepcao]'); }
 
   function takeSnapshot(){
     var snap = {};
     lists().forEach(function(p){ snap[p[0]] = p[1] ? p[1].innerHTML : ''; });
+    var pe = percEl();
+    snapshotPerc = pe ? pe.innerHTML : null;
     return snap;
   }
   function restoreSnapshot(snap){
     lists().forEach(function(p){ if (p[1] && snap[p[0]] != null) p[1].innerHTML = snap[p[0]]; });
+    var pe = percEl();
+    if (pe && snapshotPerc != null) pe.innerHTML = snapshotPerc;
   }
 
   function decorate(list){
@@ -3316,6 +3324,8 @@ document.getElementById('printBtn').addEventListener('click', async function() {
   function startEdit(){
     snapshot = takeSnapshot();
     lists().forEach(function(p){ if (p[1]) decorate(p[1]); });
+    var pe = percEl();
+    if (pe) { pe.setAttribute('contenteditable','true'); pe.classList.add('perc-editing'); }
     document.body.classList.add('editing');
     btnTog.style.display='none';
     btnSave.style.display='inline-flex';
@@ -3325,6 +3335,8 @@ document.getElementById('printBtn').addEventListener('click', async function() {
   function cancelEdit(){
     if (snapshot) restoreSnapshot(snapshot);
     lists().forEach(function(p){ if (p[1]) undecorate(p[1]); });
+    var pe = percEl();
+    if (pe) { pe.removeAttribute('contenteditable'); pe.classList.remove('perc-editing'); }
     document.body.classList.remove('editing');
     btnTog.style.display='inline-flex';
     btnSave.style.display='none';
@@ -3346,6 +3358,16 @@ document.getElementById('printBtn').addEventListener('click', async function() {
       });
       out[sec] = arr;
     });
+    // Percepção: pega texto livre (preserva quebras como \n)
+    var pe = percEl();
+    if (pe) {
+      // Substitui <br> por \n antes de pegar textContent
+      var clone = pe.cloneNode(true);
+      Array.prototype.forEach.call(clone.querySelectorAll('br'), function(br){
+        br.replaceWith('\n');
+      });
+      out.percepcao = (clone.textContent || '').trim();
+    }
     return out;
   }
   function saveEdit(){
@@ -3355,17 +3377,20 @@ document.getElementById('printBtn').addEventListener('click', async function() {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({
-        fortes:  data.fortes,
-        fracos:  data.fracos,
-        alertas: data.alertas,
-        autor:   selAut.value,
-        token:   TOKEN
+        fortes:    data.fortes,
+        fracos:    data.fracos,
+        alertas:   data.alertas,
+        percepcao: data.percepcao,
+        autor:     selAut.value,
+        token:     TOKEN
       })
     }).then(function(r){
       if (!r.ok) return r.text().then(function(t){ throw new Error(t || ('HTTP '+r.status)); });
       return r.json();
     }).then(function(){
       lists().forEach(function(p){ if (p[1]) undecorate(p[1]); });
+      var pe = percEl();
+      if (pe) { pe.removeAttribute('contenteditable'); pe.classList.remove('perc-editing'); }
       document.body.classList.remove('editing');
       btnTog.style.display='inline-flex';
       btnSave.style.display='none';
