@@ -1283,73 +1283,32 @@ function pageSintese(params: PDFReportParams, date: string): string {
       </div>`;
     })()}
 
-    <!-- 5c. Endividamento — SCR Bacen (logo após o Grupo Econômico) -->
+    <!-- 5c. Endividamento dos Sócios (SCR Bacen via DataBox360) — KPIs da
+         empresa removidos em 2026-05-08 (já aparecem no Risco Consolidado).
+         Só a tabela de sócios PF fica, pois é info única do DataBox360. -->
     ${(() => {
-      const scrEmp = d.scr;
       const scrSocs = d.scrSocios ?? [];
-      const temScrEmp = scrEmp && (
-        numVal(scrEmp.carteiraAVencer ?? "0") > 0 ||
-        numVal(scrEmp.vencidos ?? "0") > 0 ||
-        numVal(scrEmp.prejuizos ?? "0") > 0 ||
-        numVal(scrEmp.totalDividasAtivas ?? "0") > 0
-      );
-      const temScrSoc = scrSocs.length > 0;
-      if (!temScrEmp && !temScrSoc) return "";
+      if (scrSocs.length === 0) return "";
 
-      let empBlock = "";
-      if (temScrEmp && scrEmp) {
-        const totalEmp =
-          numVal(scrEmp.carteiraCurtoPrazo ?? scrEmp.carteiraAVencer ?? "0") +
-          numVal(scrEmp.carteiraLongoPrazo ?? "0") +
-          numVal(scrEmp.vencidos ?? "0") +
-          numVal(scrEmp.prejuizos ?? "0");
-        const vencEmp = numVal(scrEmp.vencidos ?? "0");
-        const prejEmp = numVal(scrEmp.prejuizos ?? "0");
-        empBlock = `
-        <div class="kpi-snap c4" style="margin-bottom:10px">
-          <div class="icell ${totalEmp > 0 ? "navy" : ""}">
-            <div class="l">Total Dívidas Ativas</div>
-            <div class="v sm mono">${fmtMoneyAbr(totalEmp)}</div>
-          </div>
-          <div class="icell ${vencEmp > 0 ? "danger" : "success"}">
-            <div class="l">Vencidos</div>
-            <div class="v sm mono ${vencEmp > 0 ? "red" : "green"}">${fmtMoneyAbr(scrEmp.vencidos)}</div>
-          </div>
-          <div class="icell ${prejEmp > 0 ? "danger" : ""}">
-            <div class="l">Prejuízos</div>
-            <div class="v sm mono ${prejEmp > 0 ? "red" : ""}">${prejEmp > 0 ? fmtMoneyAbr(scrEmp.prejuizos) : "—"}</div>
-          </div>
-          <div class="icell">
-            <div class="l">IFs · Operações</div>
-            <div class="v sm">${fmt(scrEmp.qtdeInstituicoes)} · ${fmt(scrEmp.qtdeOperacoes)}</div>
-          </div>
-        </div>`;
-      }
+      const rows = scrSocs.map(ss => {
+        const sa = ss.periodoAtual;
+        const respAtiva = numVal(sa.carteiraAVencer ?? "0") + numVal(sa.vencidos ?? "0");
+        const venc = numVal(sa.vencidos ?? "0");
+        const prej = numVal(sa.prejuizos ?? "0");
+        return `<tr>
+          <td class="b" style="white-space:nowrap">${esc(ss.nomeSocio)}<div style="font-size:9px;color:var(--x5);font-family:'JetBrains Mono',monospace;font-weight:400">${fmtCpf(ss.cpfSocio)}</div></td>
+          <td class="r mono">${fmtMoneyAbr(String(respAtiva))}</td>
+          <td class="r mono ${venc > 0 ? "red" : ""}">${venc > 0 ? fmtMoneyAbr(sa.vencidos) : "—"}</td>
+          <td class="r mono ${prej > 0 ? "red" : ""}">${prej > 0 ? fmtMoneyAbr(sa.prejuizos) : "—"}</td>
+          <td class="r">${fmt(sa.qtdeInstituicoes)}</td>
+        </tr>`;
+      }).join("");
 
-      let socBlock = "";
-      if (temScrSoc) {
-        const rows = scrSocs.map(ss => {
-          const sa = ss.periodoAtual;
-          const respAtiva = numVal(sa.carteiraAVencer ?? "0") + numVal(sa.vencidos ?? "0");
-          const venc = numVal(sa.vencidos ?? "0");
-          const prej = numVal(sa.prejuizos ?? "0");
-          return `<tr>
-            <td class="b" style="white-space:nowrap">${esc(ss.nomeSocio)}<div style="font-size:9px;color:var(--x5);font-family:'JetBrains Mono',monospace;font-weight:400">${fmtCpf(ss.cpfSocio)}</div></td>
-            <td class="r mono">${fmtMoneyAbr(String(respAtiva))}</td>
-            <td class="r mono ${venc > 0 ? "red" : ""}">${venc > 0 ? fmtMoneyAbr(sa.vencidos) : "—"}</td>
-            <td class="r mono ${prej > 0 ? "red" : ""}">${prej > 0 ? fmtMoneyAbr(sa.prejuizos) : "—"}</td>
-            <td class="r">${fmt(sa.qtdeInstituicoes)}</td>
-          </tr>`;
-        }).join("");
-        socBlock = `
-        <div style="font-size:11px;font-weight:700;color:var(--x4);text-transform:uppercase;letter-spacing:0.05em;margin:6px 0 4px">Endividamento dos sócios (DataBox360)</div>
-        <table class="tbl" style="margin-bottom:0">
-          <thead><tr><th>Sócio</th><th class="r">Resp. Ativa</th><th class="r">Vencidos</th><th class="r">Prejuízos</th><th class="r">IFs</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>`;
-      }
-
-      return `${stitle("Endividamento — SCR Bacen")}${empBlock}${socBlock}`;
+      return `${stitle("Endividamento dos Sócios (SCR Bacen)")}
+      <table class="tbl" style="margin-bottom:0">
+        <thead><tr><th>Sócio</th><th class="r">Resp. Ativa</th><th class="r">Vencidos</th><th class="r">Prejuízos</th><th class="r">IFs</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
     })()}
 
     <!-- 5d. Alertas KYC sócios (óbito / CPF irregular) -->
