@@ -1245,7 +1245,28 @@ async function enriquecerEmpresasGrupoEconomico(
           emp.situacao = normalizeSituacaoCadastral(sit) || sit || "VERIFICAR";
         }
 
-        console.log(`[credithub][enrich] ${cnpj.slice(0,4)}*** protestos=${protQtd} processos=${procQtd}`);
+        // OPÇÃO A: % participação do sócio via QSA da empresa do grupo.
+        // CreditHub /simples PJ retorna `quadroSocietario[]` da própria empresa
+        // do grupo. Procura o sócio cedente nesse QSA pelo CPF e extrai a %.
+        // Cobre casos onde participacoesEmpresas[] PF veio sem percentual.
+        if (!emp.participacao && emp.cpfSocio) {
+          const cpfNum = emp.cpfSocio.replace(/\D/g, "");
+          const qsaEmp = Array.isArray(d?.quadroSocietario) ? d.quadroSocietario : [];
+          const socioMatch = qsaEmp.find((s: Record<string, unknown>) => {
+            const cpfQsa = String(s?.cpf ?? s?.cpfCnpj ?? s?.documento ?? s?.cnpjCpf ?? "").replace(/\D/g, "");
+            return cpfQsa === cpfNum;
+          });
+          if (socioMatch) {
+            const m = socioMatch as Record<string, unknown>;
+            const pct = m.percentual ?? m.participacao ?? m.percentualParticipacao ?? m.percentual_capital ?? m.percentualCapital;
+            if (pct != null && pct !== "") {
+              emp.participacao = String(pct).replace(/[^0-9.,]/g, "") + (String(pct).includes("%") ? "%" : "");
+              console.log(`[credithub][enrich] ${cnpj.slice(0,4)}*** %part recuperado via QSA-CH: ${emp.participacao}`);
+            }
+          }
+        }
+
+        console.log(`[credithub][enrich] ${cnpj.slice(0,4)}*** protestos=${protQtd} processos=${procQtd} part=${emp.participacao || "—"}`);
         break;
       } catch (err) {
         if (attempt < MAX_ATTEMPTS) await new Promise(r => setTimeout(r, RETRY_DELAY));
@@ -1288,6 +1309,41 @@ async function enriquecerEmpresasGrupoEconomico(
         console.log(`[credithub][enrich-bdc] ${emp.cnpj!.slice(0,4)}*** protestos=${protQtd} processos=${procQtd} sit=${emp.situacao}`);
       } catch (err) {
         console.warn(`[credithub][enrich-bdc] ${emp.cnpj!.slice(0,4)}*** erro:`, err instanceof Error ? err.message : String(err));
+      }
+    }));
+  }
+
+  // OPÇÃO B: BrasilAPI fallback para % participação que ainda esteja vazia.
+  // BrasilAPI é fonte oficial Receita, gratuita, retorna QSA com
+  // `percentual_capital_social`. Cap de 5 chamadas (mesmo MAX_ENRICH).
+  const brasilApiPart = paraEnriquecer.filter(e =>
+    !e.participacao && e.cpfSocio && e.cnpj && e.cnpj.length === 14
+  );
+  if (brasilApiPart.length > 0) {
+    console.log(`[credithub][enrich] ${brasilApiPart.length} empresa(s) sem % part — BrasilAPI fallback`);
+    await Promise.allSettled(brasilApiPart.map(async emp => {
+      try {
+        const cpfNum = emp.cpfSocio!.replace(/\D/g, "");
+        const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${emp.cnpj}`, {
+          signal: AbortSignal.timeout(5000),
+          cache: "no-store",
+        });
+        if (!res.ok) {
+          console.warn(`[credithub][enrich-brapi] ${emp.cnpj!.slice(0,4)}*** HTTP ${res.status}`);
+          return;
+        }
+        const json = await res.json() as { qsa?: Array<{ cnpj_cpf_do_socio?: string; percentual_capital_social?: number }> };
+        const qsa = Array.isArray(json?.qsa) ? json.qsa : [];
+        const socioMatch = qsa.find(s =>
+          String(s?.cnpj_cpf_do_socio ?? "").replace(/\D/g, "") === cpfNum
+        );
+        const pct = socioMatch?.percentual_capital_social;
+        if (typeof pct === "number" && pct > 0) {
+          emp.participacao = `${pct}%`;
+          console.log(`[credithub][enrich-brapi] ${emp.cnpj!.slice(0,4)}*** %part recuperado: ${emp.participacao}`);
+        }
+      } catch (err) {
+        console.warn(`[credithub][enrich-brapi] ${emp.cnpj!.slice(0,4)}*** falhou:`, err instanceof Error ? err.message : String(err));
       }
     }));
   }
