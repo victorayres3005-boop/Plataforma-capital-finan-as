@@ -686,6 +686,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   const [generatedFormats, setGeneratedFormats] = useState<Set<Format>>(new Set());
   const [sharingReport, setSharingReport] = useState(false);
   const [sharedUrl, setSharedUrl] = useState<string | undefined>(undefined);
+  const [sharedEditUrl, setSharedEditUrl] = useState<string | undefined>(undefined);
 
   const setCNPJ = (k: keyof typeof data.cnpj, v: string) => setData(p => ({ ...p, cnpj: { ...p.cnpj, [k]: v } }));
   const setContrato = (k: keyof typeof data.contrato, v: string | boolean) => setData(p => ({ ...p, contrato: { ...p.contrato, [k]: v } }));
@@ -2070,7 +2071,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       const html = await generateHTMLPreview(payload);
 
       // Injeta a URL base para o botão "Salvar como PDF" funcionar do blob
-      const htmlWithUrl = html.replace("__BASE_URL__", window.location.origin);
+      const htmlWithUrl = html.split("__BASE_URL__").join(window.location.origin);
       // Navega a janela já aberta para o blob com o HTML final
       const blob = new Blob([htmlWithUrl], { type: "text/html;charset=utf-8" });
       const url = URL.createObjectURL(blob);
@@ -2123,8 +2124,9 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         settings: activeValidationSettings,
       };
       const html = await generateHTMLPreview(payload);
-      // Substitui __BASE_URL__ pelo domínio real antes de salvar
-      const htmlFinal = html.replace("__BASE_URL__", window.location.origin);
+      // Substitui __BASE_URL__ pelo domínio real antes de salvar (usado pelo
+      // botão Salvar como PDF e pelo editor inline de fortes/fracos/alertas).
+      const htmlFinal = html.split("__BASE_URL__").join(window.location.origin);
 
       const res = await fetch("/api/share-report", {
         method: "POST",
@@ -2136,11 +2138,15 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const { url } = await res.json() as { url: string; id: string };
+      const { url, editUrl } = await res.json() as { url: string; id: string; editUrl?: string };
       const fullUrl = url.startsWith("http") ? url : `${window.location.origin}${url}`;
+      const fullEditUrl = editUrl
+        ? (editUrl.startsWith("http") ? editUrl : `${window.location.origin}${editUrl}`)
+        : undefined;
       setSharedUrl(fullUrl);
+      setSharedEditUrl(fullEditUrl);
       await navigator.clipboard.writeText(fullUrl).catch(() => {});
-      toast.success("Link copiado para a área de transferência!");
+      toast.success("Link público copiado! O link de edição está logo abaixo.");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Falha ao gerar link";
       console.error("[shareReport] erro:", err);
@@ -3061,6 +3067,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             shareReport={shareReport}
             sharingReport={sharingReport}
             sharedUrl={sharedUrl}
+            sharedEditUrl={sharedEditUrl}
           />
         </OnboardingTooltip>
 

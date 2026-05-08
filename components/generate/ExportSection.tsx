@@ -1,6 +1,7 @@
 "use client";
 
-import { Loader2, CheckCircle2, Link2 } from "lucide-react";
+import { useState } from "react";
+import { Loader2, CheckCircle2, Link2, Copy, Pencil } from "lucide-react";
 import { SectionCard } from "@/components/report/ReportComponents";
 
 type Format = "pdf" | "docx" | "xlsx" | "html";
@@ -16,6 +17,7 @@ interface ExportSectionProps {
   shareReport: () => void;
   sharingReport?: boolean;
   sharedUrl?: string;
+  sharedEditUrl?: string;
 }
 
 export default function ExportSection({
@@ -29,7 +31,18 @@ export default function ExportSection({
   shareReport,
   sharingReport = false,
   sharedUrl,
+  sharedEditUrl,
 }: ExportSectionProps) {
+  const [copiedKey, setCopiedKey] = useState<"public" | "edit" | null>(null);
+  const copyTo = async (key: "public" | "edit", value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(c => (c === key ? null : c)), 1600);
+    } catch {
+      // ignore
+    }
+  };
   return (
     <SectionCard
       id="sec-ex"
@@ -110,14 +123,49 @@ export default function ExportSection({
               {sharingReport ? "Gerando link…" : sharedUrl ? "Link copiado!" : "Compartilhar relatório"}
             </button>
 
-            {sharedUrl && (
-              <span className="text-[11px] text-cf-text-4 font-mono truncate max-w-xs select-all" title={sharedUrl}>
-                {sharedUrl}
-              </span>
-            )}
           </div>
-          <p className="text-[11px] text-cf-text-4 mt-1.5">
-            Gera um link público válido por 90 dias — qualquer pessoa com o link consegue visualizar.
+
+          {sharedUrl && (
+            <div className="mt-3 space-y-2">
+              <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg">
+                <Link2 size={13} className="text-cf-text-4 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-cf-text-4 mb-0.5">Link público (cliente)</div>
+                  <div className="text-[11px] font-mono text-cf-text-2 truncate select-all" title={sharedUrl}>{sharedUrl}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => copyTo("public", sharedUrl)}
+                  className="shrink-0 flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md border border-gray-200 hover:bg-white"
+                >
+                  {copiedKey === "public" ? <CheckCircle2 size={12} className="text-green-600" /> : <Copy size={12} />}
+                  {copiedKey === "public" ? "Copiado" : "Copiar"}
+                </button>
+              </div>
+
+              {sharedEditUrl && (
+                <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
+                  <Pencil size={13} className="text-amber-700 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-amber-800 mb-0.5">Link de edição (interno — não compartilhar)</div>
+                    <div className="text-[11px] font-mono text-amber-900 truncate select-all" title={sharedEditUrl}>{sharedEditUrl}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => copyTo("edit", sharedEditUrl)}
+                    className="shrink-0 flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md border border-amber-300 bg-white hover:bg-amber-50 text-amber-800"
+                  >
+                    {copiedKey === "edit" ? <CheckCircle2 size={12} className="text-green-600" /> : <Copy size={12} />}
+                    {copiedKey === "edit" ? "Copiado" : "Copiar"}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          <p className="text-[11px] text-cf-text-4 mt-2">
+            <b>Público:</b> mande pro cliente, válido 90 dias, somente leitura.
+            {sharedEditUrl ? (<><br/><b>Edição:</b> abre em modo edição (Pontos Fortes / Fracos / Alertas) — guardar somente com Victor/Vanessa.</>) : null}
           </p>
         </div>
       </div>

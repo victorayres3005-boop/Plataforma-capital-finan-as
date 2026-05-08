@@ -44,23 +44,37 @@ export async function POST(req: Request) {
     .map(b => "abcdefghijklmnopqrstuvwxyz0123456789"[b % 36])
     .join("");
 
+  // edit_token de 16 chars — habilita /r/[id]?k=<token> em modo edição
+  const edit_token = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+    .map(b => "abcdefghijklmnopqrstuvwxyz0123456789"[b % 36])
+    .join("");
+
   const supabase = createClient(url, key);
   const { error } = await supabase.from("shared_reports").insert({
     id,
     html,
     cnpj: cnpj ?? null,
     company: company ?? null,
+    edit_token,
   });
 
   if (error) {
     const isTableMissing = error.message?.includes("does not exist") || error.code === "42P01";
+    const isColumnMissing = error.code === "42703";
     const userMsg = isTableMissing
       ? "Tabela 'shared_reports' não existe — execute a migração SQL no Supabase (supabase/migrations/15_shared_reports.sql)"
+      : isColumnMissing
+      ? "Colunas de edição inline ausentes — execute a migração SQL 16_shared_reports_editable.sql no Supabase"
       : error.message;
     console.error("[share-report] supabase insert error:", error.message, error.code);
     return Response.json({ error: userMsg }, { status: 500 });
   }
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "";
-  return Response.json({ id, url: `${baseUrl}/r/${id}` });
+  return Response.json({
+    id,
+    url: `${baseUrl}/r/${id}`,
+    editUrl: `${baseUrl}/r/${id}?k=${edit_token}`,
+    editToken: edit_token,
+  });
 }
