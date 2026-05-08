@@ -96,6 +96,50 @@ export function stripCnpjFromName(name: string): string {
     .trim();
 }
 
+// Padrões observados em prod 2026-05-08 ao consumir Curva ABC do ERP:
+//   "000001ALIRIO VIEIRA DA SILVA NETO 847.562"
+//   "001124COMERCIAL DE ALIMENTOS SANTA 553.500"
+// Prefixo numérico = código do cliente no ERP do cedente, sufixo = qtd vendida.
+// Esses ruídos quebram a busca por razão social (publica.cnpj.ws devolve
+// 0 candidatos). Limpamos antes de enviar pro resolver e antes de exibir.
+const COD_PREFIX_RE = /^(\d{3,})(?=[A-Za-zÀ-ÿ])/;
+const TRAILING_NUM_RE = /\s+\d[\d.,]+\s*$/;
+
+/**
+ * Limpa ruído de razão social vindo do ERP do cedente:
+ *   "000001ALIRIO VIEIRA NETO 847.562" → "ALIRIO VIEIRA NETO"
+ *   "001124COMERCIAL ALIMENTOS 553.500" → "COMERCIAL ALIMENTOS"
+ *   "EMPRESA REAL LTDA"               → "EMPRESA REAL LTDA" (idempotente)
+ *
+ * Conservador: só remove dígitos colados em letra (não toca em "3M DO BRASIL")
+ * e só remove números trailing precedidos de espaço (não toca em "LJ1").
+ */
+export function cleanSacadoName(nome: string | undefined | null): string {
+  if (!nome) return "";
+  let t = String(nome).trim();
+  t = t.replace(COD_PREFIX_RE, "");
+  // Aplica 2x: alguns ERPs têm "...NETO 847.562 1.234" (qtd + valor)
+  t = t.replace(TRAILING_NUM_RE, "");
+  t = t.replace(TRAILING_NUM_RE, "");
+  return t.replace(/\s+/g, " ").trim();
+}
+
+// PF detection: nome 100% sem indicação de empresa (LTDA, S.A, ME, EPP,
+// EIRELI, COMERCIAL, INDUSTRIA, etc), com ≥ 2 palavras "humanas". Apenas
+// heurística — não substitui a checagem de CPF, mas evita gastar request
+// no resolver com nomes claramente PF.
+const PJ_INDICATORS_RE = /\b(LTDA|S\.?A|S\/A|ME|EPP|EIRELI|MEI|COMERCIAL|COMERCIO|INDUSTRIAL?|INDUSTRIA|SERVICOS?|TRANSPORTES?|DISTRIBUIDORA|ATACADO|VAREJO|SUPERMERCADO|MERCADO|FARMACIA|POSTO|RESTAURANTE)\b/i;
+
+export function looksLikePF(nome: string): boolean {
+  if (!nome) return false;
+  if (PJ_INDICATORS_RE.test(nome)) return false;
+  const palavras = nome.trim().split(/\s+/);
+  // Nome humano típico: 3+ palavras, todas curtas (sobrenomes), sem dígitos
+  if (palavras.length < 3) return false;
+  if (/\d/.test(nome)) return false;
+  return palavras.every((p) => p.length <= 15);
+}
+
 /**
  * Converte string monetária BR para número.
  * "R$ 1.234.567,89" -> 1234567.89
@@ -167,20 +211,28 @@ export function extractTopSacados(
     }
 
     let cnpj = onlyDigits(c.cnpjCpf);
-    let cleanedName = (c.nome || "").trim();
+    // Aplica limpeza ANTES de qualquer regra — remove código do ERP no início
+    // (ex.: "000001ALIRIO...") e quantidade no fim (ex.: "...NETO 847.562")
+    let cleanedName = cleanSacadoName(c.nome);
     let usedFallback = false;
 
     if (!isLikelyCnpj(cnpj)) {
-      // Tenta extrair CNPJ embutido no nome
+      // Tenta extrair CNPJ embutido no nome (busca no nome ORIGINAL)
       const cnpjFromName = extractCnpjFromText(c.nome);
       if (cnpjFromName) {
         cnpj = cnpjFromName;
-        cleanedName = stripCnpjFromName(c.nome);
+        // strip o CNPJ e depois aplica clean (ordem importa)
+        cleanedName = cleanSacadoName(stripCnpjFromName(c.nome));
         usedFallback = true;
       } else if (opts.includeWithoutCnpj) {
         // POC: deixa passar sem CNPJ (caller resolve por nome).
         // Mas só se não for CPF (11 dígitos puros).
         if (cnpj.length === 11) continue;
+        // Skip também se o nome limpo parece PF — resolver não busca por CPF
+        if (looksLikePF(cleanedName)) {
+          console.log(`[extractTopSacados] skip PF (não há resolução automática): "${cleanedName.slice(0, 40)}"`);
+          continue;
+        }
         cnpj = "";
       } else {
         continue;

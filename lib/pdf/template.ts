@@ -1495,9 +1495,19 @@ function pageSintese(params: PDFReportParams, date: string): string {
         if (k) sacadosByCnpj.set(k, s);
       });
 
+      // Limpa nome retroativamente — extrações antigas podem ter código do ERP
+      // colado no início ("000001ALIRIO...") e quantidade no fim ("... 847.562")
+      const cleanName = (nome: string): string => {
+        if (!nome) return "";
+        return String(nome)
+          .replace(/^(\d{3,})(?=[A-Za-zÀ-ÿ])/, "")
+          .replace(/\s+\d[\d.,]+\s*$/, "")
+          .replace(/\s+\d[\d.,]+\s*$/, "")
+          .replace(/\s+/g, " ")
+          .trim();
+      };
       // Top 5 da Curva ABC, filtrando linhas de totalizador que extrações
       // antigas podem ter incluído ("Totais listados ....: 451 ...").
-      // Heurística inline (template não pode importar de lib/sacados).
       const isLixoTotal = (nome: string): boolean => {
         const t = (nome || "").trim();
         if (!t) return true;
@@ -1509,7 +1519,10 @@ function pageSintese(params: PDFReportParams, date: string): string {
         if (compact >= 6 && letras / compact < 0.25) return true;
         return false;
       };
-      const top = abcLocal.clientes.filter(c => !isLixoTotal(c.nome)).slice(0, 5);
+      const top = abcLocal.clientes
+        .filter(c => !isLixoTotal(c.nome))
+        .map(c => ({ ...c, nome: cleanName(c.nome) || c.nome }))
+        .slice(0, 5);
       const maxValSint = numVal(top[0]?.valorFaturado ?? "0");
 
       const linhas = top.map((c, i) => {

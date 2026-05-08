@@ -15,7 +15,7 @@ import type {
   Filial, IRSocioData, QSAData, RelatorioVisitaData, SCRData,
   SCRModalidade, SociedadeIR, Socio, SocioRetirante,
 } from "@/types";
-import { isLinhaTotalCurvaABC } from "@/lib/sacados/extractTopSacados";
+import { isLinhaTotalCurvaABC, cleanSacadoName } from "@/lib/sacados/extractTopSacados";
 
 /**
  * Adapter: converte o JSON snake_case do novo prompt de Cartão CNPJ
@@ -501,7 +501,8 @@ export function adaptCurvaABCNew(raw: Record<string, unknown>): Partial<CurvaABC
     const cnpjCpf = cnpjMatch ? cnpjMatch[1].replace(/\D/g, "") : "";
     return {
       posicao: idx + 1,
-      nome: _s(c.cliente),
+      // Limpa código de cliente do ERP no início + quantidade no fim
+      nome: cleanSacadoName(_s(c.cliente)) || _s(c.cliente),
       cnpjCpf,
       valorFaturado: _fmtMoneyBR(valor),
       percentualReceita: pct.toFixed(2),
