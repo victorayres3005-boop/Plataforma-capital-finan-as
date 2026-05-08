@@ -259,8 +259,19 @@ export async function POST(req: NextRequest) {
     let sacadosCount = 0;
     try {
       const topSacados = extractTopSacados(data?.curvaABC, 5);
+      const totalClientesABC = data?.curvaABC?.clientes?.length ?? 0;
+      console.log(`[bureaus][sacados] Curva ABC: ${totalClientesABC} cliente(s) na base, ${topSacados.length} top PJ extraído(s)`);
+      if (topSacados.length === 0 && totalClientesABC > 0) {
+        // Diagnóstico: nenhum CNPJ válido extraído. Geralmente cnpjCpf vazio
+        // (CNPJ embutido no nome) ou só CPFs/lixo. Imprime amostra pra debug.
+        const sample = data?.curvaABC?.clientes?.slice(0, 3).map(c => ({
+          nome: (c.nome || "").slice(0, 50),
+          cnpjCpf: c.cnpjCpf,
+        }));
+        console.warn(`[bureaus][sacados] nenhum top sacado PJ extraído — amostra:`, JSON.stringify(sample));
+      }
       if (topSacados.length > 0) {
-        console.log(`[bureaus][sacados] Curva ABC: ${topSacados.length} sacado(s) PJ a analisar`);
+        console.log(`[bureaus][sacados] CNPJs: ${topSacados.map(s => s.cnpj).join(", ")}`);
 
         const sociosCedenteRaw = (data.qsa?.quadroSocietario ?? []).map((s) => ({
           nome: s.nome,

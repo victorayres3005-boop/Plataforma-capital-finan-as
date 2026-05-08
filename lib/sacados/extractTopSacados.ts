@@ -35,6 +35,36 @@ export function isLikelyCnpj(doc: string | undefined | null): boolean {
   return true;
 }
 
+// Regex robusta de CNPJ — aceita formatado e cru:
+//   12.345.678/0001-99 · 12345678000199 · 12345678/000199 · 12.345.678/0001/99
+const CNPJ_RE = /(\d{2}\.?\d{3}\.?\d{3}[\/.-]?\d{4}[-.]?\d{2})/;
+
+/**
+ * Extrai um CNPJ embutido em texto livre. Comum quando o extrator concatena
+ * razão social + CNPJ no mesmo campo (ex.: "EMPRESA LTDA - 12.345.678/0001-99").
+ * Retorna o CNPJ canônico (só dígitos, 14 chars) ou "" se não achar.
+ */
+export function extractCnpjFromText(text: string | undefined | null): string {
+  if (!text) return "";
+  const m = String(text).match(CNPJ_RE);
+  if (!m) return "";
+  const cnpj = onlyDigits(m[1]);
+  return isLikelyCnpj(cnpj) ? cnpj : "";
+}
+
+/**
+ * Limpa razão social removendo o CNPJ embutido + separadores residuais.
+ * "EMPRESA LTDA - 12.345.678/0001-99" → "EMPRESA LTDA"
+ */
+export function stripCnpjFromName(name: string): string {
+  if (!name) return "";
+  return String(name)
+    .replace(CNPJ_RE, "")
+    .replace(/[\s\-–—,;:|]+$/, "") // separadores residuais no fim
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /**
  * Converte string monetária BR para número.
  * "R$ 1.234.567,89" -> 1234567.89
@@ -84,22 +114,42 @@ export function extractTopSacados(
 
   for (const { c } of indexed) {
     if (out.length >= limit) break;
-    const cnpj = onlyDigits(c.cnpjCpf);
-    if (!isLikelyCnpj(cnpj)) continue;
+
+    // Estratégia em 3 níveis:
+    //   1. cnpjCpf populado e válido — caminho feliz
+    //   2. cnpjCpf vazio/CPF/lixo, mas tem CNPJ embutido no nome (caso real reportado em prod 2026-05-08)
+    //   3. nada — descarta
+    let cnpj = onlyDigits(c.cnpjCpf);
+    let cleanedName = (c.nome || "").trim();
+    let usedFallback = false;
+
+    if (!isLikelyCnpj(cnpj)) {
+      const cnpjFromName = extractCnpjFromText(c.nome);
+      if (cnpjFromName) {
+        cnpj = cnpjFromName;
+        cleanedName = stripCnpjFromName(c.nome);
+        usedFallback = true;
+      } else {
+        continue;
+      }
+    }
+
     if (seen.has(cnpj)) continue;
-    const nome = (c.nome || "").trim();
-    if (!nome) continue;
+    if (!cleanedName) continue;
     seen.add(cnpj);
-    out.push(makeEntry(c, cnpj));
+    out.push(makeEntry(c, cnpj, cleanedName));
+    if (usedFallback) {
+      console.log(`[extractTopSacados] CNPJ recuperado do nome: ${cnpj} (${cleanedName})`);
+    }
   }
 
   return out;
 }
 
-function makeEntry(c: ClienteCurvaABC, cnpj: string): TopSacadoEntry {
+function makeEntry(c: ClienteCurvaABC, cnpj: string, nameOverride?: string): TopSacadoEntry {
   return {
     cnpj,
-    razaoSocial: c.nome.trim(),
+    razaoSocial: (nameOverride ?? c.nome).trim(),
     posicao: c.posicao,
     valorFaturado: c.valorFaturado,
     participacaoFaturamentoPct: c.percentualReceita,
