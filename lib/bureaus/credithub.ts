@@ -7,6 +7,7 @@ import type {
 } from "@/types";
 import { protestosSave, protestosLoad, processosSave, processosLoad, ccfSave, ccfLoad } from "@/lib/bureaus/cache";
 import { parseBRL } from "@/lib/generators/report-shared";
+import { consultarEmpresa as consultarBDCEmpresa } from "@/lib/bureaus/bigdatacorp";
 
 const CREDITHUB_API_URL = process.env.CREDITHUB_API_URL || "";
 const CREDITHUB_API_KEY = process.env.CREDITHUB_API_KEY || "";
@@ -1252,6 +1253,44 @@ async function enriquecerEmpresasGrupoEconomico(
       }
     }
   }));
+
+  // FALLBACK BDC: empresas do grupo que CreditHub /simples PJ não enriqueceu
+  // (HTTP error, sem dados, push="true" persistente). BDC `consultarEmpresa`
+  // traz protestos + processos como segunda fonte. Cap inerente a MAX_ENRICH=5.
+  // Custo: até 5 chamadas BDC empresa extras quando CH falha em todas as
+  // empresas do grupo. Mantém análise completa ao invés de "—".
+  const bdcFallback = paraEnriquecer.filter(e =>
+    (!e.protestos || e.protestos === "—") && (!e.processos || e.processos === "—")
+  );
+  if (bdcFallback.length > 0) {
+    console.log(`[credithub][enrich] ${bdcFallback.length} empresa(s) sem dados CH — disparando fallback BDC`);
+    await Promise.allSettled(bdcFallback.map(async emp => {
+      try {
+        const bdc = await consultarBDCEmpresa(emp.cnpj!);
+        if (!bdc.success || bdc.mock) {
+          console.warn(`[credithub][enrich-bdc] ${emp.cnpj!.slice(0,4)}*** BDC ${bdc.mock ? "mock" : "falhou"}: ${bdc.error ?? "sem dados"}`);
+          return;
+        }
+        const protQtd = parseInt(bdc.protestos?.vigentesQtd ?? "0", 10) || 0;
+        emp.protestos = protQtd > 0
+          ? `${protQtd}${bdc.protestos?.vigentesValor ? ` (R$ ${bdc.protestos.vigentesValor})` : ""}`
+          : "0";
+        const procQtd = parseInt(bdc.processos?.passivosTotal ?? "0", 10) || 0;
+        emp.processos = procQtd > 0 ? String(procQtd) : "0";
+        if (bdc.processos?.valorTotalEstimado && bdc.processos.valorTotalEstimado !== "R$ 0,00") {
+          emp.valorProcessos = bdc.processos.valorTotalEstimado;
+        }
+        // Aproveita pra preencher situação se ainda estiver VERIFICAR e BDC trouxer
+        if (emp.situacao === "VERIFICAR" && bdc.cnpjEnrichment?.situacaoCadastral) {
+          const sit = normalizeSituacaoCadastral(bdc.cnpjEnrichment.situacaoCadastral);
+          if (sit) emp.situacao = sit;
+        }
+        console.log(`[credithub][enrich-bdc] ${emp.cnpj!.slice(0,4)}*** protestos=${protQtd} processos=${procQtd} sit=${emp.situacao}`);
+      } catch (err) {
+        console.warn(`[credithub][enrich-bdc] ${emp.cnpj!.slice(0,4)}*** erro:`, err instanceof Error ? err.message : String(err));
+      }
+    }));
+  }
 
   return empresas;
 }
