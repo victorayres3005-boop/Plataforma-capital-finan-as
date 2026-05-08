@@ -586,6 +586,64 @@ export interface ClienteCurvaABC {
   classe: string; // "A" | "B" | "C"
 }
 
+// ─── Dívida Ativa (PGFN / Estadual / Municipal) ───
+export interface DividaAtivaRegistro {
+  origem: string;        // "PGFN", "Receita Federal", "SEFAZ-SP", "Município de São Paulo", etc.
+  numeroInscricao: string;
+  valor: string;          // "R$ 1.234,56"
+  situacao: string;       // "Ativa" | "Suspensa" | "Negociada" | "Quitada"
+  dataInscricao: string;  // DD/MM/AAAA
+  natureza?: string;      // "Tributária", "Não Tributária", "Previdenciária"
+}
+
+export interface DividaAtivaData {
+  qtdRegistros: number;
+  valorTotal: string;     // "R$ X,XX"
+  registros: DividaAtivaRegistro[];
+  /** Se a certidão foi positiva (com débitos) ou negativa (NADA CONSTA). */
+  certidaoNegativa: boolean;
+  dataConsulta: string;
+}
+
+// ─── CENPROT (Central Nacional de Protestos — IEPTB-BR) ───
+export interface CenprotRegistro {
+  cartorio: string;
+  cidade: string;
+  uf: string;
+  data: string;          // DD/MM/AAAA
+  valor: string;         // "R$ X,XX"
+  devedor: string;
+  cedente?: string;      // apresentante
+  protocolo?: string;
+}
+
+export interface CenprotData {
+  qtdRegistros: number;
+  valorTotal: string;
+  registros: CenprotRegistro[];
+  certidaoNegativa: boolean;
+  dataConsulta: string;
+}
+
+// ─── GEFIP (FGTS + INSS) ───
+export interface GefipCompetencia {
+  mes: string;            // "MM/YYYY" ex: "03/2026"
+  funcionarios: number;
+  valorFgts: string;      // "R$ X,XX"
+  valorInss: string;
+  situacao: string;       // "Recolhido", "Em atraso", "Não recolhido"
+}
+
+export interface GefipData {
+  competenciaInicio: string;
+  competenciaFim: string;
+  totalFuncionarios: number;
+  valorFgtsTotal: string;
+  valorInssTotal: string;
+  competenciasEmAtraso: number;
+  competencias: GefipCompetencia[];
+}
+
 export interface CurvaABCData {
   clientes: ClienteCurvaABC[];
   totalClientesNaBase: number;
@@ -863,6 +921,12 @@ export interface ExtractedData {
   curvaABC?: CurvaABCData;
   /** Top 5 sacados PJ da Curva ABC com bureau + cruzamento de partes relacionadas. */
   sacadosAnalisados?: SacadoAnalisado[];
+  /** Certidão de débitos inscritos em Dívida Ativa (PGFN / UF / Município). */
+  dividaAtiva?: DividaAtivaData;
+  /** Certidão CENPROT (Central Nacional de Protestos — IEPTB-BR). */
+  cenprot?: CenprotData;
+  /** GEFIP — recolhimentos previdenciários e trabalhistas (FGTS + INSS). */
+  gefip?: GefipData;
   /**
    * Análise textual da equipe contábil (Vanessa) cobrindo balanço, DRE,
    * faturamento e endividamento. Aparece na Síntese Preliminar (pág 3).
@@ -958,7 +1022,7 @@ export type AppStep = 'upload' | 'review' | 'generate';
 
 // ─── Supabase — Histórico de coletas ───
 export interface CollectionDocument {
-  type: 'cnpj' | 'qsa' | 'contrato_social' | 'faturamento' | 'scr_bacen' | 'protestos' | 'processos' | 'grupo_economico' | 'dre' | 'balanco' | 'curva_abc' | 'ir_socio' | 'relatorio_visita' | 'ccf' | 'bureau_meta' | 'outro';
+  type: 'cnpj' | 'qsa' | 'contrato_social' | 'faturamento' | 'scr_bacen' | 'protestos' | 'processos' | 'grupo_economico' | 'dre' | 'balanco' | 'curva_abc' | 'ir_socio' | 'relatorio_visita' | 'ccf' | 'divida_ativa' | 'cenprot' | 'gefip' | 'bureau_meta' | 'outro';
   filename: string;
   extracted_data: Record<string, unknown>;
   uploaded_at: string;

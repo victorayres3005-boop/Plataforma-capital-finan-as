@@ -12,6 +12,7 @@ import type {
   BalancoData, CNPJData, ContratoSocialData, CurvaABCData, DREData,
   FaturamentoData, GrupoEconomicoData, IRSocioData, ProcessosData,
   ProtestosData, QSAData, RelatorioVisitaData, SCRData,
+  DividaAtivaData, CenprotData, GefipData,
 } from "@/types";
 import { sanitizeDescricaoDebitos, sanitizeStr, sanitizeEnum, sanitizeMoney } from "@/lib/extract/sanitize";
 
@@ -459,7 +460,64 @@ export function fillRelatorioVisitaDefaults(data: Partial<RelatorioVisitaData>):
   };
 }
 
-export type AnyExtracted = CNPJData | QSAData | ContratoSocialData | FaturamentoData | SCRData | ProtestosData | ProcessosData | GrupoEconomicoData | CurvaABCData | DREData | BalancoData | IRSocioData | RelatorioVisitaData;
+export function fillDividaAtivaDefaults(data: Partial<DividaAtivaData>): DividaAtivaData {
+  const registros = Array.isArray(data.registros) ? data.registros : [];
+  return {
+    qtdRegistros: typeof data.qtdRegistros === "number" ? data.qtdRegistros : registros.length,
+    valorTotal: data.valorTotal || "",
+    registros: registros.map(r => ({
+      origem: r?.origem || "",
+      numeroInscricao: r?.numeroInscricao || "",
+      valor: r?.valor || "",
+      situacao: r?.situacao || "",
+      dataInscricao: r?.dataInscricao || "",
+      natureza: r?.natureza || "",
+    })),
+    certidaoNegativa: !!data.certidaoNegativa,
+    dataConsulta: data.dataConsulta || "",
+  };
+}
+
+export function fillCenprotDefaults(data: Partial<CenprotData>): CenprotData {
+  const registros = Array.isArray(data.registros) ? data.registros : [];
+  return {
+    qtdRegistros: typeof data.qtdRegistros === "number" ? data.qtdRegistros : registros.length,
+    valorTotal: data.valorTotal || "",
+    registros: registros.map(r => ({
+      cartorio: r?.cartorio || "",
+      cidade: r?.cidade || "",
+      uf: r?.uf || "",
+      data: r?.data || "",
+      valor: r?.valor || "",
+      devedor: r?.devedor || "",
+      cedente: r?.cedente || "",
+      protocolo: r?.protocolo || "",
+    })),
+    certidaoNegativa: !!data.certidaoNegativa,
+    dataConsulta: data.dataConsulta || "",
+  };
+}
+
+export function fillGefipDefaults(data: Partial<GefipData>): GefipData {
+  const competencias = Array.isArray(data.competencias) ? data.competencias : [];
+  return {
+    competenciaInicio: data.competenciaInicio || "",
+    competenciaFim: data.competenciaFim || "",
+    totalFuncionarios: typeof data.totalFuncionarios === "number" ? data.totalFuncionarios : 0,
+    valorFgtsTotal: data.valorFgtsTotal || "",
+    valorInssTotal: data.valorInssTotal || "",
+    competenciasEmAtraso: typeof data.competenciasEmAtraso === "number" ? data.competenciasEmAtraso : 0,
+    competencias: competencias.map(c => ({
+      mes: c?.mes || "",
+      funcionarios: typeof c?.funcionarios === "number" ? c.funcionarios : 0,
+      valorFgts: c?.valorFgts || "",
+      valorInss: c?.valorInss || "",
+      situacao: c?.situacao || "",
+    })),
+  };
+}
+
+export type AnyExtracted = CNPJData | QSAData | ContratoSocialData | FaturamentoData | SCRData | ProtestosData | ProcessosData | GrupoEconomicoData | CurvaABCData | DREData | BalancoData | IRSocioData | RelatorioVisitaData | DividaAtivaData | CenprotData | GefipData;
 
 export function countFilledFields(data: AnyExtracted): number {
   const obj = data as unknown as Record<string, unknown>;

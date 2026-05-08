@@ -1071,3 +1071,74 @@ Regras:
 - endividamento_banco → saldo devedor total da empresa com bancos no momento da visita (R$); buscar em "Endividamento banco", "Dívida bancária", "Bancos"
 - endividamento_factoring → saldo devedor total com factoring/FIDC (R$); buscar em "Endividamento factoring", "Dívida factoring", "FIDC"
 - Nunca inventar dados ausentes`;
+
+// ─── Dívida Ativa ───
+export const PROMPT_DIVIDA_ATIVA = `Você receberá uma certidão de débitos inscritos em Dívida Ativa (PGFN, Receita Federal, SEFAZ estadual, fazenda municipal). Extraia os dados e retorne APENAS JSON válido, sem markdown.
+
+Schema:
+{"qtdRegistros":0,"valorTotal":"","registros":[{"origem":"","numeroInscricao":"","valor":"","situacao":"","dataInscricao":"","natureza":""}],"certidaoNegativa":false,"dataConsulta":""}
+
+Regras:
+- qtdRegistros: número total de inscrições de dívida ativa identificadas
+- valorTotal: soma dos valores de TODAS as inscrições com prefixo "R$" (ex: "R$ 12.345,67")
+- registros: liste TODAS as inscrições
+  - origem: órgão credor — "PGFN", "Receita Federal", "SEFAZ-SP", "Município de São Paulo", etc.
+  - numeroInscricao: número CDA (Certidão de Dívida Ativa) ou processo
+  - valor: em reais com prefixo "R$"
+  - situacao: "Ativa" | "Suspensa" | "Negociada" | "Quitada" | "Em parcelamento" | "Em recurso"
+  - dataInscricao: DD/MM/AAAA
+  - natureza: "Tributária" | "Não Tributária" | "Previdenciária" — vazio se não identificável
+- certidaoNegativa: true SOMENTE se documento explicitamente diz "NADA CONSTA", "Negativa", "Sem débitos", "Não consta dívida ativa"
+- dataConsulta: DD/MM/AAAA — data de emissão da certidão
+
+Documentos negativos:
+- "NADA CONSTA" / "Certidão Negativa" → qtdRegistros=0, valorTotal="R$ 0,00", registros=[], certidaoNegativa=true
+
+NÃO invente dados. Campos ausentes = "".`;
+
+// ─── CENPROT ───
+export const PROMPT_CENPROT = `Você receberá uma certidão emitida pela Central Nacional de Protestos (CENPROT / IEPTB-BR). Esta é a certidão OFICIAL — pode contradizer informações de bureaus. Extraia os dados e retorne APENAS JSON válido, sem markdown.
+
+Schema:
+{"qtdRegistros":0,"valorTotal":"","registros":[{"cartorio":"","cidade":"","uf":"","data":"","valor":"","devedor":"","cedente":"","protocolo":""}],"certidaoNegativa":false,"dataConsulta":""}
+
+Regras:
+- qtdRegistros: número total de protestos identificados
+- valorTotal: soma dos valores com prefixo "R$"
+- registros: liste TODOS os protestos individualmente
+  - cartorio: nome ou número do cartório (ex: "1º Tabelionato de Protesto")
+  - cidade: município
+  - uf: estado em duas letras (ex: "SP")
+  - data: DD/MM/AAAA
+  - valor: com "R$"
+  - devedor: nome/razão social do devedor (a empresa analisada normalmente)
+  - cedente: apresentante/credor
+  - protocolo: número do protocolo no cartório se houver
+- certidaoNegativa: true se "NADA CONSTA" / "Sem registros" / similar
+- dataConsulta: DD/MM/AAAA — data de emissão
+
+NÃO invente dados.`;
+
+// ─── GEFIP / SEFIP / eSocial ───
+export const PROMPT_GEFIP = `Você receberá um relatório de recolhimentos previdenciários e trabalhistas — GEFIP, SEFIP, eSocial, FGTS Digital, ou similar. Extraia os dados e retorne APENAS JSON válido, sem markdown.
+
+Schema:
+{"competenciaInicio":"","competenciaFim":"","totalFuncionarios":0,"valorFgtsTotal":"","valorInssTotal":"","competenciasEmAtraso":0,"competencias":[{"mes":"","funcionarios":0,"valorFgts":"","valorInss":"","situacao":""}]}
+
+Regras:
+- competenciaInicio: MM/YYYY — competência mais antiga listada (ex: "03/2025")
+- competenciaFim: MM/YYYY — competência mais recente
+- totalFuncionarios: número de funcionários da última competência
+- valorFgtsTotal: soma de TODAS as competências FGTS, com "R$"
+- valorInssTotal: soma de TODAS as competências INSS, com "R$"
+- competenciasEmAtraso: quantas competências têm situação diferente de "Recolhido" / "Quitado"
+- competencias: liste TODAS as competências
+  - mes: MM/YYYY
+  - funcionarios: número da competência
+  - valorFgts: com "R$"
+  - valorInss: com "R$"
+  - situacao: "Recolhido" | "Em atraso" | "Não recolhido" | "Parcelado" | "Em discussão"
+
+Sinais de atraso: "Em atraso", "Não recolhido", "Inadimplência", datas posteriores ao vencimento (dia 7 do mês seguinte)
+
+NÃO invente dados. Campos ausentes = "" ou 0.`;

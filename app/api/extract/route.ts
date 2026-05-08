@@ -3,7 +3,7 @@ export const maxDuration = 60;
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { createServerSupabase } from "@/lib/supabase/server";
-import type { CNPJData, ContratoSocialData, SCRData, QSAData, FaturamentoData, FaturamentoMensal, ProtestosData, ProcessosData, GrupoEconomicoData, CurvaABCData, DREData, BalancoData, IRSocioData, RelatorioVisitaData, SCRModalidade, Socio, Filial, SocioRetirante, DREAno, BalancoAno, ClienteCurvaABC, SociedadeIR } from "@/types";
+import type { CNPJData, ContratoSocialData, SCRData, QSAData, FaturamentoData, FaturamentoMensal, ProtestosData, ProcessosData, GrupoEconomicoData, CurvaABCData, DREData, BalancoData, IRSocioData, RelatorioVisitaData, SCRModalidade, Socio, Filial, SocioRetirante, DREAno, BalancoAno, ClienteCurvaABC, SociedadeIR, DividaAtivaData, CenprotData, GefipData } from "@/types";
 import {
   CNPJDataSchema, QSADataSchema, ContratoSocialDataSchema, FaturamentoDataSchema, SCRDataSchema,
   RelatorioVisitaSchema,
@@ -17,6 +17,7 @@ import {
   PROMPT_PROTESTOS, PROMPT_PROCESSOS, PROMPT_GRUPO_ECONOMICO,
   PROMPT_CURVA_ABC, PROMPT_DRE, PROMPT_BALANCO,
   PROMPT_RELATORIO_VISITA,
+  PROMPT_DIVIDA_ATIVA, PROMPT_CENPROT, PROMPT_GEFIP,
 } from "@/lib/extract/prompts";
 import {
   adaptCNPJNew, adaptQSANew, adaptContratoNew, adaptFaturamentoNew,
@@ -28,6 +29,7 @@ import {
   fillSCRDefaults, fillProtestosDefaults, fillProcessosDefaults, fillGrupoEconomicoDefaults,
   fillCurvaABCDefaults, fillDREDefaults, fillBalancoDefaults, fillIRSocioDefaults,
   fillRelatorioVisitaDefaults, countFilledFields,
+  fillDividaAtivaDefaults, fillCenprotDefaults, fillGefipDefaults,
 } from "@/lib/extract/fillDefaults";
 import type { AnyExtracted } from "@/lib/extract/fillDefaults";
 import { callAI, GEMINI_API_KEYS } from "@/lib/extract/ai";
@@ -651,6 +653,9 @@ async function processExtract(
         prompt = subformat === "IR_RECIBO" ? PROMPT_IR_RECIBO : PROMPT_IR_SOCIOS;
         break;
       case "relatorio_visita": prompt = PROMPT_RELATORIO_VISITA; break;
+      case "divida_ativa":   prompt = PROMPT_DIVIDA_ATIVA; break;
+      case "cenprot":        prompt = PROMPT_CENPROT; break;
+      case "gefip":          prompt = PROMPT_GEFIP; break;
       default:
         return NextResponse.json({ error: "Tipo de documento inválido." }, { status: 400 });
     }
@@ -976,6 +981,9 @@ async function processExtract(
               case "balanco":          data = fillBalancoDefaults(parsed as Partial<BalancoData>); break;
               case "ir_socio":         data = fillIRSocioDefaults(parsed as Partial<IRSocioData>); break;
               case "relatorio_visita": data = fillRelatorioVisitaDefaults(parsed as Partial<RelatorioVisitaData>); break;
+              case "divida_ativa":     data = fillDividaAtivaDefaults(parsed as Partial<DividaAtivaData>); break;
+              case "cenprot":          data = fillCenprotDefaults(parsed as Partial<CenprotData>); break;
+              case "gefip":            data = fillGefipDefaults(parsed as Partial<GefipData>); break;
               default:                 data = fillCNPJDefaults(parsed as Partial<CNPJData>);
             }
           } catch (aiError) {
@@ -1001,6 +1009,9 @@ async function processExtract(
               case "balanco":        data = fillBalancoDefaults({}); break;
               case "ir_socio":       data = fillIRSocioDefaults({}); break;
               case "relatorio_visita": data = fillRelatorioVisitaDefaults({}); break;
+              case "divida_ativa":   data = fillDividaAtivaDefaults({}); break;
+              case "cenprot":        data = fillCenprotDefaults({}); break;
+              case "gefip":          data = fillGefipDefaults({}); break;
               default:               data = fillCNPJDefaults({});
             }
 
