@@ -6,6 +6,7 @@ import type {
   GrupoEconomicoData, ParentescoDetectado, PefinReginData, SocioKycCreditHub,
 } from "@/types";
 import { protestosSave, protestosLoad, processosSave, processosLoad, ccfSave, ccfLoad } from "@/lib/bureaus/cache";
+import { parseBRL } from "@/lib/generators/report-shared";
 
 const CREDITHUB_API_URL = process.env.CREDITHUB_API_URL || "";
 const CREDITHUB_API_KEY = process.env.CREDITHUB_API_KEY || "";
@@ -329,12 +330,13 @@ function parseProcessos(d: any): ProcessosData {
   );
   console.log(`[credithub][processos] field usado: processos=${processos.length} | dividas=${dividas.length} | topKeys: ${Object.keys(d ?? {}).join(",")}`);
 
-  // Valor dos processos judiciais
+  // Valor dos processos judiciais — parseBRL aceita string BR ("1.234,56") e number.
+  // Number() puro tropeçava em string e retornava NaN, zerando o agregado.
   const valorProcessos = processos.reduce(
-    (s, p) => s + Number(p.valor ?? p.valorCausa ?? p.valorAcao ?? 0), 0
+    (s, p) => s + parseBRL(p.valor ?? p.valorCausa ?? p.valorAcao ?? 0), 0
   );
   // Valor das dívidas (campo direto da API)
-  const valorDividas = Number(d?.valor_total_dividas ?? 0);
+  const valorDividas = parseBRL(d?.valor_total_dividas ?? 0);
 
   // Processos ativos (em andamento) — verifica status, situacao e fase
   const ativos = processos.filter(p => {
@@ -742,7 +744,7 @@ function parseCNPJEnrichment(d: any): CreditHubEnrichment {
 
   return {
     capitalSocialCNPJ: d?.capitalSocial != null
-      ? Number(d.capitalSocial).toLocaleString("pt-BR", { minimumFractionDigits: 2 })
+      ? parseBRL(d.capitalSocial).toLocaleString("pt-BR", { minimumFractionDigits: 2 })
       : undefined,
     porte: d?.porteEmpresa ?? undefined,
     naturezaJuridica: d?.naturezaJuridica ?? undefined,
@@ -765,14 +767,14 @@ function parseQSAEnrichment(d: any): QSAData {
   const qs: any[] = d?.quadroSocietario?.length ? d.quadroSocietario : (d?.rfb?.socios ?? []);
   return {
     capitalSocial: d?.capitalSocial != null
-      ? Number(d.capitalSocial).toLocaleString("pt-BR", { minimumFractionDigits: 2 })
+      ? parseBRL(d.capitalSocial).toLocaleString("pt-BR", { minimumFractionDigits: 2 })
       : "",
     quadroSocietario: qs.map((s: any) => ({
       nome: s.nome ?? "—",
       cpfCnpj: s.documento ?? s.cpf ?? s.cnpj ?? "",
       qualificacao: s.qualificacaoSocio ?? s.qualificacao ?? "",
       participacao: s.valorParticipacao
-        ? Number(s.valorParticipacao).toLocaleString("pt-BR", { minimumFractionDigits: 2 })
+        ? parseBRL(s.valorParticipacao).toLocaleString("pt-BR", { minimumFractionDigits: 2 })
         : (s.participacao ?? ""),
       dataEntrada: s.dataEntrada ?? "",
       dataSaida: s.dataSaida ?? "",
@@ -1543,49 +1545,98 @@ function spcArrayToPefinData(spc: SCPCNETRow[]): PefinReginData {
 // de parser/adapter. Em qualquer falha retorna undefined — o relatório distingue
 // undefined ("não consultado") de { qtd: 0 } ("consultado, sem pendências"),
 // evitando falso negativo silencioso.
+/**
+ * Consulta uma query IRQL e devolve o body cru + parsed defensivo.
+ * Trata 3 cenários:
+ *   - HTTP 500 / BPQL XML com exception → retorna { error, raw } pra log
+ *   - JSON OK → retorna { json, raw }
+ *   - JSON malformado → retorna { error, raw }
+ */
+async function fetchIRQL(query: string): Promise<{ json?: unknown; error?: string; raw: string; status: number }> {
+  const params = new URLSearchParams({ q: query, apiKey: CREDITHUB_API_KEY });
+  const res = await fetch(`https://irql.credithub.com.br/?${params.toString()}`, {
+    cache: "no-store",
+    signal: AbortSignal.timeout(15000),
+  });
+  const raw = await res.text();
+  if (!res.ok) {
+    return { error: `HTTP ${res.status} ${res.statusText}`, raw, status: res.status };
+  }
+  if (raw.trimStart().startsWith("<")) {
+    const exMatch = raw.match(/<exception[^>]*>([^<]+)<\/exception>/i);
+    return { error: `XML/BPQL: ${exMatch?.[1] ?? "erro desconhecido"}`, raw, status: res.status };
+  }
+  try {
+    return { json: JSON.parse(raw), raw, status: res.status };
+  } catch (err) {
+    return { error: `JSON parse: ${err instanceof Error ? err.message : String(err)}`, raw, status: res.status };
+  }
+}
+
 export async function consultarPefinRefin(cnpj: string): Promise<{ pefin?: PefinReginData; refin?: PefinReginData }> {
   if (!CREDITHUB_API_KEY) {
     console.warn("[credithub] PEFIN/REFIN não consultado — CREDITHUB_API_KEY ausente");
     return {};
   }
-  // REFIN/Serasa via IRQL não tem adapter funcional na chave atual ("Adapter
-  // unknown - SERASA"). Mantemos undefined explícito até a CreditHub liberar o
-  // dataset Serasa ou indicar a rota correta. Não tentamos o fetch para não
-  // gastar quota nem confundir os logs.
-  console.warn("[credithub] REFIN: adapter Serasa indisponível no IRQL — verificar contrato CreditHub");
-  const refin: PefinReginData | undefined = undefined;
-
   const cnpjNum = cnpj.replace(/\D/g, "");
-  const params = new URLSearchParams({
-    q: `USING 'SCPCNET' SELECT FROM 'PROTESTOS'.'SCPCNET' WHERE 'DOCUMENTO' = '${cnpjNum}'`,
-    apiKey: CREDITHUB_API_KEY,
-  });
 
+  // PEFIN — SCPCNET (já validado em produção, commit 9e3a08a)
   let pefin: PefinReginData | undefined;
+  const pefinQuery = `USING 'SCPCNET' SELECT FROM 'PROTESTOS'.'SCPCNET' WHERE 'DOCUMENTO' = '${cnpjNum}'`;
   try {
-    const res = await fetch(`https://irql.credithub.com.br/?${params.toString()}`, {
-      cache: "no-store",
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!res.ok) {
-      console.warn(`[credithub] PEFIN HTTP ${res.status} ${res.statusText} — tratando como não consultado`);
-    } else {
-      const body = await res.text();
-      // Sintaxe quebrada vem em XML BPQL ainda que o status seja 200 em alguns
-      // adapters — defendemos com check de prefixo antes do JSON.parse.
-      if (body.trimStart().startsWith("<")) {
-        const exMatch = body.match(/<exception[^>]*>([^<]+)<\/exception>/i);
-        console.warn(`[credithub] PEFIN resposta XML/BPQL — ${exMatch?.[1] ?? "erro desconhecido"}`);
-      } else {
-        const parsed = JSON.parse(body) as { spc?: SCPCNETRow[] };
-        const spc = Array.isArray(parsed.spc) ? parsed.spc : [];
-        pefin = spcArrayToPefinData(spc);
-        console.log(`[credithub] PEFIN: ${pefin.qtd} registros R$ ${pefin.valor.toLocaleString("pt-BR")}`);
+    const r = await fetchIRQL(pefinQuery);
+    if (r.error) {
+      console.warn(`[credithub] PEFIN ${r.error} — tratando como não consultado`);
+    } else if (r.json) {
+      const parsed = r.json as { spc?: SCPCNETRow[] };
+      const spc = Array.isArray(parsed.spc) ? parsed.spc : [];
+      pefin = spcArrayToPefinData(spc);
+      console.log(`[credithub] PEFIN: ${pefin.qtd} registros R$ ${pefin.valor.toLocaleString("pt-BR")}`);
+    }
+  } catch (err) {
+    console.warn(`[credithub] PEFIN consulta falhou: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // REFIN — SERASA (mesma cirurgia que destravou o PEFIN: USING + aspas no CNPJ)
+  // Em commit 9e3a08a o PEFIN saiu de 500 BPQL pra 200 JSON adicionando USING'<adapter>'
+  // e aspas no CNPJ. REFIN pode ter sofrido com o mesmo bug — adapter "SERASA"
+  // pode estar disponível na chave, só não foi sondado com sintaxe correta.
+  // Se chave não tiver Serasa, log mostra exception clara e refin fica undefined.
+  let refin: PefinReginData | undefined;
+  const refinQuery = `USING 'SERASA' SELECT FROM 'PROTESTOS'.'SERASA' WHERE 'DOCUMENTO' = '${cnpjNum}'`;
+  try {
+    const r = await fetchIRQL(refinQuery);
+    if (r.error) {
+      console.warn(`[credithub] REFIN ${r.error} — tratando como não consultado`);
+      // Log diagnóstico do body cru pra investigar formato da resposta
+      if (r.raw && r.raw.length < 500) {
+        console.warn(`[credithub] REFIN body: ${r.raw.slice(0, 500)}`);
+      }
+    } else if (r.json) {
+      // Tenta múltiplos formatos: spc[] (mesma estrutura do SCPCNET), serasa[],
+      // ou top-level array (alguns adapters retornam direto).
+      const parsed = r.json as { spc?: SCPCNETRow[]; serasa?: SCPCNETRow[]; refin?: SCPCNETRow[] };
+      const rows: SCPCNETRow[] = Array.isArray(parsed.spc)
+        ? parsed.spc
+        : Array.isArray(parsed.serasa)
+          ? parsed.serasa
+          : Array.isArray(parsed.refin)
+            ? parsed.refin
+            : Array.isArray(r.json)
+              ? (r.json as SCPCNETRow[])
+              : [];
+      refin = spcArrayToPefinData(rows);
+      console.log(`[credithub] REFIN: ${refin.qtd} registros R$ ${refin.valor.toLocaleString("pt-BR")}`);
+      // Diagnóstico inicial: quando registros = 0 mas estamos falando de empresa
+      // que potencialmente tem inadimplência, vale ver as keys top-level pra
+      // confirmar que não estamos perdendo um array com nome diferente.
+      if (refin.qtd === 0) {
+        const keys = Object.keys((r.json && typeof r.json === "object") ? r.json as object : {});
+        console.log(`[credithub] REFIN response keys: [${keys.join(", ")}]`);
       }
     }
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[credithub] PEFIN consulta falhou: ${msg}`);
+    console.warn(`[credithub] REFIN consulta falhou: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   return { pefin, refin };
