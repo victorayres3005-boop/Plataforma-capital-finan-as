@@ -385,7 +385,7 @@ body{font-family:'DM Sans',sans-serif;font-size:var(--fs-body);background:#fff;c
 .risk-item .amt{font-family:'JetBrains Mono',monospace;font-weight:500;font-size:var(--fs-body)}
 .risk-item .amt.red{color:var(--r6)}
 /* ── SCR strip ── */
-.scr-strip{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:10px}
+.scr-strip{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-bottom:10px}
 .scr-card{padding:8px 10px;background:#fff;border-radius:6px;border:1px solid var(--x2)}
 .scr-card .l{font-size:var(--fs-tag);font-weight:600;text-transform:uppercase;color:var(--x4);margin-bottom:3px}
 .scr-card .v{font-size:var(--fs-kpi);font-weight:700;color:var(--n9)}
@@ -1353,13 +1353,17 @@ function pageSintese(params: PDFReportParams, date: string): string {
         <div class="scr-card"><div class="l">SCR Total</div><div class="v mono">${fmtMoneyAbr(totalDivida)}</div></div>
         <div class="scr-card"><div class="l">SCR Vencido</div><div class="v ${vencNum > 0 ? "" : "green"}">${fmtMoneyAbr(vencidos)}</div></div>
         <div class="scr-card"><div class="l">% Vencido</div><div class="v ${vencNum > 0 ? "" : "green"}">${pctVencido}</div></div>
-        <div class="scr-card"><div class="l">Prejuízo SCR</div><div class="v mono ${prejuizoSCRNum > 0 ? "red" : ""}">${prejuizoSCRNum > 0 ? fmtMoneyAbr(prejuizoSCR) : "—"}</div>${prejuizoSCRNum > 0 ? `<div style="font-size:9px;font-weight:700;color:#DC2626;margin-top:2px">⚠ Write-off</div>` : ""}</div>
-        <div class="scr-card"><div class="l">Dívida Ativa</div>${
+        <div class="scr-card" title="${prejuizoSCRNum > 0 ? "Write-off Bacen" : "Sem prejuízo SCR"}"><div class="l">Prejuízo SCR</div><div class="v mono ${prejuizoSCRNum > 0 ? "red" : ""}">${prejuizoSCRNum > 0 ? fmtMoneyAbr(prejuizoSCR) : "—"}</div></div>
+        <div class="scr-card" title="${
+          !dividaAtivaTemDados ? "Não consultado" :
+          dividaAtivaNegativa ? "Certidão negativa" :
+          `${dividaAtiva!.qtdRegistros} inscrição${dividaAtiva!.qtdRegistros !== 1 ? "ões" : ""}`
+        }"><div class="l">Dívida Ativa</div>${
           !dividaAtivaTemDados
-            ? `<div class="v" style="color:var(--x4);font-size:13px">—</div><div style="font-size:9px;color:var(--x4);margin-top:2px">Não consultado</div>`
+            ? `<div class="v" style="color:var(--x4)">—</div>`
             : dividaAtivaNegativa
-              ? `<div class="v green">Nada consta</div><div style="font-size:9px;color:var(--g6);font-weight:700;margin-top:2px">✓ Certidão negativa</div>`
-              : `<div class="v mono ${dividaAtivaNum > 0 ? "red" : ""}">${dividaAtivaNum > 0 ? fmtMoneyAbr(dividaAtiva!.valorTotal) : "—"}</div><div style="font-size:9px;color:${dividaAtivaNum > 0 ? "#DC2626" : "var(--x5)"};margin-top:2px">${dividaAtiva!.qtdRegistros} inscrição${dividaAtiva!.qtdRegistros !== 1 ? "ões" : ""}</div>`
+              ? `<div class="v green">Nada consta</div>`
+              : `<div class="v mono ${dividaAtivaNum > 0 ? "red" : ""}">${dividaAtivaNum > 0 ? fmtMoneyAbr(dividaAtiva!.valorTotal) : "—"}</div>`
         }</div>
         <div class="scr-card"><div class="l">Alavancagem</div><div class="v" style="color:var(--x4)">${esc(alavStr)}</div></div>
         <div class="scr-card"><div class="l">Nº IFs</div><div class="v">${fmt(nIfs)}</div></div>
