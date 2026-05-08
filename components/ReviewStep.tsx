@@ -18,6 +18,7 @@ import { SectionRelatorioVisita } from "./review/SectionRelatorioVisita";
 import { SectionProtestos } from "./review/SectionProtestos";
 import { SectionProcessos } from "./review/SectionProcessos";
 import { SectionGrupoEconomico } from "./review/SectionGrupoEconomico";
+import { SectionAnaliseContabil } from "./review/SectionAnaliseContabil";
 
 export const DRAFT_KEY = "cf_review_draft_v2";
 
@@ -86,6 +87,7 @@ export default function ReviewStep({ data, onComplete, onBack, onDataChange }: R
       scr: qScr.score !== "good" || qFat.score === "error",
       dre: false, balanco: false, curvaABC: false, irSocios: false, relatorioVisita: false,
       scrSocios: false, protestos: false, processos: false, grupoEconomico: false,
+      analiseContabil: false,
     };
     if (typeof window === "undefined") return defaults;
     try {
@@ -421,6 +423,12 @@ export default function ReviewStep({ data, onComplete, onBack, onDataChange }: R
       <SectionProtestos data={form.protestos} expanded={open.protestos} onToggle={() => toggle("protestos")} />
       <SectionProcessos data={form.processos} expanded={open.processos} onToggle={() => toggle("processos")} />
       <SectionGrupoEconomico data={form.grupoEconomico} expanded={open.grupoEconomico} onToggle={() => toggle("grupoEconomico")} />
+      <SectionAnaliseContabil
+        value={form.analiseContabil ?? ""}
+        onChange={v => setForm(p => ({ ...p, analiseContabil: v }))}
+        expanded={open.analiseContabil}
+        onToggle={() => toggle("analiseContabil")}
+      />
 
       {/* Spacer sections já estão com pb-20 no container */}
 

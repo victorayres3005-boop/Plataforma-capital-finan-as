@@ -152,16 +152,18 @@ export function hydrateFromCollection(docs: { type: string; extracted_data: Reco
   for (const doc of docs) {
     if (doc.type === "scr_bacen") continue;
 
-    // bureau_meta guarda score + bureausConsultados + sacadosAnalisados
+    // bureau_meta guarda score + bureausConsultados + sacadosAnalisados + analiseContabil
     if (doc.type === "bureau_meta" && doc.extracted_data) {
-      const { score, bureausConsultados, sacadosAnalisados } = doc.extracted_data as {
+      const { score, bureausConsultados, sacadosAnalisados, analiseContabil } = doc.extracted_data as {
         score?: ExtractedData["score"];
         bureausConsultados?: string[];
         sacadosAnalisados?: ExtractedData["sacadosAnalisados"];
+        analiseContabil?: string;
       };
       if (score) result.score = score;
       if (bureausConsultados && bureausConsultados.length > 0) result.bureausConsultados = bureausConsultados;
       if (sacadosAnalisados && sacadosAnalisados.length > 0) result.sacadosAnalisados = sacadosAnalisados;
+      if (analiseContabil && analiseContabil.trim()) result.analiseContabil = analiseContabil;
       continue;
     }
 

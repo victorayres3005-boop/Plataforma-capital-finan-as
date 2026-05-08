@@ -392,6 +392,11 @@ export interface RelatorioVisitaData {
   observacoesLivres: string;
   pleito?: string;
   modalidade?: "comissaria" | "convencional" | "hibrida" | "outra";
+  /**
+   * Texto livre que o analista escreve junto do pleito; é exibido na Síntese
+   * Preliminar (pág 3) e lido em voz alta no comitê. Não tem auto-preencher.
+   */
+  sugestaoAnalista?: string;
 
   // ─── Contatos ───
   emailFinanceiro?: string;
@@ -858,6 +863,12 @@ export interface ExtractedData {
   curvaABC?: CurvaABCData;
   /** Top 5 sacados PJ da Curva ABC com bureau + cruzamento de partes relacionadas. */
   sacadosAnalisados?: SacadoAnalisado[];
+  /**
+   * Análise textual da equipe contábil (Vanessa) cobrindo balanço, DRE,
+   * faturamento e endividamento. Aparece na Síntese Preliminar (pág 3).
+   * Texto livre (markdown bruto, sem renderizar markdown).
+   */
+  analiseContabil?: string;
   dre?: DREData;
   balanco?: BalancoData;
   irSocios?: IRSocioData[];

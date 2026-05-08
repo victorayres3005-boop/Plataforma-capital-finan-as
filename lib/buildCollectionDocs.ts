@@ -100,7 +100,8 @@ export function buildCollectionDocs(data: ExtractedData): CollectionDocument[] {
     docs.push({ type: "ccf" as CollectionDocument["type"], filename: "ccf.pdf", extracted_data: asRec(data.ccf), uploaded_at: ts() });
   }
   const temSacadosAnalisados = (data.sacadosAnalisados?.length ?? 0) > 0;
-  if (data.score || (data.bureausConsultados && data.bureausConsultados.length > 0) || temSacadosAnalisados) {
+  const temAnaliseContabil = !!(data.analiseContabil && data.analiseContabil.trim());
+  if (data.score || (data.bureausConsultados && data.bureausConsultados.length > 0) || temSacadosAnalisados || temAnaliseContabil) {
     docs.push({
       type: "bureau_meta" as CollectionDocument["type"],
       filename: "bureau-meta.json",
@@ -108,6 +109,7 @@ export function buildCollectionDocs(data: ExtractedData): CollectionDocument[] {
         score: data.score ?? null,
         bureausConsultados: data.bureausConsultados ?? [],
         sacadosAnalisados: data.sacadosAnalisados ?? [],
+        analiseContabil: data.analiseContabil ?? "",
       }),
       uploaded_at: ts(),
     });

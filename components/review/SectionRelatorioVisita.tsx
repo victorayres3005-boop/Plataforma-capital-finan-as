@@ -111,6 +111,13 @@ export function SectionRelatorioVisita({ data, set, setLista, addLista, removeLi
                 <option value="outra">Outra</option>
               </select>
             </div>
+            <Field
+              label="Sugestão do Analista (lida no comitê)"
+              value={data.sugestaoAnalista ?? ""}
+              onChange={v => set("sugestaoAnalista", v)}
+              multiline
+              span2
+            />
             <Field label="Taxa Convencional (%)" value={data.taxaConvencional ?? ""} onChange={v => set("taxaConvencional", v)} />
             <Field label="Taxa Comissária (%)" value={data.taxaComissaria ?? ""} onChange={v => set("taxaComissaria", v)} />
             <Field label="Limite Total (R$)" value={data.limiteTotal ?? ""} onChange={v => set("limiteTotal", v)} />

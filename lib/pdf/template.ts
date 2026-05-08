@@ -1584,6 +1584,25 @@ function pageSintese(params: PDFReportParams, date: string): string {
     <!-- 9. Pleito -->
     ${pleitoHtml}
 
+    <!-- 9b. Sugestão do Analista (lida no comitê) — texto livre -->
+    ${(() => {
+      const txt = (d.relatorioVisita?.sugestaoAnalista ?? "").trim();
+      if (!txt) return "";
+      // Preserva quebras de linha do textarea como <br>; escapa HTML antes.
+      const html = esc(txt).replace(/\n/g, "<br>");
+      return `${stitle("Sugestão do Analista")}
+      <div style="background:#FFF8E1;border:1px solid #FCD34D;border-left:4px solid #D97706;border-radius:8px;padding:14px 16px;margin-bottom:12px;font-size:12.5px;line-height:1.55;color:#1F2937">${html}</div>`;
+    })()}
+
+    <!-- 9c. Análise Contábil — Vanessa -->
+    ${(() => {
+      const txt = ((d as { analiseContabil?: string }).analiseContabil ?? "").trim();
+      if (!txt) return "";
+      const html = esc(txt).replace(/\n/g, "<br>");
+      return `${stitle("Análise Contábil — Vanessa")}
+      <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-left:4px solid #2563EB;border-radius:8px;padding:14px 16px;margin-bottom:12px;font-size:12.5px;line-height:1.55;color:#1F2937">${html}</div>`;
+    })()}
+
     <!-- 10. Análise -->
     ${analiseHtml}
 
