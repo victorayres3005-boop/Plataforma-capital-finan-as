@@ -58,4 +58,7 @@ next-env.d.ts
 # Lixo de path mal-formado tipo "C:\Temp..." que virou nome de arquivo
 C*Temp*.json
 .env.vercel.tmp
+.env.production
+.env.production.*
+.env*.tmp
 supabase/.temp/
