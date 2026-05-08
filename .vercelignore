@@ -1,0 +1,10 @@
+# Dados sensíveis — NUNCA fazer upload no Vercel
+backup-supabase-*/
+*.ndjson
+
+# node_modules já excluído por padrão; isto reforça
+node_modules/
+
+# Arquivos locais
+.env.local
+.env*.tmp

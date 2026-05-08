@@ -648,6 +648,7 @@ export const PROMPT_CURVA_ABC = `Você receberá um PDF de Curva ABC ou relatór
     {
       "posicao": null,
       "cliente": "",
+      "cnpj": "",
       "valor": null,
       "percentual": null,
       "classificacao": ""
@@ -666,6 +667,12 @@ Regras:
 - Percentuais como float — ex: 15.02
 - faturamento_por_mes → extrair todos os meses visíveis com seus valores
 - curva_abc_clientes → extrair TODOS os clientes da tabela. ATENÇÃO — leia linha a linha com máxima precisão: cada linha tem um cliente e um valor; NÃO misture clientes com valores de linhas diferentes. Se o documento tiver posição numérica (1, 2, 3…) ao lado de cada cliente, use-a como referência para conferir a ordem. Após extrair, ordene do maior para o menor valor (decrescente); posicao sequencial a partir de 1.
+- cnpj → CRÍTICO: extraia o CNPJ ou CPF do cliente quando aparecer no documento. Pode estar:
+  • numa coluna separada ao lado do nome (formato "12.345.678/0001-99" ou "123.456.789-00")
+  • imediatamente após o nome separado por hífen, traço ou barra (ex: "EMPRESA LTDA - 12.345.678/0001-99")
+  • em linha abaixo do nome (alguns relatórios quebram em duas linhas)
+  • em formato cru sem pontuação (14 dígitos seguidos = CNPJ; 11 dígitos = CPF)
+  Se o documento não trouxer CNPJ/CPF do cliente, retornar "" (string vazia). NUNCA inventar nem deduzir CNPJ a partir do nome.
 - classificacao → classificar cada cliente como "A", "B" ou "C" com base no percentual acumulado: A = até 80%, B = 80–95%, C = acima de 95%. Se o próprio documento já trouxer a classificação, use-a para validar.
 - CRÍTICO — TOP 5: os 5 primeiros clientes por valor são os mais importantes. Confira duas vezes: o cliente com o MAIOR valor monetário (R$) deve aparecer em posicao=1. Se o valor do 1º for menor que o do 2º, você errou — revise.
 - Se o documento mostrar apenas percentuais sem valor absoluto e o total_faturado estiver disponível, calcule: valor = (percentual/100) * total_faturado.

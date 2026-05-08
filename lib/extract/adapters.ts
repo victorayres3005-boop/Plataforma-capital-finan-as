@@ -479,10 +479,19 @@ export function adaptCurvaABCNew(raw: Record<string, unknown>): Partial<CurvaABC
       console.warn(`[curva_abc] classe raw "${classeRaw}" diverge de cumulativa "${classeCumulativa}" em "${_s(c.cliente)}" (acc=${acc.toFixed(2)}%)`);
     }
     const classe = classeCumulativa;
+    // CNPJ/CPF: prioridade vem do campo dedicado; fallback regex no nome.
+    // Em prod 2026-05-08 confirmamos casos onde Gemini concatena no nome
+    // ("EMPRESA LTDA - 12.345.678/0001-99") e onde o documento traz CNPJ
+    // numa coluna separada — aceitar os dois caminhos.
+    const cnpjFromField = _s(c.cnpj || c.cnpj_cpf || c.cpf_cnpj || c.documento || c.cnpjCpf);
+    const cnpjMatch = (_s(c.cliente) + " " + cnpjFromField).match(
+      /(\d{2}\.?\d{3}\.?\d{3}[\/.-]?\d{4}[-.]?\d{2}|\d{3}\.?\d{3}\.?\d{3}[-.]?\d{2})/
+    );
+    const cnpjCpf = cnpjMatch ? cnpjMatch[1].replace(/\D/g, "") : "";
     return {
       posicao: idx + 1,
       nome: _s(c.cliente),
-      cnpjCpf: "",
+      cnpjCpf,
       valorFaturado: _fmtMoneyBR(valor),
       percentualReceita: pct.toFixed(2),
       percentualAcumulado: Math.min(acc, 100).toFixed(2),
