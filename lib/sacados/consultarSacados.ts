@@ -79,6 +79,40 @@ function summarizeProcessos(p: ProcessosData | undefined): { passivos: number; v
   return { passivos, valorTotal };
 }
 
+/** Top 10 protestos individuais para detalhamento na pág 9 do PDF. */
+function listProtestos(p: ProtestosData | undefined): NonNullable<SacadoAnalisado["protestosDetalhes"]> {
+  if (!p?.detalhes?.length) return [];
+  return p.detalhes.slice(0, 10).map((d) => ({
+    data: d.data || "",
+    credor: d.credor || "",
+    valor: d.valor || "",
+    cidade: d.municipio || undefined,
+    uf: d.uf || undefined,
+    regularizado: !!d.regularizado,
+  }));
+}
+
+/** Top 10 processos individuais (junta bancarios + fiscais + fornecedores + outros). */
+function listProcessos(p: ProcessosData | undefined): NonNullable<SacadoAnalisado["processosDetalhes"]> {
+  if (!p) return [];
+  const all = [
+    ...(p.bancarios ?? []).map((x) => ({ ...x, tipo: "BANCÁRIO", contraparte: x.banco || "—" })),
+    ...(p.fiscais ?? []).map((x) => ({ ...x, tipo: "FISCAL" })),
+    ...(p.fornecedores ?? []).map((x) => ({ ...x, tipo: "FORNECEDOR" })),
+    ...(p.outros ?? []).map((x) => ({ ...x, tipo: "OUTROS" })),
+  ];
+  // Ordena por valor descendente quando possível (parse defensivo)
+  const parseV = (s: string) => Number(String(s ?? "0").replace(/[R$\s.]/g, "").replace(",", ".")) || 0;
+  all.sort((a, b) => parseV(b.valor || "") - parseV(a.valor || ""));
+  return all.slice(0, 10).map((x) => ({
+    data: x.data || "",
+    contraparte: ("contraparte" in x ? x.contraparte : "") || "—",
+    valor: x.valor || "",
+    status: x.status || undefined,
+    tipo: x.tipo,
+  }));
+}
+
 /** Razão social do sacado: BDC > CH (CH não traz razão social diretamente). */
 function pickRazaoSocial(
   fallback: string,
@@ -155,8 +189,12 @@ export type SacadoMapeado = Omit<SacadoAnalisado, "vinculos">;
  */
 export function mapearSacado(input: MapearSacadoInput): SacadoMapeado {
   const { topSacado, ch, bdc, assertiva } = input;
-  const protestos = summarizeProtestos(ch?.protestos ?? bdc?.protestos);
-  const processos = summarizeProcessos(ch?.processos ?? bdc?.processos);
+  const protestosFonte = ch?.protestos ?? bdc?.protestos;
+  const processosFonte = ch?.processos ?? bdc?.processos;
+  const protestos = summarizeProtestos(protestosFonte);
+  const processos = summarizeProcessos(processosFonte);
+  const protestosDetalhes = listProtestos(protestosFonte);
+  const processosDetalhes = listProcessos(processosFonte);
   const enderecoCompleto = pickEndereco(bdc, ch);
   const uf = extractUFFromEndereco(enderecoCompleto);
   const fonteBureau = determineFonte(ch, bdc);
@@ -179,8 +217,10 @@ export function mapearSacado(input: MapearSacadoInput): SacadoMapeado {
     scoreClasse: scoreClasse || undefined,
     protestosQtd: protestos.qtd,
     protestosValorTotal: protestos.valor,
+    protestosDetalhes: protestosDetalhes.length > 0 ? protestosDetalhes : undefined,
     processosPassivos: processos.passivos,
     processosValorTotal: processos.valorTotal,
+    processosDetalhes: processosDetalhes.length > 0 ? processosDetalhes : undefined,
     fonteBureau,
   };
 }

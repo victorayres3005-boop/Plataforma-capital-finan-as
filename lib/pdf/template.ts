@@ -1564,8 +1564,8 @@ function pageSintese(params: PDFReportParams, date: string): string {
           <td class="r bold">${fmtPct(c.percentualAcumulado)}</td>
           <td><span class="abc-cl ${clsCls}">${esc(c.classe)}</span></td>
           <td class="r">${scoreCell}</td>
-          <td class="r ${protRed ? "red" : ""}">${s?.protestosQtd ?? "—"}</td>
-          <td class="r ${procRed ? "red" : ""}">${s?.processosPassivos ?? "—"}</td>
+          <td class="r ${protRed ? "red" : ""}">${s ? `${s.protestosQtd ?? 0}${s.protestosValorTotal ? `<div style="font-size:9px;color:var(--x5);font-weight:400">${esc(s.protestosValorTotal)}</div>` : ""}` : "—"}</td>
+          <td class="r ${procRed ? "red" : ""}">${s ? `${s.processosPassivos ?? 0}${s.processosValorTotal ? `<div style="font-size:9px;color:var(--x5);font-weight:400">${esc(s.processosValorTotal)}</div>` : ""}` : "—"}</td>
           <td>${chipVinculo}</td>
         </tr>`;
       }).join("");
@@ -2532,6 +2532,33 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
         </div>
         ${tiposVinculo.length > 0 ? `<div style="margin-top:8px;font-size:10px;color:var(--x5)"><b style="color:#991B1B">Vínculos detectados:</b> ${tiposVinculo.map(t => esc(t)).join(" · ")}</div>` : ""}
         ${detalheLinhas.length > 0 ? `<ul style="margin:6px 0 0;padding-left:18px;font-size:10px;color:var(--x4);line-height:1.5">${detalheLinhas.join("")}</ul>` : ""}
+        ${(s.protestosDetalhes?.length ?? 0) > 0 ? `
+        <div style="margin-top:10px">
+          <div style="font-size:10px;font-weight:700;color:var(--x4);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">Protestos vigentes</div>
+          <table class="tbl" style="margin:0;font-size:10px">
+            <thead><tr><th>Data</th><th>Credor</th><th class="r">Valor</th><th>Cidade/UF</th></tr></thead>
+            <tbody>${(s.protestosDetalhes ?? []).map(p => `<tr>
+              <td style="white-space:nowrap">${esc(p.data || "—")}</td>
+              <td>${esc(p.credor || "—")}</td>
+              <td class="r mono ${p.regularizado ? "" : "red"}">${esc(p.valor || "—")}</td>
+              <td style="white-space:nowrap">${esc([p.cidade, p.uf].filter(Boolean).join("/") || "—")}</td>
+            </tr>`).join("")}</tbody>
+          </table>
+        </div>` : ""}
+        ${(s.processosDetalhes?.length ?? 0) > 0 ? `
+        <div style="margin-top:10px">
+          <div style="font-size:10px;font-weight:700;color:var(--x4);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">Processos passivos (top 10 por valor)</div>
+          <table class="tbl" style="margin:0;font-size:10px">
+            <thead><tr><th>Data</th><th>Contraparte</th><th>Tipo</th><th>Status</th><th class="r">Valor</th></tr></thead>
+            <tbody>${(s.processosDetalhes ?? []).map(p => `<tr>
+              <td style="white-space:nowrap">${esc(p.data || "—")}</td>
+              <td>${esc(p.contraparte || "—")}</td>
+              <td><span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;background:var(--x1);color:var(--x5)">${esc(p.tipo || "—")}</span></td>
+              <td><span style="font-size:9px;color:var(--x5)">${esc(p.status || "—")}</span></td>
+              <td class="r mono red">${esc(p.valor || "—")}</td>
+            </tr>`).join("")}</tbody>
+          </table>
+        </div>` : ""}
       </div>`;
     }).join("");
 

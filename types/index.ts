@@ -735,8 +735,25 @@ export interface SacadoAnalisado {
   scoreClasse?: string;
   protestosQtd?: number;
   protestosValorTotal?: string;
+  /** Top 10 protestos individuais (data/credor/valor/cidade/uf). */
+  protestosDetalhes?: Array<{
+    data: string;
+    credor: string;
+    valor: string;
+    cidade?: string;
+    uf?: string;
+    regularizado?: boolean;
+  }>;
   processosPassivos?: number;
   processosValorTotal?: string;
+  /** Top 10 processos individuais (data/contraparte/valor/status/tipo). */
+  processosDetalhes?: Array<{
+    data: string;
+    contraparte: string;
+    valor: string;
+    status?: string;
+    tipo?: string;          // "BANCÁRIO" | "FISCAL" | "FORNECEDOR" | "OUTROS"
+  }>;
   fonteBureau?: "credithub" | "bdc" | "ambos";
   // ── Cruzamento ──
   vinculos: VinculosSacado;
