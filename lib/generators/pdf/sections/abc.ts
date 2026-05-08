@@ -4,6 +4,7 @@
  */
 import type { PdfCtx } from "../context";
 import { checkPageBreak, parseMoneyToNumber, fmtBR } from "../helpers";
+import { isLinhaTotalCurvaABC } from "@/lib/sacados/extractTopSacados";
 
 const P = {
   n9:  [12,  27,  58]  as [number,number,number],
@@ -139,7 +140,8 @@ export function renderABC(ctx: PdfCtx): void {
   }
 
   // Table (8 colunas: # · Sacado/CNPJ · Fat · %Rec(acum) · Score · Prot · Proc · Cl)
-  const shown = abc.clientes.slice(0, 10);
+  // Filtra linhas de totalizador que extrações antigas podem ter incluído.
+  const shown = abc.clientes.filter(c => !isLinhaTotalCurvaABC(c.nome)).slice(0, 10);
   const RH = 12; const HH = 9;
   const TH = HH + shown.length * RH + 8;
   checkPageBreak(ctx, TH + 6);

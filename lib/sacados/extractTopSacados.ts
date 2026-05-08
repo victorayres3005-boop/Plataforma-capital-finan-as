@@ -35,6 +35,37 @@ export function isLikelyCnpj(doc: string | undefined | null): boolean {
   return true;
 }
 
+// ── Filtro de lixo na Curva ABC ─────────────────────────────────────────────
+// Caso real prod 2026-05-08: Gemini extrai linhas de totalizador como
+// "Totais listados ....: 451 16.906.347" e marca como cliente. Sem nome real,
+// não há CNPJ pra resolver, então a tabela mostra `—` em todas as colunas.
+
+const TOTAL_HEAD_RE = /^\s*(totais?|total|subtotal|sub\s*total|soma|geral|t\s*o\s*t\s*a\s*l)\b/i;
+const TOTAIS_LISTADOS_RE = /totais?\s+listad/i;
+const APENAS_NUMEROS_RE = /^[\s\d.,:/\-R$%()]+$/;
+
+/**
+ * True se o "nome do cliente" parece linha de totalização ou rodapé da
+ * planilha em vez de cliente real. Regras conservadoras — descarta apenas
+ * casos claramente inválidos:
+ *   - Começa com "Total/Totais/Subtotal/Soma/Geral" como palavra
+ *   - Contém "totais listad..."
+ *   - Só números/pontuação (provável linha de soma)
+ *   - Proporção de letras < 25% para strings com 6+ chars
+ */
+export function isLinhaTotalCurvaABC(nome: string | undefined | null): boolean {
+  if (!nome) return false;
+  const t = String(nome).trim();
+  if (!t) return false;
+  if (APENAS_NUMEROS_RE.test(t)) return true;
+  if (TOTAL_HEAD_RE.test(t)) return true;
+  if (TOTAIS_LISTADOS_RE.test(t)) return true;
+  const letras = (t.match(/[A-Za-zÀ-ÿ]/g) ?? []).length;
+  const compact = t.replace(/\s+/g, "").length;
+  if (compact >= 6 && letras / compact < 0.25) return true;
+  return false;
+}
+
 // Regex robusta de CNPJ — aceita formatado e cru:
 //   12.345.678/0001-99 · 12345678000199 · 12345678/000199 · 12.345.678/0001/99
 const CNPJ_RE = /(\d{2}\.?\d{3}\.?\d{3}[\/.-]?\d{4}[-.]?\d{2})/;
@@ -128,6 +159,12 @@ export function extractTopSacados(
 
   for (const { c } of indexed) {
     if (out.length >= limit) break;
+
+    // Descarta linhas de totalizador / rodapé que o extrator pegou como cliente
+    if (isLinhaTotalCurvaABC(c.nome)) {
+      console.log(`[extractTopSacados] descartado lixo de totalização: "${(c.nome || "").slice(0, 50)}"`);
+      continue;
+    }
 
     let cnpj = onlyDigits(c.cnpjCpf);
     let cleanedName = (c.nome || "").trim();

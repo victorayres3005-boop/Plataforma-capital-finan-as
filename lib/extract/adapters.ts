@@ -15,6 +15,7 @@ import type {
   Filial, IRSocioData, QSAData, RelatorioVisitaData, SCRData,
   SCRModalidade, SociedadeIR, Socio, SocioRetirante,
 } from "@/types";
+import { isLinhaTotalCurvaABC } from "@/lib/sacados/extractTopSacados";
 
 /**
  * Adapter: converte o JSON snake_case do novo prompt de Cartão CNPJ
@@ -456,7 +457,17 @@ export function adaptContratoNew(raw: Record<string, unknown>): Partial<Contrato
 
 export function adaptCurvaABCNew(raw: Record<string, unknown>): Partial<CurvaABCData> {
   const r = raw ?? {};
-  const clientesRaw = Array.isArray(r.curva_abc_clientes) ? r.curva_abc_clientes as Array<Record<string, unknown>> : [];
+  const clientesRawAll = Array.isArray(r.curva_abc_clientes) ? r.curva_abc_clientes as Array<Record<string, unknown>> : [];
+
+  // Filtra linhas de totalizador / rodapé que Gemini às vezes captura como cliente.
+  // Caso real prod 2026-05-08: "Totais listados ....: 451 16.906.347" virou
+  // top1 da Curva ABC com R$ 67M, sem CNPJ — poluindo a tabela inteira.
+  const clientesRaw = clientesRawAll.filter(c => !isLinhaTotalCurvaABC(_s(c.cliente)));
+  const descartados = clientesRawAll.length - clientesRaw.length;
+  if (descartados > 0) {
+    console.log(`[curva_abc] ${descartados} linha(s) de totalizador descartada(s) na extração`);
+  }
+
   const totalFatN = typeof r.total_faturado === "number" ? r.total_faturado : parseFloat(_s(r.total_faturado)) || 0;
 
   // Parse valores primeiro para poder ordenar

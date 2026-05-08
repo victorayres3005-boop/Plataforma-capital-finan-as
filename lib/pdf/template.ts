@@ -1495,8 +1495,21 @@ function pageSintese(params: PDFReportParams, date: string): string {
         if (k) sacadosByCnpj.set(k, s);
       });
 
-      // Top 5 da Curva ABC (preserva ranking de concentração — pode incluir CPF/PF)
-      const top = abcLocal.clientes.slice(0, 5);
+      // Top 5 da Curva ABC, filtrando linhas de totalizador que extrações
+      // antigas podem ter incluído ("Totais listados ....: 451 ...").
+      // Heurística inline (template não pode importar de lib/sacados).
+      const isLixoTotal = (nome: string): boolean => {
+        const t = (nome || "").trim();
+        if (!t) return true;
+        if (/^[\s\d.,:/\-R$%()]+$/.test(t)) return true;
+        if (/^\s*(totais?|total|subtotal|sub\s*total|soma|geral)\b/i.test(t)) return true;
+        if (/totais?\s+listad/i.test(t)) return true;
+        const letras = (t.match(/[A-Za-zÀ-ÿ]/g) ?? []).length;
+        const compact = t.replace(/\s+/g, "").length;
+        if (compact >= 6 && letras / compact < 0.25) return true;
+        return false;
+      };
+      const top = abcLocal.clientes.filter(c => !isLixoTotal(c.nome)).slice(0, 5);
       const maxValSint = numVal(top[0]?.valorFaturado ?? "0");
 
       const linhas = top.map((c, i) => {
