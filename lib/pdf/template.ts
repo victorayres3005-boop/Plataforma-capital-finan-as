@@ -1581,28 +1581,34 @@ function pageSintese(params: PDFReportParams, date: string): string {
 
         const rowBg = s?.vinculos.temVinculo ? ` style="background:#FEF2F2"` : "";
 
-        // Risco unificado: fundir protestos + processos numa coluna só
-        // ("3p · 5pr" + valor combinado quando houver). Reduz ruído visual.
+        // Métricas combinadas: Faturamento (R$) em destaque + % Rec. (acum) abaixo
+        const metricasCell = `
+          <div style="font-weight:700;color:var(--n9)">${fmtMoney(c.valorFaturado)}</div>
+          <div style="font-size:10px;color:var(--n8);font-weight:600;margin-top:2px">${fmtPct(c.percentualReceita)}</div>
+          <div style="font-size:9px;color:var(--x5);font-weight:400">acum ${fmtPct(c.percentualAcumulado)}</div>
+        `;
+
+        // Status: Risco (Np · Mpr / ✓ / —) + chip de Vínculo abaixo (se houver)
         const protQtd = s?.protestosQtd ?? 0;
         const procQtd = s?.processosPassivos ?? 0;
         const temRisco = !!s && (protQtd > 0 || procQtd > 0);
-        const riscoCell = !s
-          ? `<span style="color:var(--x4)">—</span>`
+        const riscoLine = !s
+          ? `<span style="color:var(--x4)">— sem dados</span>`
           : temRisco
-            ? `<div style="line-height:1.3">
-                ${protQtd > 0 ? `<span style="color:#991B1B;font-weight:700">${protQtd}p</span>` : `<span style="color:var(--x4)">0p</span>`}
-                <span style="color:var(--x4)">·</span>
-                ${procQtd > 0 ? `<span style="color:#991B1B;font-weight:700">${procQtd}pr</span>` : `<span style="color:var(--x4)">0pr</span>`}
-                ${(s.protestosValorTotal || s.processosValorTotal) ? `<div style="font-size:9px;color:var(--x5);font-weight:400">${[s.protestosValorTotal, s.processosValorTotal].filter(Boolean).join(" + ")}</div>` : ""}
-              </div>`
-            : `<span style="color:#15803d;font-weight:700">✓</span>`;
-
-        // % com acumulado entre parênteses na mesma cell
-        const pctCell = `<b>${fmtPct(c.percentualReceita)}</b><div style="font-size:9px;color:var(--x5);font-weight:400">acum ${fmtPct(c.percentualAcumulado)}</div>`;
+            ? `${protQtd > 0 ? `<span style="color:#991B1B;font-weight:700">${protQtd}p</span>` : `<span style="color:var(--x4)">0p</span>`}<span style="color:var(--x4)"> · </span>${procQtd > 0 ? `<span style="color:#991B1B;font-weight:700">${procQtd}pr</span>` : `<span style="color:var(--x4)">0pr</span>`}`
+            : `<span style="color:#15803d;font-weight:700">✓ sem registros</span>`;
+        const valorRiscoLine = temRisco && (s?.protestosValorTotal || s?.processosValorTotal)
+          ? `<div style="font-size:9px;color:var(--x5);font-weight:400">${[s?.protestosValorTotal, s?.processosValorTotal].filter(Boolean).join(" + ")}</div>`
+          : "";
+        const statusCell = `
+          <div style="line-height:1.4">${riscoLine}</div>
+          ${valorRiscoLine}
+          ${s?.vinculos.temVinculo ? `<div style="margin-top:3px">${chipVinculo}</div>` : ""}
+        `;
 
         return `<tr${rowBg}>
-          <td><span class="abc-rank">${i + 1}</span></td>
-          <td class="b">
+          <td style="vertical-align:top;padding-top:8px"><span class="abc-rank">${i + 1}</span></td>
+          <td class="b" style="vertical-align:top">
             <div style="display:flex;align-items:center;gap:6px">
               <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nomeLimpo)}</span>
               <span class="abc-cl ${clsCls}" style="flex-shrink:0">${esc(c.classe)}</span>
@@ -1610,11 +1616,9 @@ function pageSintese(params: PDFReportParams, date: string): string {
             ${cnpjFmt ? `<div style="font-size:9px;color:var(--x5);font-family:'JetBrains Mono',monospace;font-weight:400;margin-top:1px">${cnpjFmt}${ufExtra}</div>` : ""}
             <div class="abc-bar" style="width:${barW}%"></div>
           </td>
-          <td class="r">${fmtMoney(c.valorFaturado)}</td>
-          <td class="r">${pctCell}</td>
-          <td class="r">${scoreCell}</td>
-          <td class="r">${riscoCell}</td>
-          <td>${chipVinculo}</td>
+          <td class="r" style="vertical-align:top">${metricasCell}</td>
+          <td class="r" style="vertical-align:top">${scoreCell}</td>
+          <td style="vertical-align:top">${statusCell}</td>
         </tr>`;
       }).join("");
 
@@ -1628,15 +1632,13 @@ function pageSintese(params: PDFReportParams, date: string): string {
           <thead><tr>
             <th style="width:34px">#</th>
             <th>Sacado</th>
-            <th class="r" style="width:100px">Faturamento</th>
-            <th class="r" style="width:78px">% Rec.</th>
-            <th class="r" style="width:68px">Score</th>
-            <th class="r" style="width:90px" title="Protestos · Processos passivos">Risco</th>
-            <th style="width:110px">Vínculo</th>
+            <th class="r" style="width:120px">Faturamento / %</th>
+            <th class="r" style="width:78px">Score</th>
+            <th style="width:160px" title="Protestos · Processos · Vínculo">Status / Risco</th>
           </tr></thead>
           <tbody>${linhas}</tbody>
         </table>
-        <div class="abc-summary">Top 3: <b>${fmtPct(abcLocal.concentracaoTop3)}</b> · Top 5: <b>${fmtPct(abcLocal.concentracaoTop5)}</b> · Total clientes: <b>${abcLocal.totalClientesNaBase}</b> · <span style="font-size:9px;color:var(--x5)">Risco: <b>p</b>=protestos · <b>pr</b>=processos passivos</span></div>
+        <div class="abc-summary">Top 3: <b>${fmtPct(abcLocal.concentracaoTop3)}</b> · Top 5: <b>${fmtPct(abcLocal.concentracaoTop5)}</b> · Total clientes: <b>${abcLocal.totalClientesNaBase}</b> · <span style="font-size:9px;color:var(--x5)"><b>p</b>=protestos · <b>pr</b>=processos passivos · 🚩=parte relacionada</span></div>
       </div>`;
     })()}
 
