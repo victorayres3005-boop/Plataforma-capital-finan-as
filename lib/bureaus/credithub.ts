@@ -1063,14 +1063,18 @@ async function consultarCreditHubPorCPF(cpf: string, nomeSocio: string): Promise
 
       const kyc: SocioKycCreditHub = {
         cpf: cpfNum,
-        // processosTotal = ativo + passivo. Antes lia passivosTotal cru, mas
-        // agora passivosTotal reflete só polo passivo — o total precisa ser somado.
-        processosTotal:     (Number(proc.poloAtivoQtd ?? 0) + Number(proc.poloPassivoQtd ?? 0)) || undefined,
-        processosAtivo:     Number(proc.poloAtivoQtd)  || undefined,
-        processosPassivo:   Number(proc.poloPassivoQtd) || undefined,
+        // BUG-FIX 2026-05-09: trocar `Number(x) || undefined` por preservar
+        // 0 como valor válido. Antes, sócio limpo (0 protestos, 0 processos)
+        // ficava com campos undefined → template mostrava "N/D" em vez de "0"
+        // verde — parecia que a consulta tinha falhado quando na verdade o
+        // sócio só estava limpo. Causava o "às vezes aparece, às vezes não"
+        // entre sócios diferentes da mesma tabela.
+        processosTotal:      Number(proc.poloAtivoQtd ?? 0) + Number(proc.poloPassivoQtd ?? 0),
+        processosAtivo:      Number(proc.poloAtivoQtd ?? 0),
+        processosPassivo:    Number(proc.poloPassivoQtd ?? 0),
         processosValorTotal: proc.valorTotalEstimado || undefined,
         ultimoProcessoData,
-        protestosQtd:       Number(prot.vigentesQtd) || undefined,
+        protestosQtd:        Number(prot.vigentesQtd ?? 0),
         ultimoProtestoData,
       };
 
