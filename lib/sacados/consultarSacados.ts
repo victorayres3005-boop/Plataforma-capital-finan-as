@@ -323,6 +323,10 @@ export interface ConsultarSacadosAnalisadosInput {
     enderecoCedente?: string;
     /** Sócios do cedente com motherName (vindo do BDC `/pessoas`). */
     sociosCedenteComMae?: SocioComMae[];
+    /** Razão social, ramo e cidade — usados como contexto pro Gemini fallback. */
+    razaoSocialCedente?: string;
+    ramoCedente?: string;
+    cidadeCedente?: string;
   };
   /** Pula cache em todas as consultas — uso em tests + debug. */
   skipCache?: boolean;
@@ -359,6 +363,12 @@ export async function consultarSacadosAnalisados(
         const r = await resolveCnpjPorNome(s.razaoSocial, {
           ufCedente: input.cedente.ufCedente,
           skipCache: input.skipCache,
+          geminiContext: {
+            razaoSocialCedente: input.cedente.razaoSocialCedente,
+            ufCedente: input.cedente.ufCedente,
+            ramoCedente: input.cedente.ramoCedente,
+            cidadeCedente: input.cedente.cidadeCedente,
+          },
         });
         recordMetric(metrics, r);
         if (r.cnpj) resolvedMap.set(s.razaoSocial, r.cnpj);

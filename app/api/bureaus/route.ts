@@ -367,6 +367,13 @@ export async function POST(req: NextRequest) {
             ufCedente,
             enderecoCedente,
             sociosCedenteComMae,
+            // Contexto extra usado pelo fallback Gemini do resolver de CNPJ
+            razaoSocialCedente: data.cnpj?.razaoSocial,
+            ramoCedente: data.cnpj?.cnaePrincipal,
+            // cidade extraída do endereço quando disponível
+            cidadeCedente: enderecoCedente
+              ? (enderecoCedente.match(/[-,]\s*([A-Z][A-Za-zÀ-ÿ\s]+?)(?:\s*[-,]\s*[A-Z]{2})?$/)?.[1]?.trim())
+              : undefined,
           },
           resolveCnpjFromName: RESOLVE_BY_NAME,
         });

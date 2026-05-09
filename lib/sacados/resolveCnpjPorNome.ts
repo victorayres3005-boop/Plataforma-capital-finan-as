@@ -1,21 +1,16 @@
 // Resolver CNPJ a partir de razão social — POC para enriquecer sacados da
 // Curva ABC quando o documento original não traz o CNPJ.
 //
-// Estratégia em camadas (vai escalando custo conforme camadas anteriores
-// falham, e cada camada é gateada por matcher conservador):
-//
+// Estratégia em camadas:
 //   C1. Cache global (`bureau_cache` chave `name-resolve:<hash>`)
-//   C2. publica.cnpj.ws ?q=NOME — gratuita, rate-limited
-//   C3. (futuro) Casa dos Dados / BDC search — pago, robusto
-//
-// Matcher conservador: aceita só se top1 >= ACCEPT_THRESHOLD E
-// (top2 < AMBIGUITY_THRESHOLD OU não há top2). Match errado é PIOR que match
-// ausente — atribuir score/protestos do CNPJ errado a um sacado induz
-// decisão de crédito incorreta.
+//   C2. publica.cnpj.ws ?q=NOME — gratuita, fonte oficial Receita Federal
+//   C3. Gemini (fallback) — quando publica.cnpj.ws falha. Risco de
+//       alucinação aceito pelo produto em 2026-05-09.
 
 import { cacheGet, cacheSet } from "@/lib/bureaus/cache";
 import { isLikelyCnpj, onlyDigits } from "./extractTopSacados";
 import { nameSimilarity, normalizeCompanyName } from "./similarity";
+import { resolveCnpjViaGemini, type GeminiResolveContext } from "./resolveCnpjGemini";
 
 const CACHE_PREFIX = "name-resolve:";
 const ACCEPT_THRESHOLD = 0.85;     // top1 precisa ter pelo menos este score
@@ -24,7 +19,7 @@ const MAX_NAME_LEN = 60;
 const FETCH_TIMEOUT_MS = 5000;
 const PUBLICA_CNPJ_QUANT = 5;      // pega top 5 e desambigua localmente
 
-export type ResolveSource = "cache" | "publica-cnpj-ws";
+export type ResolveSource = "cache" | "publica-cnpj-ws" | "gemini";
 export type ResolveStatus =
   | "resolved"
   | "miss-not-found"
@@ -81,7 +76,12 @@ function nameCacheKey(name: string): string {
  */
 export async function resolveCnpjPorNome(
   nomeEmpresa: string,
-  opts: { ufCedente?: string; skipCache?: boolean } = {}
+  opts: {
+    ufCedente?: string;
+    skipCache?: boolean;
+    /** Contexto do cedente — usado APENAS no fallback Gemini. */
+    geminiContext?: GeminiResolveContext;
+  } = {}
 ): Promise<ResolveResult> {
   const nameTrimmed = (nomeEmpresa || "").trim();
   if (!nameTrimmed || nameTrimmed.length < 4) {
@@ -107,9 +107,25 @@ export async function resolveCnpjPorNome(
     }
   }
 
-  // C2 — publica.cnpj.ws
-  const result = await tryPublicaCnpjWs(nameTrimmed, opts.ufCedente);
+  // C2 — publica.cnpj.ws (fonte oficial)
+  let result = await tryPublicaCnpjWs(nameTrimmed, opts.ufCedente);
   result.source = result.source ?? "publica-cnpj-ws";
+
+  // C3 — Gemini fallback (só quando publica.cnpj.ws não resolveu).
+  // RISCO: Gemini pode alucinar CNPJs. Aceito pelo produto em 2026-05-09.
+  // Logs com prefix [cnpj-gemini] permitem auditoria batch posterior.
+  if (result.status !== "resolved" && opts.geminiContext) {
+    console.log(`[cnpj-resolver] tentando fallback Gemini para "${nameTrimmed.slice(0, 40)}"`);
+    const g = await resolveCnpjViaGemini(nameTrimmed, opts.geminiContext);
+    if (g.cnpj) {
+      result = {
+        cnpj: g.cnpj,
+        status: "resolved",
+        source: "gemini",
+        candidates: 1,
+      };
+    }
+  }
 
   // Cache resultado (sucesso e miss; cache.ts usa TTL fixo 24h pros dois)
   // Miss em cache também ajuda — evita martelar API no caso de nome impossível
@@ -125,7 +141,7 @@ export async function resolveCnpjPorNome(
   }
 
   console.log(
-    `[cnpj-resolver] ${result.status} name="${nameTrimmed.slice(0, 40)}"` +
+    `[cnpj-resolver] ${result.status} via=${result.source} name="${nameTrimmed.slice(0, 40)}"` +
       ` cnpj=${result.cnpj || "—"} score=${result.score?.toFixed(2) ?? "—"}` +
       ` candidates=${result.candidates ?? 0}`
   );
