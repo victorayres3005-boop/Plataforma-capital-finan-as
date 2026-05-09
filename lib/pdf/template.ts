@@ -1762,12 +1762,12 @@ function pageParecer(params: PDFReportParams, date: string, pageNum = 10): strin
 // ─── Page 4: Divisor — Avaliação Estratégica de Crédito ──────────────────────
 function pageDivisorAvaliacaoEstrategica(): string {
   return `
-<div class="page" style="background:var(--n8);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0;position:relative;overflow:hidden;min-height:700px">
+<div class="page" style="background:var(--n8);display:flex;flex-direction:column;align-items:stretch;justify-content:center;padding:0;position:relative;overflow:hidden;min-height:700px">
   <!-- Barra verde no topo -->
   <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#73b815,rgba(115,184,21,0.2))"></div>
 
   <!-- Conteúdo central -->
-  <div style="display:flex;flex-direction:column;align-items:center;gap:20px;text-align:center;padding:0 60px">
+  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;text-align:center;padding:0 60px">
     <div style="width:48px;height:2px;background:#73b815;border-radius:2px"></div>
     <div style="font-size:11px;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:0.22em;font-weight:600">Relatório de Crédito</div>
     <div style="font-size:32px;font-weight:800;color:#fff;line-height:1.2;max-width:480px">Avalia&ccedil;&atilde;o Estrat&eacute;gica de Cr&eacute;dito</div>
@@ -1775,8 +1775,11 @@ function pageDivisorAvaliacaoEstrategica(): string {
     <div style="font-size:10px;color:rgba(255,255,255,0.2);text-transform:uppercase;letter-spacing:0.15em;margin-top:8px">capital<span style="color:#73b815">finan&ccedil;as</span></div>
   </div>
 
-  <!-- Barra verde no rodapé -->
-  <div style="position:absolute;bottom:0;left:0;right:0;height:3px;background:linear-gradient(90deg,rgba(115,184,21,0.2),#73b815)"></div>
+  <!-- Rodapé padrão (mesmo tamanho/estrutura das demais páginas; cores invertidas pro fundo escuro) -->
+  <div class="ftr" style="background:rgba(0,0,0,0.25);border-top:1px solid rgba(255,255,255,0.1)">
+    <span style="color:rgba(255,255,255,0.5)">Capital Finanças · Relatório de Due Diligence · Documento Confidencial</span>
+    <span style="color:rgba(255,255,255,0.5)">Pág. 4</span>
+  </div>
 </div>`;
 }
 
