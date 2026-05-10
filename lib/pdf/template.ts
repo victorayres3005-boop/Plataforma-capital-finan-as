@@ -1330,7 +1330,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
 
       return `${stitle("Posição de Crédito dos Sócios — SCR")}
       <table class="tbl" style="margin-bottom:0">
-        <thead><tr><th>Sócio</th><th class="r">Resp. Ativa</th><th class="r">Vencidos</th><th class="r">Prejuízos</th><th class="r">IFs</th></tr></thead>
+        <thead><tr><th>Sócio</th><th class="r">Dívida em Aberto</th><th class="r">Vencidos</th><th class="r">Prejuízos</th><th class="r">IFs</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`;
     })()}
@@ -2277,7 +2277,7 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
       return `<div style="margin-bottom:14px;padding:14px;background:var(--x0);border-radius:8px;border:1px solid var(--x2)">
         <div style="font-size:12px;font-weight:700;color:var(--n9);margin-bottom:10px">${esc(ss.nomeSocio)} <span style="font-size:10px;color:var(--x5);font-family:'JetBrains Mono',monospace">${fmtCpf(ss.cpfSocio)}</span></div>
         <div class="istrip c5">
-          <div class="icell"${semDivida ? ` title="Crédito baixado para prejuízo — sem dívida ativa em cobrança"` : ""}><div class="l">Resp. Ativa</div><div class="v sm mono">${fmtMoneyAbr(String(respAtiva))}</div>${vRespAtiva.val !== "—" ? `<div class="sub var-cell ${vRespAtiva.cls}" style="font-size:9px">${esc(vRespAtiva.val)}</div>` : ""}${semDivida ? `<div class="sub" style="font-size:9px;font-style:italic;color:var(--x4)">sem cobrança ativa</div>` : ""}</div>
+          <div class="icell"${semDivida ? ` title="Crédito baixado para prejuízo — sem dívida em cobrança ativa"` : ""}><div class="l">Dívida em Aberto</div><div class="v sm mono">${fmtMoneyAbr(String(respAtiva))}</div>${vRespAtiva.val !== "—" ? `<div class="sub var-cell ${vRespAtiva.cls}" style="font-size:9px">${esc(vRespAtiva.val)}</div>` : ""}${semDivida ? `<div class="sub" style="font-size:9px;font-style:italic;color:var(--x4)">sem cobrança ativa</div>` : ""}</div>
           <div class="icell ${prejVal > 0 ? "danger" : ""}"><div class="l">Prejuízos</div><div class="v sm mono ${prejVal > 0 ? "red" : ""}">${prejVal > 0 ? fmtMoneyAbr(sa.prejuizos) : "—"}</div>${prejVal > 0 ? `<div class="sub" style="font-size:9px;font-weight:700;color:#DC2626">⚠ Write-off</div>` : ""}${sp && vPrej.val !== "—" ? `<div class="sub var-cell ${vPrej.cls}" style="font-size:9px">${esc(vPrej.val)}</div>` : ""}</div>
           <div class="icell"><div class="l">A Vencer</div><div class="v sm mono">${fmtMoneyAbr(sa.carteiraAVencer)}</div>${sp && vAVencer.val !== "—" ? `<div class="sub var-cell ${vAVencer.cls}" style="font-size:9px">${esc(vAVencer.val)}</div>` : ""}</div>
           <div class="icell"><div class="l">Limite</div><div class="v sm mono ${numVal(sa.limiteCredito) === 0 ? "muted" : ""}">${numVal(sa.limiteCredito) > 0 ? fmtMoneyAbr(sa.limiteCredito) : "Não informado"}</div></div>

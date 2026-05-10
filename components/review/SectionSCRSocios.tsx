@@ -129,7 +129,7 @@ export function SectionSCRSocios({ socios, expanded, onToggle, quality }: Props)
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: "10px" }}>
                         <div title={semDivida ? "Crédito baixado para prejuízo — sem dívida ativa em cobrança" : undefined}>
                           <Metric
-                            label="Resp. Ativa"
+                            label="Dívida em Aberto"
                             value={respAtiva > 0 ? fmtBRL(String(respAtiva)) : "R$ 0,00"}
                             variation={anterior ? fmtVar(
                               String(parseBR(atual?.carteiraAVencer) + parseBR(atual?.vencidos)),
@@ -197,7 +197,7 @@ export function SectionSCRSocios({ socios, expanded, onToggle, quality }: Props)
                             <tbody>
                               {[
                                 {
-                                  label: "Resp. Ativa",
+                                  label: "Dívida em Aberto",
                                   ant: String(parseBR(anterior.carteiraAVencer) + parseBR(anterior.vencidos)) || "0",
                                   at:  String(parseBR(atual?.carteiraAVencer)   + parseBR(atual?.vencidos))   || "0",
                                   bold: true,
