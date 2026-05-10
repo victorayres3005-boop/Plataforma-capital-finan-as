@@ -233,6 +233,40 @@ describe("calcularIndicadoresAno", () => {
     expect(r.liquidezCorrente).toBe(2);
   });
 
+  it("PL negativo: marca flag e zera Dívida÷PL e Participação de Terceiros", () => {
+    const b = balanco({
+      ativoTotal: "1000",
+      passivoCirculante: "800",
+      passivoNaoCirculante: "300",
+      patrimonioLiquido: "-100", // PL negativo (passivos > ativos)
+    });
+    const r = calcularIndicadoresAno(b, undefined, "2024");
+    expect(r.plNegativo).toBe(true);
+    expect(r.dividaPL).toBeNull();
+    expect(r.participacaoTerceiros).toBeNull();
+    // Endividamento ainda é calculado (dá > 1, mas é informativo)
+    expect(r.endividamentoTotal).toBe(1.1);
+  });
+
+  it("PL exatamente zero também ativa o flag plNegativo", () => {
+    const b = balanco({ ativoTotal: "1000", passivoCirculante: "1000", patrimonioLiquido: "0" });
+    const r = calcularIndicadoresAno(b, undefined, "2024");
+    expect(r.plNegativo).toBe(true);
+    expect(r.dividaPL).toBeNull();
+  });
+
+  it("PL positivo: flag não setado, indicadores calculam normal", () => {
+    const b = balanco({
+      passivoCirculante: "200",
+      passivoNaoCirculante: "100",
+      patrimonioLiquido: "500",
+    });
+    const r = calcularIndicadoresAno(b, undefined, "2024");
+    expect(r.plNegativo).toBeUndefined();
+    expect(r.dividaPL).toBe(0.2);
+    expect(r.participacaoTerceiros).toBe(0.6);
+  });
+
   // Caso real do exemplo da chefe do Victor (2024 column)
   it("reproduz exemplo real: liquidez 0,90 / endividamento 0,88", () => {
     const b = balanco({

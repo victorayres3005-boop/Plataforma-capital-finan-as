@@ -50,6 +50,13 @@ export interface IndicadoresAno {
   despesaFinanceira: number | null;
   /** Despesa Financeira ÷ Resultado Operacional × 100 (%). */
   despFinSobreResultadoOp: number | null;
+  /**
+   * Sinaliza Patrimônio Líquido ≤ 0 (capital social consumido). Quando true,
+   * os indicadores `dividaPL` e `participacaoTerceiros` ficam null porque a
+   * fórmula perde sentido (denominador negativo gera ratio enganoso).
+   * Renderer usa esse flag pra mostrar "PL≤0" em vez de "—".
+   */
+  plNegativo?: boolean;
 }
 
 export interface IndicadoresFinanceiros {
@@ -157,8 +164,18 @@ export function calcularIndicadoresAno(
 
     result.capitalGiroLiquido = isFinite(ac - pc) ? ac - pc : null;
     result.endividamentoTotal = round(safeDiv(pc + pnc, at));
-    result.dividaPL = round(safeDiv(pnc, pl));
-    result.participacaoTerceiros = round(safeDiv(pc + pnc, pl));
+
+    // PL ≤ 0 → Dívida÷PL e Part. Terceiros perdem sentido. Marca o flag e
+    // deixa null. Renderer mostra "PL≤0" em vez de "—" pra deixar claro
+    // que NÃO é falta de dado, é contexto financeiro crítico.
+    if (pl <= 0) {
+      result.plNegativo = true;
+      result.dividaPL = null;
+      result.participacaoTerceiros = null;
+    } else {
+      result.dividaPL = round(safeDiv(pnc, pl));
+      result.participacaoTerceiros = round(safeDiv(pc + pnc, pl));
+    }
   }
 
   // ── Indicadores que dependem só do DRE ────────────────────────────────────

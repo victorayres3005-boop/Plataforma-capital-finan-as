@@ -2543,6 +2543,12 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
       const linhas = INDICADORES_TABELA.map(({ chave, nome }) => {
         const cells = anosShow.map(a => {
           const v = a[chave];
+          // Quando PL ≤ 0, Dívida÷PL e Participação de Terceiros não fazem sentido.
+          // Mostra "PL≤0" em vermelho pra deixar explícito que é contexto crítico,
+          // não simples falta de dado.
+          if (a.plNegativo && (chave === "dividaPL" || chave === "participacaoTerceiros")) {
+            return `<td class="r mono" style="color:var(--r6);font-weight:600;font-size:10px" title="Patrimônio Líquido negativo — fórmula perde sentido">PL≤0</td>`;
+          }
           const sev = classificarIndicador(chave, v);
           const txt = formatarIndicador(chave, v);
           const color =
