@@ -1666,7 +1666,6 @@ function pageSintese(params: PDFReportParams, date: string): string {
           <tbody>${linhas}</tbody>
         </table>
         <div style="padding:8px 14px;background:var(--n0);border-top:1px solid var(--n1);font-size:10px;color:var(--x5)"><b>✓</b>=sem ocorrência · número=qtd (com valor total) · <b>—</b>=sem dado · 🚩=parte relacionada com cedente</div>
-      </div>
       </div>`;
     })()}
 
