@@ -4,6 +4,13 @@ import type { RespostaCriterio } from "@/types/politica-credito";
 import { CAPITAL_LOGO_B64 } from "@/lib/assets/capital-logo-b64";
 import { recomputeSCRTotals, periodoRefToKey } from "@/lib/hydrateFromCollection";
 import { calcScrTotal } from "@/lib/scrTotal";
+import {
+  calcularIndicadores,
+  classificarIndicador,
+  formatarIndicador,
+  tendencia,
+  INDICADORES_TABELA,
+} from "@/lib/analyze/indicadoresFinanceiros";
 
 // ─── Logo base64 ─────────────────────────────────────────────────────────────
 // Reaproveita a constante compartilhada em lib/assets/capital-logo-b64.ts —
@@ -2488,6 +2495,61 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
     ${lc < 0.5 ? `<div class="alert alta"><span class="atag">ALTA</span> Liquidez ${lastBal?.liquidezCorrente} — incapaz de cobrir obrigações de curto prazo</div>` : ""}`;
   }
 
+  // ── Indicadores Financeiros (Balanço + DRE) ─────────────────────────────────
+  // Tabela de 15 indicadores calculados deterministicamente em lib/analyze/.
+  // Cores por threshold (verde/amarelo/vermelho) — sem alertas automáticos.
+  // Mostra até 3 anos do mais antigo pro mais recente quando disponível.
+  let indicadoresSection = "";
+  {
+    const ind = calcularIndicadores(bal, dre);
+    if (ind.anos.length > 0) {
+      const anosShow = ind.anos.slice(-3); // últimos 3 anos
+      const headerCells = anosShow.map(a => `<th class="r" style="width:80px">${esc(a.ano)}</th>`).join("");
+      const showDelta = anosShow.length >= 2;
+      const deltaHeader = showDelta ? `<th style="text-align:center;width:36px" title="Tendência último vs penúltimo ano">Δ</th>` : "";
+
+      const linhas = INDICADORES_TABELA.map(({ chave, nome }) => {
+        const cells = anosShow.map(a => {
+          const v = a[chave];
+          const sev = classificarIndicador(chave, v);
+          const txt = formatarIndicador(chave, v);
+          const color =
+            sev === "g" ? "var(--g6)" :
+            sev === "a" ? "var(--a5)" :
+            sev === "r" ? "var(--r6)" : "var(--x7)";
+          const weight = sev === "" ? "400" : "600";
+          return `<td class="r mono" style="color:${color};font-weight:${weight}">${esc(txt)}</td>`;
+        }).join("");
+
+        let deltaCell = "";
+        if (showDelta) {
+          const prev = anosShow[anosShow.length - 2][chave];
+          const curr = anosShow[anosShow.length - 1][chave];
+          const arrow = tendencia(prev, curr);
+          deltaCell = `<td style="text-align:center;color:var(--x5);font-weight:700">${arrow || "—"}</td>`;
+        }
+
+        return `<tr>
+          <td><b>${esc(nome)}</b></td>
+          ${cells}
+          ${deltaCell}
+        </tr>`;
+      }).join("");
+
+      indicadoresSection = `
+      ${stitle("10 · Indicadores Financeiros")}
+      <div style="font-size:11px;color:var(--x5);margin-bottom:10px">Indicadores calculados a partir do Balanço Patrimonial e DRE. Cores indicam zona de atenção (verde = saudável, amarelo = atenção, vermelho = crítico).</div>
+      <table class="ge-tbl" style="margin-bottom:14px">
+        <thead><tr>
+          <th>Indicador</th>
+          ${headerCells}
+          ${deltaHeader}
+        </tr></thead>
+        <tbody>${linhas}</tbody>
+      </table>`;
+    }
+  }
+
   let abcSection = "";
   if (abc && abc.clientes.length > 0) {
     const top3Pct = abc.concentracaoTop3 ?? "—";
@@ -2663,7 +2725,7 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
     </table>`;
   }
 
-  const content = `${dreSection}${balSection}${abcSection}${sacadosSection}${gefipSection}`;
+  const content = `${dreSection}${balSection}${indicadoresSection}${abcSection}${sacadosSection}${gefipSection}`;
   return page(content || `<div style="color:var(--x4);text-align:center;padding:40px">Dados de DRE/balanço/ABC não disponíveis</div>`, 9, date);
 }
 

@@ -227,3 +227,128 @@ export function calcularIndicadores(
 
   return { anos };
 }
+
+// ─── Apresentação: classificação por threshold + formatação ─────────────────
+
+export type IndicadorChave =
+  | "liquidezCorrente" | "liquidezSeca" | "liquidezGeral"
+  | "capitalGiroLiquido" | "receitaMediaLiquida"
+  | "roi" | "pmr" | "pme" | "pmp" | "cicloCaixa"
+  | "endividamentoTotal" | "dividaPL" | "participacaoTerceiros"
+  | "despesaFinanceira" | "despFinSobreResultadoOp";
+
+export type Severidade = "g" | "a" | "r" | "";
+
+/**
+ * Classifica um valor de indicador como verde/amarelo/vermelho com base em
+ * thresholds conservadores de literatura financeira. Retorna "" pra
+ * indicadores informativos (sem julgamento de bom/ruim) ou pra valor null.
+ *
+ * Decisão de produto (2026-05-10): só usado pra cor da célula. Não dispara
+ * alerta nem ponto fraco automaticamente — analista interpreta.
+ */
+export function classificarIndicador(chave: IndicadorChave, v: number | null): Severidade {
+  if (v == null) return "";
+  switch (chave) {
+    case "liquidezCorrente":
+      return v >= 1.2 ? "g" : v >= 0.8 ? "a" : "r";
+    case "liquidezSeca":
+      return v >= 1.0 ? "g" : v >= 0.5 ? "a" : "r";
+    case "liquidezGeral":
+      return v >= 1.0 ? "g" : v >= 0.6 ? "a" : "r";
+    case "capitalGiroLiquido":
+      return v > 0 ? "g" : v === 0 ? "a" : "r";
+    case "roi":
+      return v >= 10 ? "g" : v >= 0 ? "a" : "r";
+    case "pmr":
+      return v <= 30 ? "g" : v <= 60 ? "a" : "r";
+    case "pme":
+      return v <= 30 ? "g" : v <= 60 ? "a" : "r";
+    case "pmp":
+      // Prazo maior é melhor (financiar com fornecedor)
+      return v >= 30 ? "g" : v >= 15 ? "a" : "r";
+    case "cicloCaixa":
+      // Negativo (recebe antes de pagar) é excelente; ≤30 bom; >90 ruim
+      return v <= 30 ? "g" : v <= 90 ? "a" : "r";
+    case "endividamentoTotal":
+      return v <= 0.6 ? "g" : v <= 0.8 ? "a" : "r";
+    case "dividaPL":
+      return v <= 0.5 ? "g" : v <= 1.0 ? "a" : "r";
+    case "participacaoTerceiros":
+      return v <= 1.0 ? "g" : v <= 2.0 ? "a" : "r";
+    case "despFinSobreResultadoOp":
+      return v <= 30 ? "g" : v <= 80 ? "a" : "r";
+    // Sem julgamento — informativos puros
+    case "receitaMediaLiquida":
+    case "despesaFinanceira":
+      return "";
+  }
+}
+
+/**
+ * Formata um valor de indicador pro display na tabela. Cuida de unidade
+ * (% / dias / R$ abreviado / vezes) e do null (mostra "—").
+ */
+export function formatarIndicador(chave: IndicadorChave, v: number | null): string {
+  if (v == null) return "—";
+  switch (chave) {
+    case "liquidezCorrente":
+    case "liquidezSeca":
+    case "liquidezGeral":
+    case "dividaPL":
+    case "participacaoTerceiros":
+    case "endividamentoTotal":
+      return v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    case "roi":
+    case "despFinSobreResultadoOp":
+      return v.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + "%";
+    case "pmr":
+    case "pme":
+    case "pmp":
+    case "cicloCaixa":
+      return Math.round(v).toLocaleString("pt-BR") + "d";
+    case "capitalGiroLiquido":
+    case "receitaMediaLiquida":
+    case "despesaFinanceira":
+      return formatMoneyAbr(v);
+  }
+}
+
+function formatMoneyAbr(v: number): string {
+  const a = Math.abs(v);
+  const s = v < 0 ? "-" : "";
+  if (a >= 1_000_000) return `${s}R$ ${(a / 1_000_000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}M`;
+  if (a >= 1_000) return `${s}R$ ${(a / 1_000).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}k`;
+  return `${s}R$ ${a.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}`;
+}
+
+/**
+ * Tendência entre dois anos consecutivos pra mesma chave. "↑" / "↓" / "~".
+ * "↑" significa: o número subiu. Não diz se "subir é bom" — depende do
+ * indicador. Renderer só mostra a seta sem cor.
+ */
+export function tendencia(prev: number | null, curr: number | null): "↑" | "↓" | "~" | "" {
+  if (prev == null || curr == null) return "";
+  const delta = curr - prev;
+  if (Math.abs(delta) / (Math.abs(prev) || 1) < 0.02) return "~"; // <2% = estável
+  return delta > 0 ? "↑" : "↓";
+}
+
+/** Lista ordenada de indicadores pra renderização da tabela. */
+export const INDICADORES_TABELA: Array<{ chave: IndicadorChave; nome: string }> = [
+  { chave: "liquidezCorrente",          nome: "Liquidez corrente" },
+  { chave: "liquidezSeca",              nome: "Liquidez seca" },
+  { chave: "liquidezGeral",             nome: "Liquidez geral" },
+  { chave: "capitalGiroLiquido",        nome: "Capital de giro líq." },
+  { chave: "receitaMediaLiquida",       nome: "Receita média líquida" },
+  { chave: "roi",                       nome: "ROI" },
+  { chave: "pmr",                       nome: "PMR" },
+  { chave: "pme",                       nome: "PME" },
+  { chave: "pmp",                       nome: "PMP" },
+  { chave: "cicloCaixa",                nome: "Ciclo de Caixa" },
+  { chave: "endividamentoTotal",        nome: "Endividamento Total" },
+  { chave: "dividaPL",                  nome: "Dívida ÷ PL" },
+  { chave: "participacaoTerceiros",     nome: "Participação de Terceiros" },
+  { chave: "despesaFinanceira",         nome: "Despesa financeira" },
+  { chave: "despFinSobreResultadoOp",   nome: "Despfin ÷ Resultado Op." },
+];
