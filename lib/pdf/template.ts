@@ -279,8 +279,11 @@ body{font-family:'DM Sans',sans-serif;font-size:var(--fs-body);background:#fff;c
 .hdr .meta{font-size:var(--fs-label);color:rgba(255,255,255,0.5)}
 .hdr .pg{background:var(--gl);color:#fff;font-size:var(--fs-body);font-weight:700;padding:3px 11px;border-radius:10px;margin-left:12px}
 .ct{padding:28px 32px 32px}
-.ftr{background:var(--x0);border-top:1px solid var(--x2);padding:10px 32px;display:flex;justify-content:space-between;align-items:center}
-.ftr span{font-size:var(--fs-label);color:var(--x4);letter-spacing:0.04em}
+/* Rodapé fixo — blindado contra herança de .s-wrap (síntese) e outras
+   regras que possam vazar font-size do conteúdo da página. !important
+   garante que o rodapé fica uniforme em TODAS as páginas. */
+.ftr{background:var(--x0);border-top:1px solid var(--x2);padding:10px 32px!important;display:flex!important;justify-content:space-between!important;align-items:center!important;font-size:var(--fs-label)!important;line-height:1.3!important}
+.ftr span{font-size:var(--fs-label)!important;color:var(--x4);letter-spacing:0.04em;line-height:1.3!important}
 /* ── Section title ── */
 .stitle{font-size:var(--fs-body);font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--x5);margin:24px 0 10px;display:flex;align-items:center;gap:8px}
 .stitle:first-child{margin-top:0}
