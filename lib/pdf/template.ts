@@ -2481,50 +2481,145 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
   let balSection = "";
   if (bal && bal.anos.length > 0) {
     const anos = bal.anos.slice(-2);
-    const headers = anos.map(a => `<th class="r">${esc(a.ano)}</th>`).join("");
-    const indentStyle = "padding-left:28px;color:var(--x5)";
-    type BalRow = {label:string;key:keyof import("@/types").BalancoAno;bold:boolean;indent?:boolean;total?:boolean};
-    const rows: BalRow[] = [
-      {label:"Ativo Total",key:"ativoTotal",bold:true},
-      {label:"Ativo Circulante",key:"ativoCirculante",bold:false,indent:true},
-      {label:"Ativo Não Circulante",key:"ativoNaoCirculante",bold:false,indent:true},
-      {label:"Passivo Circulante",key:"passivoCirculante",bold:true},
-      {label:"Passivo Não Circulante",key:"passivoNaoCirculante",bold:true},
-      {label:"Patrimônio Líquido",key:"patrimonioLiquido",bold:true,total:true},
-    ];
-    const balRows = rows.map(r => {
-      const cells = anos.map(a => {
-        const v = String(a[r.key] ?? "—");
+    const headers = anos.map(a => `<th class="r" style="width:90px">${esc(a.ano)}</th>`).join("");
+
+    // Renderiza uma "sub-row" indentada — total, item canônico ou subconta.
+    type SubRow = { label: string; values: string[]; emphasis?: "total" | "subtotal" | "sub" };
+    const renderRow = (r: SubRow): string => {
+      const labelStyle = r.emphasis === "total"
+        ? `font-weight:700;color:var(--n9)`
+        : r.emphasis === "subtotal"
+          ? `font-weight:700;color:var(--x9)`
+          : `font-weight:400;color:var(--x5);padding-left:14px;font-size:11px`;
+      const rowBg = r.emphasis === "total" ? `background:var(--x0)` : "";
+      const cells = r.values.map(v => {
+        if (!v || v === "—" || v === "0,00") return `<td class="r" style="color:var(--x4)">—</td>`;
         const isNeg = numVal(v) < 0;
-        return `<td class="r ${isNeg ? "red" : ""}">${fmtMoney(v)}</td>`;
+        const weight = r.emphasis === "total" || r.emphasis === "subtotal" ? "font-weight:700" : "";
+        return `<td class="r mono ${isNeg ? "red" : ""}" style="${weight}">${fmtMoney(v)}</td>`;
       }).join("");
-      const tdStyle = r.indent ? ` style="${indentStyle}"` : "";
-      const cls = r.total || r.bold ? " class=\"b\"" : "";
-      const rowCls = r.total ? " class=\"total\"" : "";
-      return `<tr${rowCls}><td${cls}${tdStyle}>${esc(r.label)}</td>${cells}</tr>`;
-    }).join("");
+      return `<tr style="${rowBg}"><td style="${labelStyle}">${esc(r.label)}</td>${cells}</tr>`;
+    };
+
+    // Pretty-print de chave snake_case do JSON do Gemini → "Title Case BR".
+    const labelFromKey = (k: string): string => {
+      return k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    };
+
+    // Constrói linhas de uma seção: subtotal + canônicos não-zero + detalhes
+    // livres. Pula campos que não existem em todos os anos (nem 1).
+    const buildSection = (
+      label: string,
+      totalKey: keyof import("@/types").BalancoAno,
+      canonical: Array<{ label: string; key: keyof import("@/types").BalancoAno }>,
+      detalhesKey: keyof import("@/types").BalancoAno,
+    ): SubRow[] => {
+      const out: SubRow[] = [];
+      out.push({
+        label,
+        values: anos.map(a => String(a[totalKey] ?? "—")),
+        emphasis: "subtotal",
+      });
+      for (const c of canonical) {
+        const values = anos.map(a => String(a[c.key] ?? ""));
+        const algumPreenchido = values.some(v => v && v !== "—" && v !== "0,00");
+        if (!algumPreenchido) continue;
+        out.push({ label: c.label, values, emphasis: "sub" });
+      }
+      // Une as chaves dos `detalhes` de TODOS os anos, sem duplicar
+      const allDetalhesKeys = new Set<string>();
+      for (const a of anos) {
+        const d = a[detalhesKey] as Record<string, string> | undefined;
+        if (d) Object.keys(d).forEach(k => allDetalhesKeys.add(k));
+      }
+      for (const k of Array.from(allDetalhesKeys).sort()) {
+        const values = anos.map(a => {
+          const d = a[detalhesKey] as Record<string, string> | undefined;
+          return d?.[k] ?? "";
+        });
+        out.push({ label: labelFromKey(k), values, emphasis: "sub" });
+      }
+      return out;
+    };
+
+    // ── Coluna ATIVO ─────────────────────────────────────────────────────────
+    const ativoRows: SubRow[] = [
+      ...buildSection(
+        "Ativo Circulante",
+        "ativoCirculante",
+        [
+          { label: "Disponível",         key: "caixaEquivalentes" },
+          { label: "Clientes",           key: "contasAReceber" },
+          { label: "Estoque",            key: "estoques" },
+          { label: "Outros",             key: "outrosAtivosCirculantes" },
+        ],
+        "detalhesAtivoCirculante",
+      ),
+      ...buildSection(
+        "Ativo Não Circulante",
+        "ativoNaoCirculante",
+        [
+          { label: "Realizável a LP",    key: "realizavelLongoPrazo" },
+          { label: "Imobilizado",        key: "imobilizado" },
+          { label: "Intangível",         key: "intangivel" },
+          { label: "Outros",             key: "outrosAtivosNaoCirculantes" },
+        ],
+        "detalhesAtivoNaoCirculante",
+      ),
+      { label: "Total Ativos", values: anos.map(a => String(a.ativoTotal ?? "—")), emphasis: "total" },
+    ];
+
+    // ── Coluna PASSIVO + PL ──────────────────────────────────────────────────
+    const passivoRows: SubRow[] = [
+      ...buildSection(
+        "Passivo Circulante",
+        "passivoCirculante",
+        [
+          { label: "Fornecedores",       key: "fornecedores" },
+          { label: "Empréstimos CP",     key: "emprestimosCP" },
+          { label: "Outros",             key: "outrosPassivosCirculantes" },
+        ],
+        "detalhesPassivoCirculante",
+      ),
+      ...buildSection(
+        "Passivo Não Circulante",
+        "passivoNaoCirculante",
+        [
+          { label: "Empréstimos LP",     key: "emprestimosLP" },
+          { label: "Outros",             key: "outrosPassivosNaoCirculantes" },
+        ],
+        "detalhesPassivoNaoCirculante",
+      ),
+      ...buildSection(
+        "Patrimônio Líquido",
+        "patrimonioLiquido",
+        [
+          { label: "Capital Social",     key: "capitalSocial" },
+          { label: "Lucros Acumulados",  key: "lucrosAcumulados" },
+          { label: "Reservas",           key: "reservas" },
+        ],
+        "detalhesPL",
+      ),
+      // Total Passivo + PL = passivoTotal (que já inclui PL no balanço Brasil)
+      { label: "Total Passivo + PL", values: anos.map(a => String(a.passivoTotal ?? "—")), emphasis: "total" },
+    ];
+
+    const subTable = (titulo: string, rows: SubRow[]) => `
+      <table class="tbl" style="margin:0">
+        <thead><tr><th>${titulo}</th>${headers}</tr></thead>
+        <tbody>${rows.map(renderRow).join("")}</tbody>
+      </table>`;
 
     const lastBal = bal.anos[bal.anos.length - 1];
-    const lc = numVal(lastBal?.liquidezCorrente ?? "0");
-    const enDiv = numVal(lastBal?.endividamentoTotal ?? "0");
-    const cg = numVal(lastBal?.capitalDeGiroLiquido ?? "0");
     const pl = numVal(lastBal?.patrimonioLiquido ?? "0");
 
     balSection = `
     ${stitle("10 · Balanço Patrimonial")}
-    <table class="tbl">
-      <thead><tr><th>Métrica</th>${headers}</tr></thead>
-      <tbody>${balRows}</tbody>
-    </table>
-    ${stitle("Indicadores")}
-    <div class="istrip c4">
-      <div class="icell ${lc < 1 ? "danger" : ""}"><div class="l">Liquidez Corrente</div><div class="v ${lc < 1 ? "red" : "green"}">${lc > 0 ? lc.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+"x" : "—"}</div></div>
-      <div class="icell ${enDiv > 100 ? "danger" : ""}"><div class="l">Endividamento</div><div class="v ${enDiv > 100 ? "red" : "green"} sm">${fmtPct(lastBal?.endividamentoTotal)}</div></div>
-      <div class="icell ${cg < 0 ? "danger" : ""}"><div class="l">Capital de Giro</div><div class="v ${cg < 0 ? "red" : "green"} sm">${fmtMoneyAbr(lastBal?.capitalDeGiroLiquido)}</div></div>
-      <div class="icell ${pl < 0 ? "danger" : ""}"><div class="l">Patrimônio Líq.</div><div class="v ${pl < 0 ? "red" : "green"} sm">${fmtMoneyAbr(lastBal?.patrimonioLiquido)}</div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:10px">
+      ${subTable("ATIVO", ativoRows)}
+      ${subTable("PASSIVO + PL", passivoRows)}
     </div>
-    ${pl < 0 ? `<div class="alert alta"><span class="atag">ALTA</span> PL negativo ${fmtMoneyAbr(lastBal?.patrimonioLiquido)} — passivo a descoberto</div>` : ""}
-    ${lc < 0.5 ? `<div class="alert alta"><span class="atag">ALTA</span> Liquidez ${lastBal?.liquidezCorrente} — incapaz de cobrir obrigações de curto prazo</div>` : ""}`;
+    ${pl < 0 ? `<div class="alert alta" style="margin-top:8px"><span class="atag">ALTA</span> PL negativo ${fmtMoneyAbr(lastBal?.patrimonioLiquido)} — passivo a descoberto</div>` : ""}`;
   }
 
   // ── Indicadores Financeiros (Balanço + DRE) ─────────────────────────────────
@@ -2583,7 +2678,7 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
         : "";
 
       indicadoresSection = `
-      ${stitle("10 · Indicadores Financeiros")}
+      ${stitle("11 · Indicadores Financeiros")}
       <div style="font-size:11px;color:var(--x5);margin-bottom:10px">Indicadores calculados a partir do Balanço Patrimonial e DRE. Cores indicam zona de atenção (verde = saudável, amarelo = atenção, vermelho = crítico).</div>
       <table class="ge-tbl" style="margin-bottom:${analiseTexto ? "12px" : "14px"}">
         <thead><tr>
@@ -2617,7 +2712,7 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
     }).join("");
 
     abcSection = `
-    ${stitle("11 · Curva ABC — Concentração de sacados")}
+    ${stitle("12 · Curva ABC — Concentração de sacados")}
     <div class="istrip c3" style="margin-bottom:10px">
       <div class="icell warn"><div class="l">Top 3 Clientes</div><div class="v" style="color:var(--a5)">${fmtPct(top3Pct)}</div></div>
       <div class="icell warn"><div class="l">Top 5 Clientes</div><div class="v" style="color:var(--a5)">${fmtPct(top5Pct)}</div></div>

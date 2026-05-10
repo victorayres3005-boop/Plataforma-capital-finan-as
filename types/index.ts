@@ -529,18 +529,33 @@ export interface BalancoAno {
    * que o Gemini entrega calculado. Adicionado 2026-05-10.
    */
   realizavelLongoPrazo?: string;
+  /**
+   * Subcontas livres extraídas pelo Gemini — chave = nome em snake_case
+   * (ex: "impostos_a_recuperar"), valor = string monetária BR. Adicionado
+   * 2026-05-10 para renderizar tabela de Balanço detalhada (todas as
+   * subcontas, não só os totais). Quando ausente em extrações antigas,
+   * tabela cai pros campos canônicos.
+   */
+  detalhesAtivoCirculante?: Record<string, string>;
+  detalhesAtivoNaoCirculante?: Record<string, string>;
   passivoTotal: string;
   passivoCirculante: string;
   fornecedores: string;
   emprestimosCP: string;
   outrosPassivosCirculantes: string;
+  /** Subcontas livres do Passivo Circulante (Duplicatas Descontadas, Adiantamento, etc). */
+  detalhesPassivoCirculante?: Record<string, string>;
   passivoNaoCirculante: string;
   emprestimosLP: string;
   outrosPassivosNaoCirculantes: string;
+  /** Subcontas livres do Passivo Não Circulante (Parcelamento de Impostos, etc). */
+  detalhesPassivoNaoCirculante?: Record<string, string>;
   patrimonioLiquido: string;
   capitalSocial: string;
   reservas: string;
   lucrosAcumulados: string;
+  /** Subcontas livres do PL (Dividendos, Reservas específicas, etc). */
+  detalhesPL?: Record<string, string>;
   liquidezCorrente: string;
   liquidezGeral: string;
   endividamentoTotal: string;

@@ -698,6 +698,20 @@ export function adaptBalancoNew(raw: Record<string, unknown>): Partial<BalancoDa
     const pl  = (a.patrimonio_liquido ?? {}) as Record<string, unknown>;
     const ind = (a.indicadores ?? {}) as Record<string, unknown>;
 
+    // Normaliza objeto `detalhes` em Record<string, string> formatado BR.
+    // Vazio/null/undefined retorna undefined (campo opcional).
+    const normDetalhes = (d: unknown): Record<string, string> | undefined => {
+      if (!d || typeof d !== "object") return undefined;
+      const obj = d as Record<string, unknown>;
+      const out: Record<string, string> = {};
+      for (const k of Object.keys(obj)) {
+        const v = obj[k];
+        if (v == null || v === "" || v === 0) continue;
+        out[k] = _fmtMoneyBR(v);
+      }
+      return Object.keys(out).length > 0 ? out : undefined;
+    };
+
     return {
       ano: _s(a.ano),
       ativoTotal: _fmtMoneyBR(a.ativo_total),
@@ -714,6 +728,9 @@ export function adaptBalancoNew(raw: Record<string, unknown>): Partial<BalancoDa
       realizavelLongoPrazo: anc.realizavel_longo_prazo != null
         ? _fmtMoneyBR(anc.realizavel_longo_prazo)
         : undefined,
+      // Detalhes livres extraídos pelo Gemini (subcontas adicionais)
+      detalhesAtivoCirculante: normDetalhes(ac.detalhes),
+      detalhesAtivoNaoCirculante: normDetalhes(anc.detalhes),
       passivoTotal: _fmtMoneyBR(a.passivo_total),
       passivoCirculante: _fmtMoneyBR(pc.total),
       fornecedores: _fmtMoneyBR(pc.fornecedores),
@@ -722,10 +739,13 @@ export function adaptBalancoNew(raw: Record<string, unknown>): Partial<BalancoDa
       passivoNaoCirculante: _fmtMoneyBR(pnc.total),
       emprestimosLP: "",
       outrosPassivosNaoCirculantes: "",
+      detalhesPassivoCirculante: normDetalhes(pc.detalhes),
+      detalhesPassivoNaoCirculante: normDetalhes(pnc.detalhes),
       patrimonioLiquido: _fmtMoneyBR(pl.total),
       capitalSocial: _fmtMoneyBR(pl.capital_social),
       reservas: "",
       lucrosAcumulados: _fmtMoneyBR(pl.lucros_prejuizos_acumulados),
+      detalhesPL: normDetalhes(pl.detalhes),
       liquidezCorrente: _s(ind.liquidez_corrente),
       liquidezGeral: _s(ind.liquidez_geral),
       endividamentoTotal: _s(ind.endividamento_total_percent),
