@@ -2385,6 +2385,17 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
   const bal = params.data.balanco;
   const abc = params.data.curvaABC;
 
+  // Caixa de percepção editável inline. Sempre renderiza com placeholder
+  // (vazia) — o renderer /r/[id]/route.ts substitui o conteúdo quando o
+  // texto vem do banco (campos percepcao_dre/_faturamento/_balanco). Print:
+  // se vazia, o ::before com texto italic é exibido pra deixar evidente
+  // que o analista pode editar quando abrir com ?k=<token>.
+  const editBox = (key: string, label: string) => `
+    <div class="perc-box" data-edit-section="${key}">
+      <div class="l">${esc(label)}</div>
+      <!--EDIT:${key}:START--><div class="perc-box-content" data-edit-text="${key}" data-empty="true"></div><!--EDIT:${key}:END-->
+    </div>`;
+
   // ── DRE ──────────────────────────────────────────────────────────────────────
   let dreSection = "";
   if (dre && dre.anos.length > 0) {
@@ -2483,7 +2494,9 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
       </div>
     </div>
     <table class="tbl">${tableBody}</table>
-    ${dreAlerts}`;
+    ${dreAlerts}
+    ${editBox("dre", "Percepção do Analista — DRE")}
+    ${editBox("faturamento", "Percepção do Analista — Faturamento")}`;
   }
 
   let balSection = "";
@@ -2627,7 +2640,8 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
       ${subTable("ATIVO", ativoRows)}
       ${subTable("PASSIVO + PL", passivoRows)}
     </div>
-    ${pl < 0 ? `<div class="alert alta" style="margin-top:8px"><span class="atag">ALTA</span> PL negativo ${fmtMoneyAbr(lastBal?.patrimonioLiquido)} — passivo a descoberto</div>` : ""}`;
+    ${pl < 0 ? `<div class="alert alta" style="margin-top:8px"><span class="atag">ALTA</span> PL negativo ${fmtMoneyAbr(lastBal?.patrimonioLiquido)} — passivo a descoberto</div>` : ""}
+    ${editBox("balanco", "Percepção do Analista — Balanço Patrimonial")}`;
   }
 
   // ── Indicadores Financeiros (Balanço + DRE) ─────────────────────────────────
@@ -3439,6 +3453,16 @@ document.getElementById('printBtn').addEventListener('click', async function() {
   body.editing [data-edit-percepcao]{cursor:text;padding:8px;border-radius:6px;min-height:40px;transition:background .1s}
   body.editing [data-edit-percepcao]:hover{background:rgba(132,191,65,.06)}
   body.editing [data-edit-percepcao][contenteditable="true"]:focus{outline:1px solid #84BF41;background:#fff}
+  /* Caixas de Percepção por seção (DRE, Faturamento, Balanço) — sempre
+     visíveis no relatório; placeholder em italic quando vazias. */
+  .perc-box{border:1px dashed var(--x3);border-radius:6px;padding:10px 12px;margin-top:10px;margin-bottom:10px;background:var(--x0)}
+  .perc-box .l{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--x5);margin-bottom:4px}
+  .perc-box-content{font-size:12px;line-height:1.55;color:var(--x9);min-height:18px;text-align:justify}
+  .perc-box-content:empty::before,.perc-box-content[data-empty="true"]::before{content:"Clique para adicionar percepção…";color:var(--x4);font-style:italic}
+  body.editing .perc-box{border-style:solid;border-color:#84BF41;background:#fff;cursor:text}
+  body.editing [data-edit-text]{cursor:text;padding:4px 6px;border-radius:4px;transition:background .1s}
+  body.editing [data-edit-text]:hover{background:rgba(132,191,65,.06)}
+  body.editing [data-edit-text][contenteditable="true"]:focus{outline:1px solid #84BF41;background:#fff}
   body.editing .ana-item-empty{display:none}
   .edit-rm{position:absolute;top:50%;right:4px;transform:translateY(-50%);width:18px;height:18px;border-radius:50%;border:none;background:#fee2e2;color:#b91c1c;font-size:13px;line-height:1;cursor:pointer;display:none;align-items:center;justify-content:center;padding:0;font-family:inherit}
   body.editing .edit-rm{display:inline-flex}
@@ -3477,24 +3501,35 @@ document.getElementById('printBtn').addEventListener('click', async function() {
   bar.classList.add('show');
 
   var SECTIONS = ['fortes','fracos','alertas'];
+  // Caixas de texto livre — Percepção (caixa antiga) + caixas por seção
+  // (DRE, Faturamento, Balanço). Todas usam o mesmo padrão de contenteditable.
+  var TEXT_KEYS = ['dre','faturamento','balanco'];
   var snapshot = null;
   var snapshotPerc = null;
+  var snapshotTexts = {};
   var editing = false;
 
   function lists(){ return SECTIONS.map(function(s){ return [s, document.querySelector('[data-edit-list="'+s+'"]')]; }); }
   function percEl(){ return document.querySelector('[data-edit-percepcao]'); }
+  function textEl(key){ return document.querySelector('[data-edit-text="'+key+'"]'); }
 
   function takeSnapshot(){
     var snap = {};
     lists().forEach(function(p){ snap[p[0]] = p[1] ? p[1].innerHTML : ''; });
     var pe = percEl();
     snapshotPerc = pe ? pe.innerHTML : null;
+    snapshotTexts = {};
+    TEXT_KEYS.forEach(function(k){ var el = textEl(k); if (el) snapshotTexts[k] = el.innerHTML; });
     return snap;
   }
   function restoreSnapshot(snap){
     lists().forEach(function(p){ if (p[1] && snap[p[0]] != null) p[1].innerHTML = snap[p[0]]; });
     var pe = percEl();
     if (pe && snapshotPerc != null) pe.innerHTML = snapshotPerc;
+    TEXT_KEYS.forEach(function(k){
+      var el = textEl(k);
+      if (el && snapshotTexts[k] != null) el.innerHTML = snapshotTexts[k];
+    });
   }
 
   function decorate(list){
@@ -3541,6 +3576,10 @@ document.getElementById('printBtn').addEventListener('click', async function() {
     lists().forEach(function(p){ if (p[1]) decorate(p[1]); });
     var pe = percEl();
     if (pe) { pe.setAttribute('contenteditable','true'); pe.classList.add('perc-editing'); }
+    TEXT_KEYS.forEach(function(k){
+      var el = textEl(k);
+      if (el) { el.setAttribute('contenteditable','true'); el.removeAttribute('data-empty'); }
+    });
     document.body.classList.add('editing');
     btnTog.style.display='none';
     btnSave.style.display='inline-flex';
@@ -3552,6 +3591,13 @@ document.getElementById('printBtn').addEventListener('click', async function() {
     lists().forEach(function(p){ if (p[1]) undecorate(p[1]); });
     var pe = percEl();
     if (pe) { pe.removeAttribute('contenteditable'); pe.classList.remove('perc-editing'); }
+    TEXT_KEYS.forEach(function(k){
+      var el = textEl(k);
+      if (el) {
+        el.removeAttribute('contenteditable');
+        if (!(el.textContent || '').trim()) el.setAttribute('data-empty','true');
+      }
+    });
     document.body.classList.remove('editing');
     btnTog.style.display='inline-flex';
     btnSave.style.display='none';
@@ -3583,6 +3629,16 @@ document.getElementById('printBtn').addEventListener('click', async function() {
       });
       out.percepcao = (clone.textContent || '').trim();
     }
+    // Caixas por seção (DRE, Faturamento, Balanço) — mesma lógica do textEl
+    TEXT_KEYS.forEach(function(k){
+      var el = textEl(k);
+      if (!el) return;
+      var clone = el.cloneNode(true);
+      Array.prototype.forEach.call(clone.querySelectorAll('br'), function(br){
+        br.replaceWith('\n');
+      });
+      out['percepcao' + k.charAt(0).toUpperCase() + k.slice(1)] = (clone.textContent || '').trim();
+    });
     return out;
   }
   function saveEdit(){
@@ -3592,12 +3648,15 @@ document.getElementById('printBtn').addEventListener('click', async function() {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({
-        fortes:    data.fortes,
-        fracos:    data.fracos,
-        alertas:   data.alertas,
-        percepcao: data.percepcao,
-        autor:     selAut.value,
-        token:     TOKEN
+        fortes:               data.fortes,
+        fracos:               data.fracos,
+        alertas:              data.alertas,
+        percepcao:            data.percepcao,
+        percepcaoDre:         data.percepcaoDre,
+        percepcaoFaturamento: data.percepcaoFaturamento,
+        percepcaoBalanco:     data.percepcaoBalanco,
+        autor:                selAut.value,
+        token:                TOKEN
       })
     }).then(function(r){
       if (!r.ok) return r.text().then(function(t){ throw new Error(t || ('HTTP '+r.status)); });
@@ -3606,6 +3665,14 @@ document.getElementById('printBtn').addEventListener('click', async function() {
       lists().forEach(function(p){ if (p[1]) undecorate(p[1]); });
       var pe = percEl();
       if (pe) { pe.removeAttribute('contenteditable'); pe.classList.remove('perc-editing'); }
+      TEXT_KEYS.forEach(function(k){
+        var el = textEl(k);
+        if (el) {
+          el.removeAttribute('contenteditable');
+          if (!(el.textContent || '').trim()) el.setAttribute('data-empty','true');
+          else el.removeAttribute('data-empty');
+        }
+      });
       document.body.classList.remove('editing');
       btnTog.style.display='inline-flex';
       btnSave.style.display='none';

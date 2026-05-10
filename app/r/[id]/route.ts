@@ -39,6 +39,18 @@ function applyPercepcao(html: string, texto: string): string {
   return html.replace(re, `<!--EDIT:percepcao:START--><div class="perc-text" data-edit-percepcao style="text-align:justify">${safe}</div><!--EDIT:percepcao:END-->`);
 }
 
+// Caixa de percepção por seção (DRE, Faturamento, Balanço). O wrapper
+// .perc-box mantém o estilo visual do template; só o conteúdo é substituído.
+// Quando há texto, remove o placeholder.
+function applyTextSection(html: string, key: "dre" | "faturamento" | "balanco", texto: string): string {
+  const safe = esc(texto).replace(/\n/g, "<br>");
+  const re = new RegExp(`<!--EDIT:${key}:START-->[\\s\\S]*?<!--EDIT:${key}:END-->`);
+  return html.replace(
+    re,
+    `<!--EDIT:${key}:START--><div class="perc-box-content" data-edit-text="${key}">${safe}</div><!--EDIT:${key}:END-->`,
+  );
+}
+
 // Hidrata os inputs do Pleito Comitê (data-pc-key="...") com valores salvos.
 // Edição é livre (sem token) — segue decisão de produto da sessão Pleito Comitê.
 function injectPleitoComite(html: string, raw: unknown): string {
@@ -75,7 +87,7 @@ export async function GET(
   const supabase = createClient(url, key);
   const { data, error } = await supabase
     .from("shared_reports")
-    .select("html, expires_at, company, pontos_fortes, pontos_fracos, alertas, percepcao, edit_token, pleito_comite")
+    .select("html, expires_at, company, pontos_fortes, pontos_fracos, alertas, percepcao, percepcao_dre, percepcao_faturamento, percepcao_balanco, edit_token, pleito_comite")
     .eq("id", id)
     .single();
 
@@ -107,6 +119,17 @@ export async function GET(
   // Percepção é texto livre (não lista) — substitui inteiro entre os marcadores.
   if (typeof data.percepcao === "string" && data.percepcao.trim()) {
     html = applyPercepcao(html, data.percepcao);
+  }
+  // Percepções por seção (DRE, Faturamento, Balanço) — mesma lógica
+  // de texto livre, marcadores próprios. Vazio = mantém placeholder do template.
+  if (typeof data.percepcao_dre === "string" && data.percepcao_dre.trim()) {
+    html = applyTextSection(html, "dre", data.percepcao_dre);
+  }
+  if (typeof data.percepcao_faturamento === "string" && data.percepcao_faturamento.trim()) {
+    html = applyTextSection(html, "faturamento", data.percepcao_faturamento);
+  }
+  if (typeof data.percepcao_balanco === "string" && data.percepcao_balanco.trim()) {
+    html = applyTextSection(html, "balanco", data.percepcao_balanco);
   }
 
   // Pleito Comitê: edição livre; injeta valores salvos sempre que houver.

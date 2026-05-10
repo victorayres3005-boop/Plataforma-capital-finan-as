@@ -15,6 +15,10 @@ type EditPayload = {
   fracos?: unknown;
   alertas?: unknown;
   percepcao?: unknown;
+  /** Percepções por seção do relatório (DRE, Faturamento, Balanço). */
+  percepcaoDre?: unknown;
+  percepcaoFaturamento?: unknown;
+  percepcaoBalanco?: unknown;
   autor?: unknown;
   token?: unknown;
 };
@@ -75,6 +79,9 @@ export async function POST(
   const fracos  = sanitizeList(body.fracos);
   const alertas = sanitizeList(body.alertas);
   const percepcao = sanitizeText(body.percepcao);
+  const percepcaoDre = sanitizeText(body.percepcaoDre);
+  const percepcaoFaturamento = sanitizeText(body.percepcaoFaturamento);
+  const percepcaoBalanco = sanitizeText(body.percepcaoBalanco);
   const autorRaw = typeof body.autor === "string" ? body.autor.trim() : "";
   const autor = autorRaw.slice(0, MAX_AUTOR_LEN) || null;
 
@@ -103,6 +110,9 @@ export async function POST(
       pontos_fracos: fracos,
       alertas,
       percepcao,
+      percepcao_dre: percepcaoDre,
+      percepcao_faturamento: percepcaoFaturamento,
+      percepcao_balanco: percepcaoBalanco,
       updated_at: new Date().toISOString(),
       updated_by: autor,
     })
@@ -111,11 +121,16 @@ export async function POST(
   if (updErr) {
     const isColumnMissing = updErr.code === "42703";
     const userMsg = isColumnMissing
-      ? "Colunas de edição ausentes — execute migrações 16 e 17 em supabase/migrations/"
+      ? "Colunas de edição ausentes — execute migrações 16, 17 e 18 em supabase/migrations/"
       : updErr.message;
     console.error("[r/edit] supabase update error:", updErr.message, updErr.code);
     return Response.json({ error: userMsg }, { status: 500 });
   }
 
-  return Response.json({ ok: true, fortes, fracos, alertas, percepcao, autor });
+  return Response.json({
+    ok: true,
+    fortes, fracos, alertas, percepcao,
+    percepcaoDre, percepcaoFaturamento, percepcaoBalanco,
+    autor,
+  });
 }
