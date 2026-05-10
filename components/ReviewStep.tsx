@@ -18,7 +18,6 @@ import { SectionRelatorioVisita } from "./review/SectionRelatorioVisita";
 import { SectionProtestos } from "./review/SectionProtestos";
 import { SectionProcessos } from "./review/SectionProcessos";
 import { SectionGrupoEconomico } from "./review/SectionGrupoEconomico";
-import { SectionAnaliseContabil } from "./review/SectionAnaliseContabil";
 import { SectionDividaAtiva } from "./review/SectionDividaAtiva";
 import { SectionCenprot } from "./review/SectionCenprot";
 import { SectionGefip } from "./review/SectionGefip";
@@ -427,12 +426,10 @@ export default function ReviewStep({ data, onComplete, onBack, onDataChange }: R
       <SectionProtestos data={form.protestos} expanded={open.protestos} onToggle={() => toggle("protestos")} />
       <SectionProcessos data={form.processos} expanded={open.processos} onToggle={() => toggle("processos")} />
       <SectionGrupoEconomico data={form.grupoEconomico} expanded={open.grupoEconomico} onToggle={() => toggle("grupoEconomico")} />
-      <SectionAnaliseContabil
-        value={form.analiseContabil ?? ""}
-        onChange={v => setForm(p => ({ ...p, analiseContabil: v }))}
-        expanded={open.analiseContabil}
-        onToggle={() => toggle("analiseContabil")}
-      />
+      {/* Análise Contábil removida da aba de Revisão em 2026-05-10 a pedido do Victor.
+          O campo `form.analiseContabil` continua persistindo (compatibilidade com
+          análises antigas) e o relatório (pág 3 da síntese) ainda renderiza o texto
+          quando presente — só sumiu da UI de edição. */}
       <SectionDividaAtiva data={form.dividaAtiva} expanded={open.dividaAtiva} onToggle={() => toggle("dividaAtiva")} />
       <SectionCenprot data={form.cenprot} bureauProtestos={form.protestos} expanded={open.cenprot} onToggle={() => toggle("cenprot")} />
       <SectionGefip data={form.gefip} expanded={open.gefip} onToggle={() => toggle("gefip")} />
