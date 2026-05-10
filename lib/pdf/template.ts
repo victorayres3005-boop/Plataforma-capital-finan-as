@@ -223,7 +223,13 @@ const CSS = `
   .page{break-after:page;page-break-after:always}
   .page-capa{overflow:hidden!important;min-height:269mm}
   /* ── Resetar card styles no print ── */
-  .page:not(.page-capa){margin:0!important;padding:0!important;max-width:none!important;box-shadow:none!important;border-radius:0!important;overflow:visible!important;background:transparent!important}
+  /* max-width: 174mm = 210mm A4 - 18mm margem × 2 (definida em @page).
+     Sem isso, o .page em print herdava largura da viewport e o .ftr
+     esticava lateralmente — bug reportado em 2026-05-10 (rodapé pág 3).
+     overflow:visible mantido pra conteúdo alto (tabelas, blocos ABC)
+     fluir verticalmente entre páginas físicas. */
+  .page:not(.page-capa){margin:0 auto!important;padding:0!important;max-width:174mm!important;width:100%!important;box-shadow:none!important;border-radius:0!important;overflow:visible!important;background:transparent!important}
+  .ftr{width:100%!important;box-sizing:border-box!important;max-width:100%!important}
   /* ── Content: padding leve no topo e fundo entre seções ── */
   .ct{padding:2px 0 24px}
   /* ── Esconder header/footer por-seção no print (sem rodapé em todas as páginas) ── */
