@@ -522,6 +522,13 @@ export interface BalancoAno {
   imobilizado: string;
   intangivel: string;
   outrosAtivosNaoCirculantes: string;
+  /**
+   * Realizável a Longo Prazo (RLP) — subgrupo do Ativo Não Circulante.
+   * Usado pra cálculo exato da Liquidez Geral = (AC + RLP) / (PC + PNC).
+   * Quando ausente em extrações antigas, fallback usa o liquidezGeral
+   * que o Gemini entrega calculado. Adicionado 2026-05-10.
+   */
+  realizavelLongoPrazo?: string;
   passivoTotal: string;
   passivoCirculante: string;
   fornecedores: string;
@@ -561,6 +568,22 @@ export interface DREAno {
   margemEbitda: string;
   depreciacaoAmortizacao: string;
   resultadoFinanceiro: string;
+  /**
+   * Despesa financeira BRUTA (positiva) — separada do resultadoFinanceiro
+   * que é líquido (receitas − despesas). Usado pro indicador
+   * "Despesa financeira ÷ Resultado Operacional".
+   * Quando ausente, fallback é Math.abs(resultadoFinanceiro) se negativo.
+   * Adicionado 2026-05-10.
+   */
+  despesaFinanceira?: string;
+  /**
+   * Resultado Operacional (EBIT) — antes de despesa financeira mas depois
+   * de despesas operacionais e depreciação. Usado pro indicador
+   * "Despesa financeira ÷ Resultado Operacional".
+   * Quando ausente, fallback é (ebitda − depreciacaoAmortizacao).
+   * Adicionado 2026-05-10.
+   */
+  resultadoOperacional?: string;
   lucroAntesIR: string;
   impostoRenda: string;
   lucroLiquido: string;

@@ -648,6 +648,10 @@ export function adaptDRENew(raw: Record<string, unknown>): Partial<DREData> {
       margemEbitda: _s(a.margem_operacional_percent),
       depreciacaoAmortizacao: "",
       resultadoFinanceiro: _fmtMoneyBR(recFin - despFin),
+      // Despesa financeira BRUTA (positiva) — pra cálculo de Despfin/ResultadoOp
+      despesaFinanceira: despFin > 0 ? _fmtMoneyBR(despFin) : undefined,
+      // Resultado operacional explícito (EBIT) — usado no mesmo cálculo
+      resultadoOperacional: _fmtMoneyBR(a.resultado_operacional),
       lucroAntesIR: _fmtMoneyBR(a.resultado_antes_ir_csl),
       impostoRenda: _fmtMoneyBR(a.provisao_irpj_csll),
       lucroLiquido: _fmtMoneyBR(a.lucro_liquido_exercicio),
@@ -698,6 +702,10 @@ export function adaptBalancoNew(raw: Record<string, unknown>): Partial<BalancoDa
       imobilizado: _fmtMoneyBR(anc.imobilizado_liquido ?? anc.imobilizado_bruto),
       intangivel: "",
       outrosAtivosNaoCirculantes: _fmtMoneyBR(anc.outros_creditos),
+      // Realizável a Longo Prazo — necessário pro cálculo exato da Liquidez Geral
+      realizavelLongoPrazo: anc.realizavel_longo_prazo != null
+        ? _fmtMoneyBR(anc.realizavel_longo_prazo)
+        : undefined,
       passivoTotal: _fmtMoneyBR(a.passivo_total),
       passivoCirculante: _fmtMoneyBR(pc.total),
       fornecedores: _fmtMoneyBR(pc.fornecedores),
