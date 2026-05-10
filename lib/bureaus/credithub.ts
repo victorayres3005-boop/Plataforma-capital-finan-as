@@ -1678,6 +1678,42 @@ function spcArrayToPefinData(spc: SCPCNETRow[]): PefinReginData {
   };
 }
 
+// Formato Palladium retornado pelo adapter SERASA via IRQL (descoberto 2026-05-10
+// com a documentação oficial da CreditHub). Estrutura totalmente diferente do
+// SCPCNET — vem como "bello[]" dentro de informacoes[0], com nomes de campo em
+// português ("ocorrencia", "entrada", "credor", etc).
+type PalladiumBelloRow = {
+  ocorrencia?: string;     // descrição do tipo de pendência ("DUPLICATA...", "SEGURO GARANTIA")
+  entrada?: string;        // data DD/MM/YYYY
+  vencimento?: string;     // pode estar vazio
+  valor?: string;          // BRL "1.998,10"
+  informante?: string;     // quem informou ao Serasa
+  credor?: string;         // credor da dívida
+  contrato?: string;
+  orgaoemissor?: string;   // "PEFIN SERASA", "DIV. VENC. SERASA"
+  categoria?: string;      // "DÍVIDAS VENCIDAS", "PENDÊNCIAS FINANCEIRAS"
+  modalidade?: string;
+};
+
+function belloArrayToPefinData(bello: PalladiumBelloRow[]): PefinReginData {
+  const lista = bello.map(r => ({
+    data:       r.entrada || r.vencimento,
+    valor:      parseMoneyRobust(r.valor ?? "0"),
+    credor:     r.credor || r.informante,
+    modalidade: r.categoria || r.orgaoemissor || r.modalidade || undefined,
+    contrato:   r.contrato,
+  }));
+  const total  = lista.reduce((s, r) => s + (r.valor ?? 0), 0);
+  const sorted = [...lista].sort((a, b) => brDateKey(b.data).localeCompare(brDateKey(a.data)));
+  return {
+    qtd:          lista.length,
+    valor:        total,
+    dataUltimo:   sorted[0]?.data,
+    credorUltimo: sorted[0]?.credor,
+    lista,
+  };
+}
+
 // Resposta do IRQL é JSON quando a query é aceita, ou XML BPQL quando há erro
 // de parser/adapter. Em qualquer falha retorna undefined — o relatório distingue
 // undefined ("não consultado") de { qtd: 0 } ("consultado, sem pendências"),
@@ -1734,26 +1770,35 @@ export async function consultarPefinRefin(cnpj: string): Promise<{ pefin?: Pefin
     console.warn(`[credithub] PEFIN consulta falhou: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  // REFIN/Serasa: DESLIGADO PREVENTIVAMENTE.
+  // REFIN/Serasa: REATIVADO 2026-05-10.
   //
-  // Investigação 2026-05-08 (Victor): testamos a query com sintaxe correta
-  // (`USING 'SERASA' SELECT FROM 'PROTESTOS'.'SERASA' WHERE 'DOCUMENTO' = '<cnpj>'`)
-  // e a CreditHub respondeu HTTP 500 com:
+  // Histórico: estava desligado desde 2026-05-08 porque a query
+  // `USING 'SERASA' SELECT FROM 'PROTESTOS'.'SERASA' WHERE ...` retornava
+  // "Adapter unknown - SERASA". A doc oficial da CreditHub chegou em
+  // 2026-05-10 e revelou que o adapter Serasa NÃO usa cláusula USING — diferente
+  // do PEFIN/SCPCNET. A query correta é só `SELECT FROM 'PROTESTOS'.'SERASA'`.
   //
-  //   <exception code="2" source="BPQLParserException" push="true">
-  //     Adapter unknown - SERASA
-  //   </exception>
-  //
-  // Não é bug de sintaxe (foi parseado OK). É falta do produto Serasa REFIN
-  // na chave atual da conta CreditHub. Pra reativar:
-  //   1. Contatar suporte CreditHub e ativar produto Serasa REFIN no contrato
-  //   2. Confirmar nome do adapter (talvez não seja "SERASA" mesmo; pode ser
-  //      "EXPERIAN", "SERASAEXP" — pedir lista de adapters habilitados)
-  //   3. Reativar o fetch removendo este return e ajustando o adapter
-  //
-  // Mantemos undefined sem fazer fetch pra não gastar 1 chamada/análise em
-  // erro garantido nem poluir logs com warnings repetidos.
-  const refin: PefinReginData | undefined = undefined;
+  // Resposta vem em formato Palladium (`{informacoes:[{bello:[...]}]}`),
+  // diferente do SCPCNET. Parser dedicado: belloArrayToPefinData.
+  let refin: PefinReginData | undefined;
+  const refinQuery = `SELECT FROM 'PROTESTOS'.'SERASA' WHERE 'DOCUMENTO' = '${cnpjNum}'`;
+  try {
+    const r = await fetchIRQL(refinQuery);
+    if (r.error) {
+      console.warn(`[credithub] REFIN ${r.error} — tratando como não consultado`);
+    } else if (r.json) {
+      const parsed = r.json as { informacoes?: Array<{ bello?: PalladiumBelloRow[] }> };
+      const bello = parsed.informacoes?.[0]?.bello;
+      if (Array.isArray(bello)) {
+        refin = belloArrayToPefinData(bello);
+        console.log(`[credithub] REFIN: ${refin.qtd} registros R$ ${refin.valor.toLocaleString("pt-BR")}`);
+      } else {
+        console.log(`[credithub] REFIN: estrutura inesperada — informacoes[0].bello ausente. Mantendo undefined.`);
+      }
+    }
+  } catch (err) {
+    console.warn(`[credithub] REFIN consulta falhou: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   return { pefin, refin };
 }
