@@ -56,6 +56,13 @@ export interface PDFReportParams {
   scoreV2?: ScoreResult;
   scoreV2Respostas?: RespostaCriterio[];
   settings?: FundSettings;
+  /**
+   * Parágrafo gerado por IA interpretando os indicadores financeiros
+   * (Liquidez, ROI, PMR/PME/PMP, Endividamento etc). Aparece abaixo da
+   * tabela de indicadores na pág 9. Vazio = não renderiza.
+   * Vem de POST /api/indicadores-analise antes da geração do relatório.
+   */
+  indicadoresAnalise?: string;
 }
 
 export type AutoCell = string | { content: string; styles?: Record<string, unknown> };

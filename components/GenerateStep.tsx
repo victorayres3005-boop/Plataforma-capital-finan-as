@@ -820,6 +820,9 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [analysisStatus, setAnalysisStatus] = useState<string>("");
   const analysisFetched = useRef(false);
+  // Análise textual dos indicadores financeiros (Fase 4 — Gemini gera parágrafo
+  // interpretativo da tabela de indicadores). Vazio = não renderiza no template.
+  const [indicadoresAnalise, setIndicadoresAnalise] = useState<string>("");
 
   const normalizeParecer = (parecer: unknown): Record<string, unknown> => {
     if (typeof parecer === "string") {
@@ -985,6 +988,25 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       setAnalyzingAI(true);
       setAnalysisError(null);
       setAnalysisStatus("Iniciando análise...");
+
+      // Fase 4: dispara análise textual dos indicadores em paralelo. Não
+      // bloqueia se falhar — relatório renderiza só com a tabela.
+      fetch("/api/indicadores-analise", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          balanco: data.balanco ?? null,
+          dre: data.dre ?? null,
+          contexto: {
+            razaoSocialCedente: data.cnpj?.razaoSocial,
+            ramoCedente: data.cnpj?.cnaePrincipal,
+          },
+        }),
+      })
+        .then((r) => r.ok ? r.json() : null)
+        .then((j) => { if (j?.texto) setIndicadoresAnalise(j.texto); })
+        .catch(() => { /* falha silenciosa, relatório segue sem o parágrafo */ });
+
       try {
         const supabase = createClient();
         const { data: { user: currentUser } } = await supabase.auth.getUser();
@@ -1785,6 +1807,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         scoreV2: scoreV2 ?? undefined,
         scoreV2Respostas: scoreV2Respostas.length ? scoreV2Respostas : undefined,
         settings: activeValidationSettings,
+        indicadoresAnalise: indicadoresAnalise || undefined,
       };
 
       // Adiciona mapEmbedUrl para preview interativo (usado no HTML, ignorado no PDF)
@@ -2067,6 +2090,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         scoreV2: scoreV2 ?? undefined,
         scoreV2Respostas: scoreV2Respostas.length ? scoreV2Respostas : undefined,
         settings: activeValidationSettings,
+        indicadoresAnalise: indicadoresAnalise || undefined,
       };
       const html = await generateHTMLPreview(payload);
 
@@ -2122,6 +2146,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         scoreV2: scoreV2 ?? undefined,
         scoreV2Respostas: scoreV2Respostas.length ? scoreV2Respostas : undefined,
         settings: activeValidationSettings,
+        indicadoresAnalise: indicadoresAnalise || undefined,
       };
       const html = await generateHTMLPreview(payload);
       // Substitui __BASE_URL__ pelo domínio real antes de salvar (usado pelo

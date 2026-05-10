@@ -2536,17 +2536,26 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
         </tr>`;
       }).join("");
 
+      const analiseTexto = (params.indicadoresAnalise ?? "").trim();
+      const analiseBlock = analiseTexto
+        ? `<div style="background:#EFF6FF;border:1px solid #BFDBFE;border-left:4px solid #2563EB;border-radius:8px;padding:12px 14px;margin-bottom:12px;font-size:12px;line-height:1.55;color:#1F2937">
+            <div style="font-size:9px;font-weight:700;color:#2563EB;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Análise · gerada por IA</div>
+            ${esc(analiseTexto)}
+          </div>`
+        : "";
+
       indicadoresSection = `
       ${stitle("10 · Indicadores Financeiros")}
       <div style="font-size:11px;color:var(--x5);margin-bottom:10px">Indicadores calculados a partir do Balanço Patrimonial e DRE. Cores indicam zona de atenção (verde = saudável, amarelo = atenção, vermelho = crítico).</div>
-      <table class="ge-tbl" style="margin-bottom:14px">
+      <table class="ge-tbl" style="margin-bottom:${analiseTexto ? "12px" : "14px"}">
         <thead><tr>
           <th>Indicador</th>
           ${headerCells}
           ${deltaHeader}
         </tr></thead>
         <tbody>${linhas}</tbody>
-      </table>`;
+      </table>
+      ${analiseBlock}`;
     }
   }
 
