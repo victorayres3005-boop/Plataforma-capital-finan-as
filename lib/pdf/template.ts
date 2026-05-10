@@ -885,9 +885,15 @@ function pageSintese(params: PDFReportParams, date: string): string {
   const lastProt = (prot?.detalhes ?? []).filter(p => !p.regularizado)[0];
 
   // Processos
+  // procTotal = polo passivo + polo ativo (decisão produto 2026-05-10).
+  // Antes mostrava só passivo no número grande; agora soma os dois pra
+  // dar visão completa de litigiosidade. Polo passivo continua sendo
+  // o número crítico pra cor (subtítulo abaixo separa os dois).
   const proc = d.processos;
-  const procTotal = numVal(proc?.passivosTotal ?? "0");
-  const procColor = procTotal > 5 ? "red" : procTotal > 0 ? "red" : "green";
+  const procPassivo = numVal(proc?.poloPassivoQtd ?? proc?.passivosTotal ?? "0");
+  const procAtivo = numVal(proc?.poloAtivoQtd ?? proc?.ativosTotal ?? "0");
+  const procTotal = procPassivo + procAtivo;
+  const procColor = procPassivo > 5 ? "red" : procPassivo > 0 ? "red" : "green";
   const procDist = (proc?.distribuicao ?? []).slice(0, 4);
   const procDistRows = procDist.map(p => {
     const tipoLc2 = (p.tipo ?? "").toLowerCase();
@@ -1927,10 +1933,10 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
     `<tr><td>${fmtDate(p.data)}</td><td>${esc(p.credor)}</td><td class="r red">${fmtMoney(p.valor)}</td><td>${p.regularizado ? "Regularizado" : "Vigente"}</td></tr>`
   ).join("");
 
-  // Processos
-  const totalProc = numVal(proc?.passivosTotal ?? "0");
+  // Processos — total = passivo + ativo (decisão produto 2026-05-10)
   const passivo = proc?.poloPassivoQtd ?? proc?.passivosTotal ?? "—";
   const ativo = proc?.poloAtivoQtd ?? proc?.ativosTotal ?? "—";
+  const totalProc = numVal(passivo) + numVal(ativo);
   const temRJ = proc?.temRJ || proc?.temFalencia;
 
   const distRows = (proc?.distribuicao ?? []).map(d => {
