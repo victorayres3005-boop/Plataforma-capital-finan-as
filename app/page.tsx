@@ -353,7 +353,16 @@ export default function HomePage() {
   const { user, loading: authLoading, signOut } = useAuth();
   const { welcomeSeen, firstCollectionDone, loaded: onboardingLoaded, markWelcomeSeen, markTooltipSeen, markFirstCollectionDone, isTooltipSeen } = useOnboarding(user?.id);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [showDashboard, setShowDashboard] = useState(savedNav?.showDashboard ?? true);
+  // Lazy init lê a URL no PRIMEIRO render — elimina o "flash da Visão Geral"
+  // ao dar F5 dentro de uma coleta (URL ?resume= / ?step=). Antes, o state
+  // inicial era `true` (default) e só um useEffect tardio corrigia depois do
+  // mount, causando ~1 frame de Visão Geral antes da tela correta aparecer.
+  const [showDashboard, setShowDashboard] = useState(() => {
+    if (typeof window === "undefined") return savedNav?.showDashboard ?? true;
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("resume") || params.has("step")) return false;
+    return savedNav?.showDashboard ?? true;
+  });
 
   // Volta ao dashboard limpando ?resume= e ?step= da URL para evitar que
   // o F5 releia o param e redirecione para a coleta anterior.
