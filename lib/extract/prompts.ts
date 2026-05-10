@@ -718,6 +718,8 @@ export const PROMPT_DRE = `Você receberá um PDF de Demonstração do Resultado
       "receitas_financeiras": null,
       "juros_descontos": null,
       "resultado_operacional": null,
+      "despesas_nao_operacionais": null,
+      "receitas_nao_operacionais": null,
       "resultado_antes_ir_csl": null,
       "provisao_irpj_csll": null,
       "lucro_liquido_exercicio": null,

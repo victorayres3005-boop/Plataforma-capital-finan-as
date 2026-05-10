@@ -2383,30 +2383,62 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
     const anos = dre.anos.slice(-2);
     const headers = anos.map(a => `<th class="r">${esc(a.ano)}</th>`).join("");
     const PCT_FIELDS = new Set(["margemBruta","margemEbitda","margemLiquida"]);
-    const fields: Array<{label:string;key:keyof typeof anos[0]}> = [
-      {label:"Receita Bruta",key:"receitaBruta"},
-      {label:"Receita Líquida",key:"receitaLiquida"},
-      {label:"Lucro Bruto",key:"lucroBruto"},
-      {label:"Margem Bruta",key:"margemBruta"},
-      {label:"EBITDA",key:"ebitda"},
-      {label:"Margem EBITDA",key:"margemEbitda"},
-      {label:"Lucro Líquido",key:"lucroLiquido"},
-      {label:"Margem Líquida",key:"margemLiquida"},
+    // Tabela DRE detalhada (linha-a-linha) — extraída integralmente do
+    // documento. Linhas com `subtle` ficam com fonte cinza (subitens das
+    // despesas). Linhas com `total` ganham destaque negrito.
+    type DreField = { label: string; key: keyof typeof anos[0]; subtle?: boolean; total?: boolean };
+    const fields: DreField[] = [
+      { label: "Receita Bruta",                 key: "receitaBruta",                   total: true },
+      { label: "Deduções",                      key: "deducoes",                       subtle: true },
+      { label: "Receita Líquida",               key: "receitaLiquida",                 total: true },
+      { label: "CMV / Custos",                  key: "custoProdutosServicos",          subtle: true },
+      { label: "Lucro Bruto",                   key: "lucroBruto",                     total: true },
+      { label: "Margem Bruta",                  key: "margemBruta" },
+      { label: "Despesas comerciais",           key: "despesasComerciais",             subtle: true },
+      { label: "Despesas com pessoal",          key: "despesasPessoal",                subtle: true },
+      { label: "Despesas gerais",               key: "despesasGerais",                 subtle: true },
+      { label: "Despesas financeiras",          key: "despesaFinanceira",              subtle: true },
+      { label: "Receitas financeiras",          key: "receitasFinanceiras",            subtle: true },
+      { label: "Resultado operacional (EBIT)",  key: "resultadoOperacional",           total: true },
+      { label: "EBITDA",                        key: "ebitda" },
+      { label: "Margem EBITDA",                 key: "margemEbitda" },
+      { label: "Despesas não operacionais",     key: "despesasNaoOperacionais",        subtle: true },
+      { label: "Receitas não operacionais",     key: "receitasNaoOperacionais",        subtle: true },
+      { label: "Resultado antes IR/CSLL",       key: "lucroAntesIR",                   total: true },
+      { label: "Provisão IR/CSLL",              key: "impostoRenda",                   subtle: true },
+      { label: "Lucro Líquido do Exercício",    key: "lucroLiquido",                   total: true },
+      { label: "Margem Líquida",                key: "margemLiquida" },
     ];
-    const dreRows = fields.map(f => {
+    // Filtra linhas onde TODOS os anos estão vazios — campos opcionais (ex:
+    // não operacionais) podem não aparecer em todas as DREs.
+    const visibleFields = fields.filter(f => {
+      return anos.some(a => {
+        const v = a[f.key];
+        return v != null && v !== "" && v !== "—" && v !== "0,00";
+      });
+    });
+
+    const dreRows = visibleFields.map(f => {
       const isPct = PCT_FIELDS.has(f.key as string);
+      const labelStyle = f.total
+        ? `font-weight:700;color:var(--n9)`
+        : f.subtle
+          ? `font-weight:400;color:var(--x5);padding-left:14px`
+          : `font-weight:600;color:var(--x7)`;
+      const rowBg = f.total ? `background:var(--x0)` : "";
       const cells = anos.map(a => {
         const v = a[f.key];
-        if (v == null || v === "" || v === "—") return `<td class="r">—</td>`;
+        if (v == null || v === "" || v === "—") return `<td class="r" style="color:var(--x4)">—</td>`;
         if (isPct) {
           const formatted = fmtPct(v);
           const isNeg = numVal(v) < 0;
           return `<td class="r ${isNeg ? "red" : ""}">${formatted}</td>`;
         }
         const isNeg = numVal(v) < 0;
-        return `<td class="r ${isNeg ? "red" : ""}">${fmtMoney(v)}</td>`;
+        const weight = f.total ? "font-weight:700" : "";
+        return `<td class="r ${isNeg ? "red" : ""}" style="${weight}">${fmtMoney(v)}</td>`;
       }).join("");
-      return `<tr><td class="b">${esc(f.label)}</td>${cells}</tr>`;
+      return `<tr style="${rowBg}"><td style="${labelStyle}">${esc(f.label)}</td>${cells}</tr>`;
     }).join("");
 
     const lastAno = dre.anos[dre.anos.length - 1];

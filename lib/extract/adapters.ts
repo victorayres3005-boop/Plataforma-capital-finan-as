@@ -648,8 +648,16 @@ export function adaptDRENew(raw: Record<string, unknown>): Partial<DREData> {
       margemEbitda: _s(a.margem_operacional_percent),
       depreciacaoAmortizacao: "",
       resultadoFinanceiro: _fmtMoneyBR(recFin - despFin),
+      // Detalhamento de despesas operacionais (cada linha do DRE Brasil)
+      despesasComerciais: a.despesas_vendas != null ? _fmtMoneyBR(a.despesas_vendas) : undefined,
+      despesasPessoal: a.despesas_pessoal != null ? _fmtMoneyBR(a.despesas_pessoal) : undefined,
+      despesasGerais: a.despesas_gerais != null ? _fmtMoneyBR(a.despesas_gerais) : undefined,
       // Despesa financeira BRUTA (positiva) — pra cálculo de Despfin/ResultadoOp
       despesaFinanceira: despFin > 0 ? _fmtMoneyBR(despFin) : undefined,
+      receitasFinanceiras: a.receitas_financeiras != null ? _fmtMoneyBR(a.receitas_financeiras) : undefined,
+      // Resultados não operacionais (DRE Brasil)
+      despesasNaoOperacionais: a.despesas_nao_operacionais != null ? _fmtMoneyBR(a.despesas_nao_operacionais) : undefined,
+      receitasNaoOperacionais: a.receitas_nao_operacionais != null ? _fmtMoneyBR(a.receitas_nao_operacionais) : undefined,
       // Resultado operacional explícito (EBIT) — usado no mesmo cálculo
       resultadoOperacional: _fmtMoneyBR(a.resultado_operacional),
       lucroAntesIR: _fmtMoneyBR(a.resultado_antes_ir_csl),

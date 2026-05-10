@@ -569,13 +569,25 @@ export interface DREAno {
   depreciacaoAmortizacao: string;
   resultadoFinanceiro: string;
   /**
-   * Despesa financeira BRUTA (positiva) — separada do resultadoFinanceiro
-   * que é líquido (receitas − despesas). Usado pro indicador
-   * "Despesa financeira ÷ Resultado Operacional".
-   * Quando ausente, fallback é Math.abs(resultadoFinanceiro) se negativo.
+   * Detalhamento das despesas operacionais (extraído pelo Gemini, opcional).
+   * Permite renderizar tabela DRE linha-a-linha em vez de bloco único.
    * Adicionado 2026-05-10.
    */
+  despesasComerciais?: string;
+  despesasPessoal?: string;
+  despesasGerais?: string;
+  /**
+   * Receita / Despesa financeira BRUTA — separadas do resultadoFinanceiro
+   * que é líquido. Usadas pra exibir DRE detalhada e calcular o indicador
+   * "Despesa financeira ÷ Resultado Operacional".
+   * Quando despesaFinanceira ausente, fallback é Math.abs(resultadoFinanceiro)
+   * se negativo. Adicionado 2026-05-10.
+   */
   despesaFinanceira?: string;
+  receitasFinanceiras?: string;
+  /** Resultados não operacionais (linha tradicional da DRE Brasil). */
+  despesasNaoOperacionais?: string;
+  receitasNaoOperacionais?: string;
   /**
    * Resultado Operacional (EBIT) — antes de despesa financeira mas depois
    * de despesas operacionais e depreciação. Usado pro indicador
