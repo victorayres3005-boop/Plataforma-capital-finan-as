@@ -318,28 +318,28 @@ export async function GET(
     });
   });
 
-  // Botão "Baixar Parecer (PDF)" — endpoint público /api/r/{id}/pdf
+  // Botão "Baixar Parecer (PDF)" — endpoint /api/r/{id}/parecer-pdf
+  // monta o documento "Decisão do Comitê" no servidor com base nos dados
+  // salvos no Supabase (pleito do cedente extraído do html armazenado +
+  // pleito_comite JSONB + percepções + fortes/fracos/alertas).
   var dl = document.getElementById('pcDownloadBtn');
   if (dl) {
     dl.addEventListener('click', function(){
-      if (saveTimer) { clearTimeout(saveTimer); save(); }
       dl.disabled = true;
       var orig = dl.innerHTML;
       dl.textContent = 'Gerando PDF...';
-      inputs.forEach(function(el){ el.setAttribute('value', el.value || ''); });
-      var html = document.documentElement.outerHTML;
-      var cnpj = document.title.replace(/[^0-9]/g, '').slice(0, 14) || 'parecer';
-      fetch('/api/r/' + REPORT_ID + '/pdf', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ html: html, filename: 'parecer-' + cnpj + '.pdf' })
+      var ensureSave = saveTimer
+        ? new Promise(function(res){ clearTimeout(saveTimer); save(); setTimeout(res, 600); })
+        : Promise.resolve();
+      ensureSave.then(function(){
+        return fetch('/api/r/' + REPORT_ID + '/parecer-pdf', { method: 'POST' });
       }).then(function(r){
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.blob();
       }).then(function(blob){
         var url = URL.createObjectURL(blob);
         var a = document.createElement('a');
-        a.href = url; a.download = 'parecer-' + cnpj + '.pdf';
+        a.href = url; a.download = 'parecer-' + REPORT_ID + '.pdf';
         document.body.appendChild(a); a.click();
         document.body.removeChild(a);
         setTimeout(function(){ URL.revokeObjectURL(url); }, 10000);

@@ -3882,31 +3882,30 @@ ${pages}
     });
   });
 
-  // Botão "Baixar Parecer (PDF)" — usa o endpoint público /api/r/{id}/pdf
-  // (sem auth Supabase) pra que o link funcione mesmo sem sessão.
-  // Sincroniza setAttribute value antes pra capturar o que o comitê digitou.
+  // Botão "Baixar Parecer (PDF)" — chama endpoint /api/r/{id}/parecer-pdf
+  // que monta o documento "Decisão do Comitê" no servidor (cabeçalho +
+  // comparativo pleito × aprovado + observações). Antes de chamar, força
+  // um save imediato do autosave pra garantir que o servidor leia o que
+  // o comitê acabou de digitar.
   var dl = document.getElementById('pcDownloadBtn');
   if (dl) {
     dl.addEventListener('click', function(){
-      if (saveTimer) { clearTimeout(saveTimer); save(); }
       dl.disabled = true;
       var orig = dl.innerHTML;
       dl.textContent = 'Gerando PDF...';
-      // Persiste valores dos inputs como attributes pra outerHTML capturar
-      inputs.forEach(function(el){ el.setAttribute('value', el.value || ''); });
-      var html = document.documentElement.outerHTML;
-      var cnpj = document.title.replace(/[^0-9]/g, '').slice(0, 14) || 'parecer';
-      fetch('/api/r/' + REPORT_ID + '/pdf', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ html: html, filename: 'parecer-' + cnpj + '.pdf' })
+      // Garante que valores recentes foram salvos antes do PDF
+      var ensureSave = saveTimer
+        ? new Promise(function(res){ clearTimeout(saveTimer); save(); setTimeout(res, 600); })
+        : Promise.resolve();
+      ensureSave.then(function(){
+        return fetch('/api/r/' + REPORT_ID + '/parecer-pdf', { method: 'POST' });
       }).then(function(r){
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.blob();
       }).then(function(blob){
         var url = URL.createObjectURL(blob);
         var a = document.createElement('a');
-        a.href = url; a.download = 'parecer-' + cnpj + '.pdf';
+        a.href = url; a.download = 'parecer-' + REPORT_ID + '.pdf';
         document.body.appendChild(a); a.click();
         document.body.removeChild(a);
         setTimeout(function(){ URL.revokeObjectURL(url); }, 10000);
