@@ -2403,22 +2403,61 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
               />
             )}
 
-            {/* 4 KPI cards */}
-            <div className="kpi-grid">
+            {/* ── Nível 1: Decisão & Rating (destaque grande) ──
+                Sumário Executivo redesign 2026-05-11 (Fase B): hierarquia
+                em 3 níveis pra reduzir ruído. Antes: 13 KPIs lado a lado.
+                Agora: 2 cards grandes destaque + 4 médios + 1 linha fina. */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Card Decisão */}
+              <div className={`px-7 py-6 rounded-xl border-2 ${
+                decision === "APROVADO" ? "bg-green-50 border-green-300" :
+                decision === "REPROVADO" ? "bg-red-50 border-red-300" :
+                decision === "APROVACAO_CONDICIONAL" ? "bg-amber-50 border-amber-300" :
+                "bg-gray-50 border-gray-300"
+              }`}>
+                <p className="text-xs font-bold uppercase tracking-[0.1em] text-gray-500 mb-2">Decisão</p>
+                <p className={`text-3xl font-bold leading-tight ${
+                  decision === "APROVADO" ? "text-green-700" :
+                  decision === "REPROVADO" ? "text-red-700" :
+                  decision === "APROVACAO_CONDICIONAL" ? "text-amber-700" :
+                  "text-gray-700"
+                }`}>{decision ?? "PENDENTE"}</p>
+                <p className="text-xs text-gray-500 mt-2">Análise de Crédito</p>
+              </div>
+              {/* Card Rating V2 (ou Rating IA se sem V2) */}
               {scoreV2 ? (
-                <KpiCard
-                  label="Rating V2"
-                  value={`${scoreV2.rating} · ${scoreV2.score_final.toFixed(0)} pts`}
-                  sub={finalRating != null
-                    ? `IA: ${finalRating.toFixed(1)}/10 · ${aiAnalysis?.ratingConfianca ?? "—"}% conf.`
-                    : `Score estruturado · ${scoreV2.confianca_score === "alta" ? "Alta confiança" : scoreV2.confianca_score === "parcial" ? "Confiança parcial" : "Confiança baixa"}`}
-                  variant={scoreV2.rating === "A" || scoreV2.rating === "B" ? "success" : scoreV2.rating === "C" ? "warning" : "danger"}
-                />
+                <div className={`px-7 py-6 rounded-xl border-2 ${
+                  scoreV2.rating === "A" || scoreV2.rating === "B" ? "bg-green-50 border-green-300" :
+                  scoreV2.rating === "C" ? "bg-amber-50 border-amber-300" :
+                  "bg-red-50 border-red-300"
+                }`}>
+                  <p className="text-xs font-bold uppercase tracking-[0.1em] text-gray-500 mb-2">Rating V2</p>
+                  <p className={`text-3xl font-bold leading-tight ${
+                    scoreV2.rating === "A" || scoreV2.rating === "B" ? "text-green-700" :
+                    scoreV2.rating === "C" ? "text-amber-700" :
+                    "text-red-700"
+                  }`}>{scoreV2.rating} · {scoreV2.score_final.toFixed(0)} pts</p>
+                  <p className="text-xs text-gray-500 mt-2">
+                    {finalRating != null
+                      ? `IA: ${finalRating.toFixed(1)}/10 · ${aiAnalysis?.ratingConfianca ?? "—"}% conf.`
+                      : `Score estruturado · ${scoreV2.confianca_score === "alta" ? "Alta confiança" : scoreV2.confianca_score === "parcial" ? "Confiança parcial" : "Confiança baixa"}`}
+                  </p>
+                </div>
               ) : (
-                <KpiCard
-                  label="Rating IA"
-                  value={finalRating == null ? "—" : `${finalRating}/10`}
-                  sub={(() => {
+                <div className={`px-7 py-6 rounded-xl border-2 ${
+                  !analysisReady ? "bg-gray-50 border-gray-300" :
+                  decision === "APROVADO" ? "bg-green-50 border-green-300" :
+                  decision === "REPROVADO" ? "bg-red-50 border-red-300" :
+                  "bg-amber-50 border-amber-300"
+                }`}>
+                  <p className="text-xs font-bold uppercase tracking-[0.1em] text-gray-500 mb-2">Rating IA</p>
+                  <p className={`text-3xl font-bold leading-tight ${
+                    !analysisReady ? "text-gray-700" :
+                    decision === "APROVADO" ? "text-green-700" :
+                    decision === "REPROVADO" ? "text-red-700" :
+                    "text-amber-700"
+                  }`}>{finalRating == null ? "—" : `${finalRating}/10`}</p>
+                  <p className="text-xs text-gray-500 mt-2">{(() => {
                     if (!analysisReady) return "Carregando análise…";
                     const conf = aiAnalysis?.ratingConfianca;
                     const nivel = aiAnalysis?.nivelAnalise;
@@ -2428,28 +2467,37 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
                     }
                     if (finalRating == null) return "—";
                     return finalRating >= 8 ? "Perfil saudável" : finalRating >= 6 ? "Atenção recomendada" : "Perfil crítico";
-                  })()}
-                  variant={!analysisReady ? "default" : decision === "APROVADO" ? "success" : decision === "REPROVADO" ? "danger" : "warning"}
-                />
+                  })()}</p>
+                </div>
               )}
-              <KpiCard
-                label="Dívida Total"
-                value={dividaAtiva > 0 ? `R$ ${data.scr.totalDividasAtivas}` : "—"}
-                sub="SCR / Bacen"
-                variant={dividaAtiva > 1000000 ? "warning" : "default"}
-              />
-              <KpiCard
-                label="Protestos"
-                value={String(protestosVigentes)}
-                sub="vigentes"
-                variant={protestosVigentes > 0 ? "danger" : "success"}
-              />
-              <KpiCard
-                label="Proc. Passivos"
-                value={data.processos ? (parseInt(data.processos.poloPassivoQtd || "0") > 0 ? String(parseInt(data.processos.poloPassivoQtd || "0")) : "—") : "—"}
-                sub="polo passivo"
-                variant={data.processos && parseInt(data.processos.poloPassivoQtd || "0") > 0 ? "warning" : "default"}
-              />
+            </div>
+
+            {/* ── Nível 2: Crédito & Risco (faixa média) ── */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-gray-200 rounded-lg overflow-hidden">
+              <div className="bg-white px-5 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-gray-500 mb-1">Dívida Total</p>
+                <p className={`text-base font-bold font-mono ${dividaAtiva > 1000000 ? "text-amber-700" : "text-gray-900"}`}>
+                  {dividaAtiva > 0 ? `R$ ${data.scr.totalDividasAtivas}` : "—"}
+                </p>
+              </div>
+              <div className="bg-white px-5 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-gray-500 mb-1">Em Atraso</p>
+                <p className={`text-base font-bold font-mono ${atraso > 0 ? "text-red-600" : "text-gray-900"}`}>
+                  {atraso > 0 ? `R$ ${data.scr.operacoesEmAtraso}` : "—"}
+                </p>
+              </div>
+              <div className="bg-white px-5 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-gray-500 mb-1">Protestos</p>
+                <p className={`text-base font-bold ${protestosVigentes > 0 ? "text-red-600" : "text-green-700"}`}>
+                  {protestosVigentes > 0 ? String(protestosVigentes) : "0"}
+                </p>
+              </div>
+              <div className="bg-white px-5 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-gray-500 mb-1">Proc. Passivos</p>
+                <p className={`text-base font-bold ${data.processos && parseInt(data.processos.poloPassivoQtd || "0") > 0 ? "text-amber-700" : "text-gray-900"}`}>
+                  {data.processos ? (parseInt(data.processos.poloPassivoQtd || "0") > 0 ? String(parseInt(data.processos.poloPassivoQtd || "0")) : "—") : "—"}
+                </p>
+              </div>
             </div>
 
             {/* Banner de cobertura parcial */}
@@ -2492,50 +2540,27 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
               </div>
             )}
 
-            {/* Info row 1: Empresa, CNPJ, Situação, Idade, Sócios */}
-            <div className="border-t border-gray-200 pt-5">
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-px bg-gray-200 rounded-xl overflow-hidden">
-                <div className="bg-white px-6 py-5 col-span-2">
-                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">Empresa</p>
-                  <p className="text-lg font-bold text-gray-900">{data.cnpj.razaoSocial || "—"}</p>
-                </div>
-                <div className="bg-white px-6 py-5">
-                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">CNPJ</p>
-                  <p className="text-base font-medium text-gray-900 font-mono tracking-wide">{data.cnpj.cnpj || "—"}</p>
-                </div>
-                <div className="bg-white px-6 py-5">
-                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">Situação</p>
-                  <p className="text-base font-medium text-gray-900">{data.cnpj.situacaoCadastral || "—"}</p>
-                </div>
-                <div className="bg-white px-6 py-5">
-                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">Idade</p>
-                  <p className="text-base font-medium text-gray-900">{companyAge || "—"}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Info row 2: Capital, Fat. Anual, Em Atraso, Prejuízos */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-px bg-gray-200 rounded-xl overflow-hidden">
-              <div className="bg-white px-6 py-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">Sócios (QSA)</p>
-                <p className="text-base font-medium text-gray-900">{String(qsaCount)}</p>
-              </div>
-              <div className="bg-white px-6 py-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">Capital Social</p>
-                <p className="text-base font-medium text-gray-900 font-mono">{data.qsa.capitalSocial || data.contrato.capitalSocial || "—"}</p>
-              </div>
-              <div className="bg-white px-6 py-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">Fat. Anual</p>
-                <p className="text-base font-medium text-gray-900 font-mono">{data.faturamento.somatoriaAno ? `R$ ${data.faturamento.somatoriaAno}` : "—"}</p>
-              </div>
-              <div className="bg-white px-6 py-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">Em Atraso</p>
-                <p className={`text-base font-medium font-mono ${atraso > 0 ? "text-red-600" : "text-gray-900"}`}>{atraso > 0 ? `R$ ${data.scr.operacoesEmAtraso}` : "—"}</p>
-              </div>
-              <div className="bg-white px-6 py-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-gray-500 mb-1.5">Prejuízos</p>
-                <p className={`text-base font-medium font-mono ${prejuizosVal > 0 ? "text-red-600" : "text-gray-900"}`}>{prejuizosVal > 0 ? `R$ ${data.scr.prejuizos}` : "—"}</p>
-              </div>
+            {/* ── Nível 3: Cadastro (linha fina, fonte menor) ──
+                Empresa · CNPJ · Situação · Idade · Sócios · Capital · Fat. Anual
+                Em Atraso e Prejuízos migraram para o Nível 2 (Crédito & Risco). */}
+            <div className="border-t border-gray-200 pt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-gray-600">
+              <span><span className="text-gray-400 mr-1">Empresa</span><b className="text-gray-900">{data.cnpj.razaoSocial || "—"}</b></span>
+              <span className="text-gray-300">·</span>
+              <span><span className="text-gray-400 mr-1">CNPJ</span><b className="font-mono text-gray-900">{data.cnpj.cnpj || "—"}</b></span>
+              <span className="text-gray-300">·</span>
+              <span><span className="text-gray-400 mr-1">Situação</span><b className="text-gray-900">{data.cnpj.situacaoCadastral || "—"}</b></span>
+              <span className="text-gray-300">·</span>
+              <span><span className="text-gray-400 mr-1">Idade</span><b className="text-gray-900">{companyAge || "—"}</b></span>
+              <span className="text-gray-300">·</span>
+              <span><span className="text-gray-400 mr-1">Sócios</span><b className="text-gray-900">{String(qsaCount)}</b></span>
+              <span className="text-gray-300">·</span>
+              <span><span className="text-gray-400 mr-1">Capital</span><b className="font-mono text-gray-900">{data.qsa.capitalSocial || data.contrato.capitalSocial || "—"}</b></span>
+              <span className="text-gray-300">·</span>
+              <span><span className="text-gray-400 mr-1">Fat. Anual</span><b className="font-mono text-gray-900">{data.faturamento.somatoriaAno ? `R$ ${data.faturamento.somatoriaAno}` : "—"}</b></span>
+              {prejuizosVal > 0 && <>
+                <span className="text-gray-300">·</span>
+                <span><span className="text-gray-400 mr-1">Prejuízos</span><b className="font-mono text-red-600">R$ {data.scr.prejuizos}</b></span>
+              </>}
             </div>
 
             {/* IA: loading */}

@@ -309,6 +309,31 @@ html.dark body { background: #0f172a; color: #f1f5f9; }
     @apply text-xs font-semibold uppercase tracking-widest;
     color: var(--text-3);
   }
+
+  /* Campo editável (Fase B do redesign /parecer, 2026-05-11).
+     Sinaliza visualmente que o usuário pode digitar/editar com:
+     - borda azul fina (1px navy)
+     - ícone ✎ no canto superior direito (não-interativo)
+     Aplicar em <textarea> e <input> editáveis para diferenciar de
+     elementos de display read-only. */
+  .cf-editavel {
+    position: relative;
+    border-color: #1F478E !important;
+  }
+  .cf-editavel-wrap {
+    position: relative;
+  }
+  .cf-editavel-wrap::after {
+    content: "✎";
+    position: absolute;
+    top: 4px;
+    right: 8px;
+    font-size: 11px;
+    color: #1F478E;
+    opacity: 0.55;
+    pointer-events: none;
+    z-index: 1;
+  }
 }
 
 @layer utilities {
