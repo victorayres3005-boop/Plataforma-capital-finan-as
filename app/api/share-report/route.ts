@@ -50,13 +50,30 @@ export async function POST(req: Request) {
     .join("");
 
   const supabase = createClient(url, key);
-  const { error } = await supabase.from("shared_reports").insert({
+
+  // FALLBACK GRACIOSO 2026-05-11: tenta INSERT com edit_token; se a coluna
+  // não existe (migration 16 pendente), retenta sem — gera só o link público
+  // (leitura), edição inline fica indisponível até a migration rodar.
+  let editAvailable = true;
+  let { error } = await supabase.from("shared_reports").insert({
     id,
     html,
     cnpj: cnpj ?? null,
     company: company ?? null,
     edit_token,
   });
+
+  if (error?.code === "42703") {
+    console.warn("[share-report] migration 16 pendente — fallback sem edit_token");
+    editAvailable = false;
+    const retry = await supabase.from("shared_reports").insert({
+      id,
+      html,
+      cnpj: cnpj ?? null,
+      company: company ?? null,
+    });
+    error = retry.error;
+  }
 
   if (error) {
     const isTableMissing = error.message?.includes("does not exist") || error.code === "42P01";
@@ -74,7 +91,15 @@ export async function POST(req: Request) {
   return Response.json({
     id,
     url: `${baseUrl}/r/${id}`,
-    editUrl: `${baseUrl}/r/${id}?k=${edit_token}`,
-    editToken: edit_token,
+    // editUrl/editToken só aparecem quando a coluna edit_token existe no banco.
+    // Sem migration 16, frontend recebe undefined nos dois — o card âmbar
+    // de edição simplesmente não aparece.
+    ...(editAvailable ? {
+      editUrl: `${baseUrl}/r/${id}?k=${edit_token}`,
+      editToken: edit_token,
+    } : {
+      editDisabled: true,
+      editDisabledReason: "Edição inline indisponível — rodar migration 16 no Supabase.",
+    }),
   });
 }
