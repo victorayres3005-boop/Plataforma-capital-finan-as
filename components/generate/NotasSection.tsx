@@ -29,14 +29,14 @@ export default function NotasSection({ analystNotes, onNotesChange, onSave, savi
       title="Anotações"
       headerRight={savingNotes ? <span className="text-[11px] text-cf-text-4">Salvando...</span> : undefined}
     >
-      <div className="px-8 py-6">
+      <div className="px-5 py-4">
         <div className="cf-editavel-wrap">
           <textarea
             value={analystNotes}
             onChange={e => onNotesChange(e.target.value)}
             onBlur={() => { if (debounceRef.current) clearTimeout(debounceRef.current); onSave(analystNotes); }}
             placeholder="Registre aqui observações sobre a empresa, pontos de atenção identificados na visita, pendências de documentação, ou qualquer informação relevante para a tomada de decisão de crédito..."
-            className="cf-editavel w-full min-h-[180px] resize-y bg-white border rounded-lg px-3.5 py-3 pr-7 text-[13px] text-cf-text-1 leading-relaxed font-sans outline-none focus:ring-2 focus:ring-navy-800/20 placeholder:text-cf-text-4"
+            className="cf-editavel w-full min-h-[140px] resize-y bg-white border rounded-lg px-3 py-2.5 pr-7 text-[13px] text-cf-text-1 leading-relaxed font-sans outline-none focus:ring-2 focus:ring-navy-800/20 placeholder:text-cf-text-4"
           />
         </div>
         <div className="flex justify-between mt-1.5 px-0.5">

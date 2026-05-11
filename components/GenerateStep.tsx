@@ -2306,7 +2306,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           fade-stagger: cada SectionCard filho fade com delay incremental
           (50/100/150/200/240/280/320ms). Sensação de cascata sem ferir
           decisão estética 2026-05-04 (fade puro, sem slide-up). */}
-      <div className="max-w-[1280px] mx-auto pb-4 flex flex-col gap-7 fade-stagger">
+      <div className="max-w-[1280px] mx-auto pb-4 flex flex-col gap-4 fade-stagger">
 
         {/* Feature 5 — Alerta de vencimento de documentos */}
         {docAgeWarnings.length > 0 && (
@@ -2338,7 +2338,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             />
           }
         >
-          <div className="p-8 flex flex-col gap-6">
+          <div className="p-5 flex flex-col gap-4">
 
             {/* Alert banner: SCR vencidos ou prejuízos */}
             {(vencidosSCR > 0 || prejuizosVal > 0) && (
@@ -2361,55 +2361,55 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
                 Agora: 2 cards grandes destaque + 4 médios + 1 linha fina. */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Card Decisão */}
-              <div className={`px-7 py-6 rounded-xl border-2 ${
+              <div className={`px-4 py-3 rounded-lg border ${
                 decision === "APROVADO" ? "bg-green-50 border-green-300" :
                 decision === "REPROVADO" ? "bg-red-50 border-red-300" :
                 decision === "APROVACAO_CONDICIONAL" ? "bg-amber-50 border-amber-300" :
                 "bg-gray-50 border-gray-300"
               }`}>
-                <p className="text-xs font-bold uppercase tracking-[0.1em] text-gray-500 mb-2">Decisão</p>
-                <p className={`text-3xl font-bold leading-tight ${
+                <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-gray-500 mb-1">Decisão</p>
+                <p className={`text-xl font-bold leading-tight ${
                   decision === "APROVADO" ? "text-green-700" :
                   decision === "REPROVADO" ? "text-red-700" :
                   decision === "APROVACAO_CONDICIONAL" ? "text-amber-700" :
                   "text-gray-700"
                 }`}>{decision ?? "PENDENTE"}</p>
-                <p className="text-xs text-gray-500 mt-2">Análise de Crédito</p>
+                <p className="text-[10px] text-gray-500 mt-1">Análise de Crédito</p>
               </div>
               {/* Card Rating V2 (ou Rating IA se sem V2) */}
               {scoreV2 ? (
-                <div className={`px-7 py-6 rounded-xl border-2 ${
+                <div className={`px-4 py-3 rounded-lg border ${
                   scoreV2.rating === "A" || scoreV2.rating === "B" ? "bg-green-50 border-green-300" :
                   scoreV2.rating === "C" ? "bg-amber-50 border-amber-300" :
                   "bg-red-50 border-red-300"
                 }`}>
-                  <p className="text-xs font-bold uppercase tracking-[0.1em] text-gray-500 mb-2">Rating V2</p>
-                  <p className={`text-3xl font-bold leading-tight ${
+                  <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-gray-500 mb-1">Rating V2</p>
+                  <p className={`text-xl font-bold leading-tight ${
                     scoreV2.rating === "A" || scoreV2.rating === "B" ? "text-green-700" :
                     scoreV2.rating === "C" ? "text-amber-700" :
                     "text-red-700"
                   }`}>{scoreV2.rating} · {scoreV2.score_final.toFixed(0)} pts</p>
-                  <p className="text-xs text-gray-500 mt-2">
+                  <p className="text-[10px] text-gray-500 mt-1">
                     {finalRating != null
                       ? `IA: ${finalRating.toFixed(1)}/10 · ${aiAnalysis?.ratingConfianca ?? "—"}% conf.`
                       : `Score estruturado · ${scoreV2.confianca_score === "alta" ? "Alta confiança" : scoreV2.confianca_score === "parcial" ? "Confiança parcial" : "Confiança baixa"}`}
                   </p>
                 </div>
               ) : (
-                <div className={`px-7 py-6 rounded-xl border-2 ${
+                <div className={`px-4 py-3 rounded-lg border ${
                   !analysisReady ? "bg-gray-50 border-gray-300" :
                   decision === "APROVADO" ? "bg-green-50 border-green-300" :
                   decision === "REPROVADO" ? "bg-red-50 border-red-300" :
                   "bg-amber-50 border-amber-300"
                 }`}>
-                  <p className="text-xs font-bold uppercase tracking-[0.1em] text-gray-500 mb-2">Rating IA</p>
-                  <p className={`text-3xl font-bold leading-tight ${
+                  <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-gray-500 mb-1">Rating IA</p>
+                  <p className={`text-xl font-bold leading-tight ${
                     !analysisReady ? "text-gray-700" :
                     decision === "APROVADO" ? "text-green-700" :
                     decision === "REPROVADO" ? "text-red-700" :
                     "text-amber-700"
                   }`}>{finalRating == null ? "—" : `${finalRating}/10`}</p>
-                  <p className="text-xs text-gray-500 mt-2">{(() => {
+                  <p className="text-[10px] text-gray-500 mt-1">{(() => {
                     if (!analysisReady) return "Carregando análise…";
                     const conf = aiAnalysis?.ratingConfianca;
                     const nivel = aiAnalysis?.nivelAnalise;
@@ -2495,23 +2495,23 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             {/* ── Nível 3: Cadastro (linha fina, fonte menor) ──
                 Empresa · CNPJ · Situação · Idade · Sócios · Capital · Fat. Anual
                 Em Atraso e Prejuízos migraram para o Nível 2 (Crédito & Risco). */}
-            <div className="border-t border-gray-200 pt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-gray-600">
-              <span><span className="text-gray-400 mr-1">Empresa</span><b className="text-gray-900">{data.cnpj.razaoSocial || "—"}</b></span>
+            <div className="border-t border-gray-200 pt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-gray-600">
+              <span className="text-gray-400">Empresa <b className="text-gray-900 font-semibold">{data.cnpj.razaoSocial || "—"}</b></span>
               <span className="text-gray-300">·</span>
-              <span><span className="text-gray-400 mr-1">CNPJ</span><b className="font-mono text-gray-900">{data.cnpj.cnpj || "—"}</b></span>
+              <span className="text-gray-400">CNPJ <b className="font-mono text-gray-900 font-semibold">{data.cnpj.cnpj || "—"}</b></span>
               <span className="text-gray-300">·</span>
-              <span><span className="text-gray-400 mr-1">Situação</span><b className="text-gray-900">{data.cnpj.situacaoCadastral || "—"}</b></span>
+              <span className="text-gray-400">Situação <b className="text-gray-900 font-semibold">{data.cnpj.situacaoCadastral || "—"}</b></span>
               <span className="text-gray-300">·</span>
-              <span><span className="text-gray-400 mr-1">Idade</span><b className="text-gray-900">{companyAge || "—"}</b></span>
+              <span className="text-gray-400">Idade <b className="text-gray-900 font-semibold">{companyAge || "—"}</b></span>
               <span className="text-gray-300">·</span>
-              <span><span className="text-gray-400 mr-1">Sócios</span><b className="text-gray-900">{String(qsaCount)}</b></span>
+              <span className="text-gray-400">Sócios <b className="text-gray-900 font-semibold">{String(qsaCount)}</b></span>
               <span className="text-gray-300">·</span>
-              <span><span className="text-gray-400 mr-1">Capital</span><b className="font-mono text-gray-900">{data.qsa.capitalSocial || data.contrato.capitalSocial || "—"}</b></span>
+              <span className="text-gray-400">Capital <b className="font-mono text-gray-900 font-semibold">{data.qsa.capitalSocial || data.contrato.capitalSocial || "—"}</b></span>
               <span className="text-gray-300">·</span>
-              <span><span className="text-gray-400 mr-1">Fat. Anual</span><b className="font-mono text-gray-900">{data.faturamento.somatoriaAno ? `R$ ${data.faturamento.somatoriaAno}` : "—"}</b></span>
+              <span className="text-gray-400">Fat. Anual <b className="font-mono text-gray-900 font-semibold">{data.faturamento.somatoriaAno ? `R$ ${data.faturamento.somatoriaAno}` : "—"}</b></span>
               {prejuizosVal > 0 && <>
                 <span className="text-gray-300">·</span>
-                <span><span className="text-gray-400 mr-1">Prejuízos</span><b className="font-mono text-red-600">R$ {data.scr.prejuizos}</b></span>
+                <span className="text-gray-400">Prejuízos <b className="font-mono text-red-600 font-semibold">R$ {data.scr.prejuizos}</b></span>
               </>}
             </div>
 
@@ -2567,7 +2567,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
             {/* Resumo executivo */}
             {resumoExecutivo && (
-              <div className="px-6 py-5 bg-blue-50 border border-blue-200 rounded-xl">
+              <div className="px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg">
                 <p className="text-xs font-bold uppercase tracking-[0.04em] text-blue-700 mb-2">Resumo Executivo</p>
                 <p className="text-sm text-blue-800 leading-relaxed">{resumoExecutivo}</p>
               </div>
@@ -2575,7 +2575,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
             {/* Pontos fortes */}
             {pontosFortes.length > 0 && (
-              <div className="px-6 py-5 bg-green-50 border border-green-200 rounded-xl">
+              <div className="px-4 py-3 bg-green-50 border border-green-200 rounded-lg">
                 <p className="text-sm font-bold uppercase tracking-[0.04em] text-green-700 mb-3">
                   Pontos Fortes ({pontosFortes.length})
                 </p>
@@ -2592,7 +2592,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
             {/* Pontos fracos */}
             {pontosFracos.length > 0 && (
-              <div className="px-6 py-5 bg-red-50 border border-red-200 rounded-xl">
+              <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-lg">
                 <p className="text-sm font-bold uppercase tracking-[0.04em] text-red-700 mb-3">
                   Pontos Fracos ({pontosFracos.length})
                 </p>
@@ -2609,7 +2609,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
             {/* Perguntas para visita */}
             {perguntasVisita.length > 0 && (
-              <div className="px-6 py-5 bg-amber-50 border border-amber-200 rounded-xl">
+              <div className="px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg">
                 <p className="text-sm font-bold uppercase tracking-[0.04em] text-amber-700 mb-3">
                   Perguntas para Visita ({perguntasVisita.length})
                 </p>
@@ -2771,7 +2771,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
           </div>
 
           {/* Resultado + detalhes LC */}
-          <div className="px-8 py-6 flex flex-col gap-4">
+          <div className="px-5 py-4 flex flex-col gap-3">
             <ResultadoBox
               title={
                 creditLimit.classificacao === "REPROVADO"
