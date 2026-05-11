@@ -1520,6 +1520,15 @@ function pageSintese(params: PDFReportParams, date: string): string {
       </div>
     </div>
 
+    <!-- Caixa de Percepção do Analista — Faturamento.
+         Movida da pág 9 pra cá em 2026-05-11 (decisão Victor) pra ficar
+         abaixo do assunto correspondente. Reusa toda a infra de edição
+         inline (data-edit-text + marcador EDIT:faturamento). -->
+    <div class="perc-box" data-edit-section="faturamento">
+      <div class="l">Percepção do Analista — Faturamento</div>
+      <!--EDIT:faturamento:START--><div class="perc-box-content" data-edit-text="faturamento" data-empty="true"></div><!--EDIT:faturamento:END-->
+    </div>
+
     <!-- 8. Curva ABC + Bureau + Partes Relacionadas (tabela única) -->
     ${(() => {
       const abcLocal = d.curvaABC;
@@ -2511,8 +2520,10 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
     </div>
     <table class="tbl">${tableBody}</table>
     ${dreAlerts}
-    ${editBox("dre", "Percepção do Analista — DRE")}
-    ${editBox("faturamento", "Percepção do Analista — Faturamento")}`;
+    ${editBox("dre", "Percepção do Analista — DRE")}`;
+    // Caixa "Percepção do Analista — Faturamento" foi movida pra pág 3
+    // (síntese), abaixo do bloco "Faturamento & SCR", pra ficar próxima
+    // do conteúdo do assunto (decisão Victor 2026-05-11).
   }
 
   let balSection = "";
