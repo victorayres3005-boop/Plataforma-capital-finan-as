@@ -172,6 +172,17 @@ export async function GET(
 
   let html = data.html as string;
 
+  // HOTFIX 2026-05-11: corrige regex quebrada no JS embutido de relatórios
+  // antigos. O template.ts gerava /\/r\/(...)/  dentro de uma template literal
+  // — \/ é resolvido pra / no momento do build, então o HTML salvo no banco
+  // chegou no browser como //r/(...)/ (o // virava comentário de linha JS e
+  // matava o script inteiro do modo edição). Fix no template já foi aplicado
+  // pra relatórios futuros; este replace conserta os já armazenados.
+  html = html.replace(
+    "location.pathname.match(//r/([a-z0-9]{8,16})/)",
+    "location.pathname.match(/\\/r\\/([a-z0-9]{8,16})/)"
+  );
+
   // Aplica overrides salvos pela edição inline (fortes/fracos/alertas — listas).
   const overrides: Partial<Record<Section, string[]>> = {};
   if (Array.isArray(data.pontos_fortes)) overrides.fortes = data.pontos_fortes as string[];
