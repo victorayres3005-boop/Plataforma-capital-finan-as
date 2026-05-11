@@ -2135,7 +2135,7 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
       return `
         ${stitle("05 · CCF — Cheques Sem Fundo")}
         <div class="istrip c3" style="margin-bottom:10px">
-          <div class="icell ${ccfQtd > 0 ? "danger" : "success"}"><div class="l">Registros CCF</div><div class="v ${ccfQtd > 0 ? "red" : "green"}">${ccfQtd > 0 ? `<b>${ccfQtd}</b>` : "0 — limpo"}</div></div>
+          <div class="icell ${ccfQtd > 0 ? "danger" : "success"}"><div class="l">Registros CCF</div><div class="v ${ccfQtd > 0 ? "red" : "green"}">${ccfQtd > 0 ? `<b>${ccfQtd}</b>` : "Sem ocorrências"}</div></div>
           <div class="icell ${tendCls}"><div class="l">Tendência 6 meses</div><div class="v ${tendValCls} sm">${tendStr}</div></div>
         </div>
         ${bancosRows ? `${stitle("Registros por banco")}
