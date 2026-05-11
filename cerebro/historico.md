@@ -11,6 +11,57 @@ Log datado de mudanças significativas. Adicionar entrada nova **no topo** quand
 
 ---
 
+## 2026-05-11 — Maratona: Pleito do Comitê + Parecer PDF/HTML + redesign /relatório + 3 bugs SyntaxError históricos
+
+**Sessão muito longa** (~18 commits). 4 frentes principais:
+
+### Frente 1 — Bug histórico: SyntaxError no script de edição do `/r/{id}`
+
+Modo edição inline **NUNCA funcionou em prod** desde o deploy original — o `<script>` morria silenciosamente no navegador com SyntaxError. Causa: template literal de `lib/pdf/template.ts` resolvia escapes ANTES de chegar no browser. Três casos:
+
+1. `match(/\/r\/([a-z0-9]{8,16})/)` no source virava `match(//r/([a-z0-9]{8,16})/)` no HTML — o `//` virava comentário JS, parser quebrava. Fix: `\\/` no source.
+2. `// comentário com \n` virava comentário quebrado em 2 linhas com `)` órfão. Fix: trocar `\n` por palavra "newline" nos comentários.
+3. `br.replaceWith('\n')` virava string com newline literal (inválido em ECMAScript). Fix: `'\\n'` no source.
+
+Fixes aplicados via runtime no `app/r/[id]/route.ts` para cobrir relatórios já armazenados no banco (não regerar). Memória detalhada: `feedback_template_literal_regex.md`.
+
+### Frente 2 — Pleito do Comitê + Parecer dedicado
+
+- **Pleito do Comitê reativado**: tabela editável de 15 campos abaixo do "Pleito do cedente" no `/r/{id}`. Autosave 800ms via PATCH `/api/r/{id}/pleito-comite`. Endpoint + migration 17 já existiam desde 2026-05-07, faltava o markup no template.
+- **Endpoint `/api/r/[id]/parecer-pdf`** (POST) + **`/api/r/[id]/parecer-html`** (GET). Documento "Decisão do Comitê" portado de `app/parecer/page.tsx::buildDecisaoHtml`. Builder compartilhado em `lib/parecer/buildHtml.ts`. Decisão/Rating ficam "PENDENTE" no cabeçalho. Observações = 4 percepções + Fortes/Fracos/Alertas. Bloco "Condições e Garantias" omitido.
+- **Botões "Baixar PDF" + "Ver em HTML"** abaixo do Pleito do Comitê.
+- Renomeação "Pleito" → "Pleito do cedente".
+- Dropdown de autor da barra de edição: Victor, Vanessa + Débora, Nayara, Gleyso, Luiz.
+- Fallback gracioso PGRST204 no endpoint `/api/r/{id}/edit` (loop de até 8 tentativas detectando "Could not find the 'X' column" e removendo do payload).
+- Coluna "Vencidos" no card SCR dos Sócios (grid `c5` → `c6`).
+- Coluna "Credor" no Top 5 processos recentes (usa `ProcessoItem.partes` já populado pelo CreditHub).
+
+### Frente 3 — Redesign da página de Relatório (`GenerateStep.tsx` dentro de `app/page.tsx`)
+
+**Fase A — Performance:**
+- 4 queries do boot em paralelo (`Promise.all` de `document_collections` + `score_operacoes` + `pareceres` + `auth.getUser`). Antes eram 2 rounds em série.
+- `ScoreSection` virou dynamic import com loading skeleton (sai do bundle inicial).
+
+**Fase B — Visual:**
+- Sumário Executivo reorganizado em 3 níveis hierárquicos:
+  1. **Decisão + Rating V2** em 2 cards lado a lado com borda colorida pelo nível
+  2. **Crédito & Risco** em faixa de 4 KPIs (Dívida · Em Atraso · Protestos · Proc. Passivos)
+  3. **Cadastro** em linha fina (Empresa · CNPJ · Situação · Idade · Sócios · Capital · Fat. Anual)
+- Sidebar lateral (00/FS/05/07/OP/✎/⬇) removida — códigos não eram autoexplicativos.
+- Compactação geral: gap 28→16, padding 32→20, valor 3xl→xl, border-2→1.
+- Distinção visual editável vs leitura: classe `.cf-editavel` + `.cf-editavel-wrap` em globals.css (borda azul navy + ícone ✎).
+
+**Remoções a pedido:**
+- Botão "Recomeçar" + "Enviar ao Goalfy" + "Score V2 · N pendentes" da barra inferior (sobrou só Voltar · status · Registrar Parecer).
+- Opções Word/Excel/HTML "Web" do menu Exportar (sobrou PDF + Visualizar).
+- Seção "Observações do Analista / Anotações" (analista usa as 4 caixas de Percepção do `/r/{id}` agora).
+
+### Frente 4 — Polimento
+
+Vários ajustes pontuais: tamanho do botão de download na seção Pleito do Comitê reduzido, label da linha de cadastro com espaçamento corrigido (Tailwind `mr-1` não estava aplicando em span aninhado).
+
+---
+
 ## 2026-05-08 — Maratona: Sacados ABC + Bureau + Vínculos · Sugestão Analista · Análise Contábil · 3 docs novos
 
 **Disparador:** chefe pediu (1) na curva ABC, consultar bureau dos sacados PJ e cruzar sócios para detectar partes relacionadas; (2) SCR completo na parte superior da análise; (3) Sugestão do Analista junto do Pleito + caixa de Análise Contábil para a Vanessa; (4) 3 documentos novos uploadáveis (Dívida Ativa, CENPROT, GEFIP).
