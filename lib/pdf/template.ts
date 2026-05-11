@@ -2190,17 +2190,30 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
         ${divergenciaBlock}
         <div class="alert" style="background:#f0fdf4;border-color:#bbf7d0;color:#15803d"><span class="atag" style="background:#16a34a;color:#fff">NEGATIVA</span> Certidão CENPROT negativa${cen.dataConsulta ? ` (emitida ${esc(cen.dataConsulta)})` : ""}</div>`;
       }
+      // Helper de badge pra status do protesto (campo novo opcional).
+      const statusCorCenprot = (s: string | undefined): string => {
+        const lower = (s ?? "").toLowerCase();
+        if (/pag|cancel|regular/.test(lower)) return "var(--g6)";  // verde — resolvido
+        if (/sust/.test(lower)) return "var(--a5)";                 // âmbar — em discussão
+        return "var(--r6)";                                          // vermelho — vigente/default
+      };
+      // Se algum registro tem status ou tipoTitulo, mostra as colunas novas.
+      const algumStatus = (cen.registros ?? []).some(r => !!r.status);
+      const algumTipo = (cen.registros ?? []).some(r => !!r.tipoTitulo);
       const rows = (cen.registros ?? []).map(r => `<tr>
         <td>${esc(r.cartorio || "—")}</td>
         <td style="white-space:nowrap">${esc([r.cidade, r.uf].filter(Boolean).join("/") || "—")}</td>
         <td style="white-space:nowrap">${esc(r.data || "—")}</td>
         <td class="r red mono">${esc(r.valor || "—")}</td>
         <td>${esc(r.cedente || "—")}</td>
+        ${algumTipo ? `<td style="font-size:10px;color:var(--x7)">${esc(r.tipoTitulo || "—")}</td>` : ""}
+        ${algumStatus ? `<td><span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;background:rgba(0,0,0,0.04);color:${statusCorCenprot(r.status)}">${esc(r.status || "Vigente")}</span></td>` : ""}
       </tr>`).join("");
       return `${stitle("CENPROT — Certidão Oficial de Protestos")}
       ${divergenciaBlock}
       <div class="alert alta"><span class="atag">ALTA</span> <b>${cen.qtdRegistros}</b> protesto(s) certificado(s) — total <b>${esc(cen.valorTotal || "—")}</b>${cen.dataConsulta ? ` · emitida ${esc(cen.dataConsulta)}` : ""}</div>
-      ${rows ? `<table class="tbl"><thead><tr><th>Cartório</th><th>Cidade/UF</th><th>Data</th><th class="r">Valor</th><th>Cedente</th></tr></thead><tbody>${rows}</tbody></table>` : ""}`;
+      ${rows ? `<table class="tbl"><thead><tr><th>Cartório</th><th>Cidade/UF</th><th>Data</th><th class="r">Valor</th><th>Cedente</th>${algumTipo ? "<th>Tipo do título</th>" : ""}${algumStatus ? "<th>Status</th>" : ""}</tr></thead><tbody>${rows}</tbody></table>` : ""}
+      ${cen.chaveValidacao ? `<div style="margin-top:6px;font-size:9px;color:var(--x4);font-family:'JetBrains Mono',monospace;letter-spacing:0.04em">Validação: ${esc(cen.chaveValidacao)}</div>` : ""}`;
     })()}
   `;
 
@@ -2891,18 +2904,36 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
   if (gefip && (gefip.competencias?.length ?? 0) > 0) {
     const atrasos = gefip.competenciasEmAtraso ?? 0;
     const danger = atrasos > 0;
+    // Mostra coluna Folha só se alguma competência tem o dado
+    const algumaFolha = gefip.competencias.some(c => !!c.folhaPagamento);
+    // Validação de cabeçalho: alerta visual se cnpj declarado ≠ cnpj do cedente
+    const cnpjCedente = (params.data.cnpj?.cnpj ?? "").replace(/\D/g, "");
+    const cnpjDecl = (gefip.cnpjDeclarado ?? "").replace(/\D/g, "");
+    const cnpjDivergente = !!cnpjDecl && !!cnpjCedente && cnpjDecl !== cnpjCedente;
+    // Título adapta ao tipo de declaração detectado
+    const tituloGefip = gefip.tipoDeclaracao
+      ? `12 · ${esc(gefip.tipoDeclaracao)} (FGTS/INSS) — Compliance Trabalhista`
+      : "12 · GEFIP / FGTS / INSS — Compliance Trabalhista";
+
     const compRows = gefip.competencias.map(c => {
       const atraso = !!c.situacao && !/recolhid|quitad|regular/i.test(c.situacao);
+      const temPenalidade = !!(c.valorMultas || c.valorJuros);
       return `<tr style="${atraso ? "background:#FEF2F2" : ""}">
         <td class="b mono" style="font-size:10px">${esc(c.mes || "—")}</td>
         <td class="r">${c.funcionarios ?? 0}</td>
+        ${algumaFolha ? `<td class="r mono" style="font-size:10px;color:var(--x7)">${esc(c.folhaPagamento || "—")}</td>` : ""}
         <td class="r mono ${atraso ? "red" : ""}">${esc(c.valorFgts || "—")}</td>
         <td class="r mono ${atraso ? "red" : ""}">${esc(c.valorInss || "—")}</td>
-        <td><span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;background:${atraso ? "#fee2e2" : "#dcfce7"};color:${atraso ? "#991b1b" : "#15803d"}">${esc(c.situacao || "—")}</span></td>
+        <td>
+          <span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;background:${atraso ? "#fee2e2" : "#dcfce7"};color:${atraso ? "#991b1b" : "#15803d"}">${esc(c.situacao || "—")}</span>
+          ${temPenalidade ? `<div style="font-size:9px;color:#991B1B;margin-top:2px">${c.valorMultas ? `+ multa ${esc(c.valorMultas)}` : ""}${c.valorMultas && c.valorJuros ? " · " : ""}${c.valorJuros ? `juros ${esc(c.valorJuros)}` : ""}</div>` : ""}
+        </td>
       </tr>`;
     }).join("");
+
     gefipSection = `
-    ${stitle("12 · GEFIP / FGTS / INSS — Compliance Trabalhista")}
+    ${stitle(tituloGefip)}
+    ${cnpjDivergente ? `<div class="alert mod" style="margin-bottom:6px"><span class="atag">ATENÇÃO</span> CNPJ no cabeçalho do GEFIP (${esc(gefip.cnpjDeclarado || "—")}) diverge do CNPJ do cedente — verificar se o documento é da empresa correta.</div>` : ""}
     ${danger ? `<div class="alert alta"><span class="atag">ALTA</span> <b>${atrasos}</b> competência(s) em atraso — passivo trabalhista identificado.</div>` : `<div class="alert" style="background:#f0fdf4;border-color:#bbf7d0;color:#15803d"><span class="atag" style="background:#16a34a;color:#fff">REGULAR</span> Recolhimentos em dia.</div>`}
     <div class="kpi-snap c4" style="margin-bottom:10px">
       <div class="icell"><div class="l">Período</div><div class="v sm">${esc(gefip.competenciaInicio || "—")} → ${esc(gefip.competenciaFim || "—")}</div></div>
@@ -2911,7 +2942,7 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
       <div class="icell"><div class="l">Total INSS</div><div class="v sm mono">${esc(gefip.valorInssTotal || "—")}</div></div>
     </div>
     <table class="tbl">
-      <thead><tr><th>Competência</th><th class="r">Funcs</th><th class="r">FGTS</th><th class="r">INSS</th><th>Situação</th></tr></thead>
+      <thead><tr><th>Competência</th><th class="r">Funcs</th>${algumaFolha ? "<th class=\"r\">Folha</th>" : ""}<th class="r">FGTS</th><th class="r">INSS</th><th>Situação</th></tr></thead>
       <tbody>${compRows}</tbody>
     </table>`;
   }
