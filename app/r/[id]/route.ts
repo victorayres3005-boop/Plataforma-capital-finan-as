@@ -85,11 +85,52 @@ export async function GET(
   }
 
   const supabase = createClient(url, key);
-  const { data, error } = await supabase
+
+  // FALLBACK GRACIOSO 2026-05-11: tenta SELECT com todas as colunas
+  // (incluindo as das migrations 16/17/18). Se alguma coluna não existir
+  // no schema cache (PGRST204), retenta com só as colunas base (mig. 15).
+  // Sem isso, qualquer leitura de relatório retornava "não encontrado"
+  // quando as migrations não rodaram — porque PostgREST falha no SELECT.
+  type SharedRow = {
+    html: string;
+    expires_at: string | null;
+    company: string | null;
+    pontos_fortes?: unknown;
+    pontos_fracos?: unknown;
+    alertas?: unknown;
+    percepcao?: string | null;
+    percepcao_dre?: string | null;
+    percepcao_faturamento?: string | null;
+    percepcao_balanco?: string | null;
+    edit_token?: string | null;
+    pleito_comite?: unknown;
+  };
+
+  let data: SharedRow | null = null;
+  let { data: full, error } = await supabase
     .from("shared_reports")
     .select("html, expires_at, company, pontos_fortes, pontos_fracos, alertas, percepcao, percepcao_dre, percepcao_faturamento, percepcao_balanco, edit_token, pleito_comite")
     .eq("id", id)
-    .single();
+    .single<SharedRow>();
+  data = full;
+
+  const isColMissing = error && (
+    error.code === "42703" ||
+    error.code === "PGRST204" ||
+    /could not find the .* column/i.test(error.message ?? "") ||
+    /column .* does not exist/i.test(error.message ?? "")
+  );
+
+  if (isColMissing) {
+    console.warn(`[/r/${id}] schema cache pendente — fallback select base (migration 16+ não rodada)`);
+    const retry = await supabase
+      .from("shared_reports")
+      .select("html, expires_at, company")
+      .eq("id", id)
+      .single<SharedRow>();
+    data = retry.data;
+    error = retry.error;
+  }
 
   if (error || !data) {
     return new Response(notFoundPage(id), {
