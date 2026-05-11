@@ -63,9 +63,6 @@ export default function ExportSection({
           {([
             { fmt: "pdf"  as Format, label: "PDF",        sub: "Download direto (.pdf)", fn: generatePDF,      ext: ".pdf",  dot: "#dc2626", recommended: true },
             { fmt: "html" as Format, label: "Visualizar", sub: "Abre em nova aba",       fn: generateHTMLView, ext: ".html", dot: "#203b88", recommended: false },
-            { fmt: "docx" as Format, label: "Word",       sub: "Editável (.docx)",       fn: generateDOCX,     ext: ".docx", dot: "#2b5eb7", recommended: false },
-            { fmt: "xlsx" as Format, label: "Excel",      sub: "Dados tabulados",        fn: generateExcel,    ext: ".xlsx", dot: "#1d6f42", recommended: false },
-            { fmt: "html" as Format, label: "HTML",       sub: "Web / impressão",        fn: generateHTML,     ext: ".html", dot: "#e34f26", recommended: false },
           ]).map(({ fmt, label, sub, fn, ext, dot, recommended }) => {
             const done    = generatedFormats.has(fmt);
             const loading = generatingFormat === fmt;
