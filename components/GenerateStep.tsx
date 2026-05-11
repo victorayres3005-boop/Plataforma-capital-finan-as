@@ -17,7 +17,6 @@ import { uploadFile } from "@/lib/storage";
 import { buildCollectionDocs } from "@/lib/buildCollectionDocs";
 import { validateReport, type ReportValidation } from "@/lib/validateReport";
 import AlertList from "@/components/AlertList";
-import NotasSection from "@/components/generate/NotasSection";
 import VisitaSection from "@/components/generate/VisitaSection";
 import ExportSection from "@/components/generate/ExportSection";
 import OnboardingTooltip from "@/components/OnboardingTooltip";
@@ -3024,15 +3023,11 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             ════════════════════════════════════════ */}
         <VisitaSection data={data} />
 
-        {/* ════════════════════════════════════════
-            SEÇÃO ✎ — ANOTAÇÕES
-            ════════════════════════════════════════ */}
-        <NotasSection
-          analystNotes={analystNotes}
-          onNotesChange={setAnalystNotes}
-          onSave={saveNotes}
-          savingNotes={savingNotes}
-        />
+        {/* Seção "Anotações" removida 2026-05-11 a pedido (analista usa
+            agora as 4 caixas de Percepção no /r/{id}, mais granulares). O
+            estado analystNotes continua existindo e é gravado em
+            collection.observacoes nos saves de parecer/goalfy/share para
+            não perder o que já estava no banco. */}
 
         {/* ── Integrantes do Comitê ── */}
         <div className="bg-white rounded-xl border border-gray-200 p-5 mt-4">
