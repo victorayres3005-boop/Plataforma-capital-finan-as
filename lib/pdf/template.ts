@@ -3562,7 +3562,7 @@ document.getElementById('printBtn').addEventListener('click', async function() {
   var TOKEN = "__EDIT_TOKEN__";
   // route.ts substitui __EDIT_TOKEN__ por token real (quando ?k= bate) ou string vazia.
   if (!TOKEN || TOKEN === "__" + "EDIT_TOKEN__") return;
-  var m = location.pathname.match(/\/r\/([a-z0-9]{8,16})/);
+  var m = location.pathname.match(/\\/r\\/([a-z0-9]{8,16})/);
   if (!m) return;
   var REPORT_ID = m[1];
 
