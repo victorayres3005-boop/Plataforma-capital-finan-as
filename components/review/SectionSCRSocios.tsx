@@ -2,18 +2,18 @@
 import { useState } from "react";
 import { SCRSocioData } from "@/types";
 import { SectionCard, QualityResult, qualityAccent } from "./shared";
+// FIX 2026-05-11: usa o parseBR canônico de lib/scrTotal.ts. O parser
+// local antigo (deletado) removia pontos sem distinguir milhar de decimal
+// — quando o valor vinha do DataBox360 como number, String(n) virava
+// "1234.56" e o parseFloat sem o ponto virava 123456 (100x maior). Causou
+// o bug onde "Dívida em Aberto" aparecia inflado.
+import { parseBR } from "@/lib/scrTotal";
 
 interface Props {
   socios: SCRSocioData[];
   expanded: boolean;
   onToggle: () => void;
   quality: QualityResult;
-}
-
-function parseBR(v: string | undefined | null): number {
-  if (!v) return 0;
-  const n = parseFloat(String(v).replace(/[^\d,-]/g, "").replace(",", "."));
-  return isNaN(n) ? 0 : n;
 }
 
 function fmtBRL(v: string | undefined | null): string {
