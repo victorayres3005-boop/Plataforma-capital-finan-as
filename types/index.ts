@@ -665,6 +665,12 @@ export interface CenprotRegistro {
   devedor: string;
   cedente?: string;      // apresentante
   protocolo?: string;
+  /** Status do protesto (vigente, sustado, pago, regularizado, cancelado).
+   *  Alguns CENPROTs já trazem essa info — adicionado 2026-05-11. */
+  status?: string;
+  /** Tipo do título protestado (duplicata mercantil, cheque, nota promissória,
+   *  CDA, etc) — sinal de natureza da dívida. Adicionado 2026-05-11. */
+  tipoTitulo?: string;
 }
 
 export interface CenprotData {
@@ -673,6 +679,10 @@ export interface CenprotData {
   registros: CenprotRegistro[];
   certidaoNegativa: boolean;
   dataConsulta: string;
+  /** Chave de validação ou ID da certidão (geralmente um código alfanumérico
+   *  associado ao QR code). Permite auditoria futura no portal CENPROT.
+   *  Adicionado 2026-05-11. */
+  chaveValidacao?: string;
 }
 
 // ─── GEFIP (FGTS + INSS) ───
@@ -682,6 +692,13 @@ export interface GefipCompetencia {
   valorFgts: string;      // "R$ X,XX"
   valorInss: string;
   situacao: string;       // "Recolhido", "Em atraso", "Não recolhido"
+  /** Salário bruto total da folha na competência. Útil pra cruzar com
+   *  porte da empresa e DRE. Adicionado 2026-05-11. */
+  folhaPagamento?: string;
+  /** Multa quando há atraso no recolhimento. Adicionado 2026-05-11. */
+  valorMultas?: string;
+  /** Juros sobre atraso. Adicionado 2026-05-11. */
+  valorJuros?: string;
 }
 
 export interface GefipData {
@@ -692,6 +709,15 @@ export interface GefipData {
   valorInssTotal: string;
   competenciasEmAtraso: number;
   competencias: GefipCompetencia[];
+  /** Tipo da declaração extraída: GEFIP, SEFIP, eSocial, FGTS Digital, etc.
+   *  Os formatos variam ligeiramente — guardar permite renderização adequada.
+   *  Adicionado 2026-05-11. */
+  tipoDeclaracao?: string;
+  /** CNPJ no cabeçalho do relatório — validação cruzada com o cnpj do cedente
+   *  evita misturar declarações de empresas diferentes. Adicionado 2026-05-11. */
+  cnpjDeclarado?: string;
+  /** Razão social declarada no cabeçalho. Adicionado 2026-05-11. */
+  razaoSocialDeclarada?: string;
 }
 
 export interface CurvaABCData {

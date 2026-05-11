@@ -1109,7 +1109,7 @@ NÃO invente dados. Campos ausentes = "".`;
 export const PROMPT_CENPROT = `Você receberá uma certidão emitida pela Central Nacional de Protestos (CENPROT / IEPTB-BR). Esta é a certidão OFICIAL — pode contradizer informações de bureaus. Extraia os dados e retorne APENAS JSON válido, sem markdown.
 
 Schema:
-{"qtdRegistros":0,"valorTotal":"","registros":[{"cartorio":"","cidade":"","uf":"","data":"","valor":"","devedor":"","cedente":"","protocolo":""}],"certidaoNegativa":false,"dataConsulta":""}
+{"qtdRegistros":0,"valorTotal":"","registros":[{"cartorio":"","cidade":"","uf":"","data":"","valor":"","devedor":"","cedente":"","protocolo":"","status":"","tipoTitulo":""}],"certidaoNegativa":false,"dataConsulta":"","chaveValidacao":""}
 
 Regras:
 - qtdRegistros: número total de protestos identificados
@@ -1123,8 +1123,11 @@ Regras:
   - devedor: nome/razão social do devedor (a empresa analisada normalmente)
   - cedente: apresentante/credor
   - protocolo: número do protocolo no cartório se houver
+  - status: situação do protesto. Valores possíveis: "Vigente" | "Sustado" | "Pago" | "Cancelado" | "Regularizado". Default "Vigente" se a certidão lista o protesto sem qualificar.
+  - tipoTitulo: natureza do título protestado. Exemplos: "Duplicata Mercantil", "Duplicata de Prestação de Serviços", "Cheque", "Nota Promissória", "Letra de Câmbio", "Certidão de Dívida Ativa (CDA)". Use "" se não constar.
 - certidaoNegativa: true se "NADA CONSTA" / "Sem registros" / similar
 - dataConsulta: DD/MM/AAAA — data de emissão
+- chaveValidacao: código alfanumérico de validação da certidão (geralmente próximo do QR code, ex: "ABC123-456789-XYZ"). Use "" se não constar.
 
 NÃO invente dados.`;
 
@@ -1132,7 +1135,7 @@ NÃO invente dados.`;
 export const PROMPT_GEFIP = `Você receberá um relatório de recolhimentos previdenciários e trabalhistas — GEFIP, SEFIP, eSocial, FGTS Digital, ou similar. Extraia os dados e retorne APENAS JSON válido, sem markdown.
 
 Schema:
-{"competenciaInicio":"","competenciaFim":"","totalFuncionarios":0,"valorFgtsTotal":"","valorInssTotal":"","competenciasEmAtraso":0,"competencias":[{"mes":"","funcionarios":0,"valorFgts":"","valorInss":"","situacao":""}]}
+{"competenciaInicio":"","competenciaFim":"","totalFuncionarios":0,"valorFgtsTotal":"","valorInssTotal":"","competenciasEmAtraso":0,"competencias":[{"mes":"","funcionarios":0,"valorFgts":"","valorInss":"","situacao":"","folhaPagamento":"","valorMultas":"","valorJuros":""}],"tipoDeclaracao":"","cnpjDeclarado":"","razaoSocialDeclarada":""}
 
 Regras:
 - competenciaInicio: MM/YYYY — competência mais antiga listada (ex: "03/2025")
@@ -1147,6 +1150,12 @@ Regras:
   - valorFgts: com "R$"
   - valorInss: com "R$"
   - situacao: "Recolhido" | "Em atraso" | "Não recolhido" | "Parcelado" | "Em discussão"
+  - folhaPagamento: salário bruto total da folha da competência, com "R$". Use "" se não constar.
+  - valorMultas: multa aplicada por atraso, com "R$". Use "" se não constar ou situação for "Recolhido".
+  - valorJuros: juros sobre atraso, com "R$". Use "" se não constar ou situação for "Recolhido".
+- tipoDeclaracao: identifique o tipo do documento. Valores possíveis: "GEFIP", "SEFIP", "eSocial", "FGTS Digital", "DCTFWeb". Use "" se ambíguo.
+- cnpjDeclarado: CNPJ que aparece no cabeçalho do relatório (formato XX.XXX.XXX/XXXX-XX). Pode divergir do CNPJ analisado em casos de erro — extrair como está.
+- razaoSocialDeclarada: razão social que aparece no cabeçalho do relatório.
 
 Sinais de atraso: "Em atraso", "Não recolhido", "Inadimplência", datas posteriores ao vencimento (dia 7 do mês seguinte)
 
