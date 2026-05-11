@@ -202,6 +202,13 @@ export async function GET(
   // em ECMAScript. Substitui pelos escapes corretos.
   html = html.split("br.replaceWith('\n');").join("br.replaceWith('\\n');");
 
+  // Renomeia título "Pleito" → "Pleito do cedente" na seção 9 (relatórios
+  // antigos foram gerados com o texto curto).
+  html = html.replace(
+    '<!-- 9. Pleito -->\n    <div class="stitle">Pleito <div class="line"></div></div>',
+    '<!-- 9. Pleito -->\n    <div class="stitle">Pleito do cedente <div class="line"></div></div>'
+  );
+
   // Adiciona autores novos (Débora, Nayara, Gleyso, Luiz) em relatórios
   // já armazenados — o template.ts só tinha Victor/Vanessa quando foram
   // gerados. Mantém a ordem original.

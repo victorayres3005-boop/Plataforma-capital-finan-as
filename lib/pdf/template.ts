@@ -1057,7 +1057,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
       <td style="text-align:right;font-family:'JetBrains Mono',monospace;font-size:var(--fs-body);padding:5px 8px;color:${isEmpty ? "var(--x3)" : "var(--n9)"};">${esc(val)}</td>
     </tr>`;
   }).join("");
-  const pleitoHtml = `${stitle("Pleito")}
+  const pleitoHtml = `${stitle("Pleito do cedente")}
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
     <table class="tbl" style="margin:0"><tbody>${pleitoTableCol(col1r)}</tbody></table>
     <table class="tbl" style="margin:0"><tbody>${pleitoTableCol(col2r)}</tbody></table>
