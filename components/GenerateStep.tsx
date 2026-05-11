@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
-import { ArrowLeft, Loader2, CheckCircle2, AlertTriangle, Pencil, RotateCcw, ArrowRight } from "lucide-react";
+import { ArrowLeft, Loader2, CheckCircle2, AlertTriangle, Pencil, ArrowRight } from "lucide-react";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import Image from "next/image";
 import { buildHTMLReport } from "@/lib/generators/html";
@@ -16,7 +16,6 @@ import { createClient } from "@/lib/supabase/client";
 import { uploadFile } from "@/lib/storage";
 import { buildCollectionDocs } from "@/lib/buildCollectionDocs";
 import { validateReport, type ReportValidation } from "@/lib/validateReport";
-import GoalfyButton from "@/components/GoalfyButton";
 import AlertList from "@/components/AlertList";
 import NotasSection from "@/components/generate/NotasSection";
 import VisitaSection from "@/components/generate/VisitaSection";
@@ -3123,21 +3122,13 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
         {/* ── Inline bottom action bar (rolagem normal) ── */}
         <div className="bg-white" style={{ borderTop: "1px solid #e5e7eb", boxShadow: "0 -2px 8px rgba(0,0,0,0.04)", marginTop: 32 }}>
-          <div className="max-w-[1720px] mx-auto px-8 flex items-center justify-between gap-4" style={{ height: 56 }}>
+          <div className="max-w-[1720px] mx-auto px-8 flex items-center justify-between gap-4" style={{ height: 64 }}>
 
             {/* Esquerda — navegação */}
-            <div className="flex items-center gap-1.5">
-              <button onClick={onBack} className="btn-secondary min-h-0 px-3.5 py-1.5 text-[13px]">
+            <div className="flex items-center">
+              <button onClick={onBack} className="btn-secondary min-h-0 px-4 py-2 text-[13px]">
                 <ArrowLeft size={13} /> Voltar
               </button>
-              {onReset && (
-                <button
-                  onClick={() => { try { localStorage.removeItem(NOTES_KEY); } catch { /* ignore */ } onReset(); }}
-                  className="flex items-center gap-1 text-[12px] text-cf-text-4 bg-transparent border-none cursor-pointer px-2.5 py-1.5 rounded-md hover:text-cf-text-2 hover:bg-gray-100 transition-colors"
-                >
-                  <RotateCcw size={11} /> Recomeçar
-                </button>
-              )}
             </div>
 
             {/* Centro — status */}
@@ -3153,9 +3144,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             </div>
 
             {/* Direita — ações */}
-            <div className="flex items-center gap-2">
-              <GoalfyButton data={data} aiAnalysis={aiAnalysis} settings={activeValidationSettings} disabled={!aiAnalysis} />
-
+            <div className="flex items-center gap-3">
               {/* Score V2 inline — só aparece se há pendentes */}
               {pendentesScore.length > 0 && (
                 <OnboardingTooltip
@@ -3170,7 +3159,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
                     style={{
                       display: "flex", alignItems: "center", gap: 6,
                       background: "#fffbeb", border: "1px solid #fcd34d",
-                      borderRadius: 8, padding: "5px 12px", cursor: onAbrirScoreForm ? "pointer" : "default",
+                      borderRadius: 8, padding: "6px 14px", cursor: onAbrirScoreForm ? "pointer" : "default",
                       fontSize: 12, fontWeight: 600, color: "#92400e",
                       whiteSpace: "nowrap",
                     }}
@@ -3186,13 +3175,10 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
                 </OnboardingTooltip>
               )}
 
-              {/* Divisor */}
-              <div style={{ width: 1, height: 24, background: "#e5e7eb" }} />
-
               <button
                 onClick={handleGoToParecer}
                 disabled={finishing}
-                className="btn-green min-h-0 px-4 py-1.5 text-[13px] flex items-center gap-1.5"
+                className="btn-green min-h-0 px-5 py-2 text-[13px] flex items-center gap-1.5 font-semibold shadow-sm"
               >
                 {finishing
                   ? <><Loader2 size={13} className="animate-spin" /> Salvando...</>
