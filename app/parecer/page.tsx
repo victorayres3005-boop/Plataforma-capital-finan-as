@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, Suspense } from "react";
+import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { DocumentCollection, type AIAnalysis } from "@/types";
@@ -13,7 +14,19 @@ import {
   Loader2, DollarSign, Calendar, Users, Shield, RefreshCw, FileText,
   Percent, TrendingUp, Landmark, Package, Send, AlertCircle, HelpCircle,
 } from "lucide-react";
-import { ScoreSection } from "@/components/score/ScoreSection";
+// ScoreSection é dynamic: o bundle do Score V2 é grande e raramente é o
+// primeiro que o analista toca. Lazy load reduz o first paint da página.
+const ScoreSection = dynamic(
+  () => import("@/components/score/ScoreSection").then(m => ({ default: m.ScoreSection })),
+  {
+    loading: () => (
+      <div style={{ padding: "32px", textAlign: "center", color: "#94a3b8", fontSize: "13px" }}>
+        Carregando Score V2…
+      </div>
+    ),
+    ssr: false,
+  }
+);
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { toast } from "sonner";
 import { Toaster } from "sonner";
@@ -221,11 +234,18 @@ function ParecerContent() {
     (async () => {
       try {
         const supabase = createClient();
-        const { data, error } = await supabase
-          .from("document_collections")
-          .select("*")
-          .eq("id", id)
-          .single();
+        // OTIMIZAÇÃO 2026-05-11: 4 queries em paralelo no boot (antes era 2
+        // rounds em série: collection → getUser → [score/parecer/fund]).
+        // collection/score/parecer/getUser não dependem entre si; só
+        // fund_settings depende do user, então fica em segundo round.
+        const [collRes, scoreRes, parecerRes, userRes] = await Promise.all([
+          supabase.from("document_collections").select("*").eq("id", id).single(),
+          supabase.from("score_operacoes").select("score_result").eq("collection_id", id)
+            .order("preenchido_em", { ascending: false }).limit(1).maybeSingle(),
+          supabase.from("pareceres").select("id").eq("collection_id", id).maybeSingle(),
+          supabase.auth.getUser(),
+        ]);
+        const { data, error } = collRes;
         if (error || !data) {
           console.error("[parecer] erro ao carregar coleta:", error);
           toast.error("Coleta não encontrada.");
@@ -241,19 +261,15 @@ function ParecerContent() {
         console.log('[auto-score carregado]', resultado.criterios_auto);
         console.log('[manuais pendentes]', resultado.criterios_manuais);
 
-        // Carrega Score V2, parecer existente e fund_settings em paralelo
-        const { data: { user: currentUser } } = await supabase.auth.getUser();
-        const [scoreRow, parecerRow, fsRow] = await Promise.all([
-          supabase.from("score_operacoes").select("score_result").eq("collection_id", id)
-            .order("preenchido_em", { ascending: false }).limit(1).maybeSingle(),
-          supabase.from("pareceres").select("id").eq("collection_id", id).maybeSingle(),
-          currentUser
-            ? supabase.from("fund_settings").select("*").eq("user_id", currentUser.id).maybeSingle()
-            : Promise.resolve({ data: null }),
-        ]);
-        if (fsRow.data) setFundSettings(fsRow.data as Record<string, number>);
-        if (scoreRow.data?.score_result) setScoreV2(scoreRow.data.score_result as ScoreResult);
-        if (parecerRow.data?.id) setParecerId(parecerRow.data.id as string);
+        if (scoreRes.data?.score_result) setScoreV2(scoreRes.data.score_result as ScoreResult);
+        if (parecerRes.data?.id) setParecerId(parecerRes.data.id as string);
+
+        // fund_settings depende do user — segundo round
+        const currentUser = userRes.data.user;
+        if (currentUser) {
+          const fsRow = await supabase.from("fund_settings").select("*").eq("user_id", currentUser.id).maybeSingle();
+          if (fsRow.data) setFundSettings(fsRow.data as Record<string, number>);
+        }
 
         if (data.decisao) setDecisao(data.decisao as DecisaoValue);
         if (data.observacoes) setNotas(data.observacoes);
