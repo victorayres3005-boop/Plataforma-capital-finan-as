@@ -26,7 +26,7 @@ export function SectionDividaAtiva({ data, expanded, onToggle }: Props) {
           background: qtd > 0 ? "#fee2e2" : "#dcfce7",
           color: qtd > 0 ? "#991b1b" : "#15803d",
         }}>
-          {qtd > 0 ? `${qtd} inscrição${qtd !== 1 ? "ões" : ""}` : negativa ? "negativa" : "sem dados"}
+          {qtd > 0 ? `${qtd} inscrição(ões)` : negativa ? "negativa" : "sem dados"}
         </span>
       }
     >
@@ -42,7 +42,7 @@ export function SectionDividaAtiva({ data, expanded, onToggle }: Props) {
           <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "10px 14px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "8px", marginBottom: "16px" }}>
             <span style={{ color: "#dc2626", fontSize: "14px", flexShrink: 0 }}>⚠</span>
             <p style={{ margin: 0, fontSize: "12px", fontWeight: 600, color: "#991b1b" }}>
-              {qtd} inscrição{qtd !== 1 ? "ões" : ""} em Dívida Ativa — total <b>{data.valorTotal || "—"}</b>
+              {qtd} inscrição(ões) em Dívida Ativa — total <b>{data.valorTotal || "—"}</b>
               {data.dataConsulta ? ` (consulta ${data.dataConsulta})` : ""}
             </p>
           </div>

@@ -1378,7 +1378,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
         <div class="scr-card" title="${
           !dividaAtivaTemDados ? "Não consultado" :
           dividaAtivaNegativa ? "Certidão negativa" :
-          `${dividaAtiva!.qtdRegistros} inscrição${dividaAtiva!.qtdRegistros !== 1 ? "ões" : ""}`
+          `${dividaAtiva!.qtdRegistros} inscrição(ões)`
         }"><div class="l">Dívida Ativa</div>${
           !dividaAtivaTemDados
             ? `<div class="v" style="color:var(--x4)">—</div>`
