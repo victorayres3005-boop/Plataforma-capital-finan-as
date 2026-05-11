@@ -3063,30 +3063,46 @@ function pageChecklist(params: PDFReportParams, date: string): string {
   const cob = params.aiAnalysis?.coberturaAnalise;
   const docs = cob?.documentos ?? [];
 
-  // Fallback: deduzir cobertura pelos campos presentes em ExtractedData
+  // Fallback: deduzir cobertura pelos campos presentes em ExtractedData.
+  // FIX 2026-05-11: verifica campo-chave em vez de objeto inteiro (evita
+  // falso positivo quando Gemini retorna `{}` vazio em vez de undefined).
+  // DRE e Balanço viraram obrigatórios — são fundamentais pra análise de
+  // crédito (decisão Victor 2026-05-11).
   const fallback = [
     { tipo:"cnpj",          label:"Cartão CNPJ",             presente: !!params.data.cnpj?.razaoSocial,        obrigatorio:true  },
     { tipo:"qsa",           label:"Quadro Societário",        presente: !!(params.data.qsa?.quadroSocietario?.length), obrigatorio:true  },
     { tipo:"contrato",      label:"Contrato Social",          presente: !!params.data.contrato?.objetoSocial,  obrigatorio:false },
     { tipo:"faturamento",   label:"Extrato de Faturamento",   presente: !!(params.data.faturamento?.meses?.length), obrigatorio:true  },
     { tipo:"scr",           label:"SCR (Banco Central)",      presente: !!params.data.scr?.totalDividasAtivas,  obrigatorio:true  },
-    { tipo:"scrAnterior",   label:"SCR Período Anterior",     presente: !!params.data.scrAnterior,              obrigatorio:false },
+    // scrAnterior: verifica se tem dado real (não só objeto vazio)
+    { tipo:"scrAnterior",   label:"SCR Período Anterior",     presente: !!params.data.scrAnterior?.totalDividasAtivas, obrigatorio:false },
     { tipo:"scrSocios",     label:"SCR dos Sócios (PF)",      presente: !!(params.data.scrSocios?.length),      obrigatorio:false },
     { tipo:"protestos",     label:"Certidão de Protestos",    presente: !!params.data.protestos?.vigentesQtd,   obrigatorio:true  },
     { tipo:"processos",     label:"Processos Judiciais",      presente: !!params.data.processos?.passivosTotal, obrigatorio:true  },
-    { tipo:"dre",           label:"DRE",                      presente: !!(params.data.dre?.anos?.length),       obrigatorio:false },
-    { tipo:"balanco",       label:"Balanço Patrimonial",      presente: !!(params.data.balanco?.anos?.length),   obrigatorio:false },
+    { tipo:"dre",           label:"DRE",                      presente: !!(params.data.dre?.anos?.length),       obrigatorio:true  },
+    { tipo:"balanco",       label:"Balanço Patrimonial",      presente: !!(params.data.balanco?.anos?.length),   obrigatorio:true  },
     { tipo:"curvaABC",      label:"Curva ABC / Clientes",     presente: !!(params.data.curvaABC?.clientes?.length), obrigatorio:false },
     { tipo:"irSocios",      label:"IR dos Sócios",            presente: !!(params.data.irSocios?.length),        obrigatorio:false },
-    { tipo:"relatorioVisita",label:"Relatório de Visita",     presente: !!params.data.relatorioVisita,           obrigatorio:false },
-    { tipo:"ccf",           label:"CCF (Cheques Sem Fundo)",  presente: params.data.ccf != null,                obrigatorio:true  },
+    // relatorioVisita: verifica campo-chave em vez de objeto vazio
+    { tipo:"relatorioVisita",label:"Relatório de Visita",     presente: !!(params.data.relatorioVisita?.dataVisita || params.data.relatorioVisita?.responsavelVisita), obrigatorio:false },
+    // ccf: usa campo qtdRegistros pra distinguir consulta real de objeto vazio
+    { tipo:"ccf",           label:"CCF (Cheques Sem Fundo)",  presente: params.data.ccf != null && (params.data.ccf.qtdRegistros !== undefined || params.data.ccf.bancos != null), obrigatorio:true  },
     { tipo:"grupoEconomico",label:"Grupo Econômico",          presente: !!(params.data.grupoEconomico?.empresas?.length), obrigatorio:false },
   ];
 
-  // When using AI coberturaAnalise, override CCF presence with extractor data.
-  // The AI evaluates "company has CCF records", but the checklist asks "was the document provided".
-  const lista = (docs.length > 0 ? docs : fallback).map(item =>
-    item.tipo === "ccf" ? { ...item, presente: params.data.ccf != null } : item
+  // Merge: IA `coberturaAnalise` (quando presente) preenche/sobrescreve por
+  // tipo, mas fallback continua cobrindo os tipos que a IA não listou.
+  // Antes (FIX 2026-05-11): se IA listava só 5 docs, os outros 11 sumiam.
+  const byTipo = new Map<string, typeof fallback[0]>();
+  for (const f of fallback) byTipo.set(f.tipo, f);
+  for (const d of docs) byTipo.set(d.tipo, d as typeof fallback[0]);
+
+  // CCF: o AI avalia "empresa tem CCF" mas o checklist pergunta "documento
+  // foi entregue". Override com a checagem do extractor (mesma do fallback).
+  const lista = Array.from(byTipo.values()).map(item =>
+    item.tipo === "ccf"
+      ? { ...item, presente: params.data.ccf != null && (params.data.ccf.qtdRegistros !== undefined || params.data.ccf.bancos != null) }
+      : item
   );
   const presentes = lista.filter(d => d.presente).length;
   const obrigTotal = lista.filter(d => d.obrigatorio).length;
