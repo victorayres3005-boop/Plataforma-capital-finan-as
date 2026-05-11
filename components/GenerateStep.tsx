@@ -3093,36 +3093,6 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
             {/* Direita — ações */}
             <div className="flex items-center gap-3">
-              {/* Score V2 inline — só aparece se há pendentes */}
-              {pendentesScore.length > 0 && (
-                <OnboardingTooltip
-                  id="generate-score-v2"
-                  message="Score V2 avalia a empresa em 5 pilares (Risco, Financeiro, Sócios, Operação e Perfil) com pontuação de 0-100. Clique para completar os critérios pendentes — o rating A-F aparecerá no relatório."
-                  position="top"
-                  isSeen={isSeen("generate-score-v2")}
-                  onSeen={() => markSeen("generate-score-v2")}
-                >
-                  <button
-                    onClick={onAbrirScoreForm}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 6,
-                      background: "#fffbeb", border: "1px solid #fcd34d",
-                      borderRadius: 8, padding: "6px 14px", cursor: onAbrirScoreForm ? "pointer" : "default",
-                      fontSize: 12, fontWeight: 600, color: "#92400e",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#f59e0b", flexShrink: 0 }} />
-                    Score V2 · {pendentesScore.length} pendente{pendentesScore.length > 1 ? "s" : ""}
-                    {onAbrirScoreForm && (
-                      <span style={{ fontSize: 11, color: "#b45309", borderLeft: "1px solid #fcd34d", paddingLeft: 8, marginLeft: 2 }}>
-                        Preencher
-                      </span>
-                    )}
-                  </button>
-                </OnboardingTooltip>
-              )}
-
               <button
                 onClick={handleGoToParecer}
                 disabled={finishing}
