@@ -103,28 +103,45 @@ export async function POST(
     return Response.json({ error: "Token incorreto" }, { status: 403 });
   }
 
-  const { error: updErr } = await supabase
-    .from("shared_reports")
-    .update({
-      pontos_fortes: fortes,
-      pontos_fracos: fracos,
-      alertas,
-      percepcao,
-      percepcao_dre: percepcaoDre,
-      percepcao_faturamento: percepcaoFaturamento,
-      percepcao_balanco: percepcaoBalanco,
-      updated_at: new Date().toISOString(),
-      updated_by: autor,
-    })
-    .eq("id", id);
+  // FALLBACK GRACIOSO 2026-05-11: se PostgREST não recarregou o schema cache
+  // após uma migration recente (PGRST204 "Could not find the 'X' column"),
+  // detecta qual coluna está faltando, remove do payload e retenta. Até 5
+  // tentativas — cada uma resolve uma coluna. Evita que uma única coluna
+  // pendente bloqueie todo o save.
+  const fullPayload: Record<string, unknown> = {
+    pontos_fortes: fortes,
+    pontos_fracos: fracos,
+    alertas,
+    percepcao,
+    percepcao_dre: percepcaoDre,
+    percepcao_faturamento: percepcaoFaturamento,
+    percepcao_balanco: percepcaoBalanco,
+    updated_at: new Date().toISOString(),
+    updated_by: autor,
+  };
+  const skipped: string[] = [];
+  let updErr: { code?: string; message?: string } | null = null;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const { error } = await supabase
+      .from("shared_reports")
+      .update(fullPayload)
+      .eq("id", id);
+    updErr = error;
+    if (!error) break;
+    // PGRST204 trazem mensagem "Could not find the 'X' column of 'shared_reports' in the schema cache"
+    // 42703 trazem "column \"X\" of relation ... does not exist"
+    const msg = error.message || "";
+    const m = msg.match(/find the '([^']+)' column/i) || msg.match(/column "([^"]+)"/i);
+    const col = m?.[1];
+    if (!col || !(col in fullPayload)) break;
+    delete fullPayload[col];
+    skipped.push(col);
+    console.warn(`[r/edit] coluna ${col} indisponível no schema cache — pulando e retentando`);
+  }
 
   if (updErr) {
-    const isColumnMissing = updErr.code === "42703";
-    const userMsg = isColumnMissing
-      ? "Colunas de edição ausentes — execute migrações 16, 17 e 18 em supabase/migrations/"
-      : updErr.message;
     console.error("[r/edit] supabase update error:", updErr.message, updErr.code);
-    return Response.json({ error: userMsg }, { status: 500 });
+    return Response.json({ error: updErr.message }, { status: 500 });
   }
 
   return Response.json({
