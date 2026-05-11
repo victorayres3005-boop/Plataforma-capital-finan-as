@@ -54,6 +54,33 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             __html: `(function(){try{var t=localStorage.getItem('cf_theme');var sys=window.matchMedia('(prefers-color-scheme: dark)').matches;var d=t==='dark'||(t!=='light'&&sys);if(d)document.documentElement.classList.add('dark');}catch(e){}})();`,
           }}
         />
+        {/* Defesa contra ChunkLoadError do Next.js: quando o usuário fica com
+            o app aberto após um deploy, os hashes dos chunks mudam e o
+            lazy-load falha (chunk 2219 / 1234 etc). Auto-reload disfarça o
+            erro — usuário só vê a página "piscar" e tudo volta a funcionar.
+            Flag em sessionStorage evita loop infinito de reload se o erro
+            for permanente (servidor caído etc). */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){
+              function isChunkError(e){
+                var m=(e && (e.message||(e.reason&&e.reason.message)))||"";
+                var n=(e && (e.name||(e.reason&&e.reason.name)))||"";
+                return /Loading chunk \\d+ failed|ChunkLoadError|Loading CSS chunk/i.test(m) || n==="ChunkLoadError";
+              }
+              function reloadOnce(){
+                try {
+                  if (sessionStorage.getItem("cf_chunk_reload")==="1") return;
+                  sessionStorage.setItem("cf_chunk_reload","1");
+                  setTimeout(function(){ try { sessionStorage.removeItem("cf_chunk_reload"); } catch(_){} }, 8000);
+                  window.location.reload();
+                } catch(_) { window.location.reload(); }
+              }
+              window.addEventListener("error", function(e){ if(isChunkError(e)) reloadOnce(); }, true);
+              window.addEventListener("unhandledrejection", function(e){ if(isChunkError(e)) reloadOnce(); });
+            })();`,
+          }}
+        />
       </head>
       <body className={`${openSans.variable} ${dmSans.variable} ${jetbrainsMono.variable} ${dmSans.className} antialiased animate-fade-in`}>
         <LayoutShell>
