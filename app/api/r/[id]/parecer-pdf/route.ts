@@ -295,29 +295,68 @@ export async function POST(
 
   const supabase = createClient(url, key);
 
-  // Mesmo padrão de SELECT em 2 etapas do GET /r/[id] — evita falhar
-  // se PostgREST não viu colunas das migrations recentes.
-  const { data: base, error: errBase } = await supabase
-    .from("shared_reports")
-    .select("html, expires_at, company, pontos_fortes, pontos_fracos, alertas, percepcao, pleito_comite")
-    .eq("id", id)
-    .single<SharedReportRow>();
+  // Fallback gracioso pra colunas que podem não estar no schema cache do
+  // PostgREST. Cada coluna nova entra em try separado pra que UMA coluna
+  // ausente não derrube a query inteira.
+  const isMissing = (e: { code?: string; message?: string } | null) =>
+    !!e && (e.code === "42703" || e.code === "PGRST204" ||
+            /could not find the .* column/i.test(e.message ?? "") ||
+            /column .* does not exist/i.test(e.message ?? ""));
 
-  if (errBase || !base) {
+  // Etapa 1: base mínima (sempre presente desde a migration original)
+  const baseQ = await supabase
+    .from("shared_reports")
+    .select("html, expires_at, company")
+    .eq("id", id)
+    .single<Pick<SharedReportRow, "html" | "expires_at" | "company">>();
+  if (baseQ.error || !baseQ.data) {
     return Response.json({ error: "Relatório não encontrado" }, { status: 404 });
   }
-  if (base.expires_at && new Date(base.expires_at) < new Date()) {
+  if (baseQ.data.expires_at && new Date(baseQ.data.expires_at) < new Date()) {
     return Response.json({ error: "Link expirado" }, { status: 410 });
   }
 
-  let data: SharedReportRow = base;
-  const extra = await supabase
+  let data: SharedReportRow = {
+    ...baseQ.data,
+    pontos_fortes: null, pontos_fracos: null, alertas: null,
+    percepcao: null, percepcao_dre: null, percepcao_faturamento: null, percepcao_balanco: null,
+    pleito_comite: null,
+  };
+
+  // Etapa 2: edição inline (mig 16) + percepção (mig 17b)
+  const editQ = await supabase
+    .from("shared_reports")
+    .select("pontos_fortes, pontos_fracos, alertas, percepcao")
+    .eq("id", id)
+    .single();
+  if (editQ.data && !editQ.error) {
+    data = { ...data, ...editQ.data };
+  } else if (editQ.error && !isMissing(editQ.error)) {
+    console.warn("[parecer-pdf] erro etapa 2:", editQ.error.message);
+  }
+
+  // Etapa 3: pleito comitê (mig 17a)
+  const pcQ = await supabase
+    .from("shared_reports")
+    .select("pleito_comite")
+    .eq("id", id)
+    .single();
+  if (pcQ.data && !pcQ.error) {
+    data = { ...data, ...pcQ.data };
+  } else if (pcQ.error && !isMissing(pcQ.error)) {
+    console.warn("[parecer-pdf] erro etapa 3:", pcQ.error.message);
+  }
+
+  // Etapa 4: percepções por seção (mig 18)
+  const psQ = await supabase
     .from("shared_reports")
     .select("percepcao_dre, percepcao_faturamento, percepcao_balanco")
     .eq("id", id)
-    .single<Pick<SharedReportRow, "percepcao_dre" | "percepcao_faturamento" | "percepcao_balanco">>();
-  if (extra.data && !extra.error) {
-    data = { ...data, ...extra.data };
+    .single();
+  if (psQ.data && !psQ.error) {
+    data = { ...data, ...psQ.data };
+  } else if (psQ.error && !isMissing(psQ.error)) {
+    console.warn("[parecer-pdf] erro etapa 4:", psQ.error.message);
   }
 
   const parecerHtml = buildParecerHtml(data);
