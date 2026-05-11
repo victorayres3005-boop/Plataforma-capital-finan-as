@@ -2297,63 +2297,16 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   // ═══════════════════════════════════════════════════
   // UI Render
   // ═══════════════════════════════════════════════════
-  // Sidebar nav items
-  const navItems = [
-    { id: "sec-00", icon: "00", label: "Sumário Executivo" },
-    { id: "sec-fs", icon: "FS", label: "Política do Fundo" },
-    { id: "sec-05", icon: "05", label: "SCR / Bacen" },
-    { id: "sec-07", icon: "07", label: "Processos Judiciais" },
-    { id: "sec-op", icon: "OP", label: "Relatório de Visita" },
-    { id: "sec-nt", icon: "✎", label: "Anotações" },
-    { id: "sec-ex", icon: "⬇", label: "Exportar" },
-  ];
+  // Sidebar de navegação removida 2026-05-11 (códigos 00/FS/05/07/OP/✎/⬇
+  // não eram autoexplicativos). Scroll natural cobre o uso.
 
   return (
-    <div className="w-full flex gap-8 items-start">
-
-      {/* ── Sidebar de navegação (desktop) ── */}
-      <nav className="hidden lg:flex flex-col gap-1 w-[220px] flex-shrink-0 sticky self-start animate-fade-in" style={{ top: "80px" }}>
-        <div style={{ background: "linear-gradient(135deg, #1a2f6b, #203b88)", borderRadius: 12, padding: "12px 14px", marginBottom: 8 }}>
-          <p style={{ fontSize: 10, fontWeight: 800, color: "rgba(255,255,255,0.6)", textTransform: "uppercase", letterSpacing: "0.12em", margin: "0 0 2px" }}>Relatório</p>
-          <p style={{ fontSize: 12, fontWeight: 700, color: "#fff", margin: 0 }}>{initialData?.cnpj?.razaoSocial?.split(" ")[0] || "Empresa"}</p>
-        </div>
-        {navItems.map(item => (
-          <a
-            key={item.id}
-            href={`#${item.id}`}
-            className="flex items-center gap-3 py-2 px-3 rounded-xl text-[13px] font-medium text-cf-text-2 no-underline transition-all hover:bg-blue-50/80 hover:text-cf-navy"
-            onClick={e => { e.preventDefault(); document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
-          >
-            <span className="w-8 h-8 rounded-lg bg-white border border-[#e8edf5] flex items-center justify-center text-[11px] font-bold text-cf-text-3 shrink-0 shadow-sm">
-              {item.icon}
-            </span>
-            <span className="leading-snug text-[12px]">{item.label}</span>
-          </a>
-        ))}
-      </nav>
-
+    <div className="w-full">
       {/* ── Conteúdo principal ──
           fade-stagger: cada SectionCard filho fade com delay incremental
           (50/100/150/200/240/280/320ms). Sensação de cascata sem ferir
           decisão estética 2026-05-04 (fade puro, sem slide-up). */}
-      <div className="flex-1 min-w-0 pb-4 flex flex-col gap-7 fade-stagger">
-
-        {/* ── Nav mobile (chips) — só aparece <lg, substitui a sidebar ── */}
-        <nav className="lg:hidden flex flex-wrap gap-2">
-          {navItems.map(item => (
-            <a
-              key={item.id}
-              href={`#${item.id}`}
-              className="inline-flex items-center gap-1.5 py-1.5 px-2.5 rounded-lg bg-white border border-[#e8edf5] text-[12px] font-medium text-cf-text-2 no-underline shadow-sm transition-colors active:bg-blue-50 hover:bg-blue-50"
-              onClick={e => { e.preventDefault(); document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
-            >
-              <span className="w-5 h-5 rounded-md bg-cf-navy/5 flex items-center justify-center text-[10px] font-bold text-cf-text-3">
-                {item.icon}
-              </span>
-              <span className="leading-none">{item.label}</span>
-            </a>
-          ))}
-        </nav>
+      <div className="max-w-[1280px] mx-auto pb-4 flex flex-col gap-7 fade-stagger">
 
         {/* Feature 5 — Alerta de vencimento de documentos */}
         {docAgeWarnings.length > 0 && (
