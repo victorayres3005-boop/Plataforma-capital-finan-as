@@ -218,6 +218,68 @@ export async function GET(
   const editing = !!data.edit_token && k && k === data.edit_token;
   html = html.replace("__EDIT_TOKEN__", editing ? (data.edit_token as string) : "");
 
+  // DEBUG/WORKAROUND 2026-05-11: relatório verdn4lkaw retorna HTML correto
+  // mas Victor não vê a barra de edição. Inserir logs de console pra revelar
+  // onde o script para no navegador dele + atalho Ctrl+Alt+E como workaround
+  // imediato pra forçar a barra a aparecer.
+  if (editing) {
+    // Logs de progresso dentro do script de edição.
+    html = html.replace(
+      "if (!TOKEN || TOKEN === \"__\" + \"EDIT_TOKEN__\") return;",
+      "console.log('[edit:debug] step 0 — TOKEN length=', TOKEN.length, 'value=', TOKEN.slice(0,4)+'...');\n  if (!TOKEN || TOKEN === \"__\" + \"EDIT_TOKEN__\") { console.warn('[edit:debug] aborted — token vazio ou placeholder'); return; }"
+    );
+    html = html.replace(
+      "if (!m) return;",
+      "console.log('[edit:debug] step 1 — pathname match=', m);\n  if (!m) { console.warn('[edit:debug] aborted — path regex não bateu, pathname=', location.pathname); return; }"
+    );
+    html = html.replace(
+      "bar.classList.add('show');",
+      "console.log('[edit:debug] step 2 — bar element=', bar, 'btnTog=', btnTog);\n  if (!bar) { console.error('[edit:debug] FATAL — editBar não existe no DOM'); return; }\n  bar.classList.add('show');\n  console.log('[edit:debug] step 3 — show adicionado, classList=', bar.className, 'computed display=', getComputedStyle(bar).display);"
+    );
+
+    // Workaround independente: script extra antes de </body> que registra
+    // window.__forcarBarra() e atalho Ctrl+Alt+E. Roda mesmo se o script
+    // principal de edição falhar antes do bar.classList.add('show').
+    const workaroundScript = `<script>
+(function(){
+  window.__forcarBarra = function(){
+    var bar = document.getElementById('editBar');
+    if (!bar) { console.error('[forcar] editBar não existe no DOM — relatório foi gerado sem o markup de edição'); return; }
+    bar.classList.add('show');
+    bar.setAttribute('style', 'position:fixed!important;top:16px!important;right:16px!important;z-index:99999!important;display:flex!important;align-items:center!important;gap:8px!important;padding:8px 12px!important;background:#fff!important;border:2px solid #1a2b5e!important;border-radius:10px!important;box-shadow:0 6px 24px rgba(15,23,42,.25)!important;font-family:sans-serif!important;font-size:12px!important;visibility:visible!important;opacity:1!important');
+    console.log('[forcar] barra forçada — display=', getComputedStyle(bar).display, 'visibility=', getComputedStyle(bar).visibility);
+  };
+  document.addEventListener('keydown', function(e){
+    if (e.ctrlKey && e.altKey && (e.key === 'e' || e.key === 'E' || e.code === 'KeyE')) {
+      e.preventDefault();
+      window.__forcarBarra();
+    }
+  });
+  console.log('[edit-workaround] Pronto. Atalho Ctrl+Alt+E e window.__forcarBarra() registrados.');
+  // Diagnóstico imediato: 500ms após load, relata estado da barra
+  setTimeout(function(){
+    var bar = document.getElementById('editBar');
+    if (!bar) { console.error('[edit-diag] editBar AUSENTE no DOM'); return; }
+    var cs = getComputedStyle(bar);
+    console.log('[edit-diag] editBar status:', {
+      className: bar.className,
+      display: cs.display,
+      visibility: cs.visibility,
+      opacity: cs.opacity,
+      position: cs.position,
+      top: cs.top,
+      right: cs.right,
+      zIndex: cs.zIndex,
+      rect: bar.getBoundingClientRect()
+    });
+  }, 500);
+})();
+</script>
+</body>`;
+    html = html.replace("</body>", workaroundScript);
+  }
+
+
   // Cache-Control: no-store quando há edição em andamento OU pleito preenchido
   // (Pleito Comitê é editável sem token e qualquer leitura precisa refletir o
   // último save). Senão, cache normal de 1h.
