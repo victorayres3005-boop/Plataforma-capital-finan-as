@@ -63,7 +63,18 @@ export async function POST(req: Request) {
     edit_token,
   });
 
-  if (error?.code === "42703") {
+  // Detecta "coluna ausente" em qualquer formato que o Supabase devolve:
+  // - 42703: erro Postgres direto
+  // - PGRST204: PostgREST schema cache miss (ocorre via supabase-js client)
+  // - Mensagens: "Could not find the 'X' column" ou "column X does not exist"
+  const isColMissing = (e: typeof error): boolean => {
+    if (!e) return false;
+    if (e.code === "42703" || e.code === "PGRST204") return true;
+    const msg = e.message ?? "";
+    return /could not find the .* column/i.test(msg) || /column .* does not exist/i.test(msg);
+  };
+
+  if (isColMissing(error)) {
     console.warn("[share-report] migration 16 pendente — fallback sem edit_token");
     editAvailable = false;
     const retry = await supabase.from("shared_reports").insert({
