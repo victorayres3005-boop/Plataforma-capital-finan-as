@@ -130,7 +130,7 @@ export default function ExportSection({
               <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg">
                 <Link2 size={13} className="text-cf-text-4 shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-cf-text-4 mb-0.5">Link público (cliente)</div>
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-cf-text-4 mb-0.5">Link público (comitê)</div>
                   <div className="text-[11px] font-mono text-cf-text-2 truncate select-all" title={sharedUrl}>{sharedUrl}</div>
                 </div>
                 <button
