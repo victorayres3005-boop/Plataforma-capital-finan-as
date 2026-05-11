@@ -242,6 +242,11 @@ export async function GET(
 .pc-input.saved{border-color:#10b981;background:#ecfdf5}
 .pc-input.error{border-color:#ef4444;background:#fef2f2}
 @media print{.pc-input{border:none!important;background:transparent!important;box-shadow:none!important;padding:0!important}}
+.pc-download-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;background:#1a2b5e;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;box-shadow:0 2px 6px rgba(15,23,42,.12);transition:background .15s,transform .1s}
+.pc-download-btn:hover{background:#243a80;transform:translateY(-1px)}
+.pc-download-btn:active{transform:translateY(0)}
+.pc-download-btn:disabled{opacity:.6;cursor:not-allowed;transform:none}
+@media print{.pc-download-btn{display:none!important}}
 </style>`;
     const pcMarkup = `${pcStyle}
     <!-- 9.5 Pleito do Comitê (injetado em runtime) -->
@@ -250,7 +255,13 @@ export async function GET(
       <table class="tbl" style="margin:0"><tbody>${renderCol(fields.slice(0, halfIdx))}</tbody></table>
       <table class="tbl" style="margin:0"><tbody>${renderCol(fields.slice(halfIdx))}</tbody></table>
     </div>
-    <div id="pcStatus" style="font-size:11px;color:var(--x4);text-align:right;margin-bottom:14px;min-height:14px"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:12px">
+      <button type="button" id="pcDownloadBtn" class="pc-download-btn">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Baixar Parecer (PDF)
+      </button>
+      <div id="pcStatus" style="font-size:11px;color:var(--x4);min-height:14px"></div>
+    </div>
 
     `;
     html = html.replace(
@@ -306,6 +317,40 @@ export async function GET(
       saveTimer = setTimeout(save, 800);
     });
   });
+
+  // Botão "Baixar Parecer (PDF)" — endpoint público /api/r/{id}/pdf
+  var dl = document.getElementById('pcDownloadBtn');
+  if (dl) {
+    dl.addEventListener('click', function(){
+      if (saveTimer) { clearTimeout(saveTimer); save(); }
+      dl.disabled = true;
+      var orig = dl.innerHTML;
+      dl.textContent = 'Gerando PDF...';
+      inputs.forEach(function(el){ el.setAttribute('value', el.value || ''); });
+      var html = document.documentElement.outerHTML;
+      var cnpj = document.title.replace(/[^0-9]/g, '').slice(0, 14) || 'parecer';
+      fetch('/api/r/' + REPORT_ID + '/pdf', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ html: html, filename: 'parecer-' + cnpj + '.pdf' })
+      }).then(function(r){
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.blob();
+      }).then(function(blob){
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url; a.download = 'parecer-' + cnpj + '.pdf';
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a);
+        setTimeout(function(){ URL.revokeObjectURL(url); }, 10000);
+      }).catch(function(err){
+        alert('Erro ao gerar PDF: ' + err.message);
+      }).finally(function(){
+        dl.disabled = false;
+        dl.innerHTML = orig;
+      });
+    });
+  }
 })();
 </script>
 </body>`;
