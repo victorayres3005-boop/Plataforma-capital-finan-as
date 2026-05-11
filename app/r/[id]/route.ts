@@ -197,6 +197,11 @@ export async function GET(
     "// Substitui <br> por newline antes de pegar textContent"
   );
 
+  // E o terceiro caso do mesmo bug: br.replaceWith('\n') no source virou
+  // br.replaceWith('<newline real>') no HTML, que é literal string inválida
+  // em ECMAScript. Substitui pelos escapes corretos.
+  html = html.split("br.replaceWith('\n');").join("br.replaceWith('\\n');");
+
   // Aplica overrides salvos pela edição inline (fortes/fracos/alertas — listas).
   const overrides: Partial<Record<Section, string[]>> = {};
   if (Array.isArray(data.pontos_fortes)) overrides.fortes = data.pontos_fortes as string[];

@@ -3699,7 +3699,7 @@ document.getElementById('printBtn').addEventListener('click', async function() {
       // Substitui <br> por newline antes de pegar textContent
       var clone = pe.cloneNode(true);
       Array.prototype.forEach.call(clone.querySelectorAll('br'), function(br){
-        br.replaceWith('\n');
+        br.replaceWith('\\n');
       });
       out.percepcao = (clone.textContent || '').trim();
     }
@@ -3709,7 +3709,7 @@ document.getElementById('printBtn').addEventListener('click', async function() {
       if (!el) return;
       var clone = el.cloneNode(true);
       Array.prototype.forEach.call(clone.querySelectorAll('br'), function(br){
-        br.replaceWith('\n');
+        br.replaceWith('\\n');
       });
       out['percepcao' + k.charAt(0).toUpperCase() + k.slice(1)] = (clone.textContent || '').trim();
     });
