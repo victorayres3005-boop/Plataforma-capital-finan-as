@@ -106,30 +106,54 @@ export async function GET(
     pleito_comite?: unknown;
   };
 
+  // FIX 2026-05-11 (segundo passo): SELECT dividido em 2 etapas pra
+  // garantir que edit_token SEMPRE chega quando existe no banco. Antes,
+  // pedíamos 12 colunas num único SELECT — se UMA delas estivesse fora
+  // do schema cache (PGRST204 por migration recém-rodada e cache stale
+  // do PostgREST), o SELECT inteiro falhava e caía no fallback de 3
+  // colunas, deixando edit_token undefined. Resultado: modo edição
+  // nunca ativava mesmo com ?k= correto. Agora pedimos primeiro os
+  // campos críticos + edit_token (migrations 15-17 — colunas antigas
+  // e estáveis), depois enriquecemos com campos novos (migration 18).
+  const isColMissing = (e: { code?: string; message?: string } | null): boolean => {
+    if (!e) return false;
+    return e.code === "42703" || e.code === "PGRST204" ||
+      /could not find the .* column/i.test(e.message ?? "") ||
+      /column .* does not exist/i.test(e.message ?? "");
+  };
+
   let data: SharedRow | null = null;
-  let { data: full, error } = await supabase
+  // Etapa 1: campos críticos + edit_token. Migrations 15-17 cobrem todas.
+  let { data: base, error } = await supabase
     .from("shared_reports")
-    .select("html, expires_at, company, pontos_fortes, pontos_fracos, alertas, percepcao, percepcao_dre, percepcao_faturamento, percepcao_balanco, edit_token, pleito_comite")
+    .select("html, expires_at, company, pontos_fortes, pontos_fracos, alertas, percepcao, edit_token, pleito_comite")
     .eq("id", id)
     .single<SharedRow>();
-  data = full;
 
-  const isColMissing = error && (
-    error.code === "42703" ||
-    error.code === "PGRST204" ||
-    /could not find the .* column/i.test(error.message ?? "") ||
-    /column .* does not exist/i.test(error.message ?? "")
-  );
-
-  if (isColMissing) {
-    console.warn(`[/r/${id}] schema cache pendente — fallback select base (migration 16+ não rodada)`);
+  if (isColMissing(error)) {
+    console.warn(`[/r/${id}] etapa 1 caiu — schema cache pendente, retentando com base mínima`);
     const retry = await supabase
       .from("shared_reports")
-      .select("html, expires_at, company")
+      .select("html, expires_at, company, edit_token")
       .eq("id", id)
       .single<SharedRow>();
-    data = retry.data;
+    base = retry.data;
     error = retry.error;
+  }
+  data = base;
+
+  // Etapa 2: enriquece com as 3 percepções por seção (migration 18).
+  // Falha silenciosa: se PostgREST ainda não viu as colunas (cache stale),
+  // segue sem essas percepções — o resto do relatório renderiza igual.
+  if (data && !error) {
+    const extra = await supabase
+      .from("shared_reports")
+      .select("percepcao_dre, percepcao_faturamento, percepcao_balanco")
+      .eq("id", id)
+      .single<Pick<SharedRow, "percepcao_dre" | "percepcao_faturamento" | "percepcao_balanco">>();
+    if (extra.data && !extra.error) {
+      data = { ...data, ...extra.data };
+    }
   }
 
   if (error || !data) {
