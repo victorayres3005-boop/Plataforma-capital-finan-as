@@ -183,6 +183,20 @@ export async function GET(
     "location.pathname.match(/\\/r\\/([a-z0-9]{8,16})/)"
   );
 
+  // HOTFIX 2026-05-11 (segundo bug do mesmo padrão): comentários JS com
+  // \n literal viravam quebras de linha reais no output, deixando )
+  // órfãos na linha seguinte → SyntaxError "Unexpected token ')'" que
+  // matava o script de edição depois do step 1. Mesmo bug da regex /\/r\/
+  // mas em comentário em vez de regex.
+  html = html.replace(
+    "// Percepção: pega texto livre (preserva quebras como \n)",
+    "// Percepção: pega texto livre (preserva quebras como newline)"
+  );
+  html = html.replace(
+    "// Substitui <br> por \n antes de pegar textContent",
+    "// Substitui <br> por newline antes de pegar textContent"
+  );
+
   // Aplica overrides salvos pela edição inline (fortes/fracos/alertas — listas).
   const overrides: Partial<Record<Section, string[]>> = {};
   if (Array.isArray(data.pontos_fortes)) overrides.fortes = data.pontos_fortes as string[];

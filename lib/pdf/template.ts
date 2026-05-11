@@ -3693,10 +3693,10 @@ document.getElementById('printBtn').addEventListener('click', async function() {
       });
       out[sec] = arr;
     });
-    // Percepção: pega texto livre (preserva quebras como \n)
+    // Percepção: pega texto livre (preserva quebras como newline)
     var pe = percEl();
     if (pe) {
-      // Substitui <br> por \n antes de pegar textContent
+      // Substitui <br> por newline antes de pegar textContent
       var clone = pe.cloneNode(true);
       Array.prototype.forEach.call(clone.querySelectorAll('br'), function(br){
         br.replaceWith('\n');
