@@ -475,11 +475,15 @@ body{font-family:'DM Sans',sans-serif;font-size:var(--fs-body);background:#fff;c
 .pc-input.saved{border-color:#10b981;background:#ecfdf5}
 .pc-input.error{border-color:#ef4444;background:#fef2f2}
 @media print{.pc-input{border:none!important;background:transparent!important;box-shadow:none!important;padding:0!important}}
-.pc-download-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;background:#1a2b5e;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;box-shadow:0 2px 6px rgba(15,23,42,.12);transition:background .15s,transform .1s}
-.pc-download-btn:hover{background:#243a80;transform:translateY(-1px)}
+.pc-download-btn,.pc-view-btn{display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border-radius:5px;font-size:11px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;transition:background .15s,transform .1s,border-color .15s}
+.pc-download-btn{background:#1a2b5e;color:#fff;border:1px solid #1a2b5e;box-shadow:0 1px 3px rgba(15,23,42,.1)}
+.pc-download-btn:hover{background:#243a80;border-color:#243a80;transform:translateY(-1px)}
 .pc-download-btn:active{transform:translateY(0)}
-.pc-download-btn:disabled{opacity:.6;cursor:not-allowed;transform:none}
-@media print{.pc-download-btn{display:none!important}}
+.pc-download-btn:disabled,.pc-view-btn:disabled{opacity:.6;cursor:not-allowed;transform:none}
+.pc-view-btn{background:#fff;color:#1a2b5e;border:1px solid #cbd5e1}
+.pc-view-btn:hover{background:#f1f5f9;border-color:#1a2b5e;transform:translateY(-1px)}
+.pc-view-btn:active{transform:translateY(0)}
+@media print{.pc-download-btn,.pc-view-btn{display:none!important}}
 /* ── Análise (pontos fortes/fracos) ── */
 .ana-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:18px}
 .ana-col{border-radius:8px;padding:14px 16px}
@@ -1109,10 +1113,16 @@ function pageSintese(params: PDFReportParams, date: string): string {
     <table class="tbl" style="margin:0"><tbody>${pleitoComiteTableCol(col2c)}</tbody></table>
   </div>
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:12px">
-    <button type="button" id="pcDownloadBtn" class="pc-download-btn">
-      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-      Baixar Parecer (PDF)
-    </button>
+    <div style="display:flex;gap:6px;align-items:center">
+      <button type="button" id="pcDownloadBtn" class="pc-download-btn">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Baixar PDF
+      </button>
+      <button type="button" id="pcViewBtn" class="pc-view-btn">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        Ver em HTML
+      </button>
+    </div>
     <div id="pcStatus" style="font-size:11px;color:var(--x4);min-height:14px"></div>
   </div>`;
 
@@ -3887,17 +3897,19 @@ ${pages}
   // comparativo pleito × aprovado + observações). Antes de chamar, força
   // um save imediato do autosave pra garantir que o servidor leia o que
   // o comitê acabou de digitar.
+  function ensureSaved(){
+    return saveTimer
+      ? new Promise(function(res){ clearTimeout(saveTimer); save(); setTimeout(res, 600); })
+      : Promise.resolve();
+  }
+
   var dl = document.getElementById('pcDownloadBtn');
   if (dl) {
     dl.addEventListener('click', function(){
       dl.disabled = true;
       var orig = dl.innerHTML;
-      dl.textContent = 'Gerando PDF...';
-      // Garante que valores recentes foram salvos antes do PDF
-      var ensureSave = saveTimer
-        ? new Promise(function(res){ clearTimeout(saveTimer); save(); setTimeout(res, 600); })
-        : Promise.resolve();
-      ensureSave.then(function(){
+      dl.textContent = 'Gerando...';
+      ensureSaved().then(function(){
         return fetch('/api/r/' + REPORT_ID + '/parecer-pdf', { method: 'POST' });
       }).then(function(r){
         if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -3914,6 +3926,21 @@ ${pages}
       }).finally(function(){
         dl.disabled = false;
         dl.innerHTML = orig;
+      });
+    });
+  }
+
+  var vw = document.getElementById('pcViewBtn');
+  if (vw) {
+    vw.addEventListener('click', function(){
+      vw.disabled = true;
+      var orig = vw.innerHTML;
+      vw.textContent = 'Abrindo...';
+      ensureSaved().then(function(){
+        window.open('/api/r/' + REPORT_ID + '/parecer-html', '_blank');
+      }).finally(function(){
+        vw.disabled = false;
+        vw.innerHTML = orig;
       });
     });
   }
