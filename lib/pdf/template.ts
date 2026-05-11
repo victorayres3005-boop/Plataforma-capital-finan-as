@@ -467,6 +467,14 @@ body{font-family:'DM Sans',sans-serif;font-size:var(--fs-body);background:#fff;c
 .pl-card{padding:12px 14px;background:var(--n0);border-radius:6px;border:1px solid var(--n1)}
 .pl-card .l{font-size:var(--fs-tag);font-weight:700;text-transform:uppercase;color:var(--x4);margin-bottom:4px}
 .pl-card .v{font-size:var(--fs-kpi);font-weight:700;color:var(--n9)}
+/* ── Pleito do Comitê — inputs editáveis ── */
+.pc-input{width:100%;padding:3px 6px;border:1px solid var(--n2);border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:var(--fs-body);text-align:right;color:var(--n9);background:#fff;outline:none;box-sizing:border-box}
+.pc-input:hover{border-color:var(--cf-primary)}
+.pc-input:focus{border-color:var(--cf-primary);box-shadow:0 0 0 2px rgba(26,43,94,.08)}
+.pc-input.saving{border-color:#f59e0b;background:#fffbeb}
+.pc-input.saved{border-color:#10b981;background:#ecfdf5}
+.pc-input.error{border-color:#ef4444;background:#fef2f2}
+@media print{.pc-input{border:none!important;background:transparent!important;box-shadow:none!important;padding:0!important}}
 /* ── Análise (pontos fortes/fracos) ── */
 .ana-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:18px}
 .ana-col{border-radius:8px;padding:14px 16px}
@@ -1062,6 +1070,40 @@ function pageSintese(params: PDFReportParams, date: string): string {
     <table class="tbl" style="margin:0"><tbody>${pleitoTableCol(col1r)}</tbody></table>
     <table class="tbl" style="margin:0"><tbody>${pleitoTableCol(col2r)}</tbody></table>
   </div>`;
+
+  // Pleito do Comitê — mesma estrutura, mas com inputs editáveis e autosave
+  // via PATCH /api/r/[id]/pleito-comite. Mapeia label → key da whitelist
+  // do endpoint (espelha os 15 campos do pleito do cedente).
+  const pleitoComiteFields: Array<[string, string]> = [
+    ["Limite Global",               "limiteTotal"],
+    ["Tranche Limite Global",       "tranche"],
+    ["Limite Convencional",         "limiteConvencional"],
+    ["Limite Comissária",           "limiteComissaria"],
+    ["Limite Sacados Pulverizados", "limitePorSacado"],
+    ["Limite Principais Sacados",   "limitePrincipaisSacados"],
+    ["Taxa Convencional",           "taxaConvencional"],
+    ["Taxa Comissária",             "taxaComissaria"],
+    ["Boleto",                      "valorCobrancaBoleto"],
+    ["Prazo Máximo",                "prazoMaximoOp"],
+    ["TAC",                         "cobrancaTAC"],
+    ["Prazo de Recompra",           "prazoRecompraCedente"],
+    ["Prazo de Cartório",           "prazoEnvioCartorio"],
+    ["Tranche Checagem",            "trancheChecagem"],
+    ["Prazo Tranche",               "prazoTranche"],
+  ];
+  const halfC = Math.ceil(pleitoComiteFields.length / 2);
+  const col1c = pleitoComiteFields.slice(0, halfC);
+  const col2c = pleitoComiteFields.slice(halfC);
+  const pleitoComiteTableCol = (rows: Array<[string, string]>) => rows.map(([lbl, key]) => `<tr>
+      <td style="width:58%;color:var(--x5);font-size:var(--fs-body);padding:5px 8px">${esc(lbl)}</td>
+      <td style="text-align:right;padding:5px 8px"><input class="pc-input" data-pc-key="${key}" value="" placeholder="—" /></td>
+    </tr>`).join("");
+  const pleitoComiteHtml = `${stitle("Pleito do Comitê")}
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:6px">
+    <table class="tbl" style="margin:0"><tbody>${pleitoComiteTableCol(col1c)}</tbody></table>
+    <table class="tbl" style="margin:0"><tbody>${pleitoComiteTableCol(col2c)}</tbody></table>
+  </div>
+  <div id="pcStatus" style="font-size:11px;color:var(--x4);text-align:right;margin-bottom:14px;min-height:14px"></div>`;
 
   // Analise
   const fortes = params.pontosFortes ?? [];
@@ -1686,6 +1728,9 @@ function pageSintese(params: PDFReportParams, date: string): string {
 
     <!-- 9. Pleito -->
     ${pleitoHtml}
+
+    <!-- 9.5 Pleito do Comitê -->
+    ${pleitoComiteHtml}
 
     <!-- 9b. Sugestão do Analista (lida no comitê) — texto livre -->
     ${(() => {
@@ -3774,6 +3819,60 @@ document.getElementById('printBtn').addEventListener('click', async function() {
 </script>
 
 ${pages}
+
+<script>
+// Autosave do Pleito do Comitê: PATCH /api/r/{id}/pleito-comite debounced 800ms.
+// Edição livre (sem token) — qualquer um com o link pode preencher.
+(function(){
+  var m = location.pathname.match(/\\/r\\/([a-z0-9]{8,16})/);
+  if (!m) return;
+  var REPORT_ID = m[1];
+  var inputs = document.querySelectorAll('.pc-input');
+  if (inputs.length === 0) return;
+  var status = document.getElementById('pcStatus');
+  var saveTimer = null;
+  function setState(cls){
+    inputs.forEach(function(el){ el.classList.remove('saving','saved','error'); if (cls) el.classList.add(cls); });
+  }
+  function pad(n){ return n < 10 ? '0' + n : '' + n; }
+  function fmtNow(){ var d = new Date(); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); }
+  function collect(){
+    var v = {};
+    inputs.forEach(function(el){
+      var k = el.getAttribute('data-pc-key');
+      var val = (el.value || '').trim();
+      if (k && val) v[k] = val;
+    });
+    return v;
+  }
+  function save(){
+    setState('saving');
+    if (status) status.textContent = 'Salvando…';
+    fetch('/api/r/' + REPORT_ID + '/pleito-comite', {
+      method: 'PATCH',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ values: collect() })
+    }).then(function(r){
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function(){
+      setState('saved');
+      if (status) status.textContent = 'Salvo às ' + fmtNow();
+      setTimeout(function(){ setState(''); }, 1500);
+    }).catch(function(err){
+      setState('error');
+      if (status) status.textContent = 'Erro ao salvar: ' + err.message;
+    });
+  }
+  inputs.forEach(function(el){
+    el.addEventListener('input', function(){
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(save, 800);
+    });
+  });
+})();
+</script>
+
 </body>
 </html>`;
 
