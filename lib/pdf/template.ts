@@ -2022,7 +2022,7 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
 
   const top5Proc = (proc?.top10Recentes ?? []).slice(0,5);
   const top5ProcRows = top5Proc.map(p =>
-    `<tr><td class="${(p.tipo ?? "").toLowerCase().includes("fiscal") ? "red" : ""}">${esc(p.tipo)}</td><td>${fmtDate(p.data)}</td><td>${esc(p.assunto)}</td><td>${fmt(p.fase)}</td></tr>`
+    `<tr><td class="${(p.tipo ?? "").toLowerCase().includes("fiscal") ? "red" : ""}">${esc(p.tipo)}</td><td>${esc(p.partes || "—")}</td><td>${fmtDate(p.data)}</td><td>${esc(p.assunto)}</td><td>${fmt(p.fase)}</td></tr>`
   ).join("");
 
   // Top 10 por valor — suprimido se todos os valores forem zero
@@ -2165,7 +2165,7 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
       <tbody>${top10ValorRows}</tbody>
     </table>` : top5ProcRows ? `${stitle("Top 5 mais recentes")}
     <table class="tbl" style="margin-bottom:12px">
-      <thead><tr><th>Tipo</th><th>Data</th><th>Assunto</th><th>Fase</th></tr></thead>
+      <thead><tr><th>Tipo</th><th>Credor</th><th>Data</th><th>Assunto</th><th>Fase</th></tr></thead>
       <tbody>${top5ProcRows}</tbody>
     </table>` : ""}
     ${distTempProcRows ? `${stitle("Distribuição temporal")}
