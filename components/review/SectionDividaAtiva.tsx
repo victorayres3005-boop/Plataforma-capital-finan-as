@@ -11,7 +11,15 @@ interface Props {
 export function SectionDividaAtiva({ data, expanded, onToggle }: Props) {
   const qtd = data?.qtdRegistros ?? 0;
   const negativa = !!data?.certidaoNegativa;
-  const regs = data?.registros ?? [];
+  // Ordena inscrições do mais RECENTE pro mais antigo (decisão Victor 2026-05-11).
+  // Mesma lógica do template.ts: DD/MM/AAAA → AAAA-MM-DD pra sort lexicográfico.
+  const dataKey = (s: string | undefined): string => {
+    const m = (s ?? "").match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+    return m ? `${m[3]}-${m[2]}-${m[1]}` : "";
+  };
+  const regs = [...(data?.registros ?? [])].sort(
+    (a, b) => dataKey(b.dataInscricao).localeCompare(dataKey(a.dataInscricao))
+  );
 
   return (
     <SectionCard

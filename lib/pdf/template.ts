@@ -2145,7 +2145,17 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
         return `${stitle("Dívida Ativa (PGFN/UF/Município)")}
         <div class="alert" style="background:#f0fdf4;border-color:#bbf7d0;color:#15803d"><span class="atag" style="background:#16a34a;color:#fff">NEGATIVA</span> Certidão negativa — sem débitos inscritos${da.dataConsulta ? ` (consulta ${esc(da.dataConsulta)})` : ""}</div>`;
       }
-      const rows = (da.registros ?? []).map(r => `<tr>
+      // Ordena inscrições do mais RECENTE pro mais antigo (decisão Victor 2026-05-11).
+      // Converte DD/MM/AAAA → AAAA-MM-DD pra comparação lexicográfica correta.
+      // Datas vazias/inválidas vão pro fim.
+      const dataKey = (s: string | undefined): string => {
+        const m = (s ?? "").match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+        return m ? `${m[3]}-${m[2]}-${m[1]}` : "";
+      };
+      const registrosSorted = [...(da.registros ?? [])].sort(
+        (a, b) => dataKey(b.dataInscricao).localeCompare(dataKey(a.dataInscricao))
+      );
+      const rows = registrosSorted.map(r => `<tr>
         <td>${esc(r.origem || "—")}</td>
         <td class="mono" style="font-size:10px">${esc(r.numeroInscricao || "—")}</td>
         <td class="r red mono">${esc(r.valor || "—")}</td>
