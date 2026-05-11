@@ -1376,7 +1376,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
         <div class="scr-card"><div class="l">% Vencido</div><div class="v ${vencNum > 0 ? "" : "green"}">${pctVencido}</div></div>
         <div class="scr-card" title="${prejuizoSCRNum > 0 ? "Write-off Bacen" : "Sem prejuízo SCR"}"><div class="l">Prejuízo SCR</div><div class="v mono ${prejuizoSCRNum > 0 ? "red" : ""}">${prejuizoSCRNum > 0 ? fmtMoneyAbr(prejuizoSCR) : "—"}</div></div>
         <div class="scr-card" title="${
-          !dividaAtivaTemDados ? "Não consultado" :
+          !dividaAtivaTemDados ? "Não possui registros" :
           dividaAtivaNegativa ? "Certidão negativa" :
           `${dividaAtiva!.qtdRegistros} inscrição(ões)`
         }"><div class="l">Dívida Ativa</div>${
@@ -1478,7 +1478,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
           const bg = hasNeg ? "var(--r0)" : "var(--g0)";
           const numColor = hasNeg ? "var(--r6)" : "var(--g6)";
           const sub = !hasData
-            ? `<div style="font-size:var(--fs-label);color:var(--x4);margin-top:3px">Não consultado</div>`
+            ? `<div style="font-size:var(--fs-label);color:var(--x4);margin-top:3px">Não possui registros</div>`
             : vlr > 0
               ? `<div style="font-size:var(--fs-label);color:var(--r6);margin-top:3px">${fmtMoneyAbr(vlr)} total</div>`
               : `<div style="font-size:var(--fs-label);color:var(--g6);font-weight:600;margin-top:3px">Sem pendências</div>`;
