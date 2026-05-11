@@ -2378,12 +2378,15 @@ function pageSCRDRE(params: PDFReportParams, date: string): string {
       const vRespAtiva = respAtivaAnt !== null ? scrVar(String(respAtiva), String(respAtivaAnt), true) : { val: "—", cls: "" };
       const vPrej = sp ? scrVar(sa.prejuizos, sp.prejuizos, true) : { val: "—", cls: "" };
       const vAVencer = sp ? scrVar(sa.carteiraAVencer, sp.carteiraAVencer, false) : { val: "—", cls: "" };
+      const vVencidos = sp ? scrVar(sa.vencidos, sp.vencidos, true) : { val: "—", cls: "" };
+      const vencSocio = numVal(sa.vencidos);
       return `<div style="margin-bottom:14px;padding:14px;background:var(--x0);border-radius:8px;border:1px solid var(--x2)">
         <div style="font-size:12px;font-weight:700;color:var(--n9);margin-bottom:10px">${esc(ss.nomeSocio)} <span style="font-size:10px;color:var(--x5);font-family:'JetBrains Mono',monospace">${fmtCpf(ss.cpfSocio)}</span></div>
-        <div class="istrip c5">
+        <div class="istrip c6">
           <div class="icell"${semDivida ? ` title="Crédito baixado para prejuízo — sem dívida em cobrança ativa"` : ""}><div class="l">Dívida em Aberto</div><div class="v sm mono">${fmtMoneyAbr(String(respAtiva))}</div>${vRespAtiva.val !== "—" ? `<div class="sub var-cell ${vRespAtiva.cls}" style="font-size:9px">${esc(vRespAtiva.val)}</div>` : ""}${semDivida ? `<div class="sub" style="font-size:9px;font-style:italic;color:var(--x4)">sem cobrança ativa</div>` : ""}</div>
           <div class="icell ${prejVal > 0 ? "danger" : ""}"><div class="l">Prejuízos</div><div class="v sm mono ${prejVal > 0 ? "red" : ""}">${prejVal > 0 ? fmtMoneyAbr(sa.prejuizos) : "—"}</div>${prejVal > 0 ? `<div class="sub" style="font-size:9px;font-weight:700;color:#DC2626">⚠ Write-off</div>` : ""}${sp && vPrej.val !== "—" ? `<div class="sub var-cell ${vPrej.cls}" style="font-size:9px">${esc(vPrej.val)}</div>` : ""}</div>
           <div class="icell"><div class="l">A Vencer</div><div class="v sm mono">${fmtMoneyAbr(sa.carteiraAVencer)}</div>${sp && vAVencer.val !== "—" ? `<div class="sub var-cell ${vAVencer.cls}" style="font-size:9px">${esc(vAVencer.val)}</div>` : ""}</div>
+          <div class="icell ${vencSocio > 0 ? "danger" : ""}"><div class="l">Vencidos</div><div class="v sm mono ${vencSocio > 0 ? "red" : ""}">${vencSocio > 0 ? fmtMoneyAbr(sa.vencidos) : "—"}</div>${sp && vVencidos.val !== "—" ? `<div class="sub var-cell ${vVencidos.cls}" style="font-size:9px">${esc(vVencidos.val)}</div>` : ""}</div>
           <div class="icell"><div class="l">Limite</div><div class="v sm mono ${numVal(sa.limiteCredito) === 0 ? "muted" : ""}">${numVal(sa.limiteCredito) > 0 ? fmtMoneyAbr(sa.limiteCredito) : "Não informado"}</div></div>
           <div class="icell"><div class="l">IFs</div><div class="v">${fmt(sa.qtdeInstituicoes)}</div></div>
         </div>
