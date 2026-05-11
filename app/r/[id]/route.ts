@@ -202,6 +202,14 @@ export async function GET(
   // em ECMAScript. Substitui pelos escapes corretos.
   html = html.split("br.replaceWith('\n');").join("br.replaceWith('\\n');");
 
+  // Adiciona autores novos (Débora, Nayara, Gleyso, Luiz) em relatórios
+  // já armazenados — o template.ts só tinha Victor/Vanessa quando foram
+  // gerados. Mantém a ordem original.
+  html = html.replace(
+    '<option value="Vanessa">Vanessa</option>\n  </select>',
+    '<option value="Vanessa">Vanessa</option>\n    <option value="Débora">Débora</option>\n    <option value="Nayara">Nayara</option>\n    <option value="Gleyso">Gleyso</option>\n    <option value="Luiz">Luiz</option>\n  </select>'
+  );
+
   // Aplica overrides salvos pela edição inline (fortes/fracos/alertas — listas).
   const overrides: Partial<Record<Section, string[]>> = {};
   if (Array.isArray(data.pontos_fortes)) overrides.fortes = data.pontos_fortes as string[];

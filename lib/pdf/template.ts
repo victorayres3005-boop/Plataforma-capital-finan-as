@@ -3551,6 +3551,10 @@ document.getElementById('printBtn').addEventListener('click', async function() {
   <select id="editAutor">
     <option value="Victor">Victor</option>
     <option value="Vanessa">Vanessa</option>
+    <option value="Débora">Débora</option>
+    <option value="Nayara">Nayara</option>
+    <option value="Gleyso">Gleyso</option>
+    <option value="Luiz">Luiz</option>
   </select>
   <button id="editToggle">&#9998; Editar</button>
   <button id="editSave" class="primary" style="display:none">&#128190; Salvar</button>
