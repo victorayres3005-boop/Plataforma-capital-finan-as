@@ -1,7 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest } from "next/server";
+import { unstable_noStore as noStore } from "next/cache";
 
 export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
+export const revalidate = 0;
 
 const SECTIONS = ["fortes", "fracos", "alertas"] as const;
 type Section = typeof SECTIONS[number];
@@ -72,6 +75,11 @@ export async function GET(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  // CRÍTICO 2026-05-12: Next.js 14 cacheia fetch GET por padrão, e o Supabase
+  // JS usa fetch internamente. Sintoma observado: SELECT etapa 1 cacheava e
+  // SELECT etapa 2 batia no MESMO cache do Next, retornando dados stale.
+  // noStore() opt-out por request. Garante que cada GET busca fresh do banco.
+  noStore();
   const { id } = params;
 
   if (!id || !/^[a-z0-9]{8,16}$/.test(id)) {
