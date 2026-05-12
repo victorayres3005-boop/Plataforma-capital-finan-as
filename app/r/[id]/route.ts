@@ -431,11 +431,6 @@ export async function GET(
   }
 
   // Percepção é texto livre (não lista) — substitui inteiro entre os marcadores.
-  // DEBUG 2026-05-12: inserir comentário HTML com estado dos campos pra debug
-  // de staleness reportado pelo Victor (banco tem texto novo, HTML servido
-  // tem texto velho). Remover quando resolvido.
-  const debugMarker = `<!-- DEBUG-2026-05-12 percepcao=${JSON.stringify(typeof data.percepcao === "string" ? data.percepcao.slice(0, 60) : (data.percepcao === null ? "null" : typeof data.percepcao))} dre=${JSON.stringify(typeof data.percepcao_dre === "string" ? data.percepcao_dre.slice(0, 40) : (data.percepcao_dre === null ? "null" : typeof data.percepcao_dre))} fat=${JSON.stringify(typeof data.percepcao_faturamento === "string" ? data.percepcao_faturamento.slice(0, 40) : (data.percepcao_faturamento === null ? "null" : typeof data.percepcao_faturamento))} bal=${JSON.stringify(typeof data.percepcao_balanco === "string" ? data.percepcao_balanco.slice(0, 40) : (data.percepcao_balanco === null ? "null" : typeof data.percepcao_balanco))} -->`;
-  html = html.replace("</head>", debugMarker + "\n</head>");
   if (typeof data.percepcao === "string" && data.percepcao.trim()) {
     html = applyPercepcao(html, data.percepcao);
   }
@@ -480,22 +475,11 @@ export async function GET(
       "console.log('[edit:debug] step 2 — bar element=', bar, 'btnTog=', btnTog);\n  if (!bar) { console.error('[edit:debug] FATAL — editBar não existe no DOM'); return; }\n  bar.classList.add('show');\n  console.log('[edit:debug] step 3 — show adicionado, classList=', bar.className, 'computed display=', getComputedStyle(bar).display);"
     );
 
-    // HOTFIX 2026-05-12: instrumenta collect/decorate/+Adicionar com logs e
-    // aplica fix do placeholder + cursor pra QUALQUER relatório antigo
-    // (sem precisar regerar). Mesma lógica do template.ts atualizado em f2c97bd.
+    // HOTFIX 2026-05-12: aplica fix do placeholder em relatórios antigos (sem regerar).
+    // Mesma lógica do template.ts atualizado em f2c97bd.
     html = html.replace(
       "function decorate(list){\n    Array.prototype.forEach.call(list.querySelectorAll('[data-edit-item]'), function(item){",
-      "function decorate(list){\n    Array.prototype.forEach.call(list.querySelectorAll('[data-edit-empty]'), function(ph){ ph.remove(); });\n    console.log('[edit:collect-debug] decorate('+(list.getAttribute('data-edit-list'))+') items existentes:', list.querySelectorAll('[data-edit-item]').length);\n    Array.prototype.forEach.call(list.querySelectorAll('[data-edit-item]'), function(item){"
-    );
-
-    html = html.replace(
-      "function collect(){\n    var out = {};\n    lists().forEach(function(p){\n      var sec = p[0], list = p[1];\n      if (!list) { out[sec] = []; return; }\n      var items = list.querySelectorAll('[data-edit-item]');\n      var arr = [];\n      Array.prototype.forEach.call(items, function(item){\n        var clone = item.cloneNode(true);\n        var rm = clone.querySelector('.edit-rm'); if (rm) rm.remove();\n        var t = (clone.textContent || '').trim();\n        if (t) arr.push(t);\n      });",
-      "function collect(){\n    var out = {};\n    lists().forEach(function(p){\n      var sec = p[0], list = p[1];\n      if (!list) { console.warn('[edit:collect-debug] '+sec+': list element NÃO existe no DOM → gravando []'); out[sec] = []; return; }\n      var items = list.querySelectorAll('[data-edit-item]');\n      console.log('[edit:collect-debug] '+sec+': '+items.length+' item(s) no DOM');\n      var arr = [];\n      Array.prototype.forEach.call(items, function(item, idx){\n        var clone = item.cloneNode(true);\n        var rm = clone.querySelector('.edit-rm'); if (rm) rm.remove();\n        var t = (clone.textContent || '').trim();\n        console.log('[edit:collect-debug]   '+sec+'['+idx+']: textContent='+JSON.stringify(t)+' raw='+JSON.stringify((item.textContent||'').slice(0,80)));\n        if (t) arr.push(t);\n      });"
-    );
-
-    html = html.replace(
-      "function saveEdit(){\n    var data = collect();",
-      "function saveEdit(){\n    var data = collect();\n    console.log('[edit:collect-debug] PAYLOAD:', JSON.stringify({fortes:data.fortes,fracos:data.fracos,alertas:data.alertas,percepcao_len:(data.percepcao||'').length,percepcaoDre_len:(data.percepcaoDre||'').length,percepcaoFaturamento_len:(data.percepcaoFaturamento||'').length,percepcaoBalanco_len:(data.percepcaoBalanco||'').length}));"
+      "function decorate(list){\n    Array.prototype.forEach.call(list.querySelectorAll('[data-edit-empty]'), function(ph){ ph.remove(); });\n    Array.prototype.forEach.call(list.querySelectorAll('[data-edit-item]'), function(item){"
     );
 
     // HOTFIX 2026-05-12: × button antes era click → item.remove() instantâneo.
@@ -504,7 +488,7 @@ export async function GET(
     // "Confirmar?" pulsante, 2º click em até 3s remove). Reverte sozinho.
     html = html.replace(
       "rm.addEventListener('click', function(e){ e.preventDefault(); item.remove(); });",
-      "var confirmTimer = null;\n        rm.addEventListener('click', function(e){\n          e.preventDefault(); e.stopPropagation();\n          console.log('[edit:collect-debug] × clicado em', (item.textContent||'').slice(0,40), 'confirming=', rm.classList.contains('confirming'));\n          if (rm.classList.contains('confirming')) {\n            if (confirmTimer) clearTimeout(confirmTimer);\n            console.log('[edit:collect-debug] × REMOVENDO item');\n            item.remove();\n            return;\n          }\n          rm.classList.add('confirming');\n          rm.textContent = 'Confirmar?';\n          confirmTimer = setTimeout(function(){\n            rm.classList.remove('confirming');\n            rm.textContent = '\\u00d7';\n          }, 3000);\n        });"
+      "var confirmTimer = null;\n        rm.addEventListener('click', function(e){\n          e.preventDefault(); e.stopPropagation();\n          if (rm.classList.contains('confirming')) {\n            if (confirmTimer) clearTimeout(confirmTimer);\n            item.remove();\n            return;\n          }\n          rm.classList.add('confirming');\n          rm.textContent = 'Confirmar?';\n          confirmTimer = setTimeout(function(){\n            rm.classList.remove('confirming');\n            rm.textContent = '\\u00d7';\n          }, 3000);\n        });"
     );
     // Estilo da pílula "Confirmar?" injetado também (CSS adicional via <style> antes do </head>).
     html = html.replace(
