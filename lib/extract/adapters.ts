@@ -105,9 +105,25 @@ function _fmtMoneyBR(v: unknown): string {
   if (typeof v === "number") n = v;
   else {
     const s = String(v).trim().replace(/[R$\s]/g, "");
-    // Detecta formato: se tem vírgula depois do último ponto, é BR ("1.234,56"); senão EN ("1234.56")
-    const hasBRFormat = /,\d{1,2}$/.test(s);
-    n = parseFloat(hasBRFormat ? s.replace(/\./g, "").replace(",", ".") : s.replace(/,/g, ""));
+    // Heurística de detecção (auditoria M3 2026-05-12):
+    // 1. termina em ",DD" ou ",D"            → BR (1.234,56 → 1234.56)
+    // 2. 2+ pontos                            → BR (milhar repetido, sem decimais → 1.234.567)
+    // 3. 1 ponto + exatamente 3 dígitos no fim sem outra pontuação → BR sem decimais (1.234)
+    // 4. senão                                → EN (parseFloat tradicional, vírgulas viram milhar)
+    //
+    // Bug antigo: "1.234.567" caía no else e parseFloat retornava 1.234
+    // (parseFloat para no 2º ponto). Agora detecta como BR e remove os pontos.
+    let parsed: string;
+    if (/,\d{1,2}$/.test(s)) {
+      parsed = s.replace(/\./g, "").replace(",", ".");          // BR com decimais
+    } else if ((s.match(/\./g) ?? []).length >= 2) {
+      parsed = s.replace(/\./g, "");                            // BR só milhar (1.234.567)
+    } else if (/^\d{1,3}\.\d{3}$/.test(s)) {
+      parsed = s.replace(/\./g, "");                            // BR sem decimais (1.234)
+    } else {
+      parsed = s.replace(/,/g, "");                             // EN: vírgulas viram milhar, ponto é decimal
+    }
+    n = parseFloat(parsed);
   }
   if (!isFinite(n)) return typeof v === "string" ? v : "";
   return `R$ ${n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
