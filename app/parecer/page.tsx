@@ -29,7 +29,6 @@ const ScoreSection = dynamic(
 );
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { toast } from "sonner";
-import { Toaster } from "sonner";
 import { Download, ExternalLink, Link2, Copy } from "lucide-react";
 
 // Logo local removido — não era usado, e o componente compartilhado existe em
@@ -1744,7 +1743,9 @@ const ratingIsAnalista = ratingAnalista != null;
 export default function ParecerPage() {
   return (
     <>
-      <Toaster richColors position="top-right" />
+      {/* Toaster global vive em app/layout.tsx — não duplicar aqui (causava
+          cada toast.success/error aparecer 2x em qualquer página que tivesse
+          ambos os Toasters montados). Bug detectado 2026-05-12. */}
       <Suspense fallback={
         <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f8fafc" }}>
           <Loader2 size={28} style={{ color: "#203b88" }} className="animate-spin" />
