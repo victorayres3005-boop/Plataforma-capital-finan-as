@@ -462,6 +462,24 @@ export async function GET(
       "console.log('[edit:debug] step 2 — bar element=', bar, 'btnTog=', btnTog);\n  if (!bar) { console.error('[edit:debug] FATAL — editBar não existe no DOM'); return; }\n  bar.classList.add('show');\n  console.log('[edit:debug] step 3 — show adicionado, classList=', bar.className, 'computed display=', getComputedStyle(bar).display);"
     );
 
+    // HOTFIX 2026-05-12: instrumenta collect/decorate/+Adicionar com logs e
+    // aplica fix do placeholder + cursor pra QUALQUER relatório antigo
+    // (sem precisar regerar). Mesma lógica do template.ts atualizado em f2c97bd.
+    html = html.replace(
+      "function decorate(list){\n    Array.prototype.forEach.call(list.querySelectorAll('[data-edit-item]'), function(item){",
+      "function decorate(list){\n    Array.prototype.forEach.call(list.querySelectorAll('[data-edit-empty]'), function(ph){ ph.remove(); });\n    console.log('[edit:collect-debug] decorate('+(list.getAttribute('data-edit-list'))+') items existentes:', list.querySelectorAll('[data-edit-item]').length);\n    Array.prototype.forEach.call(list.querySelectorAll('[data-edit-item]'), function(item){"
+    );
+
+    html = html.replace(
+      "function collect(){\n    var out = {};\n    lists().forEach(function(p){\n      var sec = p[0], list = p[1];\n      if (!list) { out[sec] = []; return; }\n      var items = list.querySelectorAll('[data-edit-item]');\n      var arr = [];\n      Array.prototype.forEach.call(items, function(item){\n        var clone = item.cloneNode(true);\n        var rm = clone.querySelector('.edit-rm'); if (rm) rm.remove();\n        var t = (clone.textContent || '').trim();\n        if (t) arr.push(t);\n      });",
+      "function collect(){\n    var out = {};\n    lists().forEach(function(p){\n      var sec = p[0], list = p[1];\n      if (!list) { console.warn('[edit:collect-debug] '+sec+': list element NÃO existe no DOM → gravando []'); out[sec] = []; return; }\n      var items = list.querySelectorAll('[data-edit-item]');\n      console.log('[edit:collect-debug] '+sec+': '+items.length+' item(s) no DOM');\n      var arr = [];\n      Array.prototype.forEach.call(items, function(item, idx){\n        var clone = item.cloneNode(true);\n        var rm = clone.querySelector('.edit-rm'); if (rm) rm.remove();\n        var t = (clone.textContent || '').trim();\n        console.log('[edit:collect-debug]   '+sec+'['+idx+']: textContent='+JSON.stringify(t)+' raw='+JSON.stringify((item.textContent||'').slice(0,80)));\n        if (t) arr.push(t);\n      });"
+    );
+
+    html = html.replace(
+      "function saveEdit(){\n    var data = collect();",
+      "function saveEdit(){\n    var data = collect();\n    console.log('[edit:collect-debug] PAYLOAD:', JSON.stringify({fortes:data.fortes,fracos:data.fracos,alertas:data.alertas,percepcao_len:(data.percepcao||'').length,percepcaoDre_len:(data.percepcaoDre||'').length,percepcaoFaturamento_len:(data.percepcaoFaturamento||'').length,percepcaoBalanco_len:(data.percepcaoBalanco||'').length}));"
+    );
+
     // Workaround independente: script extra antes de </body> que registra
     // window.__forcarBarra() e atalho Ctrl+Alt+E. Roda mesmo se o script
     // principal de edição falhar antes do bar.classList.add('show').
