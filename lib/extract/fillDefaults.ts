@@ -543,10 +543,25 @@ export function fillGefipDefaults(data: Partial<GefipData>): GefipData {
 export type AnyExtracted = CNPJData | QSAData | ContratoSocialData | FaturamentoData | SCRData | ProtestosData | ProcessosData | GrupoEconomicoData | CurvaABCData | DREData | BalancoData | IRSocioData | RelatorioVisitaData | DividaAtivaData | CenprotData | GefipData;
 
 export function countFilledFields(data: AnyExtracted): number {
+  // Auditoria 2026-05-12 #4: regra anterior contava `boolean false` como
+  // preenchido (qualquer boolean retornava true) e ignorava `number`
+  // completamente (caía no else default). Resultado: campos como
+  // `temMesesZerados: false` inflavam o count e `totalClientes: 1000`
+  // não contavam. Métrica de extração não refletia a realidade.
+  //
+  // Nova regra: campo é "preenchido" se carrega informação real:
+  // - string: não vazia após trim implícito (length > 0)
+  // - array: tem ao menos 1 item
+  // - number: finito e não-zero (0 pode ser "não extraído" disfarçado)
+  // - boolean: apenas true (false é o default/ausente)
+  // - object: tem ao menos 1 chave (raro nesses tipos, mas defensivo)
   const obj = data as unknown as Record<string, unknown>;
-  return Object.values(obj).filter(v =>
-    typeof v === "string" ? v.length > 0 :
-    Array.isArray(v) ? v.length > 0 :
-    typeof v === "boolean" ? true : false
-  ).length;
+  return Object.values(obj).filter(v => {
+    if (typeof v === "string") return v.length > 0;
+    if (Array.isArray(v)) return v.length > 0;
+    if (typeof v === "number") return Number.isFinite(v) && v !== 0;
+    if (typeof v === "boolean") return v === true;
+    if (v && typeof v === "object") return Object.keys(v).length > 0;
+    return false;
+  }).length;
 }
