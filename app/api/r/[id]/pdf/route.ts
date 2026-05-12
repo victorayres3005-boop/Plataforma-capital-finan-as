@@ -27,10 +27,14 @@ export async function POST(
     return Response.json({ error: "id inválido" }, { status: 400 });
   }
 
+  // Exige SERVICE_ROLE_KEY explicitamente (auditoria M6 2026-05-12).
+  // Fallback pra ANON_KEY era perigoso: RLS pode rejeitar SELECT silenciosamente,
+  // mascarando link válido como "não encontrado". Geração de PDF é server-side
+  // e merece chave privilegiada.
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {
-    return Response.json({ error: "Supabase não configurado" }, { status: 500 });
+    return Response.json({ error: "Supabase não configurado (SERVICE_ROLE_KEY ausente)" }, { status: 500 });
   }
 
   const supabase = createClient(url, key);
