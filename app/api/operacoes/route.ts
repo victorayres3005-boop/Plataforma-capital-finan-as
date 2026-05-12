@@ -133,12 +133,19 @@ export async function DELETE(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "missing_id" }, { status: 400 });
 
-  const { error } = await supa
+  // .select() permite contar rows deletadas (auditoria M5 2026-05-12).
+  // Antes retornava { ok: true } mesmo se id não existisse OU user_id
+  // não batesse (RLS silenciava). Agora 404 explícito quando 0 rows.
+  const { data, error } = await supa
     .from("operacoes")
     .delete()
     .eq("id", id)
-    .eq("user_id", user.id);
+    .eq("user_id", user.id)
+    .select("id");
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true });
+  if (!data || data.length === 0) {
+    return NextResponse.json({ error: "not_found_or_forbidden" }, { status: 404 });
+  }
+  return NextResponse.json({ ok: true, deleted: data.length });
 }
