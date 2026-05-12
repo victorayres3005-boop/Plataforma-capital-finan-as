@@ -16,6 +16,7 @@ import type {
   SCRModalidade, SociedadeIR, Socio, SocioRetirante,
 } from "@/types";
 import { isLinhaTotalCurvaABC, cleanSacadoName } from "@/lib/sacados/extractTopSacados";
+import { inferirAnosCronologicamente } from "@/lib/extract/inferAnoMeses";
 
 /**
  * Adapter: converte o JSON snake_case do novo prompt de Cartão CNPJ
@@ -167,16 +168,23 @@ export function adaptFaturamentoNew(raw: Record<string, unknown>): Partial<Fatur
   const r = raw ?? {};
   const mesesRaw = Array.isArray(r.meses) ? r.meses as Array<Record<string, unknown>> : [];
 
-  const meses: FaturamentoMensal[] = mesesRaw.map(m => {
+  const mesesParcial = mesesRaw.map(m => {
     const mesN = _mesToNum(m.mes);
     const anoRaw = m.ano ?? "";
     const ano = String(anoRaw).trim();
     const mesKey = mesN && ano
       ? `${String(mesN).padStart(2, "0")}/${ano.length === 2 ? "20" + ano : ano}`
-      : _s(m.mes); // fallback se já vier no formato MM/YYYY
+      : _s(m.mes); // fallback se já vier no formato MM/YYYY OU se m.ano ausente
     const valor = _fmtMoneyBRNoPrefix(m.total ?? m.valor);
     return { mes: mesKey, valor };
   }).filter(m => m.mes && m.valor !== ""); // meses sem valor são excluídos (null no documento)
+
+  // Inferência cronológica: quando Gemini omite ano em alguns meses, o
+  // adapter preserva só "nome do mês". Esta função infere o ano a partir
+  // dos vizinhos com ano conhecido + posição cronológica relativa.
+  // Resolve o bug histórico onde alguns meses caíam fora do cálculo de
+  // somatoriaAno/FMM. Adicionado 2026-05-12 (caso GLOBOPACK).
+  const meses: FaturamentoMensal[] = inferirAnosCronologicamente(mesesParcial);
 
   const totais = r.totais as Record<string, unknown> | undefined;
   const media = r.media_mensal as Record<string, unknown> | undefined;

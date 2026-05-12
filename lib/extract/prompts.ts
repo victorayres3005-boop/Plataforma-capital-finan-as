@@ -236,6 +236,7 @@ Regras para o array "meses" (mais importante):
 - Extraia UMA entrada por mês com valor de faturamento/receita. Para tabelas com múltiplos anos, UMA entrada por combinação (mês + ano). Ex: Janeiro/2024 e Janeiro/2025 = duas entradas separadas.
 - "mes" deve ser o nome do mês em português — ex: "Janeiro", "Fevereiro". NUNCA usar número.
 - "ano" deve ser o ano como número inteiro — ex: 2024, 2025.
+- OBRIGATÓRIO: SEMPRE preencher "ano" em CADA mês. NUNCA deixar "ano" vazio, null ou ausente — mesmo que o documento mostre só o nome do mês sem ano explícito. Quando o ano não vier escrito junto do mês, INFIRA pela cronologia: se a tabela tem 12 meses sequenciais terminando em (Mar/2026), os anteriores são Abr/2025, Mai/2025, ... Fev/2026, Mar/2026. Olhe a data de emissão do documento, o cabeçalho, ou qualquer indicação contextual. Não pular esta inferência por causa de campo ausente — sempre retornar o ano correto inferido.
 - "total" = valor total de receita do mês (saídas + serviços + outros, ou o único valor disponível).
 - Se o documento não tiver colunas separadas de saidas/servicos/outros, preencha apenas "total" e deixe os outros null.
 - Meses com valor R$ 0,00 EXPLÍCITO no documento → retornar 0 (zero), NUNCA null. Zeros são dados válidos (empresa pode não ter faturado naquele mês).

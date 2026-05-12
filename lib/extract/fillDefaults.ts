@@ -15,6 +15,7 @@ import type {
   DividaAtivaData, CenprotData, GefipData,
 } from "@/types";
 import { sanitizeDescricaoDebitos, sanitizeStr, sanitizeEnum, sanitizeMoney } from "@/lib/extract/sanitize";
+import { inferirAnosCronologicamente } from "@/lib/extract/inferAnoMeses";
 
 export function fillCNPJDefaults(data: Partial<CNPJData>): CNPJData {
   return {
@@ -93,8 +94,14 @@ export function fillFaturamentoDefaults(data: Partial<FaturamentoData>): Faturam
   const _mesAtualFiltro = new Date().getMonth() + 1;
   const _anoAtualFiltro = new Date().getFullYear();
 
+  // Aplica inferência de ano ANTES dos filtros — cobre coletas antigas
+  // no banco que foram salvas com alguns meses sem ano (caso GLOBOPACK).
+  // Idempotente: se todos já têm MM/YYYY, retorna o array como veio.
+  const mesesEntrada = Array.isArray(data.meses) ? data.meses : [];
+  const mesesComAno = inferirAnosCronologicamente(mesesEntrada);
+
   const _mesesFuturosDropados: string[] = [];
-  const meses = (Array.isArray(data.meses) ? data.meses : [])
+  const meses = mesesComAno
     .filter(m => {
       if (!m.mes) return false;
       const [mesNum, anoNum] = m.mes.split("/").map(Number);
