@@ -41,11 +41,39 @@ Motivado por divergência real: CNPJ 41.301.271/0001-64 mostrava R$ 6.85M / 20 i
 
 - `feat(qsa)` 7de79e6: coluna **"Patrim. Líq. / Renda Est."** removida do Quadro Societário na Síntese Preliminar. Tabela vai de 5 para 4 colunas (Sócio · CPF/CNPJ · Qualificação · Part.). Cards de Patrimônio Líquido nas seções de SCR dos Sócios foram preservados — pedido era específico do QSA da síntese.
 
-### Frente 4 — Auditoria de /custos (2 fixes)
+### Frente 4 — Auditoria de /custos (3 fixes)
 
 - `fix(custos)` 4770bb6 — **Sacados não contavam**. `api_usage_logs.bureau_calls` grava 11 campos mas a UI lia só 7. Os 4 campos de sacados (sacado_credithub, sacado_bdc_empresa, sacado_bdc_pessoa, sacado_assertiva_pj) ficavam logados mas não cobrados — sub-estimação de até 20-50% em análises com Curva ABC top 5 PJ. `BureauCalls` ganha 4 campos opcionais, `BureauPrices` ganha 4 preços (defaults clones dos pais), `calcCustoBureau` soma os 4 com `safeNum`. UI: cards novos em "Estimativa por Bureau" + seção editável "SACADOS" no modal.
 
-- `feat(custos)` 90e5c10 — **Tarifas escalonadas por mês**. Antes CH fixo em R$ 0,31 e DB360 fixo em R$ 2,49 (ignorando contratos vigentes). Agora `custoCreditHubMes(n)` aplica assinatura R$ 2.500 (até 8k chamadas) + faixas 0,29/0,27/0,25/0,23/0,20 nos excedentes; `custoDataBox360Mes(n)` aplica 2,49/2,24/1,99 conforme volume mensal. Implementação: pass que agrupa `analysisRows` por `yyyy-mm`, calcula custo escalonado do mês, redistribui proporcionalmente entre as análises. Outros bureaus (Assertiva, BDC, Gemini, sacados não-CH) seguem preço unitário fixo editável. Tarifas hardcoded — ajustar `custoCreditHubMes`/`custoDataBox360Mes` se mudar contrato. Detalhes em `memory/reference_custos_pricing.md`.
+- `feat(custos)` 90e5c10 — **Tarifas escalonadas por mês**. Antes CH fixo em R$ 0,31 e DB360 fixo em R$ 2,49 (ignorando contratos vigentes). Agora `custoCreditHubMes(n)` aplica assinatura R$ 2.500 (até 8k chamadas) + faixas 0,29/0,27/0,25/0,23/0,20 nos excedentes; `custoDataBox360Mes(n)` aplica 2,49/2,24/1,99 conforme volume mensal. Pass agrupa `analysisRows` por `yyyy-mm`, calcula custo escalonado do mês, redistribui proporcionalmente. Detalhes em `memory/reference_custos_pricing.md`.
+
+- `fix(custos)` b135e5e — **BDC Dívida Ativa contabilizado separado**. `consultarDividaAtivaBDC` (1 dataset, R$ 0,05) era contabilizado como `bdc_empresa` (R$ 0,51), inflando 10× cada chamada. Novo campo `bdc_government_debtors` em BureauCalls/Prices + breakdown na UI.
+
+### Frente 5 — /parecer enxugamento + features de calibração
+
+- `refactor(parecer)` 56f1df7 — **Reescrita total: 1741 → 395 linhas, 38 → 10 useState**. Removido: 17 campos de pleito (duplicavam Pleito do Comitê do /r/{id}), observações (duplicavam 4 Percepções), Score V2, `buildDecisaoHtml` interna (~1000 linhas), localStorage cf_parecer_pending, integração Goalfy. Mantido: hero, 5 botões de Decisão, autosave, Confirmar, link p/ /r/{id}, snapshot na tabela `pareceres`.
+
+- `feat(parecer)` 4c3bdde — **Campo Rating do Comitê voltou** (numérico 0-10 com badge Baixo/Moderado/Alto Risco). Persiste em `document_collections.rating` + `ai_analysis.parecerAnalista.ratingAnalista` + `pareceres.rating_ia`.
+
+- `feat(parecer)` be5d3fb — **Snapshots p/ calibração futura da IA**. Capturados UMA vez na carga (via ref) e gravados em todo save: `ratingIaOriginal`, `decisaoIaOriginal`, `scoreV2Snapshot`, `politicaSnapshot` ({id, atualizado_em}). Permite queries SQL pra: override IA × Comitê, delta, drift de política, embedding semântico das notas.
+
+### Frente 6 — Polimento + bugs profundos
+
+- `feat(qsa)` 7de79e6 — Coluna **"Patrim. Líq. / Renda Est." removida** do Quadro Societário na Síntese Preliminar (pedido da chefe).
+
+- `fix(extract)` f9df996 — **GEFIP/CENPROT fillDefaults descartavam 9 campos novos** adicionados em 2026-05-11 (folhaPagamento, valorMultas, valorJuros, tipoDeclaracao, cnpjDeclarado, razaoSocialDeclarada, status, tipoTitulo, chaveValidacao). Gemini extraía, fillDefaults silenciosamente jogava fora, template renderizava vazio. Fix: preserva todos.
+
+- `fix(scr-socios)` 6268366 — **"Nenhum SCR enviado" enganoso**. `merger.ts:522` filtrava silenciosamente sócios com `periodoAtual === null` (DataBox360 falhou). Se todos falhavam, UI mostrava "Envie arquivos nos slots..." — analista pensava que era upload manual quando o sistema TINHA TENTADO. Fix: novo campo `scrSociosErrors` preserva info; Review distingue 3 cenários.
+
+- `fix(faturamento)` 66368ef — **Total 12M divergente das barras** (caso GLOBOPACK 36.481.684/0001-38: barras somavam R$ 30M mas KPI dizia R$ 7,50M). Defensivo: template recalcula `total12` e FMM direto do array `meses` visível.
+
+- `fix(faturamento)` 3be282e — **Causa raiz: inferência cronológica de ano** (A+B+C). Bug raiz era Gemini omitir `m.ano` em alguns meses → adapter cai no fallback "Abril" → filtro do fillDefaults descarta → cálculos perdem meses. Solução em 3 frentes simultâneas:
+  - **A**: helper `inferirAnosCronologicamente` em `lib/extract/inferAnoMeses.ts` aplicado no adapter. Propaga ano a partir de âncora retrocedendo quando `mesNum[i] > mesNum[i+1]` (virou ano).
+  - **B**: PROMPT_FATURAMENTO reforçado com regra OBRIGATÓRIA de sempre preencher ano.
+  - **C**: `fillFaturamentoDefaults` também aplica inferência — cobre coletas antigas no banco que recalculam ao serem reabertas.
+  - Detalhes em `memory/reference_faturamento_inferencia_ano.md`.
+
+- `fix(grupo-economico)` 12aa413 — Empresas além da 5ª agora são enriquecidas; situação VERIFICAR recuperada.
 
 ---
 
