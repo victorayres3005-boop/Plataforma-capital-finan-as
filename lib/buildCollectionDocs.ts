@@ -119,6 +119,12 @@ export function buildCollectionDocs(data: ExtractedData): CollectionDocument[] {
   if (data.dividaAtiva && (data.dividaAtiva.qtdRegistros > 0 || data.dividaAtiva.certidaoNegativa)) {
     docs.push({ type: "divida_ativa" as CollectionDocument["type"], filename: "divida-ativa.pdf", extracted_data: asRec(data.dividaAtiva), uploaded_at: ts() });
   }
+  // Comparativo BDC × PGFN (auditoria M8 2026-05-12): dividaAtivaBDC é o
+  // snapshot da consulta BDC government_debtors, persistido pra cruzar com o
+  // upload PGFN no relatório. Era declarado em types mas nunca serializado.
+  if (data.dividaAtivaBDC && (data.dividaAtivaBDC.qtdRegistros > 0 || data.dividaAtivaBDC.certidaoNegativa)) {
+    docs.push({ type: "divida_ativa_bdc" as CollectionDocument["type"], filename: "divida-ativa-bdc.json", extracted_data: asRec(data.dividaAtivaBDC), uploaded_at: ts() });
+  }
   if (data.cenprot && (data.cenprot.qtdRegistros > 0 || data.cenprot.certidaoNegativa)) {
     docs.push({ type: "cenprot" as CollectionDocument["type"], filename: "cenprot.pdf", extracted_data: asRec(data.cenprot), uploaded_at: ts() });
   }
