@@ -53,6 +53,7 @@ function ParecerContent() {
   const [loading, setLoading]                 = useState(true);
   const [collection, setCollection]           = useState<DocumentCollection | null>(null);
   const [decisao, setDecisao]                 = useState<DecisaoValue | null>(null);
+  const [ratingComite, setRatingComite]       = useState("");
   const [notaComite, setNotaComite]           = useState("");
   const [saving, setSaving]                   = useState(false);
   const [autoSavedAt, setAutoSavedAt]         = useState<Date | null>(null);
@@ -84,6 +85,9 @@ function ParecerContent() {
         const ai = data.ai_analysis as Record<string, unknown> | null;
         const analista = ai?.parecerAnalista as Record<string, unknown> | null;
         if (typeof analista?.notaComite === "string") setNotaComite(analista.notaComite);
+        // Rating: prioriza valor salvo pelo analista; fallback p/ coluna rating
+        const r = analista?.ratingAnalista ?? data.rating;
+        if (r != null) setRatingComite(String(r).replace(".", ","));
       } catch (err) {
         toast.error("Erro ao carregar coleta: " + (err instanceof Error ? err.message : "desconhecido"));
       } finally {
@@ -109,13 +113,19 @@ function ParecerContent() {
           .from("document_collections").select("ai_analysis").eq("id", id).single();
         const existingAi = (fresh?.ai_analysis as Record<string, unknown>) || {};
         const existingAnalista = (existingAi.parecerAnalista as Record<string, unknown>) || {};
+        const ratingNum = (() => {
+          const n = parseFloat(ratingComite.replace(",", "."));
+          return isNaN(n) ? null : Math.max(0, Math.min(10, Math.round(n * 10) / 10));
+        })();
         const { error } = await supabase.from("document_collections").update({
           decisao: decisao || null,
+          rating: ratingNum,
           ai_analysis: {
             ...existingAi,
             parecerAnalista: {
               ...existingAnalista,
               notaComite: notaComite.trim() || null,
+              ratingAnalista: ratingNum,
               decidedAt: new Date().toISOString(),
             },
           },
@@ -126,7 +136,7 @@ function ParecerContent() {
       }
     }, 800);
     return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
-  }, [id, decisao, notaComite, loading]);
+  }, [id, decisao, notaComite, ratingComite, loading]);
 
   // ── Confirmar (finaliza coleta + grava snapshot na tabela pareceres) ─────
   const handleConfirmar = useCallback(async () => {
@@ -143,15 +153,21 @@ function ParecerContent() {
       if (freshErr) throw freshErr;
       const existingAi = (fresh?.ai_analysis as Record<string, unknown>) || {};
       const existingAnalista = (existingAi.parecerAnalista as Record<string, unknown>) || {};
+      const ratingNum = (() => {
+        const n = parseFloat(ratingComite.replace(",", "."));
+        return isNaN(n) ? null : Math.max(0, Math.min(10, Math.round(n * 10) / 10));
+      })();
       const parecerAnalista = {
         ...existingAnalista,
         notaComite: notaComite.trim() || null,
+        ratingAnalista: ratingNum,
         decidedAt: new Date().toISOString(),
       };
       const { error } = await supabase.from("document_collections").update({
         status: "finished",
         finished_at: new Date().toISOString(),
         decisao,
+        rating: ratingNum,
         ai_analysis: { ...existingAi, parecerAnalista },
       }).eq("id", id).eq("user_id", session.user.id);
       if (error) throw error;
@@ -175,7 +191,7 @@ function ParecerContent() {
           score_v2_rating: null,
           score_v2_pontos: null,
           score_v2_conf: null,
-          rating_ia: null,
+          rating_ia: ratingNum,  // rating do comitê preenchido no /parecer
           decisao_ia: null,
           membros_comite: null,
           // Reanálise: fallback fixo 90 dias (sem Score V2 não dá pra usar regra por rating)
@@ -263,12 +279,26 @@ function ParecerContent() {
               <p style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", margin: "1px 0 0" }}>CNPJ {cnpj}</p>
             </div>
           </div>
-          {selectedD && (
-            <div style={{ background: `${selectedD.color}25`, border: `1px solid ${selectedD.color}55`, borderRadius: 10, padding: "8px 14px", display: "flex", alignItems: "center", gap: 6 }}>
-              <selectedD.Icon size={14} style={{ color: selectedD.color }} />
-              <span style={{ fontSize: 12, fontWeight: 700, color: selectedD.color }}>{selectedD.label}</span>
-            </div>
-          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {(() => {
+              const n = parseFloat(ratingComite.replace(",", "."));
+              if (isNaN(n)) return null;
+              const clamped = Math.max(0, Math.min(10, n));
+              const c = clamped >= 8 ? "#4ade80" : clamped >= 5 ? "#fbbf24" : "#f87171";
+              return (
+                <div style={{ background: "rgba(255,255,255,0.1)", backdropFilter: "blur(8px)", borderRadius: 10, padding: "6px 14px", textAlign: "center", border: `1px solid ${c}44` }}>
+                  <p style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.55)", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>Rating</p>
+                  <p style={{ fontSize: 18, fontWeight: 900, color: c, margin: 0, lineHeight: 1.2 }}>{clamped.toFixed(1)}<span style={{ fontSize: 10, fontWeight: 500, color: "rgba(255,255,255,0.4)" }}>/10</span></p>
+                </div>
+              );
+            })()}
+            {selectedD && (
+              <div style={{ background: `${selectedD.color}25`, border: `1px solid ${selectedD.color}55`, borderRadius: 10, padding: "8px 14px", display: "flex", alignItems: "center", gap: 6 }}>
+                <selectedD.Icon size={14} style={{ color: selectedD.color }} />
+                <span style={{ fontSize: 12, fontWeight: 700, color: selectedD.color }}>{selectedD.label}</span>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Decisão */}
@@ -302,6 +332,40 @@ function ParecerContent() {
                 </button>
               );
             })}
+          </div>
+        </div>
+
+        {/* Rating do Comitê */}
+        <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, padding: 22, marginBottom: 16 }}>
+          <label style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", display: "block", marginBottom: 4 }}>Rating do Comitê</label>
+          <p style={{ fontSize: 12, color: "#64748b", margin: "0 0 12px" }}>Nota de 0 a 10 — pode usar 1 casa decimal (ex.: 7,5)</p>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={ratingComite}
+              onChange={e => setRatingComite(e.target.value.replace(/[^0-9.,]/g, ""))}
+              placeholder="—"
+              style={{
+                width: 120, padding: "10px 14px", borderRadius: 8,
+                border: "1px solid #e5e7eb", fontSize: 18, fontWeight: 700, color: "#0f172a",
+                fontFamily: "inherit", outline: "none", textAlign: "center",
+                background: "#fafafa",
+              }}
+            />
+            <span style={{ fontSize: 12, color: "#94a3b8" }}>/ 10</span>
+            {(() => {
+              const n = parseFloat(ratingComite.replace(",", "."));
+              if (isNaN(n)) return null;
+              const clamped = Math.max(0, Math.min(10, n));
+              const label = clamped >= 8 ? "Baixo Risco" : clamped >= 5 ? "Risco Moderado" : "Alto Risco";
+              const color = clamped >= 8 ? "#16a34a" : clamped >= 5 ? "#d97706" : "#dc2626";
+              return (
+                <span style={{ fontSize: 11, fontWeight: 700, color, padding: "4px 10px", background: `${color}15`, borderRadius: 99 }}>
+                  {label}
+                </span>
+              );
+            })()}
           </div>
         </div>
 
