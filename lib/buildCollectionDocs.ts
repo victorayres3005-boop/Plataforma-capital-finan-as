@@ -133,15 +133,22 @@ export function buildCollectionDocs(data: ExtractedData): CollectionDocument[] {
   }
   const temSacadosAnalisados = (data.sacadosAnalisados?.length ?? 0) > 0;
   const temAnaliseContabil = !!(data.analiseContabil && data.analiseContabil.trim());
-  if (data.score || (data.bureausConsultados && data.bureausConsultados.length > 0) || temSacadosAnalisados || temAnaliseContabil) {
+  const temSandboxFlags = data.scrSandboxSemHistorico === true || data.grupoEconomicoScrSandbox === true;
+  if (data.score || (data.bureausConsultados && data.bureausConsultados.length > 0) || temSacadosAnalisados || temAnaliseContabil || temSandboxFlags) {
     docs.push({
       type: "bureau_meta" as CollectionDocument["type"],
       filename: "bureau-meta.json",
+      // Flags de sandbox DataBox360 (auditoria B1 2026-05-12): controlam
+      // se o comparativo SCR e a coluna SCR Total do grupo econômico
+      // ficam ocultos. Sem persistir, ao reabrir coleta os comparativos
+      // voltavam visíveis com dados mock.
       extracted_data: asRec({
         score: data.score ?? null,
         bureausConsultados: data.bureausConsultados ?? [],
         sacadosAnalisados: data.sacadosAnalisados ?? [],
         analiseContabil: data.analiseContabil ?? "",
+        scrSandboxSemHistorico: data.scrSandboxSemHistorico ?? false,
+        grupoEconomicoScrSandbox: data.grupoEconomicoScrSandbox ?? false,
       }),
       uploaded_at: ts(),
     });

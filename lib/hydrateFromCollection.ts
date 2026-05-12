@@ -156,18 +156,23 @@ export function hydrateFromCollection(docs: { type: string; extracted_data: Reco
   for (const doc of docs) {
     if (doc.type === "scr_bacen") continue;
 
-    // bureau_meta guarda score + bureausConsultados + sacadosAnalisados + analiseContabil
+    // bureau_meta guarda score + bureausConsultados + sacadosAnalisados +
+    // analiseContabil + flags de sandbox (auditoria B1 2026-05-12).
     if (doc.type === "bureau_meta" && doc.extracted_data) {
-      const { score, bureausConsultados, sacadosAnalisados, analiseContabil } = doc.extracted_data as {
+      const { score, bureausConsultados, sacadosAnalisados, analiseContabil, scrSandboxSemHistorico, grupoEconomicoScrSandbox } = doc.extracted_data as {
         score?: ExtractedData["score"];
         bureausConsultados?: string[];
         sacadosAnalisados?: ExtractedData["sacadosAnalisados"];
         analiseContabil?: string;
+        scrSandboxSemHistorico?: boolean;
+        grupoEconomicoScrSandbox?: boolean;
       };
       if (score) result.score = score;
       if (bureausConsultados && bureausConsultados.length > 0) result.bureausConsultados = bureausConsultados;
       if (sacadosAnalisados && sacadosAnalisados.length > 0) result.sacadosAnalisados = sacadosAnalisados;
       if (analiseContabil && analiseContabil.trim()) result.analiseContabil = analiseContabil;
+      if (scrSandboxSemHistorico === true) result.scrSandboxSemHistorico = true;
+      if (grupoEconomicoScrSandbox === true) result.grupoEconomicoScrSandbox = true;
       continue;
     }
 
