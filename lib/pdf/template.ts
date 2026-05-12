@@ -957,8 +957,16 @@ function pageSintese(params: PDFReportParams, date: string): string {
   // Faturamento chart
   const fatMeses = sortMesCrono(d.faturamento?.meses ?? []).slice(-12);
   const fatBars = fatMeses.length > 0 ? buildBars(fatMeses, 90) : "";
-  const fmm = d.faturamento?.fmm12m ?? d.faturamento?.mediaAno ?? "—";
-  const total12 = d.faturamento?.somatoriaAno ?? "—";
+  // Defensivo 2026-05-12: recalcula total12 e FMM direto dos meses
+  // visíveis, em vez de ler somatoriaAno/fmm12m do banco. Garante que o
+  // total bate com a soma das barras (bug histórico: fillDefaults filtrava
+  // meses sem ano e somatoriaAno ficava muito menor que a soma real
+  // visualizável — caso GLOBOPACK 36.481.684/0001-38: barra mostrava
+  // 12 meses somando ~30M mas relatório dizia "Total 12M: 7,50M").
+  const fatSomaVis = fatMeses.reduce((s, m) => s + numVal(m.valor), 0);
+  const fatFMMVis  = fatMeses.length > 0 ? fatSomaVis / fatMeses.length : 0;
+  const fmm = fatMeses.length > 0 ? String(fatFMMVis) : (d.faturamento?.fmm12m ?? d.faturamento?.mediaAno ?? "—");
+  const total12 = fatMeses.length > 0 ? String(fatSomaVis) : (d.faturamento?.somatoriaAno ?? "—");
   const tendencia = d.faturamento?.tendencia ?? "indefinido";
   const tendLabel = tendencia === "crescimento" ? "↑ crescimento" : tendencia === "queda" ? "↓ queda" : "→ estável";
   const tendColor = tendencia === "crescimento" ? "var(--g6)" : tendencia === "queda" ? "var(--r6)" : "var(--x5)";
@@ -1924,8 +1932,11 @@ function pageFaturamento(params: PDFReportParams, date: string): string {
   const fat = params.data.faturamento;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const meses = sortMesCrono(Array.from(new Map((fat?.meses ?? []).map((m: any) => [m.mes as string, m])).values())).slice(-12);
-  const fmm = fat?.fmm12m ?? fat?.mediaAno ?? "—";
-  const total12 = fat?.somatoriaAno ?? "—";
+  // Mesmo fix defensivo da síntese: recalcula direto dos meses visíveis.
+  const _fatSomaVis = meses.reduce((s, m) => s + numVal((m as { valor: string }).valor), 0);
+  const _fatFMMVis  = meses.length > 0 ? _fatSomaVis / meses.length : 0;
+  const fmm = meses.length > 0 ? String(_fatFMMVis) : (fat?.fmm12m ?? fat?.mediaAno ?? "—");
+  const total12 = meses.length > 0 ? String(_fatSomaVis) : (fat?.somatoriaAno ?? "—");
   const fmmMedio = fat?.fmmMedio ?? "";
   const ultimoMesComDados = fat?.ultimoMesComDados ?? "";
   const tendencia = fat?.tendencia ?? "indefinido";
