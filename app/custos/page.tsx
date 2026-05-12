@@ -26,6 +26,8 @@ interface BureauPrices {
   sacado_bdc_empresa: number;
   sacado_bdc_pessoa: number;
   sacado_assertiva_pj: number;
+  // BDC dataset isolado (chamada com 1 único dataset).
+  bdc_government_debtors: number;
   gemini_input_per_1m: number;
   gemini_output_per_1m: number;
 }
@@ -66,6 +68,10 @@ interface BureauCalls {
   sacado_bdc_empresa?: number;
   sacado_bdc_pessoa?: number;
   sacado_assertiva_pj?: number;
+  // ── Chamadas BDC isoladas — adicionado 2026-05-12.
+  // Antes eram contabilizadas como bdc_empresa (R$ 0,51), inflando 10x
+  // o custo real (1 dataset government_debtors custa R$ 0,05).
+  bdc_government_debtors?: number;
 }
 
 // One row per "analysis session" in the table
@@ -105,6 +111,8 @@ const DEFAULT_PRICES: BureauPrices = {
   sacado_bdc_empresa:   0.51,
   sacado_bdc_pessoa:    0.30,
   sacado_assertiva_pj:  1.20,
+  // BDC dataset isolado: government_debtors (1 dataset, R$ 0,05).
+  bdc_government_debtors: 0.05,
   gemini_input_per_1m:  0.375,
   gemini_output_per_1m: 1.50,
 };
@@ -168,7 +176,9 @@ function calcCustoBureau(calls: BureauCalls, prices: BureauPrices): number {
     safeNum(calls.sacado_credithub)    * safeNum(prices.sacado_credithub) +
     safeNum(calls.sacado_bdc_empresa)  * safeNum(prices.sacado_bdc_empresa) +
     safeNum(calls.sacado_bdc_pessoa)   * safeNum(prices.sacado_bdc_pessoa) +
-    safeNum(calls.sacado_assertiva_pj) * safeNum(prices.sacado_assertiva_pj)
+    safeNum(calls.sacado_assertiva_pj) * safeNum(prices.sacado_assertiva_pj) +
+    // BDC isolado (1 dataset apenas — preço bem menor que pacote completo)
+    safeNum(calls.bdc_government_debtors) * safeNum(prices.bdc_government_debtors)
   );
 }
 
@@ -201,6 +211,7 @@ function estimateBureauCalls(hasAI: boolean): BureauCalls {
     sacado_bdc_empresa:  0,
     sacado_bdc_pessoa:   0,
     sacado_assertiva_pj: 0,
+    bdc_government_debtors: 0,
   };
 }
 
@@ -564,6 +575,8 @@ export default function CustosPage() {
                 <PriceInput label="Sacado · BDC Empresa" value={draftPrices.sacado_bdc_empresa} onChange={v => setDraftPrices(p => ({ ...p, sacado_bdc_empresa: v }))} />
                 <PriceInput label="Sacado · BDC Pessoa (sócio do sacado)" value={draftPrices.sacado_bdc_pessoa} onChange={v => setDraftPrices(p => ({ ...p, sacado_bdc_pessoa: v }))} />
                 <PriceInput label="Sacado · Assertiva PJ" value={draftPrices.sacado_assertiva_pj} onChange={v => setDraftPrices(p => ({ ...p, sacado_assertiva_pj: v }))} />
+                <div style={{ marginTop: "4px", paddingTop: "8px", borderTop: "1px dashed #e5e7eb", fontSize: "10px", color: "#94a3b8", fontWeight: 700, letterSpacing: "0.06em" }}>BDC ISOLADO (1 dataset)</div>
+                <PriceInput label="BDC · Dívida Ativa (government_debtors)" value={draftPrices.bdc_government_debtors} onChange={v => setDraftPrices(p => ({ ...p, bdc_government_debtors: v }))} />
               </div>
             </div>
             <div>
@@ -618,6 +631,7 @@ export default function CustosPage() {
             { label: "Sacado · BDC Emp.",key: "sacado_bdc_empresa"  as const, price: prices.sacado_bdc_empresa,  sub: "Curva ABC" },
             { label: "Sacado · BDC Pes.",key: "sacado_bdc_pessoa"   as const, price: prices.sacado_bdc_pessoa,   sub: "Sócios sacado" },
             { label: "Sacado · Assert.", key: "sacado_assertiva_pj" as const, price: prices.sacado_assertiva_pj, sub: "Curva ABC" },
+            { label: "BDC · Dívida Ativa", key: "bdc_government_debtors" as const, price: prices.bdc_government_debtors, sub: "1 dataset" },
           ].map(({ label, key, price, sub }) => {
             const totalCalls = filtered.reduce((s, r) => s + (r.bureauCalls[key] ?? 0), 0);
             const custoTotal = totalCalls * price;

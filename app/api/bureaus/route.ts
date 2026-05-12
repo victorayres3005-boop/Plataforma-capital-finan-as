@@ -486,12 +486,20 @@ export async function POST(req: NextRequest) {
           (sum, s) => sum + s.socios.filter((sc) => (sc.cpf ?? "").length === 11).length,
           0,
         );
+        // bdc_government_debtors separado: chamada de Dívida Ativa via BDC é
+        // 1 dataset (R$ 0,05) — antes era contabilizada como bdc_empresa
+        // (R$ 0,51), inflando 10x o custo. Conta só quando o BDC respondeu
+        // com sucesso (dividaAtivaBDC). Captura tanto a chamada que entra
+        // em data.dividaAtiva (sem upload) quanto o snapshot pra comparação
+        // (com upload PGFN) — em ambos os casos a request foi feita.
+        const dividaAtivaSucesso = dividaAtivaBDC.status === "fulfilled" && dividaAtivaBDC.value?.success;
         const bureau_calls = {
           credithub:            results.credithub?.success && !results.credithub?.mock ? 1 : 0,
           assertiva_pj:         results.assertiva?.success && !results.assertiva?.mock  ? 1 : 0,
           assertiva_pf:         results.assertiva?.success && !results.assertiva?.mock  ? numSociosPF : 0,
           bdc_empresa:          results.bigdatacorp?.success && !results.bigdatacorp?.mock ? 1 : 0,
           bdc_socio:            results.bigdatacorp?.success && !results.bigdatacorp?.mock ? numSociosPF : 0,
+          bdc_government_debtors: dividaAtivaSucesso ? 1 : 0,
           databox360_empresa:   !db360EmpresaResult?.mock && db360EmpresaResult?.scr ? 1 : 0,
           databox360_socio:     db360SociosMerged.length,
           sacado_credithub:     sacadosCount,
