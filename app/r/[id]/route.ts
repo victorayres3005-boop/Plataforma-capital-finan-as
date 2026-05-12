@@ -423,6 +423,11 @@ export async function GET(
   }
 
   // Percepção é texto livre (não lista) — substitui inteiro entre os marcadores.
+  // DEBUG 2026-05-12: inserir comentário HTML com estado dos campos pra debug
+  // de staleness reportado pelo Victor (banco tem texto novo, HTML servido
+  // tem texto velho). Remover quando resolvido.
+  const debugMarker = `<!-- DEBUG-2026-05-12 percepcao=${JSON.stringify(typeof data.percepcao === "string" ? data.percepcao.slice(0, 60) : (data.percepcao === null ? "null" : typeof data.percepcao))} dre=${JSON.stringify(typeof data.percepcao_dre === "string" ? data.percepcao_dre.slice(0, 40) : (data.percepcao_dre === null ? "null" : typeof data.percepcao_dre))} fat=${JSON.stringify(typeof data.percepcao_faturamento === "string" ? data.percepcao_faturamento.slice(0, 40) : (data.percepcao_faturamento === null ? "null" : typeof data.percepcao_faturamento))} bal=${JSON.stringify(typeof data.percepcao_balanco === "string" ? data.percepcao_balanco.slice(0, 40) : (data.percepcao_balanco === null ? "null" : typeof data.percepcao_balanco))} -->`;
+  html = html.replace("</head>", debugMarker + "\n</head>");
   if (typeof data.percepcao === "string" && data.percepcao.trim()) {
     html = applyPercepcao(html, data.percepcao);
   }
