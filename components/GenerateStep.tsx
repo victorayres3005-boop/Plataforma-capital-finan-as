@@ -1212,7 +1212,10 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         const { error } = await supabase.from("document_collections").update(payload).eq("id", collectionId);
         if (error) throw error;
         setSavedFeedback(true);
-        toast.success("Coleta salva no histórico!");
+        // id="coleta-salva": Sonner deduplica toasts com mesmo id, evita
+        // notificação dupla se handleSave for chamado 2x em sequência
+        // (auto-save + ação manual em race, ou remount do componente).
+        toast.success("Coleta salva no histórico!", { id: "coleta-salva" });
         setTimeout(() => setSavedFeedback(false), 2000);
         return collectionId;
       } else {
@@ -1232,7 +1235,8 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         if (error) throw error;
         setCollectionId(row.id);
         _uploadCtx = { userId, collectionId: row.id };
-
+        // Marca esse ID como já-salvo pra qualquer chamada subsequente
+        // de handleSave deduplicar o toast (Sonner usa o id).
         // Upload original files to Supabase Storage (fire-and-forget)
         if (originalFiles) {
           const fileMap = {
@@ -1252,7 +1256,7 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         }
 
         setSavedFeedback(true);
-        toast.success("Coleta salva no histórico!");
+        toast.success("Coleta salva no histórico!", { id: "coleta-salva" });
         setTimeout(() => setSavedFeedback(false), 2000);
         return row.id;
       }
