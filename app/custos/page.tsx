@@ -118,6 +118,43 @@ const MONTHS = [
 ];
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
+// ─── Tarifas escalonadas (adicionadas 2026-05-12) ─────────────────────────────
+// Aplicadas POR MÊS CALENDÁRIO somando as chamadas de todas as análises do mês.
+// Hardcoded com base no contrato vigente — se mudar, ajustar aqui.
+
+// CreditHub: R$ 2.500/mês assinatura cobrem 8.000 chamadas. Excedentes em faixas:
+//   8k-50k = 0,29 | 50k-100k = 0,27 | 100k-200k = 0,25 | 200k-400k = 0,23 | >400k = 0,20
+function custoCreditHubMes(chamadasTotaisMes: number): number {
+  if (chamadasTotaisMes <= 0) return 0;
+  const ASSINATURA = 2500;
+  const FRANQUIA = 8000;
+  if (chamadasTotaisMes <= FRANQUIA) return ASSINATURA;
+  let custo = ASSINATURA;
+  let restante = chamadasTotaisMes - FRANQUIA;
+  const faixas: Array<[number, number]> = [
+    [42000, 0.29],   // até 50k total
+    [50000, 0.27],   // até 100k total
+    [100000, 0.25],  // até 200k total
+    [200000, 0.23],  // até 400k total
+    [Infinity, 0.20],
+  ];
+  for (const [limite, preco] of faixas) {
+    const tomar = Math.min(restante, limite);
+    custo += tomar * preco;
+    restante -= tomar;
+    if (restante <= 0) break;
+  }
+  return custo;
+}
+
+// DataBox360: até 100/mês = R$2,49 | 101-500 = R$2,24 | >500 = R$1,99 (por consulta)
+function custoDataBox360Mes(chamadasTotaisMes: number): number {
+  if (chamadasTotaisMes <= 0) return 0;
+  if (chamadasTotaisMes <= 100) return chamadasTotaisMes * 2.49;
+  if (chamadasTotaisMes <= 500) return 100 * 2.49 + (chamadasTotaisMes - 100) * 2.24;
+  return 100 * 2.49 + 400 * 2.24 + (chamadasTotaisMes - 500) * 1.99;
+}
+
 function calcCustoBureau(calls: BureauCalls, prices: BureauPrices): number {
   return (
     safeNum(calls.credithub)           * safeNum(prices.credithub_empresa) +
@@ -331,6 +368,50 @@ export default function CustosPage() {
       });
     });
 
+    // Aplica escala por mês para CreditHub e DataBox360 (substitui a fatia
+    // calculada com preço unitário fixo pela fatia proporcional ao custo
+    // escalonado do mês). Outros bureaus (Assertiva, BDC, Gemini) seguem
+    // com preço unitário fixo.
+    const monthKey = (createdAt: string) => {
+      const d = new Date(createdAt);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    };
+    const byMonth = new Map<string, AnalysisRow[]>();
+    rows.forEach(r => {
+      const k = monthKey(r.created_at);
+      const arr = byMonth.get(k) ?? [];
+      arr.push(r);
+      byMonth.set(k, arr);
+    });
+    byMonth.forEach(monthRows => {
+      const chCallsMes = monthRows.reduce(
+        (s, r) => s + safeNum(r.bureauCalls.credithub) + safeNum(r.bureauCalls.sacado_credithub),
+        0,
+      );
+      const db360CallsMes = monthRows.reduce(
+        (s, r) => s + safeNum(r.bureauCalls.databox360_empresa) + safeNum(r.bureauCalls.databox360_socio),
+        0,
+      );
+      const chCustoMes = custoCreditHubMes(chCallsMes);
+      const db360CustoMes = custoDataBox360Mes(db360CallsMes);
+      monthRows.forEach(r => {
+        const chCallsRow = safeNum(r.bureauCalls.credithub) + safeNum(r.bureauCalls.sacado_credithub);
+        const db360CallsRow = safeNum(r.bureauCalls.databox360_empresa) + safeNum(r.bureauCalls.databox360_socio);
+        // Custo "antigo" (preço unitário fixo) que vai sair
+        const chAntigo =
+          safeNum(r.bureauCalls.credithub) * safeNum(prices.credithub_empresa) +
+          safeNum(r.bureauCalls.sacado_credithub) * safeNum(prices.sacado_credithub);
+        const db360Antigo =
+          safeNum(r.bureauCalls.databox360_empresa) * safeNum(prices.databox360_empresa) +
+          safeNum(r.bureauCalls.databox360_socio) * safeNum(prices.databox360_socio);
+        // Custo "novo" (fatia proporcional do custo escalonado do mês)
+        const chNovo = chCallsMes > 0 ? chCustoMes * (chCallsRow / chCallsMes) : 0;
+        const db360Novo = db360CallsMes > 0 ? db360CustoMes * (db360CallsRow / db360CallsMes) : 0;
+        // Substitui na row
+        r.custo_bureau = r.custo_bureau - chAntigo - db360Antigo + chNovo + db360Novo;
+      });
+    });
+
     return rows.sort((a, b) => b.created_at.localeCompare(a.created_at));
   })();
 
@@ -466,7 +547,7 @@ export default function CustosPage() {
                 <PriceInput label="CreditHub (custo/chamada)" value={draftPrices.credithub_empresa} onChange={v => setDraftPrices(p => ({ ...p, credithub_empresa: v }))} />
                 <div style={{ padding: "7px 10px", background: "#f0f9ff", borderRadius: "6px", fontSize: "11px", color: "#0369a1", display: "flex", gap: "5px", lineHeight: 1.4 }}>
                   <Info size={11} style={{ flexShrink: 0, marginTop: "1px" }} />
-                  Plano: R$ 2.500/mês com 8.000 chamadas (R$ 0,31/un). Excedente: R$ 0,29/chamada.
+                  Plano: R$ 2.500/mês cobrem 8.000 chamadas. Excedentes: 0,29 (8k-50k) · 0,27 (50k-100k) · 0,25 (100k-200k) · 0,23 (200k-400k) · 0,20 (&gt;400k). Aplicado automaticamente.
                 </div>
                 <PriceInput label="Assertiva PJ" value={draftPrices.assertiva_pj} onChange={v => setDraftPrices(p => ({ ...p, assertiva_pj: v }))} />
                 <PriceInput label="Assertiva PF (sócio)" value={draftPrices.assertiva_pf} onChange={v => setDraftPrices(p => ({ ...p, assertiva_pf: v }))} />
@@ -474,6 +555,10 @@ export default function CustosPage() {
                 <PriceInput label="BDC Sócio (6 datasets)" value={draftPrices.bdc_socio} onChange={v => setDraftPrices(p => ({ ...p, bdc_socio: v }))} />
                 <PriceInput label="DataBox360 Empresa (SCR)" value={draftPrices.databox360_empresa} onChange={v => setDraftPrices(p => ({ ...p, databox360_empresa: v }))} />
                 <PriceInput label="DataBox360 Sócio (SCR)" value={draftPrices.databox360_socio} onChange={v => setDraftPrices(p => ({ ...p, databox360_socio: v }))} />
+                <div style={{ padding: "7px 10px", background: "#f0f9ff", borderRadius: "6px", fontSize: "11px", color: "#0369a1", display: "flex", gap: "5px", lineHeight: 1.4 }}>
+                  <Info size={11} style={{ flexShrink: 0, marginTop: "1px" }} />
+                  DataBox360: tarifa progressiva R$ 2,49 (até 100/mês) → R$ 2,24 (101-500) → R$ 1,99 (&gt;500). Aplicada automaticamente.
+                </div>
                 <div style={{ marginTop: "4px", paddingTop: "8px", borderTop: "1px dashed #e5e7eb", fontSize: "10px", color: "#94a3b8", fontWeight: 700, letterSpacing: "0.06em" }}>SACADOS (Curva ABC top 5)</div>
                 <PriceInput label="Sacado · CreditHub" value={draftPrices.sacado_credithub} onChange={v => setDraftPrices(p => ({ ...p, sacado_credithub: v }))} />
                 <PriceInput label="Sacado · BDC Empresa" value={draftPrices.sacado_bdc_empresa} onChange={v => setDraftPrices(p => ({ ...p, sacado_bdc_empresa: v }))} />
@@ -495,6 +580,14 @@ export default function CustosPage() {
           </div>
         </div>
       )}
+
+      {/* Banner: escala mensal aplicada */}
+      <div style={{ padding: "10px 14px", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: "10px", marginBottom: "16px", display: "flex", gap: "8px", alignItems: "flex-start", fontSize: "12px", color: "#1e40af" }}>
+        <Info size={13} style={{ flexShrink: 0, marginTop: "1px" }} />
+        <span>
+          <b>Escala mensal aplicada:</b> CreditHub (assinatura R$ 2.500 + faixas excedentes) e DataBox360 (R$ 2,49 → R$ 1,99 conforme volume) são calculados pelo total de chamadas de cada mês calendário. Demais bureaus seguem preço unitário fixo editável acima.
+        </span>
+      </div>
 
       {/* KPI cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "14px", marginBottom: "24px" }}>
