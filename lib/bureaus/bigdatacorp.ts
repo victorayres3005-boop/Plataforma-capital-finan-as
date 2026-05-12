@@ -3,16 +3,20 @@ import type { CNPJData, QSASocio, ProcessosData, ProtestosData, ProtestoDetalhe,
 export const BDC_BASE = "https://plataforma.bigdatacorp.com.br";
 
 export function bdcHeaders() {
+  // .trim() defensivo (auditoria M1 2026-05-12): se o env BDC_TOKEN for
+  // colado no painel Vercel com \n trailing (caso real já visto com chave
+  // do Goalfy 2026-05-06), header sai mal formado e BDC retorna 401 sem
+  // mensagem clara. Mesma defesa pra TokenId.
   return {
     "accept": "application/json",
     "content-type": "application/json",
-    "AccessToken": process.env.BDC_TOKEN ?? "",
-    "TokenId": process.env.BDC_TOKEN_ID ?? "",
+    "AccessToken": (process.env.BDC_TOKEN ?? "").trim(),
+    "TokenId": (process.env.BDC_TOKEN_ID ?? "").trim(),
   };
 }
 
 export function hasCredentials(): boolean {
-  return !!(process.env.BDC_TOKEN && process.env.BDC_TOKEN_ID);
+  return !!((process.env.BDC_TOKEN ?? "").trim() && (process.env.BDC_TOKEN_ID ?? "").trim());
 }
 
 // ── Tipos exportados ──────────────────────────────────────────────────────────
