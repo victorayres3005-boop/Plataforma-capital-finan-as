@@ -494,11 +494,25 @@ export function adaptCurvaABCNew(raw: Record<string, unknown>): Partial<CurvaABC
 
   const totalFatN = typeof r.total_faturado === "number" ? r.total_faturado : parseFloat(_s(r.total_faturado)) || 0;
 
-  // Parse valores primeiro para poder ordenar
+  // Parse valores primeiro para poder ordenar. Aceita variantes de nome
+  // de campo (auditoria M4 2026-05-12): Gemini às vezes retorna `percentual`
+  // mas outras `pct` ou `percentualReceita`. Default 0 mascarava silenciosamente.
+  const readPct = (c: Record<string, unknown>): number => {
+    const raw = c.percentual ?? c.pct ?? c.percentualReceita ?? c.percent ?? c.percentage;
+    if (typeof raw === "number") return raw;
+    if (raw == null) return 0;
+    return parseFloat(_s(raw)) || 0;
+  };
+  const readValor = (c: Record<string, unknown>): number => {
+    const raw = c.valor ?? c.value ?? c.faturamento ?? c.receita ?? c.total;
+    if (typeof raw === "number") return raw;
+    if (raw == null) return 0;
+    return parseFloat(_s(raw)) || 0;
+  };
   const clientesParsed = clientesRaw.map(c => ({
     raw: c,
-    valor: typeof c.valor === "number" ? c.valor : parseFloat(_s(c.valor)) || 0,
-    pct: typeof c.percentual === "number" ? c.percentual : parseFloat(_s(c.percentual)) || 0,
+    valor: readValor(c),
+    pct: readPct(c),
   }));
   // Garantir ordem decrescente por valor independente de como o doc apresenta
   clientesParsed.sort((a, b) => b.valor - a.valor);
