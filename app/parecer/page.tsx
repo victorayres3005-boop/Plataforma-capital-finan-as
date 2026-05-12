@@ -61,16 +61,27 @@ function ParecerContent() {
   const [parecerId, setParecerId]             = useState<string | null>(null);
   const [sharedReportId, setSharedReportId]   = useState<string | null>(null);
 
+  // Snapshots para calibração futura da IA — capturados UMA vez na carga
+  // (antes de qualquer autosave sobrescrever) e gravados em todo save.
+  // Permite reconstruir: rating/decisão originais da IA × override do comitê,
+  // Score V2 calculado, e versão de política aplicada no momento da decisão.
+  const snapshotsRef = useRef<{
+    ratingIaOriginal: number | null;
+    decisaoIaOriginal: string | null;
+    scoreV2: { rating: string; score_final: number; confianca_score: string } | null;
+  }>({ ratingIaOriginal: null, decisaoIaOriginal: null, scoreV2: null });
+
   // ── Carrega coleta + parecer existente + shared_report associado ─────────
   useEffect(() => {
     if (!id) { setLoading(false); return; }
     (async () => {
       try {
         const supabase = createClient();
-        const [collRes, parecerRes, shareRes] = await Promise.all([
+        const [collRes, parecerRes, shareRes, scoreRes] = await Promise.all([
           supabase.from("document_collections").select("*").eq("id", id).single(),
           supabase.from("pareceres").select("id").eq("collection_id", id).maybeSingle(),
           supabase.from("shared_reports").select("id").eq("collection_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+          supabase.from("score_operacoes").select("score_result").eq("collection_id", id).order("preenchido_em", { ascending: false }).limit(1).maybeSingle(),
         ]);
         if (collRes.error || !collRes.data) {
           toast.error("Coleta não encontrada.");
@@ -88,6 +99,30 @@ function ParecerContent() {
         // Rating: prioriza valor salvo pelo analista; fallback p/ coluna rating
         const r = analista?.ratingAnalista ?? data.rating;
         if (r != null) setRatingComite(String(r).replace(".", ","));
+
+        // Captura snapshots para calibração futura — preservar valores ORIGINAIS
+        // antes de qualquer autosave sobrescrever. Se já foram capturados em
+        // sessão anterior, prefere os que estão no JSONB (mais antigos = mais
+        // fiéis ao momento da análise IA).
+        const prevSnap = (analista?.ratingIaOriginal != null || analista?.decisaoIaOriginal != null)
+          ? {
+              ratingIaOriginal: (analista.ratingIaOriginal as number) ?? null,
+              decisaoIaOriginal: (analista.decisaoIaOriginal as string) ?? null,
+            }
+          : null;
+        snapshotsRef.current = {
+          ratingIaOriginal: prevSnap?.ratingIaOriginal ?? (ai?.rating as number) ?? data.rating ?? null,
+          decisaoIaOriginal: prevSnap?.decisaoIaOriginal ?? (ai?.decisao as string) ?? null,
+          scoreV2: (() => {
+            const sv = scoreRes.data?.score_result as Record<string, unknown> | undefined;
+            if (!sv) return (analista?.scoreV2Snapshot as { rating: string; score_final: number; confianca_score: string }) ?? null;
+            return {
+              rating: (sv.rating as string) ?? "",
+              score_final: (sv.score_final as number) ?? 0,
+              confianca_score: (sv.confianca_score as string) ?? "",
+            };
+          })(),
+        };
       } catch (err) {
         toast.error("Erro ao carregar coleta: " + (err instanceof Error ? err.message : "desconhecido"));
       } finally {
@@ -95,6 +130,22 @@ function ParecerContent() {
       }
     })();
   }, [id]);
+
+  // ── Snapshot da política ativa para o usuário (capturado nos saves) ─────
+  const loadPoliticaSnapshot = useCallback(async (userId: string): Promise<{ id: string; atualizado_em: string } | null> => {
+    try {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("politica_credito_config")
+        .select("id, atualizado_em")
+        .eq("user_id", userId)
+        .order("atualizado_em", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!data) return null;
+      return { id: data.id as string, atualizado_em: data.atualizado_em as string };
+    } catch { return null; }
+  }, []);
 
   // ── Autosave debounced (decisão + nota) ──────────────────────────────────
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -117,6 +168,9 @@ function ParecerContent() {
           const n = parseFloat(ratingComite.replace(",", "."));
           return isNaN(n) ? null : Math.max(0, Math.min(10, Math.round(n * 10) / 10));
         })();
+        // Snapshot da política (uma vez por save — barato, não precisa cache).
+        const politicaSnapshot = await loadPoliticaSnapshot(session.user.id);
+        const snap = snapshotsRef.current;
         const { error } = await supabase.from("document_collections").update({
           decisao: decisao || null,
           rating: ratingNum,
@@ -127,6 +181,11 @@ function ParecerContent() {
               notaComite: notaComite.trim() || null,
               ratingAnalista: ratingNum,
               decidedAt: new Date().toISOString(),
+              // Snapshots para calibração futura (preservados ao longo das edições)
+              ratingIaOriginal: snap.ratingIaOriginal,
+              decisaoIaOriginal: snap.decisaoIaOriginal,
+              scoreV2Snapshot: snap.scoreV2,
+              politicaSnapshot,
             },
           },
         }).eq("id", id).eq("user_id", session.user.id);
@@ -157,11 +216,19 @@ function ParecerContent() {
         const n = parseFloat(ratingComite.replace(",", "."));
         return isNaN(n) ? null : Math.max(0, Math.min(10, Math.round(n * 10) / 10));
       })();
+      const politicaSnapshot = await loadPoliticaSnapshot(session.user.id);
+      const snap = snapshotsRef.current;
       const parecerAnalista = {
         ...existingAnalista,
         notaComite: notaComite.trim() || null,
         ratingAnalista: ratingNum,
         decidedAt: new Date().toISOString(),
+        // Snapshots para calibração futura — preservam contexto do momento
+        // da decisão (rating IA original × override do comitê, política aplicada)
+        ratingIaOriginal: snap.ratingIaOriginal,
+        decisaoIaOriginal: snap.decisaoIaOriginal,
+        scoreV2Snapshot: snap.scoreV2,
+        politicaSnapshot,
       };
       const { error } = await supabase.from("document_collections").update({
         status: "finished",
@@ -188,11 +255,11 @@ function ParecerContent() {
           concentracao_max: null,
           garantias: null,
           prazo_revisao: null,
-          score_v2_rating: null,
-          score_v2_pontos: null,
-          score_v2_conf: null,
+          score_v2_rating: snap.scoreV2?.rating ?? null,
+          score_v2_pontos: snap.scoreV2?.score_final ?? null,
+          score_v2_conf: snap.scoreV2?.confianca_score ?? null,
           rating_ia: ratingNum,  // rating do comitê preenchido no /parecer
-          decisao_ia: null,
+          decisao_ia: snap.decisaoIaOriginal,
           membros_comite: null,
           // Reanálise: fallback fixo 90 dias (sem Score V2 não dá pra usar regra por rating)
           data_proxima_reanalise: (() => {
