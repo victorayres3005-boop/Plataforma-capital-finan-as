@@ -87,13 +87,19 @@ export async function POST(
 
   const supabase = createClient(url, key);
 
+  // maybeSingle: relatório com id inexistente é 404 esperado, não erro
+  // técnico. Antes single() retornava PGRST116 misturado com erros reais
+  // (schema cache stale, etc.) (auditoria 2026-05-12 #8).
   const { data: row, error: selErr } = await supabase
     .from("shared_reports")
     .select("edit_token, expires_at")
     .eq("id", id)
-    .single();
+    .maybeSingle();
 
-  if (selErr || !row) {
+  if (selErr) {
+    return Response.json({ error: selErr.message }, { status: 500 });
+  }
+  if (!row) {
     return Response.json({ error: "Relatório não encontrado" }, { status: 404 });
   }
   if (row.expires_at && new Date(row.expires_at as string) < new Date()) {

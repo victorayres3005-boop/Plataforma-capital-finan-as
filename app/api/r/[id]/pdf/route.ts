@@ -34,14 +34,15 @@ export async function POST(
   }
 
   const supabase = createClient(url, key);
+  // maybeSingle: distingue "não existe" (404) de erro técnico (500)
+  // (auditoria 2026-05-12 #8).
   const { data: row, error: selErr } = await supabase
     .from("shared_reports")
     .select("expires_at")
     .eq("id", id)
-    .single();
-  if (selErr || !row) {
-    return Response.json({ error: "Relatório não encontrado" }, { status: 404 });
-  }
+    .maybeSingle();
+  if (selErr) return Response.json({ error: selErr.message }, { status: 500 });
+  if (!row) return Response.json({ error: "Relatório não encontrado" }, { status: 404 });
   if (row.expires_at && new Date(row.expires_at as string) < new Date()) {
     return Response.json({ error: "Link expirado" }, { status: 410 });
   }
