@@ -858,7 +858,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
       : validacao === "alerta"
         ? `<span style="display:inline-block;margin-left:5px;padding:1px 5px;background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;border-radius:3px;font-size:8.5px;font-weight:700;letter-spacing:0.05em;vertical-align:middle">ID ALERTA</span>`
         : "";
-    return `<tr><td><b>${esc(s.nome)}</b>${obitBadge}${cpfBadge}${scorePFBadge}${validacaoBadge}</td><td style="font-family:'JetBrains Mono',monospace;font-size:11px">${fmtCpf(cpfRaw)}</td><td>${esc(cleanQual)}</td><td style="color:var(--x4)">${fmt(part)}</td><td>${pl}</td></tr>`;
+    return `<tr><td><b>${esc(s.nome)}</b>${obitBadge}${cpfBadge}${scorePFBadge}${validacaoBadge}</td><td style="font-family:'JetBrains Mono',monospace;font-size:11px">${fmtCpf(cpfRaw)}</td><td>${esc(cleanQual)}</td><td style="color:var(--x4)">${fmt(part)}</td></tr>`;
   }).join("");
 
   // SCR cards — usa helper único `calcScrTotal` (carteira+vencidos+prejuízos)
@@ -1264,8 +1264,8 @@ function pageSintese(params: PDFReportParams, date: string): string {
          depois Grupo Econômico (empresas vinculadas), depois Endividamento. -->
     ${stitle("Quadro societário")}
     <table class="soc-tbl">
-      <thead><tr><th>Sócio</th><th>CPF/CNPJ</th><th>Qualificação</th><th>Part.</th><th>Patrim. Líq. / Renda Est.</th></tr></thead>
-      <tbody>${socRows || `<tr><td colspan="5" style="color:var(--x4);text-align:center">—</td></tr>`}</tbody>
+      <thead><tr><th>Sócio</th><th>CPF/CNPJ</th><th>Qualificação</th><th>Part.</th></tr></thead>
+      <tbody>${socRows || `<tr><td colspan="4" style="color:var(--x4);text-align:center">—</td></tr>`}</tbody>
     </table>
     <div class="soc-extra">Grupo Econômico: <b>${d.grupoEconomico?.empresas?.length > 0 ? d.grupoEconomico.empresas.length + " empresa(s) identificada(s)" : "Não identificado"}</b></div>
 
