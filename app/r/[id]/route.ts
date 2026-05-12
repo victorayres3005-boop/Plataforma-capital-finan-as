@@ -489,16 +489,25 @@ export async function GET(
   }
 
 
-  // Cache-Control: no-store quando há edição em andamento OU pleito preenchido
-  // (Pleito Comitê é editável sem token e qualquer leitura precisa refletir o
-  // último save). Senão, cache normal de 1h.
+  // Cache-Control: no-store quando há edição em andamento, pleito preenchido,
+  // OU overrides salvos (fortes/fracos/alertas/percepções). Sem isso, o CDN
+  // cacheava a versão "vanilla IA" por 1h e leituras subsequentes em outra aba
+  // sem ?k= ignoravam as edições salvas no banco — sintoma reportado 2026-05-12.
   const hasPleitoComite = !!data.pleito_comite && Object.values(data.pleito_comite as Record<string, unknown>).some(v => typeof v === "string" && v.trim());
+  const hasOverrides =
+    (Array.isArray(data.pontos_fortes) && data.pontos_fortes.length > 0) ||
+    (Array.isArray(data.pontos_fracos) && data.pontos_fracos.length > 0) ||
+    (Array.isArray(data.alertas)       && data.alertas.length > 0) ||
+    (typeof data.percepcao === "string" && data.percepcao.trim().length > 0) ||
+    (typeof data.percepcao_dre === "string" && data.percepcao_dre.trim().length > 0) ||
+    (typeof data.percepcao_faturamento === "string" && data.percepcao_faturamento.trim().length > 0) ||
+    (typeof data.percepcao_balanco === "string" && data.percepcao_balanco.trim().length > 0);
 
   return new Response(html, {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": (editing || hasPleitoComite)
+      "Cache-Control": (editing || hasPleitoComite || hasOverrides)
         ? "no-store, no-cache, must-revalidate"
         : "public, max-age=3600, s-maxage=3600",
     },
