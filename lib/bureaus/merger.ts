@@ -518,8 +518,13 @@ export function mergeBureauResults(
         ? new Map(results.assertiva.socios.map(s => [s.cpf.replace(/\D/g, ""), s]))
         : new Map();
 
-      const scrSocios: SCRSocioData[] = db.socios
-        .filter(s => s.periodoAtual !== null)
+      // Separa em 2 baldes: quem o DataBox360 trouxe periodoAtual vs quem
+      // tentou consultar mas voltou null. Antes filtrava silenciosamente os
+      // null — analista via "Nenhum SCR enviado" sem saber que houve tentativa.
+      const sociosComScr = db.socios.filter(s => s.periodoAtual !== null);
+      const sociosErrors = db.socios.filter(s => s.periodoAtual === null);
+
+      const scrSocios: SCRSocioData[] = sociosComScr
         .map(s => {
           const aS = assertivaMap.get(s.cpfSocio);
           // Mesma detecção de sandbox para cada sócio
@@ -544,6 +549,10 @@ export function mergeBureauResults(
       if (scrSocios.length > 0) {
         merged.scrSocios = scrSocios;
         console.log(`[merger] DataBox360: ${scrSocios.length} sócio(s) com SCR`);
+      }
+      if (sociosErrors.length > 0) {
+        merged.scrSociosErrors = sociosErrors.map(s => ({ nome: s.nomeSocio, cpf: s.cpfSocio }));
+        console.warn(`[merger] DataBox360: ${sociosErrors.length} sócio(s) consultados sem retorno SCR: ${sociosErrors.map(s => s.nomeSocio).join(", ")}`);
       }
     }
   }

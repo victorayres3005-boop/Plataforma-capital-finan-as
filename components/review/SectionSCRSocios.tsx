@@ -11,6 +11,9 @@ import { parseBR } from "@/lib/scrTotal";
 
 interface Props {
   socios: SCRSocioData[];
+  /** Sócios PF que TENTARAM consultar SCR mas DataBox360 retornou null.
+   *  Permite distinguir "sem sócios PF" de "consulta falhou". */
+  errors?: Array<{ nome: string; cpf: string }>;
   expanded: boolean;
   onToggle: () => void;
   quality: QualityResult;
@@ -44,10 +47,11 @@ function maskCpf(cpf: string | undefined): string {
   return cpf;
 }
 
-export function SectionSCRSocios({ socios, expanded, onToggle, quality }: Props) {
+export function SectionSCRSocios({ socios, errors, expanded, onToggle, quality }: Props) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
   const hasSocios = socios && socios.length > 0;
+  const hasErrors = (errors?.length ?? 0) > 0;
 
   return (
     <SectionCard
@@ -63,12 +67,34 @@ export function SectionSCRSocios({ socios, expanded, onToggle, quality }: Props)
       }
     >
       {!hasSocios ? (
-        <div style={{ padding: "16px", background: "#F9FAFB", borderRadius: "8px", border: "1px dashed #D1D5DB" }}>
-          <p style={{ fontSize: "13px", color: "#6B7280", margin: 0 }}>
-            Nenhum SCR de sócio PF enviado. Envie arquivos nos slots <strong>SCR dos Sócios — Atual</strong> e{" "}
-            <strong>SCR dos Sócios — Anterior</strong> para visualizar o comparativo aqui.
-          </p>
-        </div>
+        hasErrors ? (
+          <div style={{ padding: "16px", background: "#FFFBEB", borderRadius: "8px", border: "1px solid #FCD34D" }}>
+            <p style={{ fontSize: "13px", fontWeight: 600, color: "#92400E", margin: "0 0 8px" }}>
+              ⚠ Consulta DataBox360 sem retorno para {errors!.length} sócio{errors!.length > 1 ? "s" : ""} PF
+            </p>
+            <p style={{ fontSize: "12px", color: "#78350F", margin: "0 0 8px", lineHeight: 1.5 }}>
+              O sistema tentou consultar o SCR/BACEN automaticamente, mas o DataBox360 retornou vazio. Pode ser:
+              CPF sem operações financeiras registradas, token expirado, ou indisponibilidade momentânea da API.
+            </p>
+            <ul style={{ fontSize: "12px", color: "#78350F", margin: "4px 0 0 16px", padding: 0 }}>
+              {errors!.map((e, i) => (
+                <li key={i} style={{ marginBottom: "2px" }}>
+                  <span style={{ fontFamily: "ui-monospace, monospace" }}>{maskCpf(e.cpf)}</span>
+                  {e.nome ? ` — ${e.nome}` : ""}
+                </li>
+              ))}
+            </ul>
+            <p style={{ fontSize: "11px", color: "#92400E", margin: "8px 0 0", fontStyle: "italic" }}>
+              Clique em <strong>Reconsultar bureaus</strong> na barra superior para tentar de novo.
+            </p>
+          </div>
+        ) : (
+          <div style={{ padding: "16px", background: "#F9FAFB", borderRadius: "8px", border: "1px dashed #D1D5DB" }}>
+            <p style={{ fontSize: "13px", color: "#6B7280", margin: 0 }}>
+              Nenhum sócio PF identificado no QSA — não há o que consultar no SCR/BACEN.
+            </p>
+          </div>
+        )
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
           {socios.map((socio, i) => {

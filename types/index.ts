@@ -1035,6 +1035,12 @@ export interface ExtractedData {
   irSocios?: IRSocioData[];
   relatorioVisita?: RelatorioVisitaData;
   scrSocios?: SCRSocioData[];
+  /** Sócios PF que TENTARAM consultar SCR via DataBox360 mas a API retornou
+   *  null (token expirado, CPF sem operações BACEN, timeout, sandbox).
+   *  Adicionado 2026-05-12 pra distinguir "consulta falhou" de "sem sócios PF".
+   *  Quando scrSocios=[] e scrSociosErrors.length > 0, a Review mostra
+   *  mensagem específica de erro de consulta em vez de "envie arquivos". */
+  scrSociosErrors?: Array<{ nome: string; cpf: string }>;
   score?: BureauScore;
   bureausConsultados?: string[];
   resumoRisco: string;
