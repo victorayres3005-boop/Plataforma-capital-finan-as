@@ -5,6 +5,7 @@ import type { ScoreResult, RespostaCriterio, ConfiguracaoPolitica } from "@/type
 import { mergeComDefaults, DEFAULT_POLITICA_V2 } from "@/lib/politica-credito/defaults";
 
 import { createClient } from "@supabase/supabase-js";
+import { unstable_noStore as noStore } from "next/cache";
 import { generateEmbedding, buildEmbeddingText } from "@/lib/embeddings";
 import { ANALYSIS_PROMPT, PROMPT_SINTESE } from "@/lib/analyze/prompts";
 import {
@@ -17,6 +18,9 @@ import { callGemini, callOpenRouter, GEMINI_API_KEYS, OPENROUTER_API_KEYS, type 
 
 export const runtime = "nodejs";
 export const maxDuration = 90;
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
+export const revalidate = 0;
 
 // ─── Cache em memória das análises IA (evita re-chamar Gemini para o mesmo CNPJ) ───
 const analysisCache = new Map<string, { analysis: object; expiresAt: number }>();
@@ -342,6 +346,10 @@ Estes parâmetros são os únicos critérios de avaliação desta operação.
 // HANDLER
 // ─────────────────────────────────────────
 export async function POST(request: NextRequest) {
+  // 2026-05-12 (auditoria #7): mesma classe de bug do /r/[id] resolvido em
+  // 9983e49. Sem isso, Next.js memoiza SELECTs do Supabase (política, cache
+  // de análise, score, etc.) e pode retornar resultados stale entre requests.
+  noStore();
   try {
     const body = await request.json();
 
