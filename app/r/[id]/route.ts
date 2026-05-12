@@ -496,6 +496,17 @@ export async function GET(
       ".edit-rm.confirming{background:#dc2626;color:#fff;width:auto;padding:0 8px;border-radius:9px;font-size:10px;font-weight:700;animation:rmPulse 1.5s ease-in-out infinite}\n@keyframes rmPulse{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,.4)}50%{box-shadow:0 0 0 6px rgba(220,38,38,0)}}\n</style>"
     );
 
+    // HOTFIX 2026-05-12 (P2): toast com contagem do que foi salvo.
+    // Substitui o handler antigo que só mostrava "Alterações salvas" genérico.
+    html = html.replace(
+      "}).then(function(){\n      lists().forEach(function(p){ if (p[1]) undecorate(p[1]); });",
+      "}).then(function(resp){\n      lists().forEach(function(p){ if (p[1]) undecorate(p[1]); });"
+    );
+    html = html.replace(
+      "editing = false;\n      toast.classList.add('show');\n      setTimeout(function(){ toast.classList.remove('show'); }, 2200);",
+      "editing = false;\n      var parts = [];\n      var nF = (resp && resp.fortes  ? resp.fortes.length  : 0);\n      var nW = (resp && resp.fracos  ? resp.fracos.length  : 0);\n      var nA = (resp && resp.alertas ? resp.alertas.length : 0);\n      if (nF) parts.push(nF + ' forte' + (nF !== 1 ? 's' : ''));\n      if (nW) parts.push(nW + ' fraco' + (nW !== 1 ? 's' : ''));\n      if (nA) parts.push(nA + ' alerta' + (nA !== 1 ? 's' : ''));\n      if (resp && resp.percepcao && resp.percepcao.length)               parts.push('percep\\u00e7\\u00e3o \\u2713');\n      if (resp && resp.percepcaoDre && resp.percepcaoDre.length)         parts.push('DRE \\u2713');\n      if (resp && resp.percepcaoFaturamento && resp.percepcaoFaturamento.length) parts.push('Faturamento \\u2713');\n      if (resp && resp.percepcaoBalanco && resp.percepcaoBalanco.length) parts.push('Balan\\u00e7o \\u2713');\n      toast.textContent = parts.length ? ('Salvo: ' + parts.join(' \\u00b7 ')) : 'Salvo (nada para gravar)';\n      toast.classList.add('show');\n      setTimeout(function(){ toast.classList.remove('show'); }, 3500);"
+    );
+
     // Workaround independente: script extra antes de </body> que registra
     // window.__forcarBarra() e atalho Ctrl+Alt+E. Roda mesmo se o script
     // principal de edição falhar antes do bar.classList.add('show').

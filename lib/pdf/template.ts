@@ -3910,7 +3910,7 @@ document.getElementById('printBtn').addEventListener('click', async function() {
     }).then(function(r){
       if (!r.ok) return r.text().then(function(t){ throw new Error(t || ('HTTP '+r.status)); });
       return r.json();
-    }).then(function(){
+    }).then(function(resp){
       lists().forEach(function(p){ if (p[1]) undecorate(p[1]); });
       var pe = percEl();
       if (pe) { pe.removeAttribute('contenteditable'); pe.classList.remove('perc-editing'); }
@@ -3927,8 +3927,23 @@ document.getElementById('printBtn').addEventListener('click', async function() {
       btnSave.style.display='none';
       btnCanc.style.display='none';
       editing = false;
+      // Toast detalhado: mostra exatamente o que o backend gravou.
+      // Antes era "Alterações salvas" genérico — usuário ficava sem saber
+      // se algo passou batido (caso real 2026-05-12).
+      var parts = [];
+      var nF = (resp && resp.fortes  ? resp.fortes.length  : 0);
+      var nW = (resp && resp.fracos  ? resp.fracos.length  : 0);
+      var nA = (resp && resp.alertas ? resp.alertas.length : 0);
+      if (nF) parts.push(nF + ' forte' + (nF !== 1 ? 's' : ''));
+      if (nW) parts.push(nW + ' fraco' + (nW !== 1 ? 's' : ''));
+      if (nA) parts.push(nA + ' alerta' + (nA !== 1 ? 's' : ''));
+      if (resp && resp.percepcao && resp.percepcao.length)               parts.push('percepção ✓');
+      if (resp && resp.percepcaoDre && resp.percepcaoDre.length)         parts.push('DRE ✓');
+      if (resp && resp.percepcaoFaturamento && resp.percepcaoFaturamento.length) parts.push('Faturamento ✓');
+      if (resp && resp.percepcaoBalanco && resp.percepcaoBalanco.length) parts.push('Balanço ✓');
+      toast.textContent = parts.length ? ('Salvo: ' + parts.join(' · ')) : 'Salvo (nada para gravar)';
       toast.classList.add('show');
-      setTimeout(function(){ toast.classList.remove('show'); }, 2200);
+      setTimeout(function(){ toast.classList.remove('show'); }, 3500);
     }).catch(function(e){
       alert('Erro ao salvar: ' + (e && e.message ? e.message : e));
     }).finally(function(){
