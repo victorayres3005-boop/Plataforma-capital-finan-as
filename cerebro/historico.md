@@ -75,6 +75,59 @@ Motivado por divergência real: CNPJ 41.301.271/0001-64 mostrava R$ 6.85M / 20 i
 
 - `fix(grupo-economico)` 12aa413 — Empresas além da 5ª agora são enriquecidas; situação VERIFICAR recuperada.
 
+### Frente 7 — Maratona pós-grupo: edição inline + roadmap + auditoria 4 camadas (26 commits)
+
+Sessão noturna gerou 26 commits adicionais distribuídos em 3 sub-frentes.
+
+#### 7a — Edição inline /r/{id} (8 commits, 7h de debug em cascata)
+
+Victor reportou "edições somem ao reabrir aba". Pareceu cache CDN. Não era. Cada fix revelou outra camada do bug subjacente.
+
+- `fix(r/[id])` 1433dfa — **Cache CDN no-store quando há overrides** (`hasOverrides` na condição). Antes, URL irmã sem `?k=` cacheava versão IA por 1h. Achado: bloqueador residual, não causa raiz.
+- `fix(r/[id])` a73aa40 — **SELECT etapa 1 não pede `percepcao` (coluna ausente em prod)**. A migration 17b nunca rodou apesar do registro na memória. PostgREST devolvia 42703, fallback de emergência perdia as listas. Movido pra etapa 2 silenciosa.
+- `fix(edit-inline)` bb8fc9e — **× pede confirmação dupla**. Logs revelaram que items sumiam entre `decorate()` e `saveEdit()`. Causa: `×` removia direto sem aviso, Victor clicava por engano. 1º click vira pílula "Confirmar?" vermelha pulsante, 2º click em ≤3s remove.
+- `fix(r/[id])` 8a34f38 — **SELECT etapa 2 unificada com fallback coluna-a-coluna**. Ainda assim percepção persistia stale.
+- `fix(r/[id])` 9983e49 — **CAUSA RAIZ: fetch cache do Next.js**. `noStore()` + `fetchCache="force-no-store"` + `revalidate=0` em segment + handler. Next 14 memoiza `fetch()` GET por padrão — Supabase JS usa fetch — SELECT etapa 1 e etapa 2 caíam no mesmo cache key. Listas em JSONB escapavam por serialização diferente; percepções TEXT plain ficavam stale. **Diagnóstico via debug marker no `<head>`**: comentário HTML com `data.percepcao` slice → curl revelou que servidor pegava texto antigo apesar de banco ter texto novo.
+- `chore(edit-inline)` 30d0589 — Remove logs `[edit:collect-debug]` após validação. Mantém fixes essenciais (× confirmação, decorate placeholder, noStore, etapa 2 unificada).
+- Memory `reference_nextjs_fetch_cache_supabase.md` — invariante: handlers Next.js que fazem múltiplos SELECTs Supabase precisam de noStore + fetchCache.
+
+#### 7b — Roadmap pós-edição (4 commits)
+
+- `feat(edit-inline)` 73f6b97 — **P2: Toast detalhado com contagem**. Antes "Alterações salvas" genérico mascarava bugs. Agora: "Salvo: 2 fortes · 1 fraco · 1 alerta · percepção ✓ · DRE ✓".
+- `feat(admin)` 49dddc7 — **P3: Healthcheck schema preventivo**. `GET /api/health/schema` testa coluna a coluna via SELECT LIMIT 0. `<SchemaHealthBanner/>` no `/admin/*` mostra alerta com migration faltante. Origem: memória mentiu que mig 17b tinha rodado.
+- `test(e2e)` a8d76a2 — **P4: E2E Playwright** em `e2e/edicao-inline.spec.ts` (2 specs, 228 linhas). Spec 1 testa pipeline server-side completo + anti-staleness (PATCH direto + 2ª GET). Spec 2 testa × com confirmação dupla via UI real. Skipa se faltar credencial.
+- `fix(r/[id])` 1710afd — **P0: Clear-Site-Data ao entrar com ?k=**. Header `Clear-Site-Data: "cache"` purga disk cache do browser quando sessão de edição inicia. Tradeoff: purga assets static também — aceitável porque modo edit é raro.
+
+#### 7c — Auditoria de bugs latentes em 4 camadas (16 commits)
+
+Auditoria profunda disparada em paralelo (4 agentes Explore): bureaus, extract, API routes, persistência. Resultado: ~30 bugs encontrados, ~17 acionáveis após filtrar falsos positivos.
+
+**ALTA (6 commits):**
+- 593eb10 — `/api/analyze` ganha `noStore()` + `fetchCache="force-no-store"`. Mesma vulnerabilidade do `/r/[id]`.
+- ab5bbab — CreditHub `parseEmpresasVinculadas` sincronizado com `enriquecer*` (6 nomes de campo de situação); BDC fallback com filtro OR amplo.
+- 3d01f7d — BDC Dívida Ativa: default situação `"Ativa"` → `"VERIFICAR"`. Mesma classe do bug de 2026-05-08.
+- bbf1a0f — `.single()` → `.maybeSingle()` em 4 handlers que aceitam 404. Antes PGRST116 virava 500 genérico.
+- 543b28b — `countFilledFields` para de contar `false` como preenchido; passa a contar `number !== 0`. Métrica de extração realista.
+- (`capitalSocialCNPJ` reportado pelo agente foi **falso positivo** — merger enriquece via CreditHub/BrasilAPI/BDC. Sem fix.)
+
+**MÉDIA (8 commits):**
+- f7c291e — `.trim()` em `BDC_TOKEN`/`BDC_TOKEN_ID` (anti `\n` em env Vercel).
+- 59f13cc — `brasilapi.ts` usa `normalizeSituacaoCadastral` (word-boundary).
+- efeaecc — `_fmtMoneyBR` lida com BR sem decimais. `"1.234.567"` deixa de virar `1.234`.
+- 324d736 — `adaptCurvaABCNew` aceita 5 variantes de `percentual`/`valor`.
+- 81bb5f1 — `/operacoes DELETE` retorna 404 quando 0 rows (era `{ ok: true }` falso).
+- 8cfe9b3 — `/r/[id]/pdf` exige SERVICE_ROLE explicitamente. Fallback ANON_KEY perigoso (RLS pode silenciar SELECT).
+- 8539e90+2ea08be — RelatorioVisita persiste mesmo com só `parametrosOperacionais`/`sugestaoAnalista` preenchidos. Antes exigia `dataVisita`/`responsavelVisita`/`descricaoEstrutura`/`observacoesLivres` — perdia ~50 campos opcionais.
+- d7c7146 — `dividaAtivaBDC` ganha pipeline end-to-end. Adicionado type enum, build serializa, hydrate mapeia. Sem isso o comparativo BDC×PGFN se perdia ao reabrir coleta.
+
+**BAIXA (2 commits):**
+- 97d840c — `scrSandboxSemHistorico` + `grupoEconomicoScrSandbox` persistem via `bureau_meta`. Antes flags voltavam `false` ao reabrir, comparativos com dados mock voltavam visíveis.
+- de76deb — `/api/analyze` body 6MB limit (413 explícito).
+
+**Backlog mantido como puramente cosmético**: BDC `consultasRecentes.slice(0,10)` sem log; `pleito_comite` JSONB sem interface TS forte; `ai_analysis` JSONB sem schema validation; migrations 16/17/18 com sufixos alfabéticos.
+
+**Métricas finais da sessão**: 26 commits (7a + 7b + 7c), 0 regressões funcionais, **372/372 testes verdes** em cada round, `tsc` clean em cada commit, 1 SQL pendente rodado por Victor (`ALTER TABLE shared_reports ADD COLUMN IF NOT EXISTS percepcao TEXT`).
+
 ---
 
 ## 2026-05-11 — Maratona: Pleito do Comitê + Parecer PDF/HTML + redesign /relatório + 3 bugs SyntaxError históricos
