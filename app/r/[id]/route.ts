@@ -480,6 +480,20 @@ export async function GET(
       "function saveEdit(){\n    var data = collect();\n    console.log('[edit:collect-debug] PAYLOAD:', JSON.stringify({fortes:data.fortes,fracos:data.fracos,alertas:data.alertas,percepcao_len:(data.percepcao||'').length,percepcaoDre_len:(data.percepcaoDre||'').length,percepcaoFaturamento_len:(data.percepcaoFaturamento||'').length,percepcaoBalanco_len:(data.percepcaoBalanco||'').length}));"
     );
 
+    // HOTFIX 2026-05-12: × button antes era click → item.remove() instantâneo.
+    // Sintoma: usuário clicava por engano achando que ia editar → item sumia
+    // silenciosamente → save grava []. Agora exige confirmação (1º click vira
+    // "Confirmar?" pulsante, 2º click em até 3s remove). Reverte sozinho.
+    html = html.replace(
+      "rm.addEventListener('click', function(e){ e.preventDefault(); item.remove(); });",
+      "var confirmTimer = null;\n        rm.addEventListener('click', function(e){\n          e.preventDefault(); e.stopPropagation();\n          console.log('[edit:collect-debug] × clicado em', (item.textContent||'').slice(0,40), 'confirming=', rm.classList.contains('confirming'));\n          if (rm.classList.contains('confirming')) {\n            if (confirmTimer) clearTimeout(confirmTimer);\n            console.log('[edit:collect-debug] × REMOVENDO item');\n            item.remove();\n            return;\n          }\n          rm.classList.add('confirming');\n          rm.textContent = 'Confirmar?';\n          confirmTimer = setTimeout(function(){\n            rm.classList.remove('confirming');\n            rm.textContent = '\\u00d7';\n          }, 3000);\n        });"
+    );
+    // Estilo da pílula "Confirmar?" injetado também (CSS adicional via <style> antes do </head>).
+    html = html.replace(
+      "</style>",
+      ".edit-rm.confirming{background:#dc2626;color:#fff;width:auto;padding:0 8px;border-radius:9px;font-size:10px;font-weight:700;animation:rmPulse 1.5s ease-in-out infinite}\n@keyframes rmPulse{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,.4)}50%{box-shadow:0 0 0 6px rgba(220,38,38,0)}}\n</style>"
+    );
+
     // Workaround independente: script extra antes de </body> que registra
     // window.__forcarBarra() e atalho Ctrl+Alt+E. Roda mesmo se o script
     // principal de edição falhar antes do bar.classList.add('show').

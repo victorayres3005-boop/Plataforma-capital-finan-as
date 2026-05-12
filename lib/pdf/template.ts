@@ -3678,8 +3678,10 @@ document.getElementById('printBtn').addEventListener('click', async function() {
   body.editing [data-edit-text]:hover{background:rgba(132,191,65,.06)}
   body.editing [data-edit-text][contenteditable="true"]:focus{outline:1px solid #84BF41;background:#fff}
   body.editing .ana-item-empty{display:none}
-  .edit-rm{position:absolute;top:50%;right:4px;transform:translateY(-50%);width:18px;height:18px;border-radius:50%;border:none;background:#fee2e2;color:#b91c1c;font-size:13px;line-height:1;cursor:pointer;display:none;align-items:center;justify-content:center;padding:0;font-family:inherit}
+  .edit-rm{position:absolute;top:50%;right:4px;transform:translateY(-50%);width:18px;height:18px;border-radius:50%;border:none;background:#fee2e2;color:#b91c1c;font-size:13px;line-height:1;cursor:pointer;display:none;align-items:center;justify-content:center;padding:0;font-family:inherit;transition:all .15s}
   body.editing .edit-rm{display:inline-flex}
+  .edit-rm.confirming{background:#dc2626;color:#fff;width:auto;padding:0 8px;border-radius:9px;font-size:10px;font-weight:700;animation:rmPulse 1.5s ease-in-out infinite}
+  @keyframes rmPulse{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,.4)}50%{box-shadow:0 0 0 6px rgba(220,38,38,0)}}
   .edit-add{display:none;margin-top:8px;padding:5px 10px;font-size:11px;border:1px dashed #84BF41;background:#f0f9e6;color:#5a8a2a;border-radius:5px;cursor:pointer;font-family:inherit;font-weight:600}
   body.editing .edit-add{display:inline-block}
   .edit-saved{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:9999;padding:10px 18px;background:#16a34a;color:#fff;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.15);display:none}
@@ -3760,9 +3762,28 @@ document.getElementById('printBtn').addEventListener('click', async function() {
       item.setAttribute('contenteditable','true');
       if (!item.querySelector('.edit-rm')){
         var rm = document.createElement('button');
-        rm.type='button'; rm.className='edit-rm'; rm.textContent='×'; rm.title='Remover';
+        rm.type='button'; rm.className='edit-rm'; rm.textContent='×'; rm.title='Clique para remover (precisa confirmar)';
         rm.contentEditable = 'false';
-        rm.addEventListener('click', function(e){ e.preventDefault(); item.remove(); });
+        // ANTI-ACIDENTE: 1º click vira "Confirmar?" pulsante. 2º click em até
+        // 3s remove. Reverte sozinho após 3s. Resolve sintoma 2026-05-12 onde
+        // items sumiam silenciosamente pelo click acidental.
+        var confirmTimer = null;
+        rm.addEventListener('click', function(e){
+          e.preventDefault(); e.stopPropagation();
+          console.log('[edit:collect-debug] × clicado em', (item.textContent||'').slice(0,40), 'confirming=', rm.classList.contains('confirming'));
+          if (rm.classList.contains('confirming')) {
+            if (confirmTimer) clearTimeout(confirmTimer);
+            console.log('[edit:collect-debug] × REMOVENDO item');
+            item.remove();
+            return;
+          }
+          rm.classList.add('confirming');
+          rm.textContent = 'Confirmar?';
+          confirmTimer = setTimeout(function(){
+            rm.classList.remove('confirming');
+            rm.textContent = '×';
+          }, 3000);
+        });
         item.appendChild(rm);
       }
     });
