@@ -41,6 +41,12 @@ Motivado por divergência real: CNPJ 41.301.271/0001-64 mostrava R$ 6.85M / 20 i
 
 - `feat(qsa)` 7de79e6: coluna **"Patrim. Líq. / Renda Est."** removida do Quadro Societário na Síntese Preliminar. Tabela vai de 5 para 4 colunas (Sócio · CPF/CNPJ · Qualificação · Part.). Cards de Patrimônio Líquido nas seções de SCR dos Sócios foram preservados — pedido era específico do QSA da síntese.
 
+### Frente 4 — Auditoria de /custos (2 fixes)
+
+- `fix(custos)` 4770bb6 — **Sacados não contavam**. `api_usage_logs.bureau_calls` grava 11 campos mas a UI lia só 7. Os 4 campos de sacados (sacado_credithub, sacado_bdc_empresa, sacado_bdc_pessoa, sacado_assertiva_pj) ficavam logados mas não cobrados — sub-estimação de até 20-50% em análises com Curva ABC top 5 PJ. `BureauCalls` ganha 4 campos opcionais, `BureauPrices` ganha 4 preços (defaults clones dos pais), `calcCustoBureau` soma os 4 com `safeNum`. UI: cards novos em "Estimativa por Bureau" + seção editável "SACADOS" no modal.
+
+- `feat(custos)` 90e5c10 — **Tarifas escalonadas por mês**. Antes CH fixo em R$ 0,31 e DB360 fixo em R$ 2,49 (ignorando contratos vigentes). Agora `custoCreditHubMes(n)` aplica assinatura R$ 2.500 (até 8k chamadas) + faixas 0,29/0,27/0,25/0,23/0,20 nos excedentes; `custoDataBox360Mes(n)` aplica 2,49/2,24/1,99 conforme volume mensal. Implementação: pass que agrupa `analysisRows` por `yyyy-mm`, calcula custo escalonado do mês, redistribui proporcionalmente entre as análises. Outros bureaus (Assertiva, BDC, Gemini, sacados não-CH) seguem preço unitário fixo editável. Tarifas hardcoded — ajustar `custoCreditHubMes`/`custoDataBox360Mes` se mudar contrato. Detalhes em `memory/reference_custos_pricing.md`.
+
 ---
 
 ## 2026-05-11 — Maratona: Pleito do Comitê + Parecer PDF/HTML + redesign /relatório + 3 bugs SyntaxError históricos
