@@ -492,9 +492,14 @@ export function fillCenprotDefaults(data: Partial<CenprotData>): CenprotData {
       devedor: r?.devedor || "",
       cedente: r?.cedente || "",
       protocolo: r?.protocolo || "",
+      // Campos opcionais adicionados em 2026-05-11 — mesmo bug do GEFIP:
+      // fillDefaults estava descartando antes do save.
+      status: r?.status || undefined,
+      tipoTitulo: r?.tipoTitulo || undefined,
     })),
     certidaoNegativa: !!data.certidaoNegativa,
     dataConsulta: data.dataConsulta || "",
+    chaveValidacao: data.chaveValidacao || undefined,
   };
 }
 
@@ -513,7 +518,18 @@ export function fillGefipDefaults(data: Partial<GefipData>): GefipData {
       valorFgts: c?.valorFgts || "",
       valorInss: c?.valorInss || "",
       situacao: c?.situacao || "",
+      // Campos opcionais adicionados em 2026-05-11 — preserva quando extraídos
+      // (bug histórico: fillDefaults estava descartando estes 3 campos por
+      // competência mais 3 do header, fazendo o template renderizar vazio).
+      folhaPagamento: c?.folhaPagamento || undefined,
+      valorMultas: c?.valorMultas || undefined,
+      valorJuros: c?.valorJuros || undefined,
     })),
+    // Header da declaração — utilíssimo pra validação cruzada (cnpjDeclarado
+    // × cnpj do cedente evita misturar declarações de empresas diferentes).
+    tipoDeclaracao: data.tipoDeclaracao || undefined,
+    cnpjDeclarado: data.cnpjDeclarado || undefined,
+    razaoSocialDeclarada: data.razaoSocialDeclarada || undefined,
   };
 }
 
