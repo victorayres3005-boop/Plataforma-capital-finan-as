@@ -90,11 +90,17 @@ export default function EmpresaPage() {
   useEffect(() => {
     if (!params?.cnpj) return;
     setLoading(true);
-    fetch(`/api/empresa/${params.cnpj}`)
+    // AbortController: se o componente desmonta ou o cnpj muda durante a
+    // request, cancela o fetch antigo e descarta o setState — evita warning
+    // "Can't perform setState on unmounted" + race condition (resposta antiga
+    // sobrescrevendo dados novos).
+    const ctrl = new AbortController();
+    fetch(`/api/empresa/${params.cnpj}`, { signal: ctrl.signal })
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
-      .then(setResp)
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false));
+      .then(data => { if (!ctrl.signal.aborted) setResp(data); })
+      .catch(e => { if (!ctrl.signal.aborted) setError(e.message); })
+      .finally(() => { if (!ctrl.signal.aborted) setLoading(false); });
+    return () => ctrl.abort();
   }, [params?.cnpj]);
 
   const snapshots = resp?.snapshots ?? [];
