@@ -93,8 +93,25 @@ export function buildCollectionDocs(data: ExtractedData): CollectionDocument[] {
       uploaded_at: ts(),
     }));
   }
-  if (data.relatorioVisita && (data.relatorioVisita.dataVisita || data.relatorioVisita.responsavelVisita || data.relatorioVisita.descricaoEstrutura || data.relatorioVisita.observacoesLivres)) {
-    docs.push({ type: "relatorio_visita" as CollectionDocument["type"], filename: "relatorio-visita.pdf", extracted_data: asRec(data.relatorioVisita), uploaded_at: ts() });
+  // Serialização robusta (auditoria M7 2026-05-12): antes só persistia se
+  // dataVisita/responsavelVisita/descricaoEstrutura/observacoesLivres estavam
+  // preenchidos. RelatorioVisita tem ~50 campos opcionais (parâmetros
+  // operacionais, sugestaoAnalista, contatos). Se user só preenche limite/taxa
+  // sem visita formal, tudo se perdia. Agora checa se QUALQUER campo string
+  // não-vazio existe.
+  if (data.relatorioVisita) {
+    const rv = data.relatorioVisita as Record<string, unknown>;
+    const hasAnyField = Object.values(rv).some(v => {
+      if (typeof v === "string") return v.trim().length > 0;
+      if (typeof v === "boolean") return v === true;
+      if (typeof v === "number") return Number.isFinite(v) && v !== 0;
+      if (Array.isArray(v)) return v.length > 0;
+      if (v && typeof v === "object") return Object.keys(v).length > 0;
+      return false;
+    });
+    if (hasAnyField) {
+      docs.push({ type: "relatorio_visita" as CollectionDocument["type"], filename: "relatorio-visita.pdf", extracted_data: asRec(data.relatorioVisita), uploaded_at: ts() });
+    }
   }
   if (data.ccf && (data.ccf.qtdRegistros > 0 || (data.ccf.bancos && data.ccf.bancos.length > 0))) {
     docs.push({ type: "ccf" as CollectionDocument["type"], filename: "ccf.pdf", extracted_data: asRec(data.ccf), uploaded_at: ts() });
