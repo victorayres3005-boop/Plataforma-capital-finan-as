@@ -19,6 +19,13 @@ interface BureauPrices {
   bdc_socio: number;
   databox360_empresa: number;
   databox360_socio: number;
+  // Sacados — mesma estrutura tarifária dos bureaus base.
+  // Default = clone do preço-pai; editáveis em separado caso a tarifa
+  // futura diferencie sacados.
+  sacado_credithub: number;
+  sacado_bdc_empresa: number;
+  sacado_bdc_pessoa: number;
+  sacado_assertiva_pj: number;
   gemini_input_per_1m: number;
   gemini_output_per_1m: number;
 }
@@ -52,6 +59,13 @@ interface BureauCalls {
   bdc_socio: number;
   databox360_empresa: number;
   databox360_socio: number;
+  // ── Sacados (Curva ABC top 5) — adicionado 2026-05-12.
+  // Antes era gravado em api_usage_logs mas não contava no custo
+  // (sub-estimação de até 20-50% pra análises com muitos sacados PJ).
+  sacado_credithub?: number;
+  sacado_bdc_empresa?: number;
+  sacado_bdc_pessoa?: number;
+  sacado_assertiva_pj?: number;
 }
 
 // One row per "analysis session" in the table
@@ -86,6 +100,11 @@ const DEFAULT_PRICES: BureauPrices = {
   bdc_socio:          0.30,
   databox360_empresa: 2.49,
   databox360_socio:   2.49,
+  // Sacados: mesma tarifa dos bureaus-pai por enquanto.
+  sacado_credithub:     0.31,
+  sacado_bdc_empresa:   0.51,
+  sacado_bdc_pessoa:    0.30,
+  sacado_assertiva_pj:  1.20,
   gemini_input_per_1m:  0.375,
   gemini_output_per_1m: 1.50,
 };
@@ -107,7 +126,12 @@ function calcCustoBureau(calls: BureauCalls, prices: BureauPrices): number {
     safeNum(calls.bdc_empresa)         * safeNum(prices.bdc_empresa) +
     safeNum(calls.bdc_socio)           * safeNum(prices.bdc_socio) +
     safeNum(calls.databox360_empresa)  * safeNum(prices.databox360_empresa) +
-    safeNum(calls.databox360_socio)    * safeNum(prices.databox360_socio)
+    safeNum(calls.databox360_socio)    * safeNum(prices.databox360_socio) +
+    // Sacados (Curva ABC) — antes ficavam no log mas não contavam.
+    safeNum(calls.sacado_credithub)    * safeNum(prices.sacado_credithub) +
+    safeNum(calls.sacado_bdc_empresa)  * safeNum(prices.sacado_bdc_empresa) +
+    safeNum(calls.sacado_bdc_pessoa)   * safeNum(prices.sacado_bdc_pessoa) +
+    safeNum(calls.sacado_assertiva_pj) * safeNum(prices.sacado_assertiva_pj)
   );
 }
 
@@ -135,6 +159,11 @@ function estimateBureauCalls(hasAI: boolean): BureauCalls {
     bdc_socio:          0,
     databox360_empresa: hasAI ? 1 : 0,
     databox360_socio:   0,
+    // Sem como estimar sacados sem log real — zera no fallback.
+    sacado_credithub:    0,
+    sacado_bdc_empresa:  0,
+    sacado_bdc_pessoa:   0,
+    sacado_assertiva_pj: 0,
   };
 }
 
@@ -445,6 +474,11 @@ export default function CustosPage() {
                 <PriceInput label="BDC Sócio (6 datasets)" value={draftPrices.bdc_socio} onChange={v => setDraftPrices(p => ({ ...p, bdc_socio: v }))} />
                 <PriceInput label="DataBox360 Empresa (SCR)" value={draftPrices.databox360_empresa} onChange={v => setDraftPrices(p => ({ ...p, databox360_empresa: v }))} />
                 <PriceInput label="DataBox360 Sócio (SCR)" value={draftPrices.databox360_socio} onChange={v => setDraftPrices(p => ({ ...p, databox360_socio: v }))} />
+                <div style={{ marginTop: "4px", paddingTop: "8px", borderTop: "1px dashed #e5e7eb", fontSize: "10px", color: "#94a3b8", fontWeight: 700, letterSpacing: "0.06em" }}>SACADOS (Curva ABC top 5)</div>
+                <PriceInput label="Sacado · CreditHub" value={draftPrices.sacado_credithub} onChange={v => setDraftPrices(p => ({ ...p, sacado_credithub: v }))} />
+                <PriceInput label="Sacado · BDC Empresa" value={draftPrices.sacado_bdc_empresa} onChange={v => setDraftPrices(p => ({ ...p, sacado_bdc_empresa: v }))} />
+                <PriceInput label="Sacado · BDC Pessoa (sócio do sacado)" value={draftPrices.sacado_bdc_pessoa} onChange={v => setDraftPrices(p => ({ ...p, sacado_bdc_pessoa: v }))} />
+                <PriceInput label="Sacado · Assertiva PJ" value={draftPrices.sacado_assertiva_pj} onChange={v => setDraftPrices(p => ({ ...p, sacado_assertiva_pj: v }))} />
               </div>
             </div>
             <div>
@@ -487,6 +521,10 @@ export default function CustosPage() {
             { label: "BDC Sócio",        key: "bdc_socio"           as const, price: prices.bdc_socio,           sub: "6 datasets" },
             { label: "DataBox360 Emp.",  key: "databox360_empresa"  as const, price: prices.databox360_empresa,  sub: "SCR empresa" },
             { label: "DataBox360 Sócio", key: "databox360_socio"    as const, price: prices.databox360_socio,    sub: "SCR sócio" },
+            { label: "Sacado · CH",      key: "sacado_credithub"    as const, price: prices.sacado_credithub,    sub: "Curva ABC" },
+            { label: "Sacado · BDC Emp.",key: "sacado_bdc_empresa"  as const, price: prices.sacado_bdc_empresa,  sub: "Curva ABC" },
+            { label: "Sacado · BDC Pes.",key: "sacado_bdc_pessoa"   as const, price: prices.sacado_bdc_pessoa,   sub: "Sócios sacado" },
+            { label: "Sacado · Assert.", key: "sacado_assertiva_pj" as const, price: prices.sacado_assertiva_pj, sub: "Curva ABC" },
           ].map(({ label, key, price, sub }) => {
             const totalCalls = filtered.reduce((s, r) => s + (r.bureauCalls[key] ?? 0), 0);
             const custoTotal = totalCalls * price;
