@@ -350,6 +350,18 @@ export async function POST(request: NextRequest) {
   // 9983e49. Sem isso, Next.js memoiza SELECTs do Supabase (política, cache
   // de análise, score, etc.) e pode retornar resultados stale entre requests.
   noStore();
+  // Body size guard (auditoria B2 2026-05-12): payload de analyze inclui
+  // ExtractedData inteira + settings + meta. Limite confortável de 6 MB cobre
+  // os relatórios mais pesados que já vimos (~2-3 MB). Acima disso, é provável
+  // payload corrompido/maligno. Antes não havia limite explícito.
+  const contentLength = Number(request.headers.get("content-length") ?? "0");
+  const MAX_BODY_BYTES = 6 * 1024 * 1024;
+  if (contentLength > MAX_BODY_BYTES) {
+    return NextResponse.json(
+      { error: `Payload muito grande (${(contentLength / 1024 / 1024).toFixed(1)}MB > 6MB).` },
+      { status: 413 },
+    );
+  }
   try {
     const body = await request.json();
 
