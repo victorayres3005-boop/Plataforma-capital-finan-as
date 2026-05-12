@@ -1,5 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import { normalizeSituacaoCadastral } from "@/lib/bureaus/credithub";
+
 const BRASILAPI_BASE = "https://brasilapi.com.br/api/cnpj/v1";
 
 export interface BrasilApiCNPJData {
@@ -85,7 +87,11 @@ export async function consultarBrasilApi(cnpj: string): Promise<BrasilApiResult>
       telefones: [raw.ddd_telefone_1, raw.ddd_telefone_2].filter(Boolean),
       emails: raw.email ? [raw.email] : [],
       dataAbertura: raw.data_inicio_atividade || "",
-      ativa: situacao === "ATIVA",
+      // Word-boundary normalize (auditoria M2 2026-05-12): comparação ===
+      // "ATIVA" falhava em variantes como "ATIVA NAO RESPONDE", "Ativa ",
+      // "INATIVA" se case-insensitive virasse "ATIVA" por includes. Mesma
+      // defesa do credithub.ts contra falso positivo em INATIVA.includes(ATIVA).
+      ativa: normalizeSituacaoCadastral(situacao) === "ATIVA",
       qsa: (raw.qsa || []).map((s: any) => ({
         nome: s.nome_socio || "",
         cpfCnpj: s.cnpj_cpf_do_socio || "",
