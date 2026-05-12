@@ -123,10 +123,14 @@ export async function GET(
   };
 
   let data: SharedRow | null = null;
-  // Etapa 1: campos críticos + edit_token. Migrations 15-17 cobrem todas.
+  // Etapa 1: campos críticos + edit_token + listas editáveis (migrations 15-16).
+  // OBS 2026-05-12: 'percepcao' (mig. 17a) foi MOVIDA pra etapa 2 silenciosa
+  // porque a coluna ficou pendente em prod — pedir ela aqui derrubava o SELECT
+  // inteiro (42703) e o fallback de emergência perdia as listas editáveis,
+  // resultando em applyOverrides nunca rodar (sintoma: edições somem ao reabrir).
   let { data: base, error } = await supabase
     .from("shared_reports")
-    .select("html, expires_at, company, pontos_fortes, pontos_fracos, alertas, percepcao, edit_token, pleito_comite")
+    .select("html, expires_at, company, pontos_fortes, pontos_fracos, alertas, edit_token, pleito_comite")
     .eq("id", id)
     .single<SharedRow>();
 
@@ -142,7 +146,19 @@ export async function GET(
   }
   data = base;
 
-  // Etapa 2: enriquece com as 3 percepções por seção (migration 18).
+  // Etapa 2a: percepção principal (migration 17a). Silenciosa se coluna ausente.
+  if (data && !error) {
+    const pe = await supabase
+      .from("shared_reports")
+      .select("percepcao")
+      .eq("id", id)
+      .single<Pick<SharedRow, "percepcao">>();
+    if (pe.data && !pe.error) {
+      data = { ...data, ...pe.data };
+    }
+  }
+
+  // Etapa 2b: as 3 percepções por seção (migration 18).
   // Falha silenciosa: se PostgREST ainda não viu as colunas (cache stale),
   // segue sem essas percepções — o resto do relatório renderiza igual.
   if (data && !error) {
