@@ -146,29 +146,34 @@ export async function GET(
   }
   data = base;
 
-  // Etapa 2a: percepção principal (migration 17a). Silenciosa se coluna ausente.
+  // Etapa 2 UNIFICADA: tenta todas as 4 percepções num único SELECT. Se
+  // alguma coluna estiver pendente no schema cache, faz fallback coluna a
+  // coluna pra recuperar as outras. Sem isso, qualquer coluna ausente fazia
+  // o SELECT inteiro falhar → todas as percepções perdidas.
   if (data && !error) {
-    const pe = await supabase
+    const tryAll = await supabase
       .from("shared_reports")
-      .select("percepcao")
+      .select("percepcao, percepcao_dre, percepcao_faturamento, percepcao_balanco")
       .eq("id", id)
-      .single<Pick<SharedRow, "percepcao">>();
-    if (pe.data && !pe.error) {
-      data = { ...data, ...pe.data };
-    }
-  }
-
-  // Etapa 2b: as 3 percepções por seção (migration 18).
-  // Falha silenciosa: se PostgREST ainda não viu as colunas (cache stale),
-  // segue sem essas percepções — o resto do relatório renderiza igual.
-  if (data && !error) {
-    const extra = await supabase
-      .from("shared_reports")
-      .select("percepcao_dre, percepcao_faturamento, percepcao_balanco")
-      .eq("id", id)
-      .single<Pick<SharedRow, "percepcao_dre" | "percepcao_faturamento" | "percepcao_balanco">>();
-    if (extra.data && !extra.error) {
-      data = { ...data, ...extra.data };
+      .single<Pick<SharedRow, "percepcao" | "percepcao_dre" | "percepcao_faturamento" | "percepcao_balanco">>();
+    if (tryAll.data && !tryAll.error) {
+      data = { ...data, ...tryAll.data };
+      console.log(`[/r/${id}] etapa 2 OK — percepcao=${tryAll.data.percepcao ? "✓" : "—"} dre=${tryAll.data.percepcao_dre ? "✓" : "—"} fat=${tryAll.data.percepcao_faturamento ? "✓" : "—"} bal=${tryAll.data.percepcao_balanco ? "✓" : "—"}`);
+    } else {
+      // Fallback: tenta cada coluna isoladamente, ignora as que falham
+      console.warn(`[/r/${id}] etapa 2 caiu (${tryAll.error?.message}) — tentando coluna a coluna`);
+      for (const col of ["percepcao", "percepcao_dre", "percepcao_faturamento", "percepcao_balanco"] as const) {
+        const r = await supabase
+          .from("shared_reports")
+          .select(col)
+          .eq("id", id)
+          .single();
+        if (r.data && !r.error) {
+          data = { ...data, ...(r.data as Record<string, unknown>) };
+        } else if (r.error) {
+          console.warn(`[/r/${id}] coluna ${col} indisponível: ${r.error.message}`);
+        }
+      }
     }
   }
 
