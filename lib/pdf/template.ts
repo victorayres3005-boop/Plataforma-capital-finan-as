@@ -3751,6 +3751,11 @@ document.getElementById('printBtn').addEventListener('click', async function() {
   }
 
   function decorate(list){
+    // Remove placeholder vazio (data-edit-empty) ao entrar em modo edição —
+    // ele não tem contenteditable e estava confundindo: usuário clicava nele
+    // achando que ia editar, mas o texto digitado não era coletado.
+    Array.prototype.forEach.call(list.querySelectorAll('[data-edit-empty]'), function(ph){ ph.remove(); });
+    console.log('[edit:collect-debug] decorate('+(list.getAttribute('data-edit-list'))+') items existentes:', list.querySelectorAll('[data-edit-item]').length);
     Array.prototype.forEach.call(list.querySelectorAll('[data-edit-item]'), function(item){
       item.setAttribute('contenteditable','true');
       if (!item.querySelector('.edit-rm')){
@@ -3774,9 +3779,18 @@ document.getElementById('printBtn').addEventListener('click', async function() {
         rm.addEventListener('click', function(){ d.remove(); });
         d.appendChild(rm);
         list.appendChild(d);
+        // Seleciona o texto "Novo ponto" pra usuário substituir digitando.
+        // Antes o cursor caía DEPOIS do button × — texto digitado virava
+        // child do button (bug que confundia o collect).
         d.focus();
-        var range = document.createRange(); range.selectNodeContents(d); range.collapse(false);
-        var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+        var textNode = d.firstChild;
+        if (textNode && textNode.nodeType === 3) {
+          var range = document.createRange();
+          range.setStart(textNode, 0);
+          range.setEnd(textNode, textNode.nodeValue.length);
+          var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+        }
+        console.log('[edit:collect-debug] + Adicionar clicado em '+(list.getAttribute('data-edit-list'))+' — items agora:', list.querySelectorAll('[data-edit-item]').length);
       });
       list.parentElement.appendChild(add);
     }
@@ -3826,13 +3840,19 @@ document.getElementById('printBtn').addEventListener('click', async function() {
     var out = {};
     lists().forEach(function(p){
       var sec = p[0], list = p[1];
-      if (!list) { out[sec] = []; return; }
+      if (!list) {
+        console.warn('[edit:collect-debug] '+sec+': list element NÃO existe no DOM ([data-edit-list="'+sec+'"] não achado) → gravando []');
+        out[sec] = [];
+        return;
+      }
       var items = list.querySelectorAll('[data-edit-item]');
+      console.log('[edit:collect-debug] '+sec+': '+items.length+' item(s) encontrado(s) no DOM');
       var arr = [];
-      Array.prototype.forEach.call(items, function(item){
+      Array.prototype.forEach.call(items, function(item, idx){
         var clone = item.cloneNode(true);
         var rm = clone.querySelector('.edit-rm'); if (rm) rm.remove();
         var t = (clone.textContent || '').trim();
+        console.log('[edit:collect-debug]   '+sec+'['+idx+']: textContent='+JSON.stringify(t)+' raw='+JSON.stringify((item.textContent||'').slice(0,80)));
         if (t) arr.push(t);
       });
       out[sec] = arr;
@@ -3861,6 +3881,13 @@ document.getElementById('printBtn').addEventListener('click', async function() {
   }
   function saveEdit(){
     var data = collect();
+    console.log('[edit:collect-debug] saveEdit PAYLOAD:', JSON.stringify({
+      fortes: data.fortes, fracos: data.fracos, alertas: data.alertas,
+      percepcao_len: (data.percepcao||'').length,
+      percepcaoDre_len: (data.percepcaoDre||'').length,
+      percepcaoFaturamento_len: (data.percepcaoFaturamento||'').length,
+      percepcaoBalanco_len: (data.percepcaoBalanco||'').length,
+    }));
     btnSave.disabled = true; btnSave.textContent = 'Salvando...';
     fetch('__BASE_URL__/api/r/' + REPORT_ID + '/edit', {
       method: 'POST',
