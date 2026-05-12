@@ -311,7 +311,11 @@ export async function consultarDividaAtivaBDC(cnpj: string): Promise<DividaAtiva
       origem: _str(d.DebtOrigin ?? d.Origin ?? d.Orgao) || "PGFN",
       numeroInscricao: _str(d.RegistrationNumber ?? d.InscriptionNumber ?? d.InscriptionCode ?? ""),
       valor: _moeda(_num(d.ConsolidatedValue ?? d.Value ?? d.DebtValue)),
-      situacao: _str(d.RegistrationSituation ?? d.Situation ?? d.Situacao) || "Ativa",
+      // Default "VERIFICAR" em vez de "Ativa" (auditoria 2026-05-12 #3) —
+      // mesma classe do bug histórico de 2026-05-08. Quando BDC não retorna
+      // situação, marcar como Ativa silencia inativas/canceladas e gera
+      // falso positivo em compliance/parecer.
+      situacao: _str(d.RegistrationSituation ?? d.Situation ?? d.Situacao) || "VERIFICAR",
       dataInscricao: _dateStr(d.RegistrationDate ?? d.InscriptionDate ?? d.DataInscricao),
       natureza: _str(d.DebtType ?? d.Nature ?? d.Natureza) || undefined,
     }));
