@@ -1185,7 +1185,7 @@ async function enriquecerEmpresasGrupoEconomico(
 ): Promise<GrupoEconomicoData["empresas"]> {
   if (!CREDITHUB_API_URL || !CREDITHUB_API_KEY) return empresas;
 
-  const MAX_ENRICH = 5;
+  const MAX_ENRICH = 10;
   const RETRY_DELAY = 2000;
   const MAX_ATTEMPTS = 4;
 
@@ -1244,7 +1244,13 @@ async function enriquecerEmpresasGrupoEconomico(
         // "INATIVA" virar "ATIVA" porque INATIVA contém ATIVA como substring.
         // Agora usamos word-boundary + ordem específica (INATIVA/INAPTA/BAIXADA
         // ANTES de ATIVA) pra zero falso positivo.
-        const sit = String(d?.situacaoCadastral ?? d?.situacao ?? "").toUpperCase();
+        // Cobertura ampliada 2026-05-12: CH /simples PJ retorna situação em
+        // nomes variados — alinhar com parseEmpresasVinculadas (incluindo
+        // descricao_situacao_cadastral usado pela RFB pública).
+        const sit = String(
+          d?.situacaoCadastral ?? d?.situacao ?? d?.situacaoEmpresa ?? d?.status ??
+          d?.situacao_cadastral ?? d?.descricao_situacao_cadastral ?? ""
+        ).toUpperCase();
         if (sit && emp.situacao === "VERIFICAR") {
           emp.situacao = normalizeSituacaoCadastral(sit) || sit || "VERIFICAR";
         }
@@ -1280,13 +1286,20 @@ async function enriquecerEmpresasGrupoEconomico(
   }));
 
   // FALLBACK BDC: empresas do grupo que CreditHub /simples PJ não enriqueceu
-  // (HTTP error, sem dados, push="true" persistente). BDC `consultarEmpresa`
-  // traz protestos + processos como segunda fonte. Cap inerente a MAX_ENRICH=5.
-  // Custo: até 5 chamadas BDC empresa extras quando CH falha em todas as
+  // (HTTP error, sem dados, push="true" persistente, OU veio sem situação).
+  // BDC `consultarEmpresa` traz protestos + processos + situação cadastral como
+  // segunda fonte. Cap inerente a MAX_ENRICH=10.
+  // Custo: até 10 chamadas BDC empresa extras quando CH falha em todas as
   // empresas do grupo. Mantém análise completa ao invés de "—".
-  const bdcFallback = paraEnriquecer.filter(e =>
-    (!e.protestos || e.protestos === "—") && (!e.processos || e.processos === "—")
-  );
+  // Ampliado 2026-05-12: também dispara quando só falta a situação cadastral
+  // (CH preencheu protestos/processos como "0" mas não a situação). NÃO
+  // sobrescreve campos que CH já preencheu — só preenche o que estava vazio.
+  const bdcFallback = paraEnriquecer.filter(e => {
+    const semProt = !e.protestos || e.protestos === "—";
+    const semProc = !e.processos || e.processos === "—";
+    const semSit  = !e.situacao || e.situacao === "VERIFICAR";
+    return (semProt && semProc) || semSit;
+  });
   if (bdcFallback.length > 0) {
     console.log(`[credithub][enrich] ${bdcFallback.length} empresa(s) sem dados CH — disparando fallback BDC`);
     await Promise.allSettled(bdcFallback.map(async emp => {
@@ -1296,21 +1309,27 @@ async function enriquecerEmpresasGrupoEconomico(
           console.warn(`[credithub][enrich-bdc] ${emp.cnpj!.slice(0,4)}*** BDC ${bdc.mock ? "mock" : "falhou"}: ${bdc.error ?? "sem dados"}`);
           return;
         }
-        const protQtd = parseInt(bdc.protestos?.vigentesQtd ?? "0", 10) || 0;
-        emp.protestos = protQtd > 0
-          ? `${protQtd}${bdc.protestos?.vigentesValor ? ` (R$ ${bdc.protestos.vigentesValor})` : ""}`
-          : "0";
-        const procQtd = parseInt(bdc.processos?.passivosTotal ?? "0", 10) || 0;
-        emp.processos = procQtd > 0 ? String(procQtd) : "0";
-        if (bdc.processos?.valorTotalEstimado && bdc.processos.valorTotalEstimado !== "R$ 0,00") {
-          emp.valorProcessos = bdc.processos.valorTotalEstimado;
+        // Só preenche protestos se CH não preencheu — evita perder "3 (R$ X)"
+        // virando "0" caso BDC retorne quantidade diferente.
+        if (!emp.protestos || emp.protestos === "—") {
+          const protQtd = parseInt(bdc.protestos?.vigentesQtd ?? "0", 10) || 0;
+          emp.protestos = protQtd > 0
+            ? `${protQtd}${bdc.protestos?.vigentesValor ? ` (R$ ${bdc.protestos.vigentesValor})` : ""}`
+            : "0";
+        }
+        if (!emp.processos || emp.processos === "—") {
+          const procQtd = parseInt(bdc.processos?.passivosTotal ?? "0", 10) || 0;
+          emp.processos = procQtd > 0 ? String(procQtd) : "0";
+          if (bdc.processos?.valorTotalEstimado && bdc.processos.valorTotalEstimado !== "R$ 0,00") {
+            emp.valorProcessos = bdc.processos.valorTotalEstimado;
+          }
         }
         // Aproveita pra preencher situação se ainda estiver VERIFICAR e BDC trouxer
         if (emp.situacao === "VERIFICAR" && bdc.cnpjEnrichment?.situacaoCadastral) {
           const sit = normalizeSituacaoCadastral(bdc.cnpjEnrichment.situacaoCadastral);
           if (sit) emp.situacao = sit;
         }
-        console.log(`[credithub][enrich-bdc] ${emp.cnpj!.slice(0,4)}*** protestos=${protQtd} processos=${procQtd} sit=${emp.situacao}`);
+        console.log(`[credithub][enrich-bdc] ${emp.cnpj!.slice(0,4)}*** protestos=${emp.protestos} processos=${emp.processos} sit=${emp.situacao}`);
       } catch (err) {
         console.warn(`[credithub][enrich-bdc] ${emp.cnpj!.slice(0,4)}*** erro:`, err instanceof Error ? err.message : String(err));
       }
