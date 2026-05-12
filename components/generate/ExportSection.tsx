@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Loader2, CheckCircle2, Link2, Copy, Pencil } from "lucide-react";
 import { SectionCard } from "@/components/report/ReportComponents";
 
@@ -34,11 +34,15 @@ export default function ExportSection({
   sharedEditUrl,
 }: ExportSectionProps) {
   const [copiedKey, setCopiedKey] = useState<"public" | "edit" | null>(null);
+  // Cleanup do timer do feedback "copiado!" — evita setState após unmount
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (copyTimerRef.current) clearTimeout(copyTimerRef.current); }, []);
   const copyTo = async (key: "public" | "edit", value: string) => {
     try {
       await navigator.clipboard.writeText(value);
       setCopiedKey(key);
-      setTimeout(() => setCopiedKey(c => (c === key ? null : c)), 1600);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCopiedKey(c => (c === key ? null : c)), 1600);
     } catch {
       // ignore
     }

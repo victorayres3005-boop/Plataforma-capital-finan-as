@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/useAuth";
@@ -72,6 +72,16 @@ export default function ImportarGoalfyPage() {
   const [imported, setImported]       = useState<Record<string, string>>({});
   const [doneOpen, setDoneOpen]       = useState(false);
   const [zumbiOpen, setZumbiOpen]     = useState(false);
+
+  // Cleanup de setTimeouts pendentes ao desmontar. Sem isso, callbacks com
+  // setState/router.push disparam após unmount → warning + UX confusa.
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  useEffect(() => () => { timersRef.current.forEach(clearTimeout); timersRef.current = []; }, []);
+  const safeTimeout = (fn: () => void, ms: number) => {
+    const id = setTimeout(fn, ms);
+    timersRef.current.push(id);
+    return id;
+  };
 
   const fetchList = useCallback(async () => {
     setError(null);
@@ -165,7 +175,7 @@ export default function ImportarGoalfyPage() {
       // Auto-navega para a coleção após pequeno delay (deixa o usuário ver o "Analisada"
       // verde + ler o toast). Pula auto-nav se nenhum doc foi baixado para evitar tela vazia.
       if (baixados > 0 && json.collection_id) {
-        setTimeout(() => router.push(`/?resume=${json.collection_id}`), 1500);
+        safeTimeout(() => router.push(`/?resume=${json.collection_id}`), 1500);
       }
     } catch (e) {
       setImportPhase(p => ({ ...p, [op.id]: "error" }));
@@ -174,7 +184,7 @@ export default function ImportarGoalfyPage() {
         description: msg,
         duration: 5000,
       });
-      setTimeout(() => setImportPhase(p => ({ ...p, [op.id]: "idle" })), 3000);
+      safeTimeout(() => setImportPhase(p => ({ ...p, [op.id]: "idle" })), 3000);
       console.error(e);
     }
   }

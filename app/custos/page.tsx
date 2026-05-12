@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/lib/useAuth";
 import {
   ReceiptText, Settings2, TrendingDown, Cpu, Building2,
@@ -211,6 +211,10 @@ export default function CustosPage() {
   const [selectedMonth, setSelectedMonth] = useState<string>("all");
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
+  // Cleanup do setTimeout do toast "Salvo" — evita setState após unmount
+  const savedMsgTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (savedMsgTimerRef.current) clearTimeout(savedMsgTimerRef.current); }, []);
+
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -326,7 +330,9 @@ export default function CustosPage() {
   function savePrices() {
     setPrices(draftPrices);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(draftPrices));
-    setSavedMsg(true); setTimeout(() => setSavedMsg(false), 2000);
+    setSavedMsg(true);
+    if (savedMsgTimerRef.current) clearTimeout(savedMsgTimerRef.current);
+    savedMsgTimerRef.current = setTimeout(() => setSavedMsg(false), 2000);
   }
 
   const monthLabel = (key: string) => {
