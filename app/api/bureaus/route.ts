@@ -257,10 +257,13 @@ export async function POST(req: NextRequest) {
     const merged = mergeBureauResults(data, results);
 
     // ── Dívida Ativa via BDC ──────────────────────────────────────────────────
-    // Upload manual de certidão tem prioridade (analista valida o documento).
-    // Se não houver upload, tenta popular com BDC government_debtors.
+    // Upload manual de certidão PGFN tem prioridade nos cálculos (PGFN é fonte
+    // autoritativa). BDC government_debtors é populado em DOIS papéis:
+    //  • Se NÃO houver upload PGFN → vira a fonte primária (data.dividaAtiva)
+    //  • Se HOUVER upload PGFN → vira snapshot para comparação (data.dividaAtivaBDC),
+    //    mantendo o upload do analista como fonte de verdade.
+    const bdcDA = dividaAtivaBDC.status === "fulfilled" ? dividaAtivaBDC.value : undefined;
     if (!data.dividaAtiva || !data.dividaAtiva.dataConsulta) {
-      const bdcDA = dividaAtivaBDC.status === "fulfilled" ? dividaAtivaBDC.value : undefined;
       if (bdcDA?.success && bdcDA.data) {
         merged.dividaAtiva = bdcDA.data;
         console.log(
@@ -270,7 +273,13 @@ export async function POST(req: NextRequest) {
         console.log(`[bureaus][divida-ativa] BDC não retornou dado: ${bdcDA?.error ?? "indisponível"}`);
       }
     } else {
-      console.log(`[bureaus][divida-ativa] preservando upload manual do analista`);
+      console.log(`[bureaus][divida-ativa] preservando upload manual do analista (PGFN)`);
+      if (bdcDA?.success && bdcDA.data) {
+        merged.dividaAtivaBDC = bdcDA.data;
+        console.log(
+          `[bureaus][divida-ativa] snapshot BDC populado p/ comparação: qtd=${bdcDA.data.qtdRegistros} total=${bdcDA.data.valorTotal}`
+        );
+      }
     }
 
     // FASE 3 — Sacados da Curva ABC (top 5 PJ)

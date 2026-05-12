@@ -1016,6 +1016,10 @@ export interface ExtractedData {
   sacadosAnalisados?: SacadoAnalisado[];
   /** Certidão de débitos inscritos em Dívida Ativa (PGFN / UF / Município). */
   dividaAtiva?: DividaAtivaData;
+  /** Snapshot do BDC government_debtors quando o analista subiu certidão PGFN.
+   *  Usado APENAS para comparação BDC×PGFN no relatório — não entra nos
+   *  cálculos de total (PGFN é fonte autoritativa). Adicionado 2026-05-12. */
+  dividaAtivaBDC?: DividaAtivaData;
   /** Certidão CENPROT (Central Nacional de Protestos — IEPTB-BR). */
   cenprot?: CenprotData;
   /** GEFIP — recolhimentos previdenciários e trabalhistas (FGTS + INSS). */
