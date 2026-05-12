@@ -564,15 +564,24 @@ export async function GET(
     (typeof data.percepcao_faturamento === "string" && data.percepcao_faturamento.trim().length > 0) ||
     (typeof data.percepcao_balanco === "string" && data.percepcao_balanco.trim().length > 0);
 
-  return new Response(html, {
-    status: 200,
-    headers: {
-      "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": (editing || hasPleitoComite || hasOverrides)
-        ? "no-store, no-cache, must-revalidate"
-        : "public, max-age=3600, s-maxage=3600",
-    },
-  });
+  // P0 2026-05-12: quando o usuário entra com ?k= válido (modo edição), ele
+  // está abrindo uma sessão de trabalho. Aproveita pra purgar o cache local
+  // do browser do origin — resolve o caso onde a URL irmã sem ?k= foi cacheada
+  // ANTES do fix de no-store (1433dfa) e ainda persiste no disk cache do Chrome.
+  // Tradeoff: limpa assets static cacheados também (imagens, JS), mas user em
+  // modo edição é raro e o reload subsequente reidrata rápido. Funciona só
+  // em HTTPS (Chrome/Edge/Firefox modernos).
+  const headers: Record<string, string> = {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": (editing || hasPleitoComite || hasOverrides)
+      ? "no-store, no-cache, must-revalidate"
+      : "public, max-age=3600, s-maxage=3600",
+  };
+  if (editing) {
+    headers["Clear-Site-Data"] = '"cache"';
+  }
+
+  return new Response(html, { status: 200, headers });
 }
 
 function notFoundPage(id: string): string {
