@@ -100,7 +100,7 @@ export function buildCollectionDocs(data: ExtractedData): CollectionDocument[] {
   // sem visita formal, tudo se perdia. Agora checa se QUALQUER campo string
   // não-vazio existe.
   if (data.relatorioVisita) {
-    const rv = data.relatorioVisita as Record<string, unknown>;
+    const rv = data.relatorioVisita as unknown as Record<string, unknown>;
     const hasAnyField = Object.values(rv).some(v => {
       if (typeof v === "string") return v.trim().length > 0;
       if (typeof v === "boolean") return v === true;
