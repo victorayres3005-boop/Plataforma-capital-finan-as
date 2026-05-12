@@ -11,6 +11,38 @@ Log datado de mudanças significativas. Adicionar entrada nova **no topo** quand
 
 ---
 
+## 2026-05-12 — Auditoria de frontend + Comparativo BDC × PGFN na Dívida Ativa
+
+7 commits. 3 frentes:
+
+### Frente 1 — Auditoria de frontend (Batches 1+2)
+
+Greps por padrões problemáticos rendeu 4 fixes cirúrgicos:
+
+- **Cleanup de setTimeout** (`fix(timers)` 2c03ca6): `app/importar-goalfy/page.tsx` ganhou `safeTimeout` com array ref limpo no unmount cobrindo `router.push(1500)` + `setImportPhase(3000)`. `app/custos/page.tsx` e `components/generate/ExportSection.tsx` ganharam timer cleanup individual. Evita warnings "setState on unmounted".
+- **AbortController** (`fix(empresa-detail)` f61c6a6): `app/empresa/[cnpj]/page.tsx` agora cancela fetch antigo ao trocar de CNPJ — antes a resposta antiga sobrescrevia dados novos (race).
+- **Toaster duplicado** (`fix(toaster)` 2a01b02): havia `<Toaster>` em `app/layout.tsx` + `app/parecer/page.tsx`. Sonner renderiza em todas as instâncias do `<Toaster>` montadas → toast aparecia 2x. Removido o local.
+- **Dedup do toast "Coleta salva no histórico!"** (`fix(toast)` db1f851): adicionado `{ id: "coleta-salva" }` nos 2 `toast.success` (insert+update). Sonner deduplica toasts com mesmo id mesmo se chamado 2x em sequência. Sintoma: ao entrar na aba Relatório, Victor via 2 toasts seguidos (causa real provavelmente é remount do componente que zera o ref `autoSaved`).
+
+Falsos positivos identificados: fetch em `ReviewStep.tsx` e `historico/page.tsx` estão em handlers de botão (não em useEffect), sem race. 41 `console.log` em prod NÃO foram removidos — são instrumentação intencional com prefixos estruturados (decisão `removeConsole: false`).
+
+### Frente 2 — Comparativo cruzado BDC × PGFN na Dívida Ativa
+
+Motivado por divergência real: CNPJ 41.301.271/0001-64 mostrava R$ 6.85M / 20 inscrições no BDC, mas comparando com `listadevedores.pgfn.gov.br` os valores divergiam muito. Investigação descobriu que **o `LastUpdateDate` de TODAS as 20 inscrições do BDC era 2025-07-20** — ~10 meses defasado. 8 inscrições já estavam em SISPAR (parceladas), removidas da lista PGFN, mas ainda no snapshot do BDC.
+
+- `feat(divida-ativa)` 891f6fd:
+  - `types/index.ts`: novo campo `ExtractedData.dividaAtivaBDC?: DividaAtivaData` — snapshot para comparação
+  - `app/api/bureaus/route.ts`: orquestrador agora SEMPRE captura o snapshot BDC, mesmo quando há upload manual (antes o BDC era ignorado nesse cenário)
+  - `lib/pdf/template.ts`: bloco "Comparativo BDC × PGFN" renderiza só quando há AMBOS — KPIs lado a lado, tabela "fora da lista" (BDC tem, PGFN não — parceladas/quitadas), tabela "novas no PGFN" (inscritas após o crawl BDC). Matching por número de inscrição normalizado.
+
+- `feat(upload)` a011128: card "Dívida Ativa — PGFN" **re-adicionado** ao fluxo de upload. Tinha sido removido em 2026-05-08 ("agora vem automático via BDC") — mas com a descoberta da defasagem BDC, upload manual voltou a ser estratégico.
+
+### Frente 3 — Ajustes finos pedidos pela chefe
+
+- `feat(qsa)` 7de79e6: coluna **"Patrim. Líq. / Renda Est."** removida do Quadro Societário na Síntese Preliminar. Tabela vai de 5 para 4 colunas (Sócio · CPF/CNPJ · Qualificação · Part.). Cards de Patrimônio Líquido nas seções de SCR dos Sócios foram preservados — pedido era específico do QSA da síntese.
+
+---
+
 ## 2026-05-11 — Maratona: Pleito do Comitê + Parecer PDF/HTML + redesign /relatório + 3 bugs SyntaxError históricos
 
 **Sessão muito longa** (~18 commits). 4 frentes principais:
