@@ -902,7 +902,11 @@ function parseEmpresasVinculadas(d: any, cpfSocio: string, nomeSocio: string): G
       // ("empresas como ATIVAS mas são INAPTAS"). Default vira "VERIFICAR" pra
       // depois ser reescrito por enriquecerEmpresasGrupoEconomico (com sit real
       // do /simples) ou consultarRFBPorCPF (com sit real da Receita pública).
-      const situacaoRaw = p.situacaoCadastral ?? p.situacao ?? p.situacaoEmpresa ?? p.status ?? p.situacao_cadastral ?? "";
+      // Sincronizado com enriquecerEmpresasGrupoEconomico (linha 1250) — 6 nomes.
+      // Sem o último (descricao_situacao_cadastral), empresas vindas da RFB
+      // pública via parseEmpresasVinculadas ficavam em VERIFICAR mesmo o campo
+      // existindo no payload (auditoria 2026-05-12 #1).
+      const situacaoRaw = p.situacaoCadastral ?? p.situacao ?? p.situacaoEmpresa ?? p.status ?? p.situacao_cadastral ?? p.descricao_situacao_cadastral ?? "";
       const situacaoNormalizada = normalizeSituacaoCadastral(situacaoRaw);
       return {
         razaoSocial: razao,
@@ -1294,11 +1298,16 @@ async function enriquecerEmpresasGrupoEconomico(
   // Ampliado 2026-05-12: também dispara quando só falta a situação cadastral
   // (CH preencheu protestos/processos como "0" mas não a situação). NÃO
   // sobrescreve campos que CH já preencheu — só preenche o que estava vazio.
+  // Filtro mais granular (auditoria 2026-05-12 #2): qualquer campo crítico
+  // faltando dispara BDC. Antes o `(semProt && semProc) || semSit` deixava
+  // passar casos onde CH preencheu protestos="0" mas falhou processos —
+  // BDC nunca completava o que faltou. As guards dentro do callback já
+  // garantem que CH não é sobrescrito.
   const bdcFallback = paraEnriquecer.filter(e => {
     const semProt = !e.protestos || e.protestos === "—";
     const semProc = !e.processos || e.processos === "—";
     const semSit  = !e.situacao || e.situacao === "VERIFICAR";
-    return (semProt && semProc) || semSit;
+    return semProt || semProc || semSit;
   });
   if (bdcFallback.length > 0) {
     console.log(`[credithub][enrich] ${bdcFallback.length} empresa(s) sem dados CH — disparando fallback BDC`);
