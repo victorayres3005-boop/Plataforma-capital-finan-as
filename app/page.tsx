@@ -304,6 +304,64 @@ export default function HomePage() {
     autoSaveTimer.current = setTimeout(() => { performSave(); }, delay);
   }, [performSave]);
 
+  // Excluir definitivamente um arquivo retomado da aba Upload.
+  // Tira do banco (UPDATE document_collections) E do confirmedDocsRef (senão
+  // o autoSave reintroduziria o tipo). Mapeia DocKey ↔ type persistido:
+  // 'scrAnterior'/'scr_socio'/'scr_socio_anterior' são todos persistidos
+  // como 'scr_bacen'.
+  const handleRemoveResumedFile = useCallback(async (
+    type: import("@/components/UploadStep").DocKey,
+    filename: string
+  ): Promise<boolean> => {
+    const collId = collectionIdRef.current;
+    if (!collId) return false;
+    const DOCKEY_TO_TYPE: Partial<Record<string, string>> = {
+      scrAnterior: "scr_bacen",
+      scr_socio: "scr_bacen",
+      scr_socio_anterior: "scr_bacen",
+      contrato: "contrato_social",
+      relatorio_visita: "relatorio_visita",
+      divida_ativa: "divida_ativa",
+    };
+    const persistedType = DOCKEY_TO_TYPE[type] ?? type;
+    try {
+      const supabase = createClient();
+      const { data: session } = await supabase.auth.getUser();
+      if (!session.user) return false;
+      const { data: row, error: selErr } = await supabase
+        .from("document_collections")
+        .select("documents")
+        .eq("id", collId)
+        .maybeSingle();
+      if (selErr || !row) return false;
+      const allDocs = (row.documents || []) as CollectionDocument[];
+      // Remove a primeira entrada que casa (type + filename). Conservador:
+      // se houver duplicatas exatas, mantém as outras.
+      let removed = false;
+      const filtered = allDocs.filter(d => {
+        if (removed) return true;
+        if (d.type === persistedType && d.filename === filename) {
+          removed = true;
+          return false;
+        }
+        return true;
+      });
+      if (!removed) return false;
+      const { error: updErr } = await supabase
+        .from("document_collections")
+        .update({ documents: filtered })
+        .eq("id", collId);
+      if (updErr) return false;
+      // Atualiza ref pra autoSave não reintroduzir
+      confirmedDocsRef.current = filtered;
+      setResumedDocs(filtered);
+      return true;
+    } catch (err) {
+      console.warn("[removeResumedFile] falhou:", err instanceof Error ? err.message : err);
+      return false;
+    }
+  }, []);
+
   // Salva rascunho emergencial no localStorage ao fechar/recarregar a aba.
   // Na próxima visita, se o collectionId ainda bater, aplica o UPDATE via Supabase.
   const EMERGENCY_DRAFT_KEY = "cf_emergency_draft_v1";
@@ -1740,6 +1798,7 @@ export default function HomePage() {
               resumedDocs={resumedDocs}
               initialData={extractedData}
               highlightKeys={goalfyHighlight.length > 0 ? goalfyHighlight : undefined}
+              onRemoveResumedFile={handleRemoveResumedFile}
             />
           )}
           {step === "review" && collectionId && (

@@ -12,7 +12,7 @@ import { toast } from "sonner";
 
 // ─── Types ───
 
-type DocKey = 'cnpj' | 'qsa' | 'contrato' | 'faturamento' | 'scr' | 'scrAnterior' | 'scr_socio' | 'scr_socio_anterior' | 'dre' | 'balanco' | 'curva_abc' | 'ir_socio' | 'relatorio_visita' | 'divida_ativa' | 'cenprot' | 'gefip';
+export type DocKey = 'cnpj' | 'qsa' | 'contrato' | 'faturamento' | 'scr' | 'scrAnterior' | 'scr_socio' | 'scr_socio_anterior' | 'dre' | 'balanco' | 'curva_abc' | 'ir_socio' | 'relatorio_visita' | 'divida_ativa' | 'cenprot' | 'gefip';
 
 interface SectionState {
   files: File[];
@@ -336,12 +336,21 @@ export default function UploadStep({
   initialData,
   onDataChange,
   highlightKeys,
+  onRemoveResumedFile,
 }: {
   onComplete: (data: ExtractedData, files: OriginalFiles, processedDocs?: CollectionDocument[]) => void;
   resumedDocs?: CollectionDocument[];
   initialData?: ExtractedData;
   onDataChange?: (data: ExtractedData) => void;
   highlightKeys?: string[];
+  /**
+   * Excluir definitivamente um arquivo já persistido (retomado) — recebe
+   * tipo lógico (DocKey) e nome do arquivo. Implementado pelo page.tsx,
+   * que faz UPDATE no document_collections removendo a entrada do array
+   * `documents` e ajusta confirmedDocsRef pra evitar reaparição.
+   * Retorna `true` se removeu com sucesso.
+   */
+  onRemoveResumedFile?: (type: DocKey, filename: string) => Promise<boolean>;
 }) {
   const [sections, setSections] = useState<Record<DocKey, SectionState>>(() =>
     resumedDocs && resumedDocs.length > 0 ? buildInitialSections(resumedDocs) : {
@@ -1100,6 +1109,79 @@ export default function UploadStep({
     processFiles(type, files);
   }, [processFiles]);
 
+  // Remove um arquivo RETOMADO (já persistido no banco) via callback do pai
+  // que faz UPDATE no document_collections. Retorna sucesso/falha pro
+  // UploadArea, que controla o estado de confirmação.
+  const handleRemoveResumed = useCallback((type: DocKey) => async (index: number): Promise<boolean> => {
+    const section = sections[type];
+    const filename = section.resumedFilenames?.[index];
+    if (!filename || !onRemoveResumedFile) return false;
+
+    const ok = await onRemoveResumedFile(type, filename);
+    if (!ok) return false;
+
+    // Sucesso: atualiza state local — remove o nome do array e, se foi o
+    // último, limpa também a extração daquele tipo pra refletir o "vazio".
+    setSections(prev => {
+      const s = prev[type];
+      const remaining = (s.resumedFilenames ?? []).filter((_, i) => i !== index);
+      const remainingBlobs = (s.resumedBlobUrls ?? []).filter((_, i) => i !== index);
+      if (remaining.length === 0) {
+        return {
+          ...prev,
+          [type]: { files: [], processing: false, processedCount: 0, errorCount: 0 },
+        };
+      }
+      return {
+        ...prev,
+        [type]: { ...s, resumedFilenames: remaining, resumedBlobUrls: remainingBlobs },
+      };
+    });
+
+    // Se foi o último arquivo do tipo, zera a extração daquele campo
+    // (caso contrário, mantém — a extração é compartilhada entre arquivos
+    // do mesmo tipo e não dá pra fatiar de quem veio o que).
+    const remaining = (section.resumedFilenames ?? []).filter((_, i) => i !== index);
+    if (remaining.length === 0) {
+      if (type === 'scrAnterior') {
+        setExtracted(e => ({ ...e, scrAnterior: null }));
+      } else if (type === 'scr_socio') {
+        setExtracted(e => ({ ...e, scrSocios: [] }));
+      } else if (type === 'scr_socio_anterior') {
+        setExtracted(e => ({
+          ...e,
+          scrSocios: (e.scrSocios || []).map(s => {
+            const { periodoAnterior: _u, ...rest } = s; void _u;
+            return rest as SCRSocioData;
+          }),
+        }));
+      } else {
+        const defaults: Record<string, unknown> = {
+          cnpj: defaultCNPJ,
+          qsa: defaultQSA,
+          contrato: defaultContrato,
+          faturamento: defaultFaturamento,
+          scr: defaultSCR,
+        };
+        const fieldMap: Partial<Record<DocKey, keyof ExtractedData>> = {
+          curva_abc: 'curvaABC',
+          relatorio_visita: 'relatorioVisita',
+          divida_ativa: 'dividaAtiva',
+          cenprot: 'cenprot',
+          gefip: 'gefip',
+        };
+        const field = (fieldMap[type] ?? type) as keyof ExtractedData;
+        if (defaults[type]) {
+          setExtracted(e => ({ ...e, [field]: defaults[type] }));
+        } else {
+          setExtracted(e => ({ ...e, [field]: undefined }));
+        }
+      }
+    }
+
+    return true;
+  }, [sections, onRemoveResumedFile]);
+
   const handleRemoveFile = useCallback((type: DocKey) => (index: number) => {
     setSections(prev => {
       const section = prev[type];
@@ -1311,6 +1393,7 @@ export default function UploadStep({
                     resumedFilenames={sections[section.key].resumedFilenames}
                     fromCache={sections[section.key].fromCache}
                     onForceReextract={sections[section.key].lastSuccessFile ? () => handleForceReextract(section.key) : undefined}
+                    onRemoveResumed={onRemoveResumedFile ? handleRemoveResumed(section.key) : undefined}
                   />
                 </div>
               );
@@ -1380,6 +1463,7 @@ export default function UploadStep({
                     resumedFilenames={sections[section.key].resumedFilenames}
                     fromCache={sections[section.key].fromCache}
                     onForceReextract={sections[section.key].lastSuccessFile ? () => handleForceReextract(section.key) : undefined}
+                    onRemoveResumed={onRemoveResumedFile ? handleRemoveResumed(section.key) : undefined}
                   />
                 </div>
               );

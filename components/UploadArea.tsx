@@ -61,18 +61,28 @@ export interface UploadAreaProps {
   resumedFilenames?: string[];
   fromCache?: boolean;
   onForceReextract?: () => void;
+  /**
+   * Remove um arquivo já persistido no banco (retomado). Recebe o índice
+   * dentro de `resumedFilenames`. Retornar `true` confirma que o backend
+   * conseguiu apagar — o componente então atualiza a UI.
+   */
+  onRemoveResumed?: (index: number) => Promise<boolean> | boolean;
 }
 
 export default function UploadArea({
   title, description, files, onAddFiles, onRemoveFile,
   processing, doneCount, errorCount, errorType,
   onRetry, onReprocess, reprocessing, icon, docKey, resumedFilenames,
-  fromCache, onForceReextract,
+  fromCache, onForceReextract, onRemoveResumed,
 }: UploadAreaProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [msgIndex, setMsgIndex] = useState(0);
   const dragCounter = useRef(0);
+  // Índice do filename retomado que está pedindo confirmação de exclusão.
+  // null = nenhum em confirmação; -1 = excluindo no momento (loading).
+  const [confirmResumed, setConfirmResumed] = useState<number | null>(null);
+  const [removingResumed, setRemovingResumed] = useState(false);
 
   useEffect(() => {
     if (!processing) { setMsgIndex(0); return; }
@@ -235,11 +245,69 @@ export default function UploadArea({
       {hasResumed && !hasFiles && (
         <div className="px-4 pb-3">
           <div className="flex flex-wrap gap-1.5">
-            {resumedFilenames!.map((name, i) => (
-              <span key={i} className="text-[10px] bg-green-50 text-green-700 border border-green-200 rounded-md px-2 py-0.5 font-medium">
-                ✓ {name}
-              </span>
-            ))}
+            {resumedFilenames!.map((name, i) => {
+              const isConfirming = confirmResumed === i;
+              if (isConfirming) {
+                return (
+                  <span
+                    key={i}
+                    className="inline-flex items-center gap-1.5 text-[10px] bg-red-50 text-red-700 border border-red-200 rounded-md px-2 py-0.5 font-medium"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <span className="truncate max-w-[160px]" title={name}>{name}</span>
+                    <span className="text-red-300">·</span>
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (!onRemoveResumed || removingResumed) return;
+                        setRemovingResumed(true);
+                        try {
+                          const ok = await Promise.resolve(onRemoveResumed(i));
+                          if (!ok) {
+                            toast.error("Não foi possível excluir — tente novamente");
+                          }
+                        } catch {
+                          toast.error("Erro ao excluir documento");
+                        } finally {
+                          setRemovingResumed(false);
+                          setConfirmResumed(null);
+                        }
+                      }}
+                      disabled={removingResumed}
+                      className="font-bold text-red-700 hover:text-red-900 disabled:opacity-50 inline-flex items-center gap-1"
+                    >
+                      {removingResumed ? <Loader2 size={9} className="animate-spin" /> : null}
+                      Excluir
+                    </button>
+                    <span className="text-red-300">·</span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setConfirmResumed(null); }}
+                      disabled={removingResumed}
+                      className="text-red-500 hover:text-red-700 disabled:opacity-50"
+                    >
+                      Não
+                    </button>
+                  </span>
+                );
+              }
+              return (
+                <span
+                  key={i}
+                  className="inline-flex items-center gap-1.5 text-[10px] bg-green-50 text-green-700 border border-green-200 rounded-md px-2 py-0.5 font-medium group/pill"
+                >
+                  <span className="truncate max-w-[180px]" title={name}>✓ {name}</span>
+                  {onRemoveResumed && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setConfirmResumed(i); }}
+                      title="Excluir este documento"
+                      className="text-green-500 hover:text-red-600 opacity-50 hover:opacity-100 transition-opacity"
+                    >
+                      <X size={10} />
+                    </button>
+                  )}
+                </span>
+              );
+            })}
           </div>
           <button
             onClick={e => { e.stopPropagation(); inputRef.current?.click(); }}
