@@ -446,13 +446,15 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
           )}
         </div>
 
-        {/* col 3 — Company name (encolhe via minmax 0 1fr) */}
+        {/* col 3 — Company name. Sempre visível (pedido Débora 2026-05-13);
+            antes ficava vazio em rows agrupadas porque o nome estava só no
+            header — analista precisava do nome em cada linha pra leitura. */}
         <span
           className="text-sm font-semibold text-[#111827] truncate"
-          title={!isGrouped ? name : undefined}
+          title={name}
           style={{ minWidth: 0 }}
         >
-          {!isGrouped ? name : ""}
+          {name}
         </span>
 
         {/* col 4 — Sector */}
