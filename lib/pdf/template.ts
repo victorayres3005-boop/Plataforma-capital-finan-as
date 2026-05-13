@@ -4,7 +4,6 @@ import type { RespostaCriterio } from "@/types/politica-credito";
 import { CAPITAL_LOGO_B64 } from "@/lib/assets/capital-logo-b64";
 import { recomputeSCRTotals, periodoRefToKey } from "@/lib/hydrateFromCollection";
 import { calcScrTotal } from "@/lib/scrTotal";
-import { renderPercepcaoToHtml } from "@/lib/markdown/percepcao";
 import {
   calcularIndicadores,
   classificarIndicador,
@@ -1168,19 +1167,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
   const percHtml = `${stitle("Percepção do analista")}
   <div class="perc" data-edit-section="percepcao">
     ${isManualPerc ? `<span class="badge-manual">&#9998; Percep&ccedil;&atilde;o do Analista</span>` : ""}
-    <!--EDIT:percepcao:START--><div class="perc-text" data-edit-percepcao data-percepcao-raw="${esc(resumo)}" style="text-align:justify">${isManualPerc ? (renderPercepcaoToHtml(resumo) || "—") : (esc(resumo) || "—")}</div>
-    <div class="perc-toolbar" id="percToolbar" style="display:none">
-      <button type="button" data-md-action="bold" title="Negrito (Ctrl+B)"><b>B</b></button>
-      <button type="button" data-md-action="italic" title="Itálico (Ctrl+I)" style="font-style:italic">I</button>
-      <span class="perc-toolbar-sep"></span>
-      <button type="button" data-md-action="list" title="Lista">☰</button>
-      <span class="perc-toolbar-sep"></span>
-      <button type="button" data-md-action="alerta" class="md-color red" title="Alerta (vermelho)"><span class="md-swatch"></span>Alerta</button>
-      <button type="button" data-md-action="atencao" class="md-color amber" title="Atenção (amarelo)"><span class="md-swatch"></span>Atenção</button>
-      <button type="button" data-md-action="positivo" class="md-color green" title="Positivo (verde)"><span class="md-swatch"></span>Positivo</button>
-      <span class="perc-toolbar-hint">Ctrl+B · Ctrl+I</span>
-    </div>
-    <!--EDIT:percepcao:END-->
+    <!--EDIT:percepcao:START--><div class="perc-text" data-edit-percepcao style="text-align:justify">${esc(resumo) || "—"}</div><!--EDIT:percepcao:END-->
     ${HIDE_AVALIACAO ? "" : `<div class="perc-rec">Recomendação: <span class="dec" style="background:${decBg};font-size:10px">${fmtDecision(params.decision)}</span></div>`}
   </div>`;
 
@@ -1869,7 +1856,7 @@ function pageParecer(params: PDFReportParams, date: string, pageNum = 10): strin
       </div>`}
     </div>
     ${params.observacoes ? `${stitle("Observações")}
-    <div class="perc"><div class="perc-text">${renderPercepcaoToHtml(params.observacoes) || esc(params.observacoes)}</div></div>` : ""}
+    <div class="perc"><div class="perc-text">${esc(params.observacoes)}</div></div>` : ""}
     `;
   }
 
@@ -3680,20 +3667,6 @@ document.getElementById('printBtn').addEventListener('click', async function() {
   body.editing [data-edit-percepcao]{cursor:text;padding:8px;border-radius:6px;min-height:40px;transition:background .1s}
   body.editing [data-edit-percepcao]:hover{background:rgba(132,191,65,.06)}
   body.editing [data-edit-percepcao][contenteditable="true"]:focus{outline:1px solid #84BF41;background:#fff}
-  body.editing [data-edit-percepcao]{font-family:ui-monospace,"SF Mono",Consolas,monospace;font-size:12px;line-height:1.6;white-space:pre-wrap}
-  body.editing .perc-toolbar{display:flex!important;align-items:center;gap:4px;padding:6px 8px;margin-top:6px;background:#fafafa;border:1px solid #e5e7eb;border-radius:8px;flex-wrap:wrap;font-family:'DM Sans',sans-serif}
-  .perc-toolbar button{width:28px;height:26px;display:inline-flex;align-items:center;justify-content:center;background:#fff;border:1px solid #e5e7eb;border-radius:5px;color:#6b7280;font-size:12px;font-weight:700;cursor:pointer;transition:all 100ms ease;padding:0}
-  .perc-toolbar button:hover{background:#f1f5f9;color:#111827;border-color:#cbd5e1}
-  .perc-toolbar button.md-color{width:auto;padding:0 8px;gap:5px;font-size:10.5px;font-weight:600}
-  .perc-toolbar button.md-color.red{color:#991b1b;border-color:#fecaca;background:#fef2f2}
-  .perc-toolbar button.md-color.amber{color:#92400e;border-color:#fde68a;background:#fffbeb}
-  .perc-toolbar button.md-color.green{color:#15803d;border-color:#bbf7d0;background:#f0fdf4}
-  .perc-toolbar button.md-color .md-swatch{width:9px;height:9px;border-radius:2px}
-  .perc-toolbar button.md-color.red .md-swatch{background:#dc2626}
-  .perc-toolbar button.md-color.amber .md-swatch{background:#d97706}
-  .perc-toolbar button.md-color.green .md-swatch{background:#16a34a}
-  .perc-toolbar .perc-toolbar-sep{width:1px;height:16px;background:#e5e7eb;margin:0 4px}
-  .perc-toolbar .perc-toolbar-hint{margin-left:auto;font-size:10px;color:#9ca3af;font-weight:500}
   /* Caixas de Percepção por seção (DRE, Faturamento, Balanço) — sempre
      visíveis no relatório; placeholder em italic quando vazias. */
   .perc-box{border:1px dashed var(--x3);border-radius:6px;padding:10px 12px;margin-top:10px;margin-bottom:10px;background:var(--x0)}
@@ -3847,117 +3820,11 @@ document.getElementById('printBtn').addEventListener('click', async function() {
     var add = list.parentElement.querySelector('.edit-add'); if (add) add.remove();
   }
 
-  // Toolbar markdown da Percepcao — handlers anexados uma vez por sessao.
-  // Cada botao chama mdInsert(before, after) que envolve a selecao atual
-  // do contenteditable [data-edit-percepcao] com a sintaxe escolhida.
-  var percToolbarInited = false;
-  function mdInsert(before, after){
-    var pe = percEl(); if (!pe) return;
-    var sel = window.getSelection();
-    var range = null;
-    // Se ha selecao valida DENTRO da percepcao, usa ela
-    if (sel && sel.rangeCount > 0) {
-      var r = sel.getRangeAt(0);
-      if (pe.contains(r.commonAncestorContainer)) range = r;
-    }
-    // Caso contrario, posiciona o cursor no FIM do bloco e usa ele
-    if (!range) {
-      pe.focus();
-      range = document.createRange();
-      range.selectNodeContents(pe);
-      range.collapse(false); // colapsa no fim
-      sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(range);
-    }
-    var selected = range.toString() || 'texto';
-    range.deleteContents();
-    var textNode = document.createTextNode(before + selected + after);
-    range.insertNode(textNode);
-    // Seleciona o texto inserido (sem os marcadores) pra usuario poder
-    // substituir o placeholder "texto" digitando.
-    var newRange = document.createRange();
-    newRange.setStart(textNode, before.length);
-    newRange.setEnd(textNode, before.length + selected.length);
-    sel.removeAllRanges();
-    sel.addRange(newRange);
-    pe.focus();
-  }
-  function mdPrefixLine(prefix){
-    var pe = percEl(); if (!pe) return;
-    var sel = window.getSelection();
-    var range = null;
-    if (sel && sel.rangeCount > 0) {
-      var r = sel.getRangeAt(0);
-      if (pe.contains(r.commonAncestorContainer)) range = r;
-    }
-    if (!range) {
-      pe.focus();
-      range = document.createRange();
-      range.selectNodeContents(pe);
-      range.collapse(false);
-      sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(range);
-    }
-    // Insere "\n- " se ja tem conteudo antes, ou so "- " se esta no inicio
-    var prefixed = (pe.textContent || '').length > 0 ? '\\n' + prefix : prefix;
-    range.insertNode(document.createTextNode(prefixed));
-    sel.collapseToEnd();
-    pe.focus();
-  }
-  function initPercToolbar(){
-    if (percToolbarInited) return;
-    percToolbarInited = true;
-    var tb = document.getElementById('percToolbar');
-    if (!tb) return;
-    // CRUCIAL: usar mousedown com preventDefault para nao perder o foco
-    // (e portanto a selecao) do contenteditable [data-edit-percepcao].
-    // Com click puro, o navegador transfere foco pro botao antes do handler
-    // rodar e sel.rangeCount vira 0 — caia no fallback que insere no fim.
-    tb.addEventListener('mousedown', function(e){
-      var btn = e.target.closest ? e.target.closest('button[data-md-action]') : null;
-      if (!btn) return;
-      e.preventDefault();
-      var act = btn.getAttribute('data-md-action');
-      if (act === 'bold') mdInsert('**','**');
-      else if (act === 'italic') mdInsert('_','_');
-      else if (act === 'list') mdPrefixLine('- ');
-      else if (act === 'alerta') mdInsert(':alerta[',']');
-      else if (act === 'atencao') mdInsert(':atencao[',']');
-      else if (act === 'positivo') mdInsert(':positivo[',']');
-    });
-    // Bloqueia o click tambem (caso algum click chegue antes/depois do mousedown).
-    tb.addEventListener('click', function(e){
-      var btn = e.target.closest ? e.target.closest('button[data-md-action]') : null;
-      if (btn) e.preventDefault();
-    });
-    // Atalhos Ctrl+B / Ctrl+I quando foco está no bloco da percepção
-    document.addEventListener('keydown', function(e){
-      var pe = percEl(); if (!pe || !editing) return;
-      if (!pe.contains(document.activeElement) && document.activeElement !== pe) return;
-      if (!(e.ctrlKey || e.metaKey)) return;
-      var k = e.key.toLowerCase();
-      if (k === 'b') { e.preventDefault(); mdInsert('**','**'); }
-      else if (k === 'i') { e.preventDefault(); mdInsert('_','_'); }
-    });
-  }
-
   function startEdit(){
     snapshot = takeSnapshot();
     lists().forEach(function(p){ if (p[1]) decorate(p[1]); });
     var pe = percEl();
-    if (pe) {
-      pe.setAttribute('contenteditable','true');
-      pe.classList.add('perc-editing');
-      // Troca o HTML formatado pelo markdown raw — analista ve e edita
-      // a sintaxe diretamente em vez do HTML renderizado. Sem isso, ao
-      // clicar em B a toolbar inseriria asteriscos no meio de tags HTML,
-      // gerando markdown quebrado ao salvar. Raw vem do atributo
-      // data-percepcao-raw injetado pelo template.ts.
-      var raw = pe.getAttribute('data-percepcao-raw') || '';
-      if (raw) pe.textContent = raw;
-    }
+    if (pe) { pe.setAttribute('contenteditable','true'); pe.classList.add('perc-editing'); }
     TEXT_KEYS.forEach(function(k){
       var el = textEl(k);
       if (el) { el.setAttribute('contenteditable','true'); el.removeAttribute('data-empty'); }
@@ -3967,19 +3834,12 @@ document.getElementById('printBtn').addEventListener('click', async function() {
     btnSave.style.display='inline-flex';
     btnCanc.style.display='inline-flex';
     editing = true;
-    // Cola handlers da toolbar de markdown (uma vez só)
-    initPercToolbar();
   }
   function cancelEdit(){
     if (snapshot) restoreSnapshot(snapshot);
     lists().forEach(function(p){ if (p[1]) undecorate(p[1]); });
     var pe = percEl();
-    if (pe) {
-      pe.removeAttribute('contenteditable');
-      pe.classList.remove('perc-editing');
-      // restoreSnapshot já recolocou o innerHTML original (HTML formatado),
-      // então não precisa nada extra aqui — só remover atributos de edição.
-    }
+    if (pe) { pe.removeAttribute('contenteditable'); pe.classList.remove('perc-editing'); }
     TEXT_KEYS.forEach(function(k){
       var el = textEl(k);
       if (el) {
@@ -4084,13 +3944,6 @@ document.getElementById('printBtn').addEventListener('click', async function() {
       toast.textContent = parts.length ? ('Salvo: ' + parts.join(' · ')) : 'Salvo (nada para gravar)';
       toast.classList.add('show');
       setTimeout(function(){ toast.classList.remove('show'); }, 3500);
-      // Se a percepção foi editada e tem markdown (asteriscos/colchetes), recarrega
-      // a página pra renderizar a sintaxe com pills/negrito/etc. Backend já tem
-      // o renderer; sem reload o usuário veria o texto cru com **asteriscos**.
-      var hasMd = resp && resp.percepcao && /[\\*_:\\-]/.test(resp.percepcao);
-      if (hasMd) {
-        setTimeout(function(){ window.location.reload(); }, 600);
-      }
     }).catch(function(e){
       alert('Erro ao salvar: ' + (e && e.message ? e.message : e));
     }).finally(function(){
