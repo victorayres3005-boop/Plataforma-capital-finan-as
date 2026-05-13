@@ -386,152 +386,136 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
 
   const iconBtn = "w-8 h-8 flex items-center justify-center rounded-lg text-[#9CA3AF] hover:text-[#374151] hover:bg-[#F1F5F9] transition-colors border border-transparent hover:border-[#E5E7EB]";
 
+  // Variáveis derivadas pra row — calculadas uma vez, usadas no Grid abaixo.
+  const v2r = v2Map?.get(col.id);
+  const V2C: Record<string, { c: string; bg: string }> = {
+    A:{c:"#16a34a",bg:"#f0fdf4"}, B:{c:"#65a30d",bg:"#f7fee7"},
+    C:{c:"#d97706",bg:"#fffbeb"}, D:{c:"#ea580c",bg:"#fff7ed"},
+    E:{c:"#dc2626",bg:"#fef2f2"}, F:{c:"#991b1b",bg:"#fff1f2"},
+  };
+  const v2cfg = v2r ? (V2C[v2r] ?? { c:"#94a3b8", bg:"#f1f5f9" }) : null;
+  const aiRow = col.ai_analysis as Record<string, unknown> | null;
+  const parecerRow = aiRow?.parecerAnalista as Record<string, unknown> | null;
+  const ratingValRow = parecerRow?.ratingAnalista != null ? Number(parecerRow.ratingAnalista) : col.rating;
+  const showRating = ratingValRow != null && ratingValRow > 0;
+  const ratingColor = showRating ? (ratingValRow! >= 7 ? "#16a34a" : ratingValRow! >= 4 ? "#d97706" : "#dc2626") : "";
+  // Avatar do dono (apenas !isOwn)
+  let avatarInfo: { initials: string; bg: string; name: string } | null = null;
+  if (!isOwn) {
+    const ownerName = col.created_by_name || "Analista";
+    const initials = ownerName.split(/\s+/).filter(Boolean).slice(0, 2).map(s => s.charAt(0).toUpperCase()).join("") || "?";
+    const palette = [
+      "linear-gradient(135deg,#4F46E5,#7C3AED)",
+      "linear-gradient(135deg,#16a34a,#65a30d)",
+      "linear-gradient(135deg,#d97706,#f59e0b)",
+      "linear-gradient(135deg,#be123c,#f43f5e)",
+      "linear-gradient(135deg,#0891B2,#0ea5e9)",
+    ];
+    const seed = (col.user_id || "").split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+    avatarInfo = { initials, bg: palette[seed % palette.length], name: ownerName };
+  }
+
+  // Grid de 10 colunas com larguras explícitas — todos os slots ocupam o
+  // mesmo espaço entre rows, mesmo quando o conteúdo é opcional (rating
+  // ausente, avatar ausente, etc.). Resolve o desalinhamento reportado
+  // 2026-05-13 (pedido de perfeccionismo da Débora). minmax(0,1fr) no
+  // nome permite encolher sem empurrar as colunas seguintes.
+  const ROW_GRID = "36px 22px minmax(0,1fr) 96px 24px 130px 96px 130px 68px auto";
+
   return (
     <div ref={ref} className={highlight ? "ring-1 ring-cf-green/40" : ""}>
-      {/* ── Collapsed row (56px) ── */}
-      <div className="flex items-center gap-2.5 px-4 h-14 hover:bg-[#FAFAFA] transition-colors group">
-        {/* Grade circle (IA) */}
-        <div title={getGradeTooltip(col.rating)} style={{ width: 36, height: 36, borderRadius: "50%", background: grade.bg, border: `1.5px solid ${grade.border}`, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", cursor: "help" }}>
+      {/* ── Collapsed row (56px) — Grid de colunas fixas ── */}
+      <div
+        className="px-4 h-14 hover:bg-[#FAFAFA] transition-colors group"
+        style={{ display: "grid", gridTemplateColumns: ROW_GRID, alignItems: "center", columnGap: 10 }}
+      >
+        {/* col 1 — Grade circle (IA) */}
+        <div title={getGradeTooltip(col.rating)} style={{ width: 36, height: 36, borderRadius: "50%", background: grade.bg, border: `1.5px solid ${grade.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "help" }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: grade.color }}>{grade.letter}</span>
         </div>
 
-        {/* V2 rating badge */}
-        {(() => {
-          const v2r = v2Map?.get(col.id);
-          if (!v2r) return null;
-          const V2C: Record<string, { c: string; bg: string }> = {
-            A:{c:"#16a34a",bg:"#f0fdf4"}, B:{c:"#65a30d",bg:"#f7fee7"},
-            C:{c:"#d97706",bg:"#fffbeb"}, D:{c:"#ea580c",bg:"#fff7ed"},
-            E:{c:"#dc2626",bg:"#fef2f2"}, F:{c:"#991b1b",bg:"#fff1f2"},
-          };
-          const cfg = V2C[v2r] ?? { c:"#94a3b8", bg:"#f1f5f9" };
-          return (
+        {/* col 2 — V2 rating badge (slot sempre ocupa espaço) */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {v2cfg && (
             <div title={`Score V2: ${v2r}`} style={{
-              width: 20, height: 20, borderRadius: 4, flexShrink: 0,
-              background: cfg.bg, border: `1px solid ${cfg.c}55`,
+              width: 20, height: 20, borderRadius: 4,
+              background: v2cfg.bg, border: `1px solid ${v2cfg.c}55`,
               display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 10, fontWeight: 800, color: cfg.c, cursor: "help",
-            }}>
-              {v2r}
-            </div>
-          );
-        })()}
+              fontSize: 10, fontWeight: 800, color: v2cfg.c, cursor: "help",
+            }}>{v2r}</div>
+          )}
+        </div>
 
-        {/* Company name — only when not in a group */}
-        {!isGrouped && (
-          <span
-            className="text-sm font-semibold text-[#111827] truncate"
-            style={{ maxWidth: 280, flexShrink: 1 }}
-            title={name}
-          >
-            {name}
-          </span>
-        )}
+        {/* col 3 — Company name (encolhe via minmax 0 1fr) */}
+        <span
+          className="text-sm font-semibold text-[#111827] truncate"
+          title={!isGrouped ? name : undefined}
+          style={{ minWidth: 0 }}
+        >
+          {!isGrouped ? name : ""}
+        </span>
 
-        {/* Sector — texto cinza simples (não pill decorativo). Setor é metadado, não sinal de status. */}
-        {setor && (
-          <span style={{ fontSize: 11.5, color: "#6B7280", whiteSpace: "nowrap", flexShrink: 0, fontWeight: 500 }}>
-            {setor}
-          </span>
-        )}
+        {/* col 4 — Sector */}
+        <span style={{ fontSize: 11.5, color: "#6B7280", whiteSpace: "nowrap", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis" }}>
+          {setor || ""}
+        </span>
 
-        {/* Avatar do dono — só aparece quando a coleta é de outro analista
-            (aba "Da equipe"). Hover exibe o nome completo via tooltip.
-            Antes ocupava ~150px com nome lateral que comprimia o nome da
-            empresa pra 3-4 chars; redesign 2026-05-13 deixa só o círculo. */}
-        {!isOwn && (() => {
-          const ownerName = col.created_by_name || "Analista";
-          const initials = ownerName
-            .split(/\s+/)
-            .filter(Boolean)
-            .slice(0, 2)
-            .map(s => s.charAt(0).toUpperCase())
-            .join("") || "?";
-          const palette = [
-            "linear-gradient(135deg,#4F46E5,#7C3AED)",
-            "linear-gradient(135deg,#16a34a,#65a30d)",
-            "linear-gradient(135deg,#d97706,#f59e0b)",
-            "linear-gradient(135deg,#be123c,#f43f5e)",
-            "linear-gradient(135deg,#0891B2,#0ea5e9)",
-          ];
-          const seed = (col.user_id || "").split("").reduce((a, c) => a + c.charCodeAt(0), 0);
-          const bg = palette[seed % palette.length];
-          return (
+        {/* col 5 — Avatar do dono (slot sempre ocupa espaço) */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {avatarInfo && (
             <span
-              title={`Coleta criada por ${ownerName}`}
+              title={`Coleta criada por ${avatarInfo.name}`}
               style={{
                 width: 22, height: 22, borderRadius: "50%",
-                background: bg, color: "#fff", fontSize: 9.5, fontWeight: 800,
+                background: avatarInfo.bg, color: "#fff", fontSize: 9.5, fontWeight: 800,
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
-                flexShrink: 0, cursor: "help",
-                boxShadow: "0 0 0 2px #F1F6FF",
+                cursor: "help", boxShadow: "0 0 0 2px #F1F6FF",
               }}
-            >
-              {initials}
-            </span>
-          );
-        })()}
+            >{avatarInfo.initials}</span>
+          )}
+        </div>
 
-        {/* Date · docs */}
-        <span style={{ fontSize: 12, color: "#9CA3AF", whiteSpace: "nowrap", flexShrink: 0, display: "flex", alignItems: "center", gap: 4 }}>
+        {/* col 6 — Date · docs */}
+        <span style={{ fontSize: 12, color: "#9CA3AF", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 4 }}>
           <span style={{ color: "#CBD5E1" }}>{date}</span>
           <span style={{ color: "#E2E8F0" }}>·</span>
           <FileText size={11} style={{ color: "#CBD5E1" }} />
           <span>{docs.length} doc{docs.length !== 1 ? "s" : ""}</span>
         </span>
 
-        {/* Rating IA — número tabular + mini-bar. Substitui pill pastel por sinal mais editorial. */}
-        {(() => {
-          const ai = col.ai_analysis as Record<string, unknown> | null;
-          const parecer = ai?.parecerAnalista as Record<string, unknown> | null;
-          const ratingVal = parecer?.ratingAnalista != null ? Number(parecer.ratingAnalista) : col.rating;
-          // Esconde rating quando não há nota real (0.0 confundia com nota
-          // baixíssima em coletas Em andamento). Trata `null`, `undefined` e
-          // `<= 0` como "ainda sem rating".
-          if (ratingVal == null || ratingVal <= 0) return null;
-          const rc = ratingVal >= 7 ? "#16a34a" : ratingVal >= 4 ? "#d97706" : "#dc2626";
-          const ratingPct = Math.max(0, Math.min(100, ratingVal * 10));
-          return (
-            <span
-              className="num"
-              title={`Rating IA: ${ratingVal.toFixed(1)}/10`}
-              style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", flexShrink: 0 }}
-            >
-              <span style={{ fontSize: 13, fontWeight: 700, color: rc, letterSpacing: "-0.01em" }}>
-                {ratingVal.toFixed(1)}
-              </span>
-              <span style={{ fontSize: 10, color: "#9CA3AF", fontWeight: 500 }}>/10</span>
-              <span className="bar-inline" aria-hidden>
-                <i style={{ width: `${ratingPct}%`, background: rc }} />
-              </span>
-            </span>
-          );
-        })()}
+        {/* col 7 — Rating IA (slot sempre ocupa espaço, oculto se sem nota) */}
+        <span
+          className="num"
+          title={showRating ? `Rating IA: ${ratingValRow!.toFixed(1)}/10` : undefined}
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", visibility: showRating ? "visible" : "hidden" }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 700, color: ratingColor, letterSpacing: "-0.01em" }}>
+            {showRating ? ratingValRow!.toFixed(1) : "0.0"}
+          </span>
+          <span style={{ fontSize: 10, color: "#9CA3AF", fontWeight: 500 }}>/10</span>
+          <span className="bar-inline" aria-hidden>
+            <i style={{ width: `${showRating ? Math.max(0, Math.min(100, ratingValRow! * 10)) : 0}%`, background: ratingColor }} />
+          </span>
+        </span>
 
-        {/* Status — inline (dot + texto colorido), sem fundo pastel.
-            Reduz ruído visual: cor é o sinal, não o pill. */}
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, color: status.color, whiteSpace: "nowrap", flexShrink: 0 }}>
+        {/* col 8 — Status */}
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, color: status.color, whiteSpace: "nowrap" }}>
           <span style={{ width: 6, height: 6, borderRadius: "50%", background: status.color, flexShrink: 0 }} />
           {status.label}
         </span>
 
-        {/* Tag "REVISAR" — sinal técnico (radius baixo, peso alto, tracking).
-            Estilo "etiqueta de documento" em vez de pill consumer. */}
-        {needsRevision && (
-          <span
-            title={`${sociosPfCount} socio(s) PF no QSA sem SCR correspondente. Reabra a coleta e envie os SCRs dos socios.`}
-            className="tag tag-warning"
-            style={{ flexShrink: 0 }}
-          >
-            REVISAR
-          </span>
-        )}
+        {/* col 9 — Tag REVISAR (slot sempre ocupa espaço) */}
+        <span style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {needsRevision && (
+            <span
+              title={`${sociosPfCount} socio(s) PF no QSA sem SCR correspondente. Reabra a coleta e envie os SCRs dos socios.`}
+              className="tag tag-warning"
+            >REVISAR</span>
+          )}
+        </span>
 
-        {/* Spacer */}
-        <div className="flex-1" />
-
-        {/* Actions */}
-        <div className="flex items-center gap-0.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+        {/* col 10 — Actions */}
+        <div className="flex items-center gap-0.5 justify-end" onClick={e => e.stopPropagation()}>
           {docs.length > 0 && (
             <button title="Baixar relatório" onClick={handleGenerateReport} disabled={generatingReport} className={iconBtn}>
               {generatingReport ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
