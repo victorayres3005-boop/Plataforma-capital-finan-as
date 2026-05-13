@@ -420,7 +420,10 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
   // ausente, avatar ausente, etc.). Resolve o desalinhamento reportado
   // 2026-05-13 (pedido de perfeccionismo da Débora). minmax(0,1fr) no
   // nome permite encolher sem empurrar as colunas seguintes.
-  const ROW_GRID = "36px 22px minmax(0,1fr) 96px 24px 130px 96px 130px 68px auto";
+  // Larguras ajustadas 2026-05-13 (rev2): container subiu pra max-w-6xl
+  // e colunas auxiliares apertadas pra liberar mais espaço pro nome da
+  // empresa, que estava virando "CHR..." em max-w-4xl.
+  const ROW_GRID = "36px 22px minmax(180px,1fr) 88px 26px 116px 80px 116px 60px auto";
 
   return (
     <div ref={ref} className={highlight ? "ring-1 ring-cf-green/40" : ""}>
@@ -1608,7 +1611,7 @@ function HistoricoContent() {
     <div className="min-h-screen bg-[#F5F7FB] flex flex-col">
 
       {/* ══ CONTENT ══ */}
-      <main className="flex-1 max-w-4xl mx-auto w-full px-5 sm:px-6 pb-8">
+      <main className="flex-1 max-w-6xl mx-auto w-full px-5 sm:px-6 pb-8">
 
         {/* ── Hero header ── */}
         <div style={{ background: "linear-gradient(135deg, #1a2f6b 0%, #203b88 60%, #1e3a8a 100%)", padding: "28px 28px 24px", borderRadius: "0 0 20px 20px", marginBottom: "24px" }}>
