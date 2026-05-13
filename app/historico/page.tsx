@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, Suspense, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { DocumentCollection, CollectionDocument } from "@/types";
@@ -315,6 +316,22 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
   // Modal de confirmação ao retomar coleta de colega — protege contra clique
   // acidental e deixa explícito que a ação fica registrada em audit_log.
   const [confirmTeamReopen, setConfirmTeamReopen] = useState(false);
+
+  // Render via createPortal: modal sai do contexto do CollectionRow (que tem
+  // ancestrais com transform/overflow que quebram `position: fixed`) e vai
+  // direto pro <body>, garantindo centralização real na viewport.
+  // mounted evita ReferenceError no SSR (document só existe no client).
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
+  // Trava o scroll do body enquanto o modal está aberto — evita o usuário
+  // rolar a página por trás do backdrop e ficar com o card "perdido".
+  useEffect(() => {
+    if (!confirmTeamReopen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [confirmTeamReopen]);
 
   const handleDelete = async () => {
     setDeleting(true);
@@ -848,64 +865,76 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
         </div>
       )}
 
-      {/* ── Modal: confirmação de retomada de coleta de outro analista ── */}
-      {confirmTeamReopen && !isOwn && (() => {
-        const ownerName = col.created_by_name || "outro analista";
-        const initials = ownerName.split(/\s+/).filter(Boolean).slice(0, 2).map(s => s.charAt(0).toUpperCase()).join("") || "?";
-        const createdDate = new Date(col.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
-        return (
-          <div
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-fade-in"
-            onClick={() => !reopening && setConfirmTeamReopen(false)}
-          >
+      {/* ── Modal: confirmação de retomada de coleta de outro analista ──
+          Renderizado via Portal direto no <body> para escapar de ancestrais
+          com transform/overflow que quebram `position: fixed`. */}
+      {mounted && confirmTeamReopen && !isOwn && createPortal(
+        (() => {
+          const ownerName = col.created_by_name || "outro analista";
+          const initials = ownerName.split(/\s+/).filter(Boolean).slice(0, 2).map(s => s.charAt(0).toUpperCase()).join("") || "?";
+          const createdDate = new Date(col.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+          return (
             <div
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
-              onClick={(e) => e.stopPropagation()}
+              style={{
+                position: "fixed", inset: 0, zIndex: 9999,
+                background: "rgba(15, 31, 92, 0.45)",
+                backdropFilter: "blur(2px)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                padding: 16,
+              }}
+              className="animate-fade-in"
+              onClick={() => !reopening && setConfirmTeamReopen(false)}
             >
-              <div className="px-5 pt-5 pb-3">
-                <h3 className="text-base font-extrabold text-[#111827] mb-1">
-                  Retomar coleta de outro analista?
-                </h3>
-                <p className="text-[13px] text-[#6B7280] leading-snug">
-                  Você vai assumir a edição desta coleta. O dono original continua aparecendo no histórico.
-                </p>
-              </div>
-              <div className="mx-5 mb-3 flex items-center gap-2.5 px-3 py-2.5 bg-[#F8FAFC] border border-[#E5E7EB] rounded-xl">
-                <div style={{
-                  width: 32, height: 32, borderRadius: "50%",
-                  background: "linear-gradient(135deg,#4F46E5,#7C3AED)",
-                  color: "#fff", fontSize: 13, fontWeight: 800,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                }}>{initials}</div>
-                <div className="flex flex-col">
-                  <span className="text-[13px] font-bold text-[#111827]">{ownerName}</span>
-                  <span className="text-[11px] text-[#9CA3AF]">criou em {createdDate}</span>
+              <div
+                className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="px-5 pt-5 pb-3">
+                  <h3 className="text-base font-extrabold text-[#111827] mb-1">
+                    Retomar coleta de outro analista?
+                  </h3>
+                  <p className="text-[13px] text-[#6B7280] leading-snug">
+                    Você vai assumir a edição desta coleta. O dono original continua aparecendo no histórico.
+                  </p>
+                </div>
+                <div className="mx-5 mb-3 flex items-center gap-2.5 px-3 py-2.5 bg-[#F8FAFC] border border-[#E5E7EB] rounded-xl">
+                  <div style={{
+                    width: 32, height: 32, borderRadius: "50%",
+                    background: "linear-gradient(135deg,#4F46E5,#7C3AED)",
+                    color: "#fff", fontSize: 13, fontWeight: 800,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>{initials}</div>
+                  <div className="flex flex-col">
+                    <span className="text-[13px] font-bold text-[#111827]">{ownerName}</span>
+                    <span className="text-[11px] text-[#9CA3AF]">criou em {createdDate}</span>
+                  </div>
+                </div>
+                <div className="mx-5 mb-4 text-[11.5px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2 leading-snug">
+                  <b>Esta ação fica registrada</b> no log de auditoria (quem retomou, quando, e de quem). Use para passar plantão, cobrir férias ou continuar de onde o colega parou.
+                </div>
+                <div className="px-5 pb-4 flex justify-end gap-2">
+                  <button
+                    onClick={() => setConfirmTeamReopen(false)}
+                    disabled={reopening}
+                    className="text-[13px] font-semibold text-[#6B7280] hover:text-[#111827] hover:bg-[#F1F5F9] rounded-lg px-3 h-9 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={async () => { setConfirmTeamReopen(false); await handleReopen(); }}
+                    disabled={reopening}
+                    className="text-[13px] font-semibold text-white bg-cf-navy hover:bg-[#0f1f5c] rounded-lg px-3.5 h-9 transition-colors flex items-center gap-1.5 disabled:opacity-60"
+                  >
+                    {reopening && <Loader2 size={12} className="animate-spin" />}
+                    Reabrir e retomar →
+                  </button>
                 </div>
               </div>
-              <div className="mx-5 mb-4 text-[11.5px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2 leading-snug">
-                <b>Esta ação fica registrada</b> no log de auditoria (quem retomou, quando, e de quem). Use para passar plantão, cobrir férias ou continuar de onde o colega parou.
-              </div>
-              <div className="px-5 pb-4 flex justify-end gap-2">
-                <button
-                  onClick={() => setConfirmTeamReopen(false)}
-                  disabled={reopening}
-                  className="text-[13px] font-semibold text-[#6B7280] hover:text-[#111827] hover:bg-[#F1F5F9] rounded-lg px-3 h-9 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={async () => { setConfirmTeamReopen(false); await handleReopen(); }}
-                  disabled={reopening}
-                  className="text-[13px] font-semibold text-white bg-cf-navy hover:bg-[#0f1f5c] rounded-lg px-3.5 h-9 transition-colors flex items-center gap-1.5 disabled:opacity-60"
-                >
-                  {reopening && <Loader2 size={12} className="animate-spin" />}
-                  Reabrir e retomar →
-                </button>
-              </div>
             </div>
-          </div>
-        );
-      })()}
+          );
+        })(),
+        document.body
+      )}
 
       {/* ── Inspector modal: raw extracted_data JSON ── */}
       {inspectingIdx !== null && docs[inspectingIdx] && (
