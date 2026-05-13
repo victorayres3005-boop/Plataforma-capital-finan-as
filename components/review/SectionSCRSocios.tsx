@@ -19,13 +19,16 @@ interface Props {
   quality: QualityResult;
 }
 
-function fmtBRL(v: string | undefined | null): string {
+// Bug 2026-05-13: passar number convertido via String() pra parseBR fazia round-trip
+// perigoso — "12345.6" tem o ponto removido (assumido como milhar) virando 123456.
+// Aceitar number direto evita o re-parse. parseBR já trata `typeof v === "number"`.
+function fmtBRL(v: string | number | undefined | null): string {
   const n = parseBR(v);
   if (n === 0) return "R$ 0,00";
   return "R$ " + n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function fmtVar(atual: string | undefined, anterior: string | undefined): { text: string; color: string } {
+function fmtVar(atual: string | number | undefined, anterior: string | number | undefined): { text: string; color: string } {
   const a = parseBR(atual);
   const b = parseBR(anterior);
   if (b === 0) return { text: "—", color: "#9CA3AF" };
@@ -156,10 +159,10 @@ export function SectionSCRSocios({ socios, errors, expanded, onToggle, quality }
                         <div title={semDivida ? "Crédito baixado para prejuízo — sem dívida ativa em cobrança" : undefined}>
                           <Metric
                             label="Dívida em Aberto"
-                            value={respAtiva > 0 ? fmtBRL(String(respAtiva)) : "R$ 0,00"}
+                            value={respAtiva > 0 ? fmtBRL(respAtiva) : "R$ 0,00"}
                             variation={anterior ? fmtVar(
-                              String(parseBR(atual?.carteiraAVencer) + parseBR(atual?.vencidos)),
-                              String(parseBR(anterior.carteiraAVencer) + parseBR(anterior.vencidos))
+                              parseBR(atual?.carteiraAVencer) + parseBR(atual?.vencidos),
+                              parseBR(anterior.carteiraAVencer) + parseBR(anterior.vencidos)
                             ) : undefined}
                             sub={semDivida ? "sem cobrança ativa" : undefined}
                           />
@@ -224,8 +227,8 @@ export function SectionSCRSocios({ socios, errors, expanded, onToggle, quality }
                               {[
                                 {
                                   label: "Dívida em Aberto",
-                                  ant: String(parseBR(anterior.carteiraAVencer) + parseBR(anterior.vencidos)) || "0",
-                                  at:  String(parseBR(atual?.carteiraAVencer)   + parseBR(atual?.vencidos))   || "0",
+                                  ant: parseBR(anterior.carteiraAVencer) + parseBR(anterior.vencidos),
+                                  at:  parseBR(atual?.carteiraAVencer)   + parseBR(atual?.vencidos),
                                   bold: true,
                                 },
                                 { label: "Prejuízos",   ant: anterior.prejuizos,          at: atual?.prejuizos },
