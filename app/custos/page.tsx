@@ -560,8 +560,8 @@ export default function CustosPage() {
                   <Info size={11} style={{ flexShrink: 0, marginTop: "1px" }} />
                   Plano: R$ 2.500/mês cobrem 8.000 chamadas. Excedentes: 0,29 (8k-50k) · 0,27 (50k-100k) · 0,25 (100k-200k) · 0,23 (200k-400k) · 0,20 (&gt;400k). Aplicado automaticamente.
                 </div>
-                <PriceInput label="Assertiva PJ" value={draftPrices.assertiva_pj} onChange={v => setDraftPrices(p => ({ ...p, assertiva_pj: v }))} />
-                <PriceInput label="Assertiva PF (sócio)" value={draftPrices.assertiva_pf} onChange={v => setDraftPrices(p => ({ ...p, assertiva_pf: v }))} />
+                {/* Assertiva PJ/PF — descontinuada em 2026-05-13; UI ocultada,
+                    campos preservados nos tipos pra não quebrar dados antigos. */}
                 <PriceInput label="BDC Empresa (7 datasets)" value={draftPrices.bdc_empresa} onChange={v => setDraftPrices(p => ({ ...p, bdc_empresa: v }))} />
                 <PriceInput label="BDC Sócio (6 datasets)" value={draftPrices.bdc_socio} onChange={v => setDraftPrices(p => ({ ...p, bdc_socio: v }))} />
                 <PriceInput label="DataBox360 Empresa (SCR)" value={draftPrices.databox360_empresa} onChange={v => setDraftPrices(p => ({ ...p, databox360_empresa: v }))} />
@@ -574,7 +574,7 @@ export default function CustosPage() {
                 <PriceInput label="Sacado · CreditHub" value={draftPrices.sacado_credithub} onChange={v => setDraftPrices(p => ({ ...p, sacado_credithub: v }))} />
                 <PriceInput label="Sacado · BDC Empresa" value={draftPrices.sacado_bdc_empresa} onChange={v => setDraftPrices(p => ({ ...p, sacado_bdc_empresa: v }))} />
                 <PriceInput label="Sacado · BDC Pessoa (sócio do sacado)" value={draftPrices.sacado_bdc_pessoa} onChange={v => setDraftPrices(p => ({ ...p, sacado_bdc_pessoa: v }))} />
-                <PriceInput label="Sacado · Assertiva PJ" value={draftPrices.sacado_assertiva_pj} onChange={v => setDraftPrices(p => ({ ...p, sacado_assertiva_pj: v }))} />
+                {/* Sacado · Assertiva PJ ocultado — Assertiva descontinuada 2026-05-13 */}
                 <div style={{ marginTop: "4px", paddingTop: "8px", borderTop: "1px dashed #e5e7eb", fontSize: "10px", color: "#94a3b8", fontWeight: 700, letterSpacing: "0.06em" }}>BDC ISOLADO (1 dataset)</div>
                 <PriceInput label="BDC · Dívida Ativa (government_debtors)" value={draftPrices.bdc_government_debtors} onChange={v => setDraftPrices(p => ({ ...p, bdc_government_debtors: v }))} />
               </div>
@@ -621,8 +621,7 @@ export default function CustosPage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "10px" }}>
           {[
             { label: "CreditHub",        key: "credithub"           as const, price: prices.credithub_empresa },
-            { label: "Assertiva PJ",     key: "assertiva_pj"        as const, price: prices.assertiva_pj },
-            { label: "Assertiva PF",     key: "assertiva_pf"        as const, price: prices.assertiva_pf },
+            // Assertiva PJ/PF removidas dos cards — descontinuada 2026-05-13
             { label: "BDC Empresa",      key: "bdc_empresa"         as const, price: prices.bdc_empresa,        sub: "7 datasets" },
             { label: "BDC Sócio",        key: "bdc_socio"           as const, price: prices.bdc_socio,           sub: "6 datasets" },
             { label: "DataBox360 Emp.",  key: "databox360_empresa"  as const, price: prices.databox360_empresa,  sub: "SCR empresa" },
@@ -630,7 +629,7 @@ export default function CustosPage() {
             { label: "Sacado · CH",      key: "sacado_credithub"    as const, price: prices.sacado_credithub,    sub: "Curva ABC" },
             { label: "Sacado · BDC Emp.",key: "sacado_bdc_empresa"  as const, price: prices.sacado_bdc_empresa,  sub: "Curva ABC" },
             { label: "Sacado · BDC Pes.",key: "sacado_bdc_pessoa"   as const, price: prices.sacado_bdc_pessoa,   sub: "Sócios sacado" },
-            { label: "Sacado · Assert.", key: "sacado_assertiva_pj" as const, price: prices.sacado_assertiva_pj, sub: "Curva ABC" },
+            // Sacado · Assertiva removido — Assertiva descontinuada 2026-05-13
             { label: "BDC · Dívida Ativa", key: "bdc_government_debtors" as const, price: prices.bdc_government_debtors, sub: "1 dataset" },
           ].map(({ label, key, price, sub }) => {
             const totalCalls = filtered.reduce((s, r) => s + (r.bureauCalls[key] ?? 0), 0);
@@ -704,8 +703,7 @@ export default function CustosPage() {
                                 <p style={{ fontSize: "11px", fontWeight: 700, color: "#9ca3af", letterSpacing: "0.06em", marginBottom: "8px" }}>CONSULTAS BUREAU</p>
                                 {[
                                   { label: "CreditHub",        val: row.bureauCalls.credithub,                          price: prices.credithub_empresa },
-                                  { label: "Assertiva PJ",     val: row.bureauCalls.assertiva_pj,                       price: prices.assertiva_pj },
-                                  { label: "Assertiva PF",     val: row.bureauCalls.assertiva_pf,                       price: prices.assertiva_pf },
+                                  // Assertiva PJ/PF removidas do detalhamento — descontinuada 2026-05-13
                                   { label: "BDC Empresa",      val: row.bureauCalls.bdc_empresa,                        price: prices.bdc_empresa },
                                   { label: "BDC Sócio",        val: row.bureauCalls.bdc_socio,                          price: prices.bdc_socio },
                                   { label: "DataBox360 Emp.",  val: row.bureauCalls.databox360_empresa ?? 0,             price: prices.databox360_empresa },
