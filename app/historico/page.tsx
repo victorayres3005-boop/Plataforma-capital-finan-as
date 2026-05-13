@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { DocumentCollection, CollectionDocument } from "@/types";
 import { toast } from "sonner";
+import PercepcaoEditor from "@/components/PercepcaoEditor";
 import {
   ChevronDown, ChevronUp, ChevronRight, FileText,
   Loader2, Pencil, Check, RotateCcw, Inbox, Trash2, Download,
@@ -602,12 +603,12 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
               </p>
             ) : editingNotes ? (
               <div>
-                <textarea
+                <PercepcaoEditor
                   value={observacoes}
-                  onChange={e => setObservacoes(e.target.value)}
-                  autoFocus rows={2}
-                  placeholder="Observações do analista..."
-                  className="w-full text-xs text-[#374151] bg-white border border-[#E5E7EB] rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-[#203b88]/20 placeholder:text-[#9CA3AF]"
+                  onChange={setObservacoes}
+                  placeholder="Percepção do analista — use **negrito**, _itálico_, ou os botões acima"
+                  rows={3}
+                  autoFocus
                 />
                 <div className="flex gap-2 mt-1.5">
                   <button onClick={saveNotes} disabled={savingNotes} className="text-[11px] font-semibold text-cf-green border border-cf-green/20 rounded-lg px-3 py-1 hover:bg-cf-green/5 transition-colors inline-flex items-center gap-1">

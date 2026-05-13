@@ -4,6 +4,7 @@ import type { RespostaCriterio } from "@/types/politica-credito";
 import { CAPITAL_LOGO_B64 } from "@/lib/assets/capital-logo-b64";
 import { recomputeSCRTotals, periodoRefToKey } from "@/lib/hydrateFromCollection";
 import { calcScrTotal } from "@/lib/scrTotal";
+import { renderPercepcaoToHtml } from "@/lib/markdown/percepcao";
 import {
   calcularIndicadores,
   classificarIndicador,
@@ -1167,7 +1168,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
   const percHtml = `${stitle("Percepção do analista")}
   <div class="perc" data-edit-section="percepcao">
     ${isManualPerc ? `<span class="badge-manual">&#9998; Percep&ccedil;&atilde;o do Analista</span>` : ""}
-    <!--EDIT:percepcao:START--><div class="perc-text" data-edit-percepcao style="text-align:justify">${esc(resumo) || "—"}</div><!--EDIT:percepcao:END-->
+    <!--EDIT:percepcao:START--><div class="perc-text" data-edit-percepcao style="text-align:justify">${isManualPerc ? (renderPercepcaoToHtml(resumo) || "—") : (esc(resumo) || "—")}</div><!--EDIT:percepcao:END-->
     ${HIDE_AVALIACAO ? "" : `<div class="perc-rec">Recomendação: <span class="dec" style="background:${decBg};font-size:10px">${fmtDecision(params.decision)}</span></div>`}
   </div>`;
 
@@ -1856,7 +1857,7 @@ function pageParecer(params: PDFReportParams, date: string, pageNum = 10): strin
       </div>`}
     </div>
     ${params.observacoes ? `${stitle("Observações")}
-    <div class="perc"><div class="perc-text">${esc(params.observacoes)}</div></div>` : ""}
+    <div class="perc"><div class="perc-text">${renderPercepcaoToHtml(params.observacoes) || esc(params.observacoes)}</div></div>` : ""}
     `;
   }
 
