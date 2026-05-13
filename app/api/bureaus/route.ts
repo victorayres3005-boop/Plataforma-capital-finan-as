@@ -117,6 +117,19 @@ export async function POST(req: NextRequest) {
     // BDC é caro e renova token toda semana; entra apenas como fallback se CH vier vazio.
     // 90s cobre o pior caso: token DataBox360 (40s × 2 tentativas) + chamada SCR (15s)
     const BUREAU_TIMEOUT = 90_000;
+    // BDC government_debtors só é consultado quando o analista NÃO subiu
+    // certidão PGFN. Upload manual é fonte autoritativa — pular o BDC
+    // economiza R$ 0,05 por análise e respeita a hierarquia de fontes
+    // (decisão Débora 2026-05-13: "quando tiver upload nem precisa consultar
+    // o BigDataCorp"). Critério de pular: existe dividaAtiva com dados
+    // substantivos (qtdRegistros > 0) ou marcada como certidão negativa.
+    const pgfnTemDado =
+      !!data.dividaAtiva &&
+      (data.dividaAtiva.qtdRegistros > 0 || data.dividaAtiva.certidaoNegativa);
+    if (pgfnTemDado) {
+      console.log(`[bureaus][divida-ativa] upload PGFN presente — BDC government_debtors NÃO será consultado (economia de custo)`);
+    }
+
     const [credithub, serasa, spc, quod, grupoEconomico, brasilapi, sancoes, assertivaEmpresa, assertivaSocios, db360Empresa, db360Socios, pefinRefin, dividaAtivaBDC] = await Promise.allSettled([
       withTimeout(consultarCreditHubComCache(cnpj, creditHubRaw), BUREAU_TIMEOUT, "credithub"),
       withTimeout(consultarSerasa(cnpj), BUREAU_TIMEOUT, "serasa"),
@@ -130,9 +143,10 @@ export async function POST(req: NextRequest) {
       withTimeout(consultarSCREmpresa(cnpj), BUREAU_TIMEOUT, "databox360-empresa"),
       withTimeout(consultarSCRSocios(sociosParaGrupo), BUREAU_TIMEOUT, "databox360-socios"),
       withTimeout(consultarPefinRefin(cnpj), BUREAU_TIMEOUT, "credithub-pefin-refin"),
-      // BDC government_debtors isolado — popula data.dividaAtiva quando o
-      // analista NÃO subiu certidão. Upload manual tem prioridade no merge.
-      withTimeout(consultarDividaAtivaBDC(cnpj), BUREAU_TIMEOUT, "bdc-divida-ativa"),
+      // BDC government_debtors: pular se upload PGFN já tem dados.
+      pgfnTemDado
+        ? Promise.resolve({ success: false, error: "skipped: upload PGFN presente" } as Awaited<ReturnType<typeof consultarDividaAtivaBDC>>)
+        : withTimeout(consultarDividaAtivaBDC(cnpj), BUREAU_TIMEOUT, "bdc-divida-ativa"),
     ]);
 
     const grupoEconomicoResult = grupoEconomico.status === "fulfilled" ? grupoEconomico.value : undefined;
@@ -281,13 +295,9 @@ export async function POST(req: NextRequest) {
         console.log(`[bureaus][divida-ativa] BDC não retornou dado: ${bdcDA?.error ?? "indisponível"}`);
       }
     } else {
-      console.log(`[bureaus][divida-ativa] preservando upload manual do analista (PGFN): qtd=${pgfnUpload.qtdRegistros} ${pgfnUpload.certidaoNegativa ? "(negativa)" : `total=${pgfnUpload.valorTotal}`}`);
-      if (bdcDA?.success && bdcDA.data) {
-        merged.dividaAtivaBDC = bdcDA.data;
-        console.log(
-          `[bureaus][divida-ativa] snapshot BDC populado p/ comparação: qtd=${bdcDA.data.qtdRegistros} total=${bdcDA.data.valorTotal}`
-        );
-      }
+      console.log(`[bureaus][divida-ativa] preservando upload manual do analista (PGFN): qtd=${pgfnUpload.qtdRegistros} ${pgfnUpload.certidaoNegativa ? "(negativa)" : `total=${pgfnUpload.valorTotal}`} — BDC pulado`);
+      // Não há mais snapshot BDC quando PGFN existe (BDC não foi consultado).
+      // Se quiser comparativo BDC×PGFN no futuro, é só remover o skip acima.
     }
 
     // FASE 3 — Sacados da Curva ABC (top 5 PJ)
