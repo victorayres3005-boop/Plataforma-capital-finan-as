@@ -435,7 +435,10 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
           </span>
         )}
 
-        {/* Pill do dono — só aparece quando a coleta é de outro analista (aba "Da equipe") */}
+        {/* Avatar do dono — só aparece quando a coleta é de outro analista
+            (aba "Da equipe"). Hover exibe o nome completo via tooltip.
+            Antes ocupava ~150px com nome lateral que comprimia o nome da
+            empresa pra 3-4 chars; redesign 2026-05-13 deixa só o círculo. */}
         {!isOwn && (() => {
           const ownerName = col.created_by_name || "Analista";
           const initials = ownerName
@@ -444,7 +447,6 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
             .slice(0, 2)
             .map(s => s.charAt(0).toUpperCase())
             .join("") || "?";
-          // Cor do avatar derivada do user_id pra ser estável entre coletas do mesmo dono
           const palette = [
             "linear-gradient(135deg,#4F46E5,#7C3AED)",
             "linear-gradient(135deg,#16a34a,#65a30d)",
@@ -458,21 +460,14 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
             <span
               title={`Coleta criada por ${ownerName}`}
               style={{
-                display: "inline-flex", alignItems: "center", gap: 7,
-                padding: "3px 10px 3px 3px",
-                background: "#F1F6FF", border: "1px solid #DBE9FF",
-                borderRadius: 999, flexShrink: 0,
+                width: 22, height: 22, borderRadius: "50%",
+                background: bg, color: "#fff", fontSize: 9.5, fontWeight: 800,
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                flexShrink: 0, cursor: "help",
+                boxShadow: "0 0 0 2px #F1F6FF",
               }}
             >
-              <span style={{
-                width: 22, height: 22, borderRadius: "50%",
-                background: bg, color: "#fff", fontSize: 10, fontWeight: 800,
-                display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-              }}>{initials}</span>
-              <span style={{
-                fontSize: 11.5, fontWeight: 600, color: "#1e3a8a",
-                maxWidth: 120, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-              }}>{ownerName}</span>
+              {initials}
             </span>
           );
         })()}
@@ -490,7 +485,10 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
           const ai = col.ai_analysis as Record<string, unknown> | null;
           const parecer = ai?.parecerAnalista as Record<string, unknown> | null;
           const ratingVal = parecer?.ratingAnalista != null ? Number(parecer.ratingAnalista) : col.rating;
-          if (ratingVal == null) return null;
+          // Esconde rating quando não há nota real (0.0 confundia com nota
+          // baixíssima em coletas Em andamento). Trata `null`, `undefined` e
+          // `<= 0` como "ainda sem rating".
+          if (ratingVal == null || ratingVal <= 0) return null;
           const rc = ratingVal >= 7 ? "#16a34a" : ratingVal >= 4 ? "#d97706" : "#dc2626";
           const ratingPct = Math.max(0, Math.min(100, ratingVal * 10));
           return (
