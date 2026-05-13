@@ -1427,6 +1427,53 @@ function HistoricoContent() {
     try { localStorage.setItem(HISTORICO_TAB_KEY, tab); } catch { /* ignore */ }
   }, [tab]);
 
+  // ── Realtime: sincroniza Histórico ao vivo entre analistas ──
+  // Quando qualquer document_collection é criada/atualizada/deletada, o
+  // Supabase faz push pra todo cliente conectado. Cada evento é dispatchado
+  // para a fila certa (mine vs team) baseado no user_id da linha.
+  // Requer Replication habilitada na tabela document_collections (Database
+  // → Replication no painel Supabase).
+  useEffect(() => {
+    if (!user) return;
+    const supabase = createClient();
+    const channel = supabase
+      .channel("historico-document-collections")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "document_collections" },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            const row = payload.new as DocumentCollection;
+            if (row.user_id === user.id) {
+              setCollectionsMine(prev => prev.some(c => c.id === row.id) ? prev : [row, ...prev]);
+            } else {
+              setCollectionsTeam(prev => prev.some(c => c.id === row.id) ? prev : [row, ...prev]);
+            }
+          } else if (payload.eventType === "UPDATE") {
+            const row = payload.new as DocumentCollection;
+            const updater = (prev: DocumentCollection[]) =>
+              prev.map(c => c.id === row.id ? { ...c, ...row } : c);
+            if (row.user_id === user.id) {
+              setCollectionsMine(updater);
+              // Se um colega retoma uma coleta minha, ela continua minha — não migra.
+              // Mas se EU reabri uma coleta de outro analista, a coleta vira "minha"
+              // só do ponto de vista de quem está editando agora; user_id original
+              // permanece — então mantemos onde estava por user_id.
+            } else {
+              setCollectionsTeam(updater);
+            }
+          } else if (payload.eventType === "DELETE") {
+            const oldRow = payload.old as { id?: string };
+            if (!oldRow?.id) return;
+            setCollectionsMine(prev => prev.filter(c => c.id !== oldRow.id));
+            setCollectionsTeam(prev => prev.filter(c => c.id !== oldRow.id));
+          }
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user]);
+
   // Load notifications
   useEffect(() => {
     if (!user) return;
@@ -1589,10 +1636,16 @@ function HistoricoContent() {
               <div>
                 <h1 className="text-page-title m-0" style={{ color: "#fff" }}>Histórico de Relatórios</h1>
                 {!loading && (
-                  <p style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", margin: "3px 0 0" }}>
-                    {tab === "mine"
-                      ? `${collectionsMine.length} suas · ${collectionsTeam.length} da equipe`
-                      : `Visualizando ${collectionsTeam.length} coletas de outros analistas`}
+                  <p style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", margin: "3px 0 0", display: "inline-flex", alignItems: "center", gap: 8 }}>
+                    <span>
+                      {tab === "mine"
+                        ? `${collectionsMine.length} suas · ${collectionsTeam.length} da equipe`
+                        : `Visualizando ${collectionsTeam.length} coletas de outros analistas`}
+                    </span>
+                    <span title="Atualizando ao vivo" style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "1px 8px", borderRadius: 999, background: "rgba(168,217,107,0.18)", border: "1px solid rgba(168,217,107,0.35)" }}>
+                      <span className="animate-pulse" style={{ width: 6, height: 6, borderRadius: "50%", background: "#a8d96b", boxShadow: "0 0 6px #a8d96b" }} />
+                      <span style={{ fontSize: 10, fontWeight: 700, color: "#a8d96b", textTransform: "uppercase", letterSpacing: "0.06em" }}>Ao vivo</span>
+                    </span>
                   </p>
                 )}
               </div>
