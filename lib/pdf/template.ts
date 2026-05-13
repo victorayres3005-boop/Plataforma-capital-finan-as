@@ -3853,43 +3853,69 @@ document.getElementById('printBtn').addEventListener('click', async function() {
   var percToolbarInited = false;
   function mdInsert(before, after){
     var pe = percEl(); if (!pe) return;
-    pe.focus();
     var sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0) {
-      // Sem seleção: insere placeholder no fim
-      pe.textContent = (pe.textContent || '') + before + 'texto' + after;
-      return;
+    var range = null;
+    // Se ha selecao valida DENTRO da percepcao, usa ela
+    if (sel && sel.rangeCount > 0) {
+      var r = sel.getRangeAt(0);
+      if (pe.contains(r.commonAncestorContainer)) range = r;
     }
-    var range = sel.getRangeAt(0);
-    // Só atua se a seleção está DENTRO do bloco de percepção
-    if (!pe.contains(range.commonAncestorContainer)) return;
+    // Caso contrario, posiciona o cursor no FIM do bloco e usa ele
+    if (!range) {
+      pe.focus();
+      range = document.createRange();
+      range.selectNodeContents(pe);
+      range.collapse(false); // colapsa no fim
+      sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
     var selected = range.toString() || 'texto';
     range.deleteContents();
-    range.insertNode(document.createTextNode(before + selected + after));
-    // Move o cursor pro fim da inserção
-    sel.collapseToEnd();
+    var textNode = document.createTextNode(before + selected + after);
+    range.insertNode(textNode);
+    // Seleciona o texto inserido (sem os marcadores) pra usuario poder
+    // substituir o placeholder "texto" digitando.
+    var newRange = document.createRange();
+    newRange.setStart(textNode, before.length);
+    newRange.setEnd(textNode, before.length + selected.length);
+    sel.removeAllRanges();
+    sel.addRange(newRange);
+    pe.focus();
   }
   function mdPrefixLine(prefix){
     var pe = percEl(); if (!pe) return;
-    pe.focus();
-    var sel = window.getSelection(); if (!sel || sel.rangeCount === 0) return;
-    var range = sel.getRangeAt(0);
-    if (!pe.contains(range.commonAncestorContainer)) return;
-    var text = pe.textContent || '';
-    // Encontra início da linha onde está o cursor
-    var caret = range.startOffset;
-    // Para simplificar, insere prefix na posição atual (analista normalmente
-    // posiciona no início da linha)
-    range.insertNode(document.createTextNode(prefix));
+    var sel = window.getSelection();
+    var range = null;
+    if (sel && sel.rangeCount > 0) {
+      var r = sel.getRangeAt(0);
+      if (pe.contains(r.commonAncestorContainer)) range = r;
+    }
+    if (!range) {
+      pe.focus();
+      range = document.createRange();
+      range.selectNodeContents(pe);
+      range.collapse(false);
+      sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    // Insere "\n- " se ja tem conteudo antes, ou so "- " se esta no inicio
+    var prefixed = (pe.textContent || '').length > 0 ? '\\n' + prefix : prefix;
+    range.insertNode(document.createTextNode(prefixed));
     sel.collapseToEnd();
-    void caret; void text;
+    pe.focus();
   }
   function initPercToolbar(){
     if (percToolbarInited) return;
     percToolbarInited = true;
     var tb = document.getElementById('percToolbar');
     if (!tb) return;
-    tb.addEventListener('click', function(e){
+    // CRUCIAL: usar mousedown com preventDefault para nao perder o foco
+    // (e portanto a selecao) do contenteditable [data-edit-percepcao].
+    // Com click puro, o navegador transfere foco pro botao antes do handler
+    // rodar e sel.rangeCount vira 0 — caia no fallback que insere no fim.
+    tb.addEventListener('mousedown', function(e){
       var btn = e.target.closest ? e.target.closest('button[data-md-action]') : null;
       if (!btn) return;
       e.preventDefault();
@@ -3900,6 +3926,11 @@ document.getElementById('printBtn').addEventListener('click', async function() {
       else if (act === 'alerta') mdInsert(':alerta[',']');
       else if (act === 'atencao') mdInsert(':atencao[',']');
       else if (act === 'positivo') mdInsert(':positivo[',']');
+    });
+    // Bloqueia o click tambem (caso algum click chegue antes/depois do mousedown).
+    tb.addEventListener('click', function(e){
+      var btn = e.target.closest ? e.target.closest('button[data-md-action]') : null;
+      if (btn) e.preventDefault();
     });
     // Atalhos Ctrl+B / Ctrl+I quando foco está no bloco da percepção
     document.addEventListener('keydown', function(e){
