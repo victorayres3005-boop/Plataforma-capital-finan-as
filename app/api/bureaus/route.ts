@@ -262,8 +262,16 @@ export async function POST(req: NextRequest) {
     //  • Se NÃO houver upload PGFN → vira a fonte primária (data.dividaAtiva)
     //  • Se HOUVER upload PGFN → vira snapshot para comparação (data.dividaAtivaBDC),
     //    mantendo o upload do analista como fonte de verdade.
+    //
+    // Bug corrigido 2026-05-13: a condição antes checava `!dataConsulta`, mas
+    // muitas certidões PGFN (prints, PDFs antigos, certidões estaduais/
+    // municipais) não trazem a data de emissão em formato extraível pelo
+    // Gemini. Resultado: PGFN cheio de inscrições era sobrescrito por BDC
+    // só porque dataConsulta veio "". Agora a checagem é por dados
+    // substantivos (qtdRegistros > 0 OU certidão negativa explícita).
     const bdcDA = dividaAtivaBDC.status === "fulfilled" ? dividaAtivaBDC.value : undefined;
-    if (!data.dividaAtiva || !data.dividaAtiva.dataConsulta) {
+    const pgfnUpload = data.dividaAtiva;
+    if (!pgfnUpload || (pgfnUpload.qtdRegistros === 0 && !pgfnUpload.certidaoNegativa)) {
       if (bdcDA?.success && bdcDA.data) {
         merged.dividaAtiva = bdcDA.data;
         console.log(
@@ -273,7 +281,7 @@ export async function POST(req: NextRequest) {
         console.log(`[bureaus][divida-ativa] BDC não retornou dado: ${bdcDA?.error ?? "indisponível"}`);
       }
     } else {
-      console.log(`[bureaus][divida-ativa] preservando upload manual do analista (PGFN)`);
+      console.log(`[bureaus][divida-ativa] preservando upload manual do analista (PGFN): qtd=${pgfnUpload.qtdRegistros} ${pgfnUpload.certidaoNegativa ? "(negativa)" : `total=${pgfnUpload.valorTotal}`}`);
       if (bdcDA?.success && bdcDA.data) {
         merged.dividaAtivaBDC = bdcDA.data;
         console.log(
