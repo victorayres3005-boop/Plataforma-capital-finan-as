@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>Mockup — Histórico compartilhado (Da equipe)</title>
+<style>
+  :root {
+    --bg: #F5F7FB;
+    --card: #ffffff;
+    --line: #F1F5F9;
+    --line-2: #E5E7EB;
+    --ink: #111827;
+    --muted: #6B7280;
+    --soft: #9CA3AF;
+    --softer: #CBD5E1;
+    --softest: #E2E8F0;
+    --cf-blue: #203b88;
+    --cf-blue-deep: #0f1f5c;
+    --cf-blue-mid: #1a2f6b;
+    --cf-blue-soft: #1e3a8a;
+    --cf-green: #73b815;
+    --cf-green-soft: #a8d96b;
+    --warn: #d97706;
+    --warn-bg: #FEF3C7;
+    --warn-line: #FDE68A;
+    --good: #16a34a;
+    --good-bg: #DCFCE7;
+    --good-line: #86EFAC;
+    --bad: #dc2626;
+    --bad-bg: #FEE2E2;
+    --bad-line: #FCA5A5;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--ink); font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+  .num { font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+  .container { max-width: 960px; margin: 0 auto; padding: 0 20px 60px; }
+
+  /* ── Hero (igual ao /historico atual) ── */
+  .hero {
+    background: linear-gradient(135deg, var(--cf-blue-mid) 0%, var(--cf-blue) 60%, var(--cf-blue-soft) 100%);
+    padding: 28px 28px 24px; border-radius: 0 0 20px 20px; margin-bottom: 24px;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  }
+  .hero h1 { color: #fff; font-size: 22px; font-weight: 800; letter-spacing: -0.01em; }
+  .hero .sub { font-size: 12px; color: rgba(255,255,255,0.55); margin-top: 3px; }
+  .hero .left { display: flex; align-items: center; gap: 14px; }
+  .hero .clock { width: 44px; height: 44px; border-radius: 12px; background: rgba(168,217,107,0.15); border: 1px solid rgba(168,217,107,0.3); display: flex; align-items: center; justify-content: center; }
+  .hero .clock svg { color: var(--cf-green-soft); }
+  .hero .stats { display: flex; gap: 22px; }
+  .hero .stat .v { font-size: 22px; font-weight: 800; color: #fff; line-height: 1; text-align: right; }
+  .hero .stat .l { font-size: 10px; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 3px; text-align: right; }
+  .hero .stat.green .v { color: var(--cf-green-soft); }
+
+  /* ── Tabs ── */
+  .tabs { display: flex; align-items: center; gap: 4px; padding: 4px; background: #fff; border: 1px solid var(--line-2); border-radius: 12px; width: fit-content; margin-bottom: 14px; box-shadow: 0 1px 2px rgba(15, 31, 92, 0.04); }
+  .tab { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; padding: 8px 14px; border-radius: 8px; color: var(--muted); cursor: pointer; border: none; background: transparent; transition: all 120ms ease; }
+  .tab:hover { background: #F8FAFC; color: var(--ink); }
+  .tab.active { background: var(--cf-blue); color: #fff; }
+  .tab .count { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 99px; background: rgba(255,255,255,0.18); color: inherit; }
+  .tab:not(.active) .count { background: #F1F5F9; color: var(--soft); }
+  .tab.team:not(.active) { color: #5b6372; }
+  .tab.team .badge-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--cf-green); display: inline-block; }
+
+  /* ── Toolbar (search + filtro) ── */
+  .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+  .search { flex: 1; position: relative; }
+  .search input { width: 100%; height: 38px; padding: 0 14px 0 38px; border: 1px solid var(--line-2); border-radius: 10px; background: #fff; font-size: 13px; color: var(--ink); outline: none; }
+  .search input::placeholder { color: var(--soft); }
+  .search svg { position: absolute; left: 12px; top: 11px; color: var(--soft); }
+  .filter-btn { display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 14px; border: 1px solid var(--line-2); background: #fff; border-radius: 10px; font-size: 13px; color: var(--muted); cursor: pointer; }
+
+  /* ── Banner team-mode ── */
+  .banner { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; background: #F0F7FF; border: 1px solid #BFD7F2; border-radius: 12px; margin-bottom: 14px; }
+  .banner .icon { width: 28px; height: 28px; border-radius: 8px; background: #DBEAFE; color: #1d4ed8; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .banner .text { font-size: 12.5px; color: #1e3a8a; line-height: 1.5; }
+  .banner .text b { font-weight: 700; }
+  .banner .text .dim { color: #64748b; }
+
+  /* ── Group header (empresa) ── */
+  .group { background: #fff; border: 1px solid var(--line-2); border-radius: 14px; overflow: hidden; box-shadow: 0 1px 2px rgba(15, 31, 92, 0.04); margin-bottom: 14px; }
+  .group-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); background: #FBFCFE; }
+  .group-head .name { font-size: 14px; font-weight: 700; color: var(--ink); }
+  .group-head .cnpj { font-size: 11px; color: var(--soft); margin-left: 8px; }
+  .group-head .count-pill { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--muted); background: #F1F5F9; border-radius: 99px; padding: 3px 9px; }
+
+  /* ── Row (coleta) ── */
+  .row { display: flex; align-items: center; gap: 10px; padding: 0 16px; height: 56px; border-bottom: 1px solid var(--line); transition: background 100ms ease; }
+  .row:last-child { border-bottom: none; }
+  .row:hover { background: #FAFAFA; }
+  .row.team { background: linear-gradient(90deg, #FBFCFE 0%, #fff 60%); }
+  .row.team:hover { background: linear-gradient(90deg, #F1F6FF 0%, #FAFCFF 60%); }
+
+  .grade { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 13px; font-weight: 700; }
+  .grade.a { background: #f0fdf4; color: var(--good); border: 1.5px solid #86efac; }
+  .grade.b { background: #f7fee7; color: #65a30d; border: 1.5px solid #bef264; }
+  .grade.c { background: #fffbeb; color: var(--warn); border: 1.5px solid #fcd34d; }
+  .grade.d { background: #fff7ed; color: #ea580c; border: 1.5px solid #fdba74; }
+  .grade.e { background: #fef2f2; color: var(--bad); border: 1.5px solid #fca5a5; }
+
+  .v2 { width: 20px; height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; flex-shrink: 0; }
+  .v2.b { background: #f7fee7; color: #65a30d; border: 1px solid #65a30d55; }
+  .v2.c { background: #fffbeb; color: var(--warn); border: 1px solid #d9770655; }
+
+  .name { font-size: 13px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 230px; }
+  .sector { font-size: 11.5px; color: var(--muted); white-space: nowrap; font-weight: 500; }
+  .meta { font-size: 12px; color: var(--soft); white-space: nowrap; display: flex; align-items: center; gap: 4px; }
+  .meta .dot { color: var(--softest); }
+  .meta .dim { color: var(--softer); }
+
+  .rating { display: inline-flex; align-items: center; gap: 6px; }
+  .rating .n { font-size: 13px; font-weight: 700; }
+  .rating .max { font-size: 10px; color: var(--soft); font-weight: 500; }
+  .rating .bar { width: 36px; height: 4px; background: #F1F5F9; border-radius: 99px; overflow: hidden; }
+  .rating .bar i { display: block; height: 100%; border-radius: 99px; }
+
+  .status { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+  .status .pin { width: 6px; height: 6px; border-radius: 50%; }
+  .status.ok { color: var(--good); } .status.ok .pin { background: var(--good); }
+  .status.cond { color: #7C3AED; } .status.cond .pin { background: #7C3AED; }
+  .status.prog { color: var(--warn); } .status.prog .pin { background: var(--warn); }
+  .status.qst { color: #0891B2; } .status.qst .pin { background: #0891B2; }
+  .status.bad { color: var(--bad); } .status.bad .pin { background: var(--bad); }
+
+  .tag-warn { font-size: 9.5px; font-weight: 800; letter-spacing: 0.08em; color: var(--warn); background: #fffbeb; border: 1px solid var(--warn-line); border-radius: 4px; padding: 2px 6px; text-transform: uppercase; }
+
+  .spacer { flex: 1; }
+  .actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+  .icon-btn { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; color: var(--soft); border: 1px solid transparent; background: transparent; cursor: pointer; transition: all 100ms ease; }
+  .icon-btn:hover { color: #374151; background: #F1F5F9; border-color: var(--line-2); }
+  .icon-btn.danger:hover { color: var(--bad); background: #FEF2F2; border-color: #FECACA; }
+  .icon-btn.disabled { opacity: 0.35; cursor: not-allowed; }
+  .icon-btn.disabled:hover { background: transparent; border-color: transparent; color: var(--soft); }
+
+  /* ── Bloco do dono (apenas em rows .team) ── */
+  .owner { display: inline-flex; align-items: center; gap: 7px; padding: 3px 10px 3px 3px; background: #F1F6FF; border: 1px solid #DBE9FF; border-radius: 99px; flex-shrink: 0; }
+  .owner .av { width: 22px; height: 22px; border-radius: 50%; background: linear-gradient(135deg, #4F46E5, #7C3AED); color: #fff; font-size: 10px; font-weight: 800; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .owner .av.green { background: linear-gradient(135deg, #16a34a, #65a30d); }
+  .owner .av.amber { background: linear-gradient(135deg, #d97706, #f59e0b); }
+  .owner .av.rose  { background: linear-gradient(135deg, #be123c, #f43f5e); }
+  .owner .nm { font-size: 11.5px; font-weight: 600; color: #1e3a8a; max-width: 110px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ── Modal de confirmação ── */
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(15, 31, 92, 0.45); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; z-index: 50; }
+  .modal { background: #fff; border-radius: 16px; padding: 22px 24px; width: 440px; max-width: 92vw; box-shadow: 0 20px 50px rgba(15, 31, 92, 0.3); }
+  .modal h3 { font-size: 16px; font-weight: 800; color: var(--ink); margin-bottom: 6px; }
+  .modal p { font-size: 13px; color: var(--muted); line-height: 1.55; margin-bottom: 14px; }
+  .modal .who { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #F8FAFC; border: 1px solid var(--line-2); border-radius: 10px; margin-bottom: 14px; }
+  .modal .who .av { width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, #4F46E5, #7C3AED); color: #fff; font-size: 13px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+  .modal .who .name-block { display: flex; flex-direction: column; }
+  .modal .who .nm { font-size: 13px; font-weight: 700; color: var(--ink); }
+  .modal .who .cm { font-size: 11px; color: var(--soft); }
+  .modal .audit { font-size: 11.5px; color: #b45309; background: #FEF3C7; border: 1px solid #FDE68A; border-radius: 8px; padding: 8px 10px; margin-bottom: 16px; line-height: 1.5; }
+  .modal .actions-row { display: flex; justify-content: flex-end; gap: 8px; }
+  .btn { font-size: 13px; font-weight: 600; height: 36px; padding: 0 14px; border-radius: 10px; border: none; cursor: pointer; transition: all 100ms ease; }
+  .btn.ghost { background: transparent; color: var(--muted); }
+  .btn.ghost:hover { background: #F1F5F9; color: var(--ink); }
+  .btn.primary { background: var(--cf-blue); color: #fff; }
+  .btn.primary:hover { background: var(--cf-blue-deep); }
+
+  /* ── Variant toggle (mockup-only) ── */
+  .mockbar { position: fixed; bottom: 16px; right: 16px; background: #111827; color: #fff; border-radius: 12px; padding: 10px 14px; font-size: 12px; display: flex; align-items: center; gap: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.25); z-index: 60; }
+  .mockbar button { background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; font-size: 11px; padding: 5px 9px; cursor: pointer; }
+  .mockbar button.on { background: var(--cf-green); color: #0f172a; border-color: var(--cf-green); }
+
+  .label-mock { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--soft); margin: 22px 0 8px; padding-left: 4px; }
+</style>
+</head>
+<body>
+  <div class="container">
+
+    <!-- HERO -->
+    <div class="hero">
+      <div class="left">
+        <div class="clock">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+        </div>
+        <div>
+          <h1>Histórico de Relatórios</h1>
+          <div class="sub" id="hero-sub">12 coletas suas · 47 da equipe</div>
+        </div>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="v" id="stat-mine">12</div><div class="l">Minhas</div></div>
+        <div class="stat green"><div class="v" id="stat-team">47</div><div class="l">Da equipe</div></div>
+      </div>
+    </div>
+
+    <!-- TABS -->
+    <div class="tabs">
+      <button class="tab active" data-tab="mine" onclick="switchTab('mine')">
+        Minhas <span class="count">12</span>
+      </button>
+      <button class="tab team" data-tab="team" onclick="switchTab('team')">
+        <span class="badge-dot"></span>
+        Da equipe <span class="count">47</span>
+      </button>
+    </div>
+
+    <!-- TOOLBAR -->
+    <div class="toolbar">
+      <div class="search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="search-input" placeholder="Buscar por empresa ou CNPJ" />
+      </div>
+      <button class="filter-btn">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>
+        Filtros
+      </button>
+    </div>
+
+    <!-- BANNER (somente quando aba "team") -->
+    <div class="banner" id="team-banner" style="display:none">
+      <div class="icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      </div>
+      <div class="text">
+        <b>Você está vendo coletas de outros analistas.</b><br />
+        <span class="dim">Você pode visualizar os relatórios e retomar uma coleta para continuar de onde o colega parou. Cada retomada fica registrada no histórico de auditoria.</span>
+      </div>
+    </div>
+
+    <!-- ──────────── PAINEL: MINHAS ──────────── -->
+    <div id="panel-mine">
+
+      <div class="group">
+        <div class="group-head">
+          <span class="name">GLOBOPACK INDÚSTRIA E COMÉRCIO</span>
+          <span class="cnpj">12.345.678/0001-90</span>
+          <span class="count-pill">3 coletas</span>
+        </div>
+        <div class="row">
+          <div class="grade b">B</div>
+          <div class="v2 b">B</div>
+          <span class="name">GLOBOPACK INDÚSTRIA E COMÉRCIO</span>
+          <span class="sector">Indústria</span>
+          <span class="meta"><span class="dim">12/05/26</span><span class="dot">·</span><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg><span>9 docs</span></span>
+          <span class="rating num"><span class="n" style="color: var(--good)">7.8</span><span class="max">/10</span><span class="bar"><i style="width:78%;background:var(--good)"></i></span></span>
+          <span class="status ok"><span class="pin"></span>Aprovado</span>
+          <span class="spacer"></span>
+          <div class="actions">
+            <button class="icon-btn" title="Baixar relatório">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </button>
+            <button class="icon-btn" title="Reabrir edição">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+            </button>
+            <button class="icon-btn" title="Ver detalhes">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <button class="icon-btn danger" title="Excluir">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="grade c">C</div>
+          <span class="name">GLOBOPACK INDÚSTRIA E COMÉRCIO</span>
+          <span class="sector">Indústria</span>
+          <span class="meta"><span class="dim">28/04/26</span><span class="dot">·</span><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg><span>4 docs</span></span>
+          <span class="status prog"><span class="pin"></span>Em andamento</span>
+          <span class="tag-warn">Revisar</span>
+          <span class="spacer"></span>
+          <div class="actions">
+            <button class="icon-btn" title="Retomar coleta">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+            </button>
+            <button class="icon-btn" title="Ver detalhes">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <button class="icon-btn danger" title="Excluir">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-head">
+          <span class="name">FAZENDA SANTA HELENA AGRÍCOLA</span>
+          <span class="cnpj">98.765.432/0001-10</span>
+          <span class="count-pill">1 coleta</span>
+        </div>
+        <div class="row">
+          <div class="grade a">A</div>
+          <span class="name">FAZENDA SANTA HELENA AGRÍCOLA</span>
+          <span class="sector">Agronegócio</span>
+          <span class="meta"><span class="dim">10/05/26</span><span class="dot">·</span><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg><span>11 docs</span></span>
+          <span class="rating num"><span class="n" style="color: var(--good)">8.6</span><span class="max">/10</span><span class="bar"><i style="width:86%;background:var(--good)"></i></span></span>
+          <span class="status ok"><span class="pin"></span>Aprovado</span>
+          <span class="spacer"></span>
+          <div class="actions">
+            <button class="icon-btn" title="Baixar"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+            <button class="icon-btn" title="Reabrir"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg></button>
+            <button class="icon-btn" title="Detalhes"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button>
+            <button class="icon-btn danger" title="Excluir"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ──────────── PAINEL: DA EQUIPE ──────────── -->
+    <div id="panel-team" style="display:none">
+
+      <div class="group">
+        <div class="group-head">
+          <span class="name">METALÚRGICA TRÊS LAGOAS</span>
+          <span class="cnpj">11.222.333/0001-44</span>
+          <span class="count-pill">2 coletas</span>
+        </div>
+
+        <!-- Coleta finalizada de outro analista -->
+        <div class="row team">
+          <div class="grade b">B</div>
+          <div class="v2 b">B</div>
+          <span class="name">METALÚRGICA TRÊS LAGOAS</span>
+          <div class="owner" title="Coleta criada por Débora Almeida">
+            <div class="av">DA</div>
+            <span class="nm">Débora Almeida</span>
+          </div>
+          <span class="meta"><span class="dim">11/05/26</span><span class="dot">·</span><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg><span>10 docs</span></span>
+          <span class="rating num"><span class="n" style="color: var(--good)">7.4</span><span class="max">/10</span><span class="bar"><i style="width:74%;background:var(--good)"></i></span></span>
+          <span class="status cond"><span class="pin"></span>Condicional</span>
+          <span class="spacer"></span>
+          <div class="actions">
+            <button class="icon-btn" title="Baixar relatório">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </button>
+            <button class="icon-btn" title="Reabrir e retomar a coleta da Débora" onclick="openConfirm('Débora Almeida','DA','11/05/2026')">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+            </button>
+            <button class="icon-btn" title="Ver detalhes">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <button class="icon-btn disabled" title="Apenas o dono pode excluir">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Coleta em andamento de outro analista -->
+        <div class="row team">
+          <div class="grade c">C</div>
+          <span class="name">METALÚRGICA TRÊS LAGOAS</span>
+          <div class="owner" title="Coleta em andamento criada por Rafael Costa">
+            <div class="av green">RC</div>
+            <span class="nm">Rafael Costa</span>
+          </div>
+          <span class="meta"><span class="dim">12/05/26</span><span class="dot">·</span><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg><span>5 docs</span></span>
+          <span class="status prog"><span class="pin"></span>Em andamento</span>
+          <span class="spacer"></span>
+          <div class="actions">
+            <button class="icon-btn" title="Retomar coleta do Rafael" onclick="openConfirm('Rafael Costa','RC','12/05/2026')">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+            </button>
+            <button class="icon-btn" title="Ver detalhes">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <button class="icon-btn disabled" title="Apenas o dono pode excluir">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-head">
+          <span class="name">PADARIA E CONFEITARIA NOVA AURORA</span>
+          <span class="cnpj">55.444.333/0001-22</span>
+          <span class="count-pill">1 coleta</span>
+        </div>
+        <div class="row team">
+          <div class="grade e">E</div>
+          <span class="name">PADARIA E CONFEITARIA NOVA AURORA</span>
+          <div class="owner" title="Coleta criada por Beatriz Lima">
+            <div class="av amber">BL</div>
+            <span class="nm">Beatriz Lima</span>
+          </div>
+          <span class="meta"><span class="dim">09/05/26</span><span class="dot">·</span><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg><span>8 docs</span></span>
+          <span class="rating num"><span class="n" style="color: var(--bad)">3.2</span><span class="max">/10</span><span class="bar"><i style="width:32%;background:var(--bad)"></i></span></span>
+          <span class="status bad"><span class="pin"></span>Reprovado</span>
+          <span class="spacer"></span>
+          <div class="actions">
+            <button class="icon-btn" title="Baixar relatório"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+            <button class="icon-btn" title="Reabrir coleta da Beatriz" onclick="openConfirm('Beatriz Lima','BL','09/05/2026')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg></button>
+            <button class="icon-btn" title="Ver detalhes"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></button>
+            <button class="icon-btn disabled" title="Apenas o dono pode excluir"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <p class="label-mock">Mockup local — não conectado ao banco. Clique nos botões de retomar para ver o modal.</p>
+  </div>
+
+  <!-- ── MODAL ── -->
+  <div class="modal-backdrop" id="confirm-modal" style="display:none">
+    <div class="modal">
+      <h3>Retomar coleta de outro analista?</h3>
+      <p>Você vai assumir a edição desta coleta. O dono original continua aparecendo no histórico.</p>
+      <div class="who">
+        <div class="av" id="modal-av">DA</div>
+        <div class="name-block">
+          <span class="nm" id="modal-nm">Débora Almeida</span>
+          <span class="cm" id="modal-cm">criou em 11/05/2026</span>
+        </div>
+      </div>
+      <div class="audit">
+        <b>Esta ação fica registrada</b> no log de auditoria (quem retomou, quando, e de quem). Use para passar plantão, cobrir férias ou continuar de onde o colega parou.
+      </div>
+      <div class="actions-row">
+        <button class="btn ghost" onclick="closeConfirm()">Cancelar</button>
+        <button class="btn primary" onclick="closeConfirm()">Reabrir e retomar →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Mockbar (simulador da aba ativa) ── -->
+  <div class="mockbar">
+    <span>Mockup —</span>
+    <button class="on" id="mb-mine" onclick="switchTab('mine')">Minhas</button>
+    <button id="mb-team" onclick="switchTab('team')">Da equipe</button>
+  </div>
+
+<script>
+  function switchTab(which) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === which));
+    document.getElementById('panel-mine').style.display = which === 'mine' ? '' : 'none';
+    document.getElementById('panel-team').style.display = which === 'team' ? '' : 'none';
+    document.getElementById('team-banner').style.display = which === 'team' ? '' : 'none';
+    document.getElementById('mb-mine').classList.toggle('on', which === 'mine');
+    document.getElementById('mb-team').classList.toggle('on', which === 'team');
+    document.getElementById('hero-sub').textContent = which === 'mine'
+      ? '12 coletas suas · 47 da equipe'
+      : 'Visualizando 47 coletas de outros analistas';
+  }
+  function openConfirm(name, initials, date) {
+    document.getElementById('modal-av').textContent = initials;
+    document.getElementById('modal-nm').textContent = name;
+    document.getElementById('modal-cm').textContent = 'criou em ' + date;
+    document.getElementById('confirm-modal').style.display = 'flex';
+  }
+  function closeConfirm() { document.getElementById('confirm-modal').style.display = 'none'; }
+  document.getElementById('confirm-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeConfirm();
+  });
+</script>
+</body>
+</html>

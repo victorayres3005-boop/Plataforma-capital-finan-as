@@ -1158,6 +1158,12 @@ export interface DocumentCollection {
     preset_color?: string;
     validated_at: string;
   } | null;
+  /** Snapshot do nome do dono no momento da criação (migration 19). */
+  created_by_name?: string | null;
+  /** Quem reabriu por último — populado quando colega retoma coleta alheia. */
+  reopened_by?: string | null;
+  reopened_at?: string | null;
+  last_reopened_at?: string | null;
 }
 
 // ─── Análise de IA ───

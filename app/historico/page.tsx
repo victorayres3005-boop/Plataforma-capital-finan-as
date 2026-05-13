@@ -159,7 +159,7 @@ const DOC_FIELDS: Record<string, { key: string; label: string; type: "text" | "s
 };
 
 // ── CollectionRow — single entry row ──
-function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, v2Map }: {
+function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, v2Map, isOwn = true }: {
   col: DocumentCollection;
   isGrouped: boolean;
   userName: string;
@@ -168,6 +168,8 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
   onDelete: (id: string) => void;
   onUpdate: (id: string, docs: CollectionDocument[]) => void;
   v2Map?: Map<string, string>;
+  /** Dono é o usuário logado? Quando false, oculta ações destrutivas/edição (Fase 1 do histórico compartilhado). */
+  isOwn?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
@@ -291,16 +293,28 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
   };
 
   const handleReopen = async () => {
+    // Coleta de outro analista exige modal de confirmação antes — botão dispara
+    // openTeamReopenConfirm em vez deste handler. Aqui é caminho do dono OU
+    // confirmação já dada pelo modal de equipe.
     setReopening(true);
     try {
-      const supabase = createClient();
-      const { error } = await supabase.from("document_collections").update({ status: "in_progress", finished_at: null }).eq("id", col.id).eq("user_id", userId);
-      if (error) throw error;
-      toast.success("Coleta reaberta — redirecionando...");
-      setTimeout(() => { window.location.href = `/?resume=${col.id}`; }, 800);
-    } catch { toast.error("Erro ao reabrir coleta"); }
-    finally { setReopening(false); }
+      // Endpoint dedicado lida com ambos os casos (dono passa por RLS,
+      // colega usa service role + audit_log). Centralizar evita ter dois
+      // caminhos divergentes no frontend.
+      const res = await fetch(`/api/collections/${col.id}/reopen`, { method: "POST" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((json as { error?: string }).error || "Falha na retomada");
+      const target = (json as { redirect?: string }).redirect || `/?resume=${col.id}`;
+      toast.success(isOwn ? "Coleta reaberta — redirecionando..." : "Retomando coleta da equipe...");
+      setTimeout(() => { window.location.href = target; }, 600);
+    } catch (err) {
+      toast.error("Erro ao reabrir coleta: " + (err instanceof Error ? err.message : "tente novamente"));
+    } finally { setReopening(false); }
   };
+
+  // Modal de confirmação ao retomar coleta de colega — protege contra clique
+  // acidental e deixa explícito que a ação fica registrada em audit_log.
+  const [confirmTeamReopen, setConfirmTeamReopen] = useState(false);
 
   const handleDelete = async () => {
     setDeleting(true);
@@ -404,6 +418,48 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
           </span>
         )}
 
+        {/* Pill do dono — só aparece quando a coleta é de outro analista (aba "Da equipe") */}
+        {!isOwn && (() => {
+          const ownerName = col.created_by_name || "Analista";
+          const initials = ownerName
+            .split(/\s+/)
+            .filter(Boolean)
+            .slice(0, 2)
+            .map(s => s.charAt(0).toUpperCase())
+            .join("") || "?";
+          // Cor do avatar derivada do user_id pra ser estável entre coletas do mesmo dono
+          const palette = [
+            "linear-gradient(135deg,#4F46E5,#7C3AED)",
+            "linear-gradient(135deg,#16a34a,#65a30d)",
+            "linear-gradient(135deg,#d97706,#f59e0b)",
+            "linear-gradient(135deg,#be123c,#f43f5e)",
+            "linear-gradient(135deg,#0891B2,#0ea5e9)",
+          ];
+          const seed = (col.user_id || "").split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+          const bg = palette[seed % palette.length];
+          return (
+            <span
+              title={`Coleta criada por ${ownerName}`}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 7,
+                padding: "3px 10px 3px 3px",
+                background: "#F1F6FF", border: "1px solid #DBE9FF",
+                borderRadius: 999, flexShrink: 0,
+              }}
+            >
+              <span style={{
+                width: 22, height: 22, borderRadius: "50%",
+                background: bg, color: "#fff", fontSize: 10, fontWeight: 800,
+                display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+              }}>{initials}</span>
+              <span style={{
+                fontSize: 11.5, fontWeight: 600, color: "#1e3a8a",
+                maxWidth: 120, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+              }}>{ownerName}</span>
+            </span>
+          );
+        })()}
+
         {/* Date · docs */}
         <span style={{ fontSize: 12, color: "#9CA3AF", whiteSpace: "nowrap", flexShrink: 0, display: "flex", alignItems: "center", gap: 4 }}>
           <span style={{ color: "#CBD5E1" }}>{date}</span>
@@ -467,12 +523,20 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
             </button>
           )}
           <button
-            title={isFinished ? "Reabrir edição" : "Retomar coleta"}
-            onClick={isFinished ? handleReopen : undefined}
+            title={
+              !isOwn
+                ? (isFinished ? `Reabrir e retomar (coleta de ${col.created_by_name || "outro analista"})` : `Retomar coleta de ${col.created_by_name || "outro analista"}`)
+                : (isFinished ? "Reabrir edição" : "Retomar coleta")
+            }
+            onClick={
+              !isOwn
+                ? () => setConfirmTeamReopen(true)
+                : (isFinished ? handleReopen : undefined)
+            }
             disabled={reopening}
             className={iconBtn}
           >
-            {!isFinished
+            {!isFinished && isOwn
               ? <Link href={`/?resume=${col.id}`} className="flex items-center justify-center w-full h-full"><RotateCcw size={15} /></Link>
               : reopening ? <Loader2 size={15} className="animate-spin" /> : <RotateCcw size={15} />
             }
@@ -480,7 +544,15 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
           <button title={expanded ? "Fechar" : "Ver detalhes"} onClick={() => setExpanded(p => !p)} className={iconBtn}>
             {expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
           </button>
-          {!confirmDelete ? (
+          {!isOwn ? (
+            <button
+              title="Apenas o dono pode excluir esta coleta"
+              disabled
+              className={`${iconBtn} opacity-30 cursor-not-allowed hover:!text-[#9CA3AF] hover:!bg-transparent hover:!border-transparent`}
+            >
+              <Trash2 size={15} />
+            </button>
+          ) : !confirmDelete ? (
             <button title="Excluir" onClick={() => setConfirmDelete(true)} className={`${iconBtn} hover:!text-red-500 hover:!bg-red-50`}>
               <Trash2 size={15} />
             </button>
@@ -519,7 +591,12 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
           {/* Observações */}
           <div className="mb-4">
             <p style={{ fontSize: 10, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Observação</p>
-            {editingNotes ? (
+            {!isOwn ? (
+              // Coleta de outro analista: read-only, sem botão de edição
+              <p className="text-xs text-[#6B7280] leading-relaxed italic min-h-[20px]">
+                {observacoes || <span className="text-[#CBD5E1]">— sem observações —</span>}
+              </p>
+            ) : editingNotes ? (
               <div>
                 <textarea
                   value={observacoes}
@@ -628,25 +705,36 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
             </button>
             {isFinished ? (
               <div className="flex items-center gap-3">
-                <a
-                  href={`/parecer?id=${col.id}`}
-                  className="text-xs font-semibold text-[#7c3aed] hover:underline transition-colors"
-                >
-                  Editar parecer →
-                </a>
+                {isOwn && (
+                  <a
+                    href={`/parecer?id=${col.id}`}
+                    className="text-xs font-semibold text-[#7c3aed] hover:underline transition-colors"
+                  >
+                    Editar parecer →
+                  </a>
+                )}
                 <button
-                  onClick={handleReopen}
+                  onClick={isOwn ? handleReopen : () => setConfirmTeamReopen(true)}
                   disabled={reopening}
                   className="text-xs font-semibold text-[#203b88] hover:underline transition-colors disabled:opacity-50 flex items-center gap-1"
                 >
                   {reopening ? <Loader2 size={12} className="animate-spin" /> : null}
-                  Reabrir edição →
+                  {isOwn ? "Reabrir edição →" : "Reabrir e retomar →"}
                 </button>
               </div>
-            ) : (
+            ) : isOwn ? (
               <Link href={`/?resume=${col.id}`} className="text-xs font-semibold text-[#203b88] hover:underline">
                 Retomar →
               </Link>
+            ) : (
+              <button
+                onClick={() => setConfirmTeamReopen(true)}
+                disabled={reopening}
+                className="text-xs font-semibold text-[#203b88] hover:underline transition-colors disabled:opacity-50 flex items-center gap-1"
+              >
+                {reopening ? <Loader2 size={12} className="animate-spin" /> : null}
+                Retomar →
+              </button>
             )}
           </div>
 
@@ -695,10 +783,12 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
                         <p className="text-[10px] text-[#9CA3AF] truncate">{doc.filename}</p>
                       </div>
                       <span className="text-[10px] text-[#9CA3AF] font-mono">{filledCount}/{totalFields} campos</span>
-                      <button onClick={() => setInspectingIdx(i)} className="text-[11px] font-semibold text-[#9CA3AF] hover:text-cf-navy transition-colors flex items-center gap-1" title="Ver dados brutos extraídos">
-                        <Search size={10} /> Dados
-                      </button>
-                      {!isEditing && (
+                      {isOwn && (
+                        <button onClick={() => setInspectingIdx(i)} className="text-[11px] font-semibold text-[#9CA3AF] hover:text-cf-navy transition-colors flex items-center gap-1" title="Ver dados brutos extraídos">
+                          <Search size={10} /> Dados
+                        </button>
+                      )}
+                      {isOwn && !isEditing && (
                         <button onClick={() => { setEditingDoc(doc.type); setEditValues({ ...(doc.extracted_data || {}) }); setSaveError(null); }} className="text-[11px] font-semibold text-[#9CA3AF] hover:text-cf-navy transition-colors flex items-center gap-1">
                           <Pencil size={10} /> Editar
                         </button>
@@ -757,6 +847,65 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
           )}
         </div>
       )}
+
+      {/* ── Modal: confirmação de retomada de coleta de outro analista ── */}
+      {confirmTeamReopen && !isOwn && (() => {
+        const ownerName = col.created_by_name || "outro analista";
+        const initials = ownerName.split(/\s+/).filter(Boolean).slice(0, 2).map(s => s.charAt(0).toUpperCase()).join("") || "?";
+        const createdDate = new Date(col.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+        return (
+          <div
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-fade-in"
+            onClick={() => !reopening && setConfirmTeamReopen(false)}
+          >
+            <div
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-5 pt-5 pb-3">
+                <h3 className="text-base font-extrabold text-[#111827] mb-1">
+                  Retomar coleta de outro analista?
+                </h3>
+                <p className="text-[13px] text-[#6B7280] leading-snug">
+                  Você vai assumir a edição desta coleta. O dono original continua aparecendo no histórico.
+                </p>
+              </div>
+              <div className="mx-5 mb-3 flex items-center gap-2.5 px-3 py-2.5 bg-[#F8FAFC] border border-[#E5E7EB] rounded-xl">
+                <div style={{
+                  width: 32, height: 32, borderRadius: "50%",
+                  background: "linear-gradient(135deg,#4F46E5,#7C3AED)",
+                  color: "#fff", fontSize: 13, fontWeight: 800,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>{initials}</div>
+                <div className="flex flex-col">
+                  <span className="text-[13px] font-bold text-[#111827]">{ownerName}</span>
+                  <span className="text-[11px] text-[#9CA3AF]">criou em {createdDate}</span>
+                </div>
+              </div>
+              <div className="mx-5 mb-4 text-[11.5px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2 leading-snug">
+                <b>Esta ação fica registrada</b> no log de auditoria (quem retomou, quando, e de quem). Use para passar plantão, cobrir férias ou continuar de onde o colega parou.
+              </div>
+              <div className="px-5 pb-4 flex justify-end gap-2">
+                <button
+                  onClick={() => setConfirmTeamReopen(false)}
+                  disabled={reopening}
+                  className="text-[13px] font-semibold text-[#6B7280] hover:text-[#111827] hover:bg-[#F1F5F9] rounded-lg px-3 h-9 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={async () => { setConfirmTeamReopen(false); await handleReopen(); }}
+                  disabled={reopening}
+                  className="text-[13px] font-semibold text-white bg-cf-navy hover:bg-[#0f1f5c] rounded-lg px-3.5 h-9 transition-colors flex items-center gap-1.5 disabled:opacity-60"
+                >
+                  {reopening && <Loader2 size={12} className="animate-spin" />}
+                  Reabrir e retomar →
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Inspector modal: raw extracted_data JSON ── */}
       {inspectingIdx !== null && docs[inspectingIdx] && (
@@ -874,6 +1023,13 @@ function GroupCard({ group, userName, userId, highlightId, onDelete, onDeleteAll
   onUpdate: (id: string, docs: CollectionDocument[]) => void;
   v2Map?: Map<string, string>;
 }) {
+  // Cada coleta carrega isOwn baseado no user_id da própria linha — um grupo
+  // pode misturar "minhas" com "da equipe" se o mesmo CNPJ tiver coletas de
+  // analistas diferentes.
+  const isOwnFor = (col: DocumentCollection) => !!userId && col.user_id === userId;
+  // "Apagar todas" só é oferecido se TODAS as coletas do grupo são do dono;
+  // RLS bloqueia delete cruzado e seria pior ver o botão e ele falhar.
+  const groupAllOwn = group.cols.every(isOwnFor);
   const [collapsed, setCollapsed] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
@@ -931,7 +1087,7 @@ function GroupCard({ group, userName, userId, highlightId, onDelete, onDeleteAll
   if (!isGroup) {
     return (
       <div className="bg-white rounded-xl border border-[#E2E8F0] overflow-hidden">
-        <CollectionRow col={group.cols[0]} isGrouped={false} userName={userName} userId={userId} highlight={group.cols[0].id === highlightId} onDelete={onDelete} onUpdate={onUpdate} v2Map={v2Map} />
+        <CollectionRow col={group.cols[0]} isGrouped={false} userName={userName} userId={userId} highlight={group.cols[0].id === highlightId} onDelete={onDelete} onUpdate={onUpdate} v2Map={v2Map} isOwn={isOwnFor(group.cols[0])} />
       </div>
     );
   }
@@ -980,9 +1136,9 @@ function GroupCard({ group, userName, userId, highlightId, onDelete, onDeleteAll
           </button>
         </div>
 
-        {/* Botão apagar todas */}
+        {/* Botão apagar todas — só quando todas as coletas do grupo são do dono */}
         <div onClick={e => e.stopPropagation()} className="flex-shrink-0">
-          {!confirmDeleteAll ? (
+          {!groupAllOwn ? null : !confirmDeleteAll ? (
             <button
               onClick={() => setConfirmDeleteAll(true)}
               title={`Apagar todas as ${group.cols.length} coletas de ${group.name}`}
@@ -1012,7 +1168,7 @@ function GroupCard({ group, userName, userId, highlightId, onDelete, onDeleteAll
       {!collapsed && (
         <div className="divide-y divide-[#F8FAFC]">
           {visible.map(col => (
-            <CollectionRow key={col.id} col={col} isGrouped userName={userName} userId={userId} highlight={col.id === highlightId} onDelete={onDelete} onUpdate={onUpdate} v2Map={v2Map} />
+            <CollectionRow key={col.id} col={col} isGrouped userName={userName} userId={userId} highlight={col.id === highlightId} onDelete={onDelete} onUpdate={onUpdate} v2Map={v2Map} isOwn={isOwnFor(col)} />
           ))}
           {!showAll && hidden > 0 && (
             <button
@@ -1153,8 +1309,24 @@ function loadHistoricoFilters(): HistoricoFilters {
   } catch { return DEFAULT_HISTORICO_FILTERS; }
 }
 
+// Persistência da aba ativa do Histórico (Minhas vs Da equipe).
+const HISTORICO_TAB_KEY = "cf_historico_tab_v1";
+type HistoricoTab = "mine" | "team";
+function loadHistoricoTab(): HistoricoTab {
+  if (typeof window === "undefined") return "mine";
+  try {
+    const raw = localStorage.getItem(HISTORICO_TAB_KEY);
+    return raw === "team" ? "team" : "mine";
+  } catch { return "mine"; }
+}
+
 function HistoricoContent() {
-  const [collections, setCollections] = useState<DocumentCollection[]>([]);
+  const [collectionsMine, setCollectionsMine] = useState<DocumentCollection[]>([]);
+  const [collectionsTeam, setCollectionsTeam] = useState<DocumentCollection[]>([]);
+  const [tab, setTab] = useState<HistoricoTab>(typeof window !== "undefined" ? loadHistoricoTab() : "mine");
+  // Fonte ativa derivada da aba — o resto da tela trabalha com `collections`
+  // sem precisar saber de qual fila vieram os registros.
+  const collections = tab === "mine" ? collectionsMine : collectionsTeam;
   const [v2Map, setV2Map] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -1178,23 +1350,32 @@ function HistoricoContent() {
   const highlightId = searchParams.get("highlight");
   const filterRef = useRef<HTMLDivElement>(null);
 
-  // Load collections
+  // Load collections — duas queries paralelas (minhas + da equipe).
+  // RLS aberto em SELECT (migration 19) permite ler tudo; o split é só pra UI
+  // — a aba "Minhas" mantém o foco do dia-a-dia, a aba "Da equipe" mostra o
+  // que os colegas analisaram.
   useEffect(() => {
     const load = async () => {
       try {
         const supabase = createClient();
         const { data: { user: u } } = await supabase.auth.getUser();
-        if (!u) { setCollections([]); return; }
-        const { data, error } = await supabase.from("document_collections").select("*").eq("user_id", u.id).order("created_at", { ascending: false });
-        if (error) throw error;
-        const cols = (data || []) as DocumentCollection[];
-        setCollections(cols);
-        if (cols.length > 0) {
-          const ids = cols.map(c => c.id);
+        if (!u) { setCollectionsMine([]); setCollectionsTeam([]); return; }
+        const [mineRes, teamRes] = await Promise.all([
+          supabase.from("document_collections").select("*").eq("user_id", u.id).order("created_at", { ascending: false }),
+          supabase.from("document_collections").select("*").neq("user_id", u.id).order("created_at", { ascending: false }),
+        ]);
+        if (mineRes.error) throw mineRes.error;
+        if (teamRes.error) throw teamRes.error;
+        const mine = (mineRes.data || []) as DocumentCollection[];
+        const team = (teamRes.data || []) as DocumentCollection[];
+        setCollectionsMine(mine);
+        setCollectionsTeam(team);
+        const allIds = [...mine, ...team].map(c => c.id);
+        if (allIds.length > 0) {
           const { data: scoreRows } = await supabase
             .from("score_operacoes")
             .select("collection_id, score_result")
-            .in("collection_id", ids)
+            .in("collection_id", allIds)
             .order("preenchido_em", { ascending: false });
           const map = new Map<string, string>();
           if (scoreRows) {
@@ -1211,6 +1392,11 @@ function HistoricoContent() {
     };
     load();
   }, []);
+
+  // Persiste aba ativa em localStorage
+  useEffect(() => {
+    try { localStorage.setItem(HISTORICO_TAB_KEY, tab); } catch { /* ignore */ }
+  }, [tab]);
 
   // Load notifications
   useEffect(() => {
@@ -1252,10 +1438,12 @@ function HistoricoContent() {
   const isEmptyCollection = (col: DocumentCollection) =>
     (col.documents || []).length === 0 && !col.rating && !col.ai_analysis;
 
+  // Vazias só são oferecidas pra exclusão na aba "Minhas" — nunca apagamos
+  // coletas vazias de colegas (RLS bloquearia mesmo, mas a UI é mais limpa).
   const emptyCollections = useMemo(
-    () => collections.filter(isEmptyCollection),
+    () => collectionsMine.filter(isEmptyCollection),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [collections]
+    [collectionsMine]
   );
 
   const handleDeleteEmpty = async () => {
@@ -1272,7 +1460,7 @@ function HistoricoContent() {
         .in("id", ids)
         .eq("user_id", u.id);
       if (error) throw error;
-      setCollections(prev => prev.filter(c => !ids.includes(c.id)));
+      setCollectionsMine(prev => prev.filter(c => !ids.includes(c.id)));
       toast.success(`${ids.length} coleta${ids.length !== 1 ? "s" : ""} vazia${ids.length !== 1 ? "s" : ""} excluída${ids.length !== 1 ? "s" : ""}`);
     } catch (err) {
       toast.error("Erro ao excluir vazias: " + (err instanceof Error ? err.message : "tente novamente"));
@@ -1339,16 +1527,21 @@ function HistoricoContent() {
   const visibleGroups = grouped.slice(0, pageSize);
   const hasMore = grouped.length > pageSize;
 
+  // Handlers operam nas duas filas — a coleta deletada/atualizada pode estar
+  // em qualquer uma. Mais simples que descobrir em qual antes de chamar.
   const handleDelete = useCallback((id: string) => {
-    setCollections(prev => prev.filter(c => c.id !== id));
+    setCollectionsMine(prev => prev.filter(c => c.id !== id));
+    setCollectionsTeam(prev => prev.filter(c => c.id !== id));
   }, []);
 
   const handleDeleteAll = useCallback((ids: string[]) => {
-    setCollections(prev => prev.filter(c => !ids.includes(c.id)));
+    setCollectionsMine(prev => prev.filter(c => !ids.includes(c.id)));
+    setCollectionsTeam(prev => prev.filter(c => !ids.includes(c.id)));
   }, []);
 
   const handleUpdate = useCallback((id: string, docs: CollectionDocument[]) => {
-    setCollections(prev => prev.map(c => c.id === id ? { ...c, documents: docs } : c));
+    setCollectionsMine(prev => prev.map(c => c.id === id ? { ...c, documents: docs } : c));
+    setCollectionsTeam(prev => prev.map(c => c.id === id ? { ...c, documents: docs } : c));
   }, []);
 
   return (
@@ -1368,22 +1561,23 @@ function HistoricoContent() {
                 <h1 className="text-page-title m-0" style={{ color: "#fff" }}>Histórico de Relatórios</h1>
                 {!loading && (
                   <p style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", margin: "3px 0 0" }}>
-                    {totalEntries} coleta{totalEntries !== 1 ? "s" : ""} · {grouped.length} empresa{grouped.length !== 1 ? "s" : ""}
+                    {tab === "mine"
+                      ? `${collectionsMine.length} suas · ${collectionsTeam.length} da equipe`
+                      : `Visualizando ${collectionsTeam.length} coletas de outros analistas`}
                   </p>
                 )}
               </div>
             </div>
             {!loading && (
               <div style={{ display: "flex", gap: 20 }}>
-                {[
-                  { label: "Total", value: totalEntries, color: "#fff" },
-                  { label: "Empresas", value: grouped.length, color: "#a8d96b" },
-                ].map((s) => (
-                  <div key={s.label} style={{ textAlign: "right" }}>
-                    <p style={{ fontSize: 22, fontWeight: 800, color: s.color, margin: 0, lineHeight: 1 }}>{s.value}</p>
-                    <p style={{ fontSize: 10, color: "rgba(255,255,255,0.45)", margin: "3px 0 0", textTransform: "uppercase", letterSpacing: "0.06em" }}>{s.label}</p>
-                  </div>
-                ))}
+                <div style={{ textAlign: "right" }}>
+                  <p style={{ fontSize: 22, fontWeight: 800, color: "#fff", margin: 0, lineHeight: 1 }}>{collectionsMine.length}</p>
+                  <p style={{ fontSize: 10, color: "rgba(255,255,255,0.45)", margin: "3px 0 0", textTransform: "uppercase", letterSpacing: "0.06em" }}>Minhas</p>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <p style={{ fontSize: 22, fontWeight: 800, color: "#a8d96b", margin: 0, lineHeight: 1 }}>{collectionsTeam.length}</p>
+                  <p style={{ fontSize: 10, color: "rgba(255,255,255,0.45)", margin: "3px 0 0", textTransform: "uppercase", letterSpacing: "0.06em" }}>Da equipe</p>
+                </div>
               </div>
             )}
           </div>
@@ -1623,6 +1817,60 @@ function HistoricoContent() {
               </div>
             );
           })()}
+
+          {/* ── Tabs Minhas / Da equipe ── */}
+          {!loading && (
+            <div style={{ marginBottom: 14, display: "flex", alignItems: "center", gap: 4, padding: 4, background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, width: "fit-content", boxShadow: "0 1px 2px rgba(15,31,92,0.04)" }}>
+              <button
+                onClick={() => setTab("mine")}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 8,
+                  fontSize: 13, fontWeight: 600, padding: "8px 14px", borderRadius: 8,
+                  border: "none", cursor: "pointer", transition: "all 120ms ease",
+                  background: tab === "mine" ? "#203b88" : "transparent",
+                  color: tab === "mine" ? "#fff" : "#6B7280",
+                }}
+              >
+                Minhas
+                <span style={{
+                  fontSize: 11, fontWeight: 700, padding: "2px 7px", borderRadius: 999,
+                  background: tab === "mine" ? "rgba(255,255,255,0.18)" : "#F1F5F9",
+                  color: tab === "mine" ? "#fff" : "#9CA3AF",
+                }}>{collectionsMine.length}</span>
+              </button>
+              <button
+                onClick={() => setTab("team")}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 8,
+                  fontSize: 13, fontWeight: 600, padding: "8px 14px", borderRadius: 8,
+                  border: "none", cursor: "pointer", transition: "all 120ms ease",
+                  background: tab === "team" ? "#203b88" : "transparent",
+                  color: tab === "team" ? "#fff" : "#6B7280",
+                }}
+              >
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#73b815", display: "inline-block" }} />
+                Da equipe
+                <span style={{
+                  fontSize: 11, fontWeight: 700, padding: "2px 7px", borderRadius: 999,
+                  background: tab === "team" ? "rgba(255,255,255,0.18)" : "#F1F5F9",
+                  color: tab === "team" ? "#fff" : "#9CA3AF",
+                }}>{collectionsTeam.length}</span>
+              </button>
+            </div>
+          )}
+
+          {/* Banner explicativo da aba Da equipe */}
+          {!loading && tab === "team" && (
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 14px", background: "#F0F7FF", border: "1px solid #BFD7F2", borderRadius: 12, marginBottom: 14 }}>
+              <div style={{ width: 28, height: 28, borderRadius: 8, background: "#DBEAFE", color: "#1d4ed8", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <User size={14} />
+              </div>
+              <div style={{ fontSize: 12.5, color: "#1e3a8a", lineHeight: 1.5 }}>
+                <b>Você está vendo coletas de outros analistas.</b><br />
+                <span style={{ color: "#64748b" }}>Pode visualizar os relatórios e retomar uma coleta para continuar de onde o colega parou. Cada retomada fica registrada no histórico de auditoria.</span>
+              </div>
+            </div>
+          )}
 
           {/* Search + Filters */}
           <div className="flex items-center gap-2">
