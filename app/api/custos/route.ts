@@ -55,10 +55,18 @@ export async function GET(req: NextRequest) {
 
     const collectionMap: Record<string, { company_name: string | null; cnpj: string | null }> = {};
     if (collectionIds.length > 0) {
-      const { data: cols } = await sb
+      // Onda B5: antes não checava `error` — se falhar, enrichment não roda
+      // e empresas aparecem como "—" silenciosamente. Agora loga warn.
+      const { data: cols, error: enrichErr } = await sb
         .from("document_collections")
         .select("id, company_name, cnpj")
         .in("id", collectionIds);
+      if (enrichErr) {
+        console.warn(
+          `[custos] enrichment de company_name falhou (linhas aparecerão sem nome de empresa):`,
+          enrichErr.message,
+        );
+      }
       (cols ?? []).forEach(c => {
         collectionMap[c.id] = { company_name: c.company_name, cnpj: c.cnpj };
       });

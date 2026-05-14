@@ -307,7 +307,11 @@ export default function CustosPage() {
         });
         setPrices(merged); setDraftPrices(merged);
       }
-    } catch { /* ignore */ }
+    } catch (err) {
+      // Onda B5: antes ignorava silencioso. Se localStorage tem JSON inválido,
+      // pelo menos loga warn pra ficar visível no console do navegador.
+      console.warn("[custos] falha ao ler preços customizados do localStorage — usando DEFAULT_PRICES:", err);
+    }
   }, []);
 
   const fetchData = useCallback(async () => {
