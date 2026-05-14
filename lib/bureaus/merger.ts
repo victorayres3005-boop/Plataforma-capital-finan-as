@@ -161,9 +161,13 @@ export function mergeBureauResults(
           quadroSocietario: q.quadroSocietario,
         };
       } else if (q.quadroSocietario.length > 0) {
-        // Mesmo quando QSA existe, enriquece com dataEntrada/dataSaida do Credit Hub
+        // Mesmo quando QSA existe, enriquece com dataEntrada/dataSaida do Credit Hub.
+        // IMPORTANTE: lê de merged.qsa (não data.qsa) pra preservar enriquecimento
+        // KYC já aplicado acima (sociosKyc: processosTotal, protestosSocioQtd etc.).
+        // Antes desse fix, este bloco sobrescrevia o QSA enriquecido com a versão
+        // crua de data.qsa, perdendo silenciosamente processos/protestos dos sócios PF.
         const docMap = new Map(q.quadroSocietario.map(s => [s.cpfCnpj, s]));
-        const enriched = (data.qsa?.quadroSocietario || []).map(s => {
+        const enriched = (merged.qsa?.quadroSocietario || data.qsa?.quadroSocietario || []).map(s => {
           const ch = docMap.get(s.cpfCnpj);
           return ch ? { ...s, dataEntrada: s.dataEntrada || ch.dataEntrada, dataSaida: s.dataSaida || ch.dataSaida } : s;
         });
