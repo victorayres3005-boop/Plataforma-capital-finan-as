@@ -9,9 +9,12 @@ import { createServerSupabase } from "@/lib/supabase/server";
 
 export async function GET(req: NextRequest) {
   // Auth — endpoint expõe collections de todos os usuários (dados de negócio)
+  // Onda M3: getSession() em vez de getUser() — alinhado com CLAUDE.md
+  // (auth Edge usa getSession; getUser faz RTT extra ao Auth, +100-300ms).
+  // Mesmo em runtime nodejs (este endpoint), getSession é mais rápido.
   const authSb = await createServerSupabase();
-  const { data: { user } } = await authSb.auth.getUser();
-  if (!user) {
+  const { data: { session } } = await authSb.auth.getSession();
+  if (!session?.user) {
     return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
   }
 
