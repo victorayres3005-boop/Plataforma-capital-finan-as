@@ -228,7 +228,12 @@ const CSS = `
      esticava lateralmente — bug reportado em 2026-05-10 (rodapé pág 3).
      overflow:visible mantido pra conteúdo alto (tabelas, blocos ABC)
      fluir verticalmente entre páginas físicas. */
-  .page:not(.page-capa){margin:0 auto!important;padding:0!important;max-width:174mm!important;width:100%!important;box-shadow:none!important;border-radius:0!important;overflow:visible!important;background:transparent!important}
+  /* Não aplicar reset de fundo em páginas com fundo escuro próprio:
+     .page-capa (capa) e .page-divider (divisor de seção). Sem o exclude,
+     a regra .page:not(.page-capa) zerava o background:var(--n8) inline
+     dessas páginas, deixando texto branco invisível em fundo branco
+     (bug AGROPECUARIA NUNES LTDA reportado 2026-05-14). */
+  .page:not(.page-capa):not(.page-divider){margin:0 auto!important;padding:0!important;max-width:174mm!important;width:100%!important;box-shadow:none!important;border-radius:0!important;overflow:visible!important;background:transparent!important}
   .ftr{width:100%!important;box-sizing:border-box!important;max-width:100%!important}
   /* ── Content: padding leve no topo e fundo entre seções ── */
   .ct{padding:2px 0 24px}
@@ -1870,7 +1875,7 @@ function pageParecer(params: PDFReportParams, date: string, pageNum = 10): strin
 // ─── Page 4: Divisor — Avaliação Estratégica de Crédito ──────────────────────
 function pageDivisorAvaliacaoEstrategica(): string {
   return `
-<div class="page" style="background:var(--n8);display:flex;flex-direction:column;align-items:stretch;justify-content:center;padding:0;position:relative;overflow:hidden;min-height:700px">
+<div class="page page-divider" style="background:var(--n8);display:flex;flex-direction:column;align-items:stretch;justify-content:center;padding:0;position:relative;overflow:hidden;min-height:700px">
   <!-- Barra verde no topo -->
   <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#73b815,rgba(115,184,21,0.2))"></div>
 
