@@ -566,7 +566,7 @@ body{font-family:'DM Sans',sans-serif;font-size:var(--fs-body);background:#fff;c
 .doc-grid .pf-row{padding:9px 14px;border-bottom:1px solid var(--x1);margin:0;border-radius:0}
 .doc-grid .pf-row:nth-child(odd){border-right:1px solid var(--x1)}
 .doc-grid .pf-row.present{border-left:3px solid var(--g6)}
-.doc-grid .pf-row.absent{border-left:3px solid var(--x3)}
+.doc-grid .pf-row.absent{border-left:3px solid var(--a5)}
 .doc-grid .pf-row.absent-obr{border-left:3px solid var(--r6);background:var(--r0)}
 .prog-outer{height:8px;border-radius:4px;background:var(--x2);margin:8px 0 16px;overflow:hidden}
 .prog-inner{height:100%;border-radius:4px;background:var(--gl)}
@@ -3288,6 +3288,11 @@ function pageChecklist(params: PDFReportParams, date: string): string {
     // ccf: usa campo qtdRegistros pra distinguir consulta real de objeto vazio
     { tipo:"ccf",           label:"CCF (Cheques Sem Fundo)",  presente: params.data.ccf != null && (params.data.ccf.qtdRegistros !== undefined || params.data.ccf.bancos != null), obrigatorio:true  },
     { tipo:"grupoEconomico",label:"Grupo Econômico",          presente: !!(params.data.grupoEconomico?.empresas?.length), obrigatorio:false },
+    // Onda Checklist 2026-05-14: 3 documentos novos (fase 2) — todos opcionais.
+    // Cada cedente decide se faz sentido subir; ausência não bloqueia análise.
+    { tipo:"divida_ativa",  label:"Certidão de Dívida Ativa", presente: params.data.dividaAtiva != null && (params.data.dividaAtiva.qtdRegistros !== undefined || params.data.dividaAtiva.certidaoNegativa === true), obrigatorio:false },
+    { tipo:"cenprot",       label:"CENPROT (Protestos)",       presente: params.data.cenprot != null && (params.data.cenprot.qtdRegistros !== undefined || params.data.cenprot.certidaoNegativa === true), obrigatorio:false },
+    { tipo:"gefip",         label:"GEFIP (FGTS/INSS)",         presente: !!(params.data.gefip?.competencias?.length), obrigatorio:false },
   ];
 
   // Merge: IA `coberturaAnalise` (quando presente) preenche/sobrescreve por
@@ -3316,7 +3321,9 @@ function pageChecklist(params: PDFReportParams, date: string): string {
     const iconCls = d.presente ? "pass" : d.obrigatorio ? "fail" : "warn";
     const iconChar = d.presente ? "✓" : d.obrigatorio ? "✗" : "—";
     const statusLabel = d.presente ? "Entregue" : "Ausente";
-    const statusColor = d.presente ? "var(--g6)" : d.obrigatorio ? "var(--r6)" : "var(--x4)";
+    // Onda Checklist 2026-05-14: opcional ausente vai pra amarelo (--a5),
+    // consistente com o ícone "—" que já era amarelo. Antes era cinza (--x4).
+    const statusColor = d.presente ? "var(--g6)" : d.obrigatorio ? "var(--r6)" : "var(--a5)";
     const obadge = d.obrigatorio
       ? `<span style="font-size:7px;font-weight:700;padding:2px 5px;border-radius:3px;background:var(--n1);color:var(--n7);margin-left:6px">OBR</span>`
       : `<span style="font-size:7px;font-weight:700;padding:2px 5px;border-radius:3px;background:var(--x1);color:var(--x5);margin-left:6px">OPC</span>`;
