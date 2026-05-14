@@ -55,7 +55,7 @@ export default function RatingDriftPage() {
       <div className="max-w-[1400px] mx-auto px-6 py-6">
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-3">
-            <Link href="/" className="flex items-center gap-1.5 text-[13px] text-gray-600 hover:text-cf-navy">
+            <Link href="/configuracoes/saude" className="flex items-center gap-1.5 text-[13px] text-gray-600 hover:text-cf-navy">
               <ArrowLeft size={14} /> Voltar
             </Link>
             <div className="h-5 w-px bg-gray-300" />

@@ -83,7 +83,7 @@ export default function AdminExtractionPage() {
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-3">
             <Link
-              href="/"
+              href="/configuracoes/saude"
               className="flex items-center gap-1.5 text-[13px] text-gray-600 hover:text-cf-navy transition-colors"
             >
               <ArrowLeft size={14} /> Voltar
