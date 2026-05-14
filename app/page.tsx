@@ -304,6 +304,37 @@ export default function HomePage() {
     autoSaveTimer.current = setTimeout(() => { performSave(); }, delay);
   }, [performSave]);
 
+  // Flush do autosave em momentos críticos onde o timer pode ser perdido:
+  // 1) unmount do componente (SPA navigation)
+  // 2) pagehide (fechar aba / refresh) — best-effort, navegador pode matar antes
+  // 3) visibilitychange→hidden (trocar aba) — janela onde o React pode suspender timers
+  // Janela de risco anterior: até 800ms (INSERT) ou 100ms (UPDATE) + 1.5s do ReviewStep
+  // antes do save chegar ao banco. Caso real: chefe subiu doc e saiu antes do timer.
+  useEffect(() => {
+    const flushIfDirty = () => {
+      if (!dirtyData.current) return;
+      if (autoSaveTimer.current) {
+        clearTimeout(autoSaveTimer.current);
+        autoSaveTimer.current = null;
+      }
+      // performSave é async — disparamos sem aguardar. Em pagehide/unmount
+      // o React pode descartar a Promise, mas pelo menos o fetch sai.
+      performSave();
+    };
+    const onVisibility = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        flushIfDirty();
+      }
+    };
+    window.addEventListener("pagehide", flushIfDirty);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", flushIfDirty);
+      document.removeEventListener("visibilitychange", onVisibility);
+      flushIfDirty();
+    };
+  }, [performSave]);
+
   // Excluir definitivamente um arquivo retomado da aba Upload.
   // Tira do banco (UPDATE document_collections) E do confirmedDocsRef (senão
   // o autoSave reintroduziria o tipo). Mapeia DocKey ↔ type persistido:
