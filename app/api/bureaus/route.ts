@@ -133,7 +133,18 @@ export async function POST(req: NextRequest) {
       console.log(`[bureaus][divida-ativa] upload PGFN presente — BDC government_debtors NÃO será consultado (economia de custo)`);
     }
 
-    const [credithub, grupoEconomico, brasilapi, sancoes, db360Empresa, db360Socios, pefinRefin, dividaAtivaBDC] = await Promise.allSettled([
+    // 2026-05-14: BDC sócios PF (consultarBDCSocios) entrou no allSettled principal
+    // pra garantir cobertura dos campos exclusivos do BDC pessoa (financialRiskScore/Level,
+    // estimatedIncomeRange, totalAssetsRange, isCurrentlyOnCollection, last365DaysCollections,
+    // pgfn*, processos detalhados) MESMO quando CreditHub responde OK. Antes, o BDC sócios
+    // só rodava como fallback (CH vazio) ou para extrair motherName (sacados cedente), e o
+    // resto dos dados ricos era descartado. Custo: ~R$ 0,30 por sócio PF — aceito porque
+    // os campos são determinantes pra avaliar capacidade financeira do avalista.
+    const bdcSociosTask = cpfsParaBDC.length > 0
+      ? withTimeout(consultarBDCSocios(cpfsParaBDC), BUREAU_TIMEOUT, "bigdatacorp-socios-pf")
+      : Promise.resolve({ socios: [], sociosFalecidos: [], alertaParentesco: false, parentescosDetectados: [] } as Awaited<ReturnType<typeof consultarBDCSocios>>);
+
+    const [credithub, grupoEconomico, brasilapi, sancoes, db360Empresa, db360Socios, pefinRefin, dividaAtivaBDC, bdcSociosPF] = await Promise.allSettled([
       withTimeout(consultarCreditHubComCache(cnpj, creditHubRaw), BUREAU_TIMEOUT, "credithub"),
       withTimeout(consultarGrupoEconomicoSocios(sociosParaGrupo, cnpj), BUREAU_TIMEOUT, "grupo-economico"),
       withTimeout(consultarBrasilApi(cnpj), BUREAU_TIMEOUT, "brasilapi"),
@@ -145,6 +156,7 @@ export async function POST(req: NextRequest) {
       pgfnTemDado
         ? Promise.resolve({ success: false, error: "skipped: upload PGFN presente" } as Awaited<ReturnType<typeof consultarDividaAtivaBDC>>)
         : withTimeout(consultarDividaAtivaBDC(cnpj), BUREAU_TIMEOUT, "bdc-divida-ativa"),
+      bdcSociosTask,
     ]);
 
     const grupoEconomicoResult = grupoEconomico.status === "fulfilled" ? grupoEconomico.value : undefined;
@@ -152,6 +164,7 @@ export async function POST(req: NextRequest) {
     const sancoesResult        = sancoes.status        === "fulfilled" ? sancoes.value        : undefined;
     const db360EmpresaResult   = db360Empresa.status   === "fulfilled" ? db360Empresa.value   : undefined;
     const db360SociosResult    = db360Socios.status    === "fulfilled" ? db360Socios.value    : undefined;
+    const bdcSociosPFResult    = bdcSociosPF.status    === "fulfilled" ? bdcSociosPF.value    : undefined;
 
     // FASE 2 — BDC apenas como fallback total quando CreditHub não trouxe dados úteis.
     // Critério "vazio": CH falhou, está em mock, OU não trouxe nenhum dado substantivo
@@ -169,14 +182,14 @@ export async function POST(req: NextRequest) {
     let bigdatacorpResult: Awaited<ReturnType<typeof consultarBigDataCorp>> | undefined;
     if (credithubVazio) {
       console.log(`[bureaus] CreditHub vazio (success=${credithubValue?.success ?? false}, mock=${credithubValue?.mock ?? "?"}, cnae=${credithubValue?.cnpjEnrichment?.cnaePrincipal ?? "—"}, qsa=${credithubValue?.qsaEnrichment?.quadroSocietario?.length ?? 0}) → fallback BDC ativado`);
-      const [bdcEmp, bdcSoc] = await Promise.allSettled([
+      const [bdcEmp] = await Promise.allSettled([
         withTimeout(consultarBigDataCorp(cnpj), BUREAU_TIMEOUT, "bigdatacorp-empresa"),
-        withTimeout(consultarBDCSocios(cpfsParaBDC), BUREAU_TIMEOUT, "bigdatacorp-socios"),
       ]);
       bigdatacorpResult = bdcEmp.status === "fulfilled" ? bdcEmp.value : undefined;
 
-      if (bigdatacorpResult && bdcSoc.status === "fulfilled") {
-        const s = bdcSoc.value;
+      // BDC sócios já foi consultado no allSettled principal — reusar
+      if (bigdatacorpResult && bdcSociosPFResult) {
+        const s = bdcSociosPFResult;
         bigdatacorpResult = {
           ...bigdatacorpResult,
           socios:                s.socios,
@@ -192,7 +205,28 @@ export async function POST(req: NextRequest) {
         }
       }
     } else {
-      console.log(`[bureaus] CreditHub respondeu (cnae="${credithubValue?.cnpjEnrichment?.cnaePrincipal ?? ""}", QSA=${credithubValue?.qsaEnrichment?.quadroSocietario?.length ?? 0}) — BDC ignorado (economia de custo)`);
+      console.log(`[bureaus] CreditHub respondeu (cnae="${credithubValue?.cnpjEnrichment?.cnaePrincipal ?? ""}", QSA=${credithubValue?.qsaEnrichment?.quadroSocietario?.length ?? 0}) — BDC empresa ignorado (economia de custo)`);
+
+      // 2026-05-14: mesmo quando BDC empresa é pulado, propaga BDC sócios PF se houver
+      // dados — assim os campos exclusivos do BDC pessoa (financialRiskScore, renda,
+      // patrimônio, collections, processos detalhados, PGFN) chegam ao QSA via merger.
+      if (bdcSociosPFResult && bdcSociosPFResult.socios.length > 0) {
+        bigdatacorpResult = {
+          success: true,
+          mock: false,
+          socios:                bdcSociosPFResult.socios,
+          sociosFalecidos:       bdcSociosPFResult.sociosFalecidos,
+          alertaParentesco:      bdcSociosPFResult.alertaParentesco,
+          parentescosDetectados: bdcSociosPFResult.parentescosDetectados,
+        };
+        console.log(`[bureaus] BDC sócios PF: ${bdcSociosPFResult.socios.length} sócio(s) consultado(s) (cobertura financialRisk + collections + processos + PGFN)`);
+        if (bdcSociosPFResult.sociosFalecidos.length > 0) {
+          console.warn(`[bureaus] BDC sócios PF: óbito: ${bdcSociosPFResult.sociosFalecidos.join(", ")}`);
+        }
+        if (bdcSociosPFResult.alertaParentesco) {
+          console.warn(`[bureaus] BDC sócios PF: parentesco detectado: ${bdcSociosPFResult.parentescosDetectados.map(p => `${p.socio1} + ${p.socio2}`).join(" | ")}`);
+        }
+      }
     }
 
     // Fallback: se QSA/IR vieram vazios mas BDC retornou sócios PF, faz 2ª rodada
@@ -337,31 +371,18 @@ export async function POST(req: NextRequest) {
         const enderecoCedente = data.cnpj?.endereco;
         const ufCedente = extractUFFromEndereco(enderecoCedente);
 
-        // Mães dos sócios cedente: reaproveita BDC se já consultado;
-        // senão, dispara só `/pessoas` (não consulta `/empresas` pra economizar).
+        // Mães dos sócios cedente: reaproveita BDC sócios PF (já consultado no
+        // allSettled principal desde 2026-05-14 — antes era chamada nova aqui).
         let sociosCedenteComMae: SocioComMae[] = [];
-        if (bigdatacorpResult?.socios?.length) {
-          sociosCedenteComMae = bigdatacorpResult.socios.map((s) => ({
+        const bdcSociosParaMae = bigdatacorpResult?.socios?.length
+          ? bigdatacorpResult.socios
+          : bdcSociosPFResult?.socios;
+        if (bdcSociosParaMae?.length) {
+          sociosCedenteComMae = bdcSociosParaMae.map((s) => ({
             nome: s.nome,
             cpf: s.cpf,
             motherName: s.motherName,
           }));
-        } else if (cpfsParaBDC.length > 0) {
-          try {
-            const r = await withTimeout(
-              consultarBDCSocios(cpfsParaBDC),
-              BUREAU_TIMEOUT,
-              "bdc-socios-cedente-mae",
-            );
-            sociosCedenteComMae = r.socios.map((s) => ({
-              nome: s.nome,
-              cpf: s.cpf,
-              motherName: s.motherName,
-            }));
-            console.log(`[bureaus][sacados] BDC sócios cedente (mães): ${sociosCedenteComMae.length}`);
-          } catch (err) {
-            console.warn(`[bureaus][sacados] BDC sócios cedente falhou:`, err instanceof Error ? err.message : err);
-          }
         }
 
         const sacados = await consultarSacadosAnalisados({
