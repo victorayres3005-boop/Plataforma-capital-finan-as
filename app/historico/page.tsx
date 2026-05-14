@@ -15,6 +15,7 @@ import {
 import Link from "next/link";
 import { useAuth } from "@/lib/useAuth";
 import { deleteCollectionFiles } from "@/lib/storage";
+import { parseValorBR } from "@/lib/extract/parseValorBR";
 import OnboardingTooltip from "@/components/OnboardingTooltip";
 import { useTooltips } from "@/lib/useTooltips";
 import Logo from "@/components/Logo";
@@ -381,7 +382,10 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
         const newData: Record<string, unknown> = { ...d.extracted_data, ...editValues, _editedManually: true };
         if (docType === "faturamento" && Array.isArray(editValues.meses)) {
           const ms = editValues.meses as { mes: string; valor: string }[];
-          const vals = ms.map(m => parseFloat((m.valor || "0").replace(/\./g, "").replace(",", ".")) || 0);
+          // Onda H2: usa parseValorBR (algoritmo robusto, detecta separador
+          // decimal). Antes: replace(/\./g, "").replace(",", ".") — sensível
+          // ao formato EN "1234.56" → virava 123456 (caso PRANDOPEL).
+          const vals = ms.map(m => parseValorBR(m.valor));
           const sum = vals.reduce((a, b) => a + b, 0);
           newData.mediaAno = (vals.length > 0 ? sum / vals.length : 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 });
           newData.somatoriaAno = sum.toLocaleString("pt-BR", { minimumFractionDigits: 2 });
