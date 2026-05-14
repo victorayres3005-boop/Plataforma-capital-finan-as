@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { mergeBureauResults, type BureauResults } from "@/lib/bureaus/merger";
-import type { ExtractedData, SCRSocioData } from "@/types";
+import type { ExtractedData, SCRSocioData, SCRData } from "@/types";
 import type { AssertivaSocioData } from "@/lib/bureaus/assertiva";
 
 const baseScrSocio = (overrides: Partial<SCRSocioData> = {}): SCRSocioData => ({
@@ -14,7 +14,7 @@ const baseScrSocio = (overrides: Partial<SCRSocioData> = {}): SCRSocioData => ({
     prejuizos: "",
     qtdeOperacoes: "1",
     qtdeInstituicoes: "1",
-  },
+  } as unknown as SCRData,
   ...overrides,
 });
 
