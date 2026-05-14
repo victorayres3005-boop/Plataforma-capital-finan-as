@@ -24,13 +24,30 @@ export default function MetricasPage() {
   const [periodo, setPeriodo] = useState<Periodo>("30");
   const [data, setData] = useState<Metricas | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetch_ = useCallback(async (p: Periodo) => {
     setLoading(true);
+    setError(null);
     try {
       const res = await fetch(`/api/metricas?dias=${p}`);
+      if (!res.ok) {
+        // Onda M1: antes era silencioso — tela em branco se 401/500.
+        // Agora captura status e mostra mensagem clara pro analista.
+        const errJson = await res.json().catch(() => ({}));
+        const msg = errJson.error || `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
       const json = await res.json();
+      // Defesa: payload sem porDecisao indica resposta malformada.
+      if (!json || typeof json !== "object" || !json.porDecisao) {
+        throw new Error("Resposta da API inválida");
+      }
       setData(json);
+    } catch (err) {
+      console.error("[metricas] fetch falhou:", err);
+      setError(err instanceof Error ? err.message : "Erro desconhecido");
+      setData(null);
     } finally {
       setLoading(false);
     }
@@ -77,7 +94,19 @@ export default function MetricasPage() {
         </div>
       </div>
 
-      {loading && !data ? (
+      {error && !loading ? (
+        <div className="flex flex-col items-center justify-center h-64 gap-3 px-4">
+          <AlertTriangle className="w-10 h-10 text-amber-500" />
+          <p className="text-sm font-medium text-slate-700">Não foi possível carregar as métricas</p>
+          <p className="text-xs text-slate-500 text-center max-w-md">{error}</p>
+          <button
+            onClick={() => fetch_(periodo)}
+            className="mt-2 px-4 py-2 text-xs font-medium text-white bg-[#163269] hover:bg-[#0f2452] rounded-lg transition-colors"
+          >
+            Tentar novamente
+          </button>
+        </div>
+      ) : loading && !data ? (
         <div className="flex items-center justify-center h-64 text-slate-400 text-sm">Carregando métricas...</div>
       ) : data ? (
         <>
