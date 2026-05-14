@@ -419,9 +419,13 @@ body{font-family:'DM Sans',sans-serif;font-size:var(--fs-body);background:#fff;c
 /* ── Chart / bars ── */
 .fin-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px}
 .fin-box{background:var(--x0);border-radius:8px;border:1px solid var(--x1);padding:16px}
-.fin-title{font-size:var(--fs-label);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--x5);margin-bottom:12px}
+.fin-title{font-size:var(--fs-label);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--x5);margin-bottom:22px}
 .chart{display:flex;align-items:flex-end;gap:3px;height:100px;margin-bottom:8px;overflow:visible}
-.bars{display:flex;align-items:flex-end;gap:4px;height:120px;margin-bottom:8px;overflow:visible}
+/* height aumentado de 120 → 140 e adicionado padding-top de 22 pra acomodar
+   o label .bar-v que sai 16px acima do topo de cada barra. Sem isso, em
+   barras com altura próxima a height total, o label colidia com .fin-title
+   e ficava sobreposto (caso CHR PRODUTOS MEDICOS LTDA, 2026-05-14). */
+.bars{display:flex;align-items:flex-end;gap:4px;height:140px;padding-top:22px;margin-bottom:8px;overflow:visible}
 .bar-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;overflow:visible}
 .bar{width:100%;border-radius:3px 3px 0 0;min-height:2px;position:relative;flex-shrink:0;overflow:visible}
 .bar.navy,.bar.nv{background:var(--n8)}
@@ -1578,7 +1582,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
     <div class="fin-row">
       <div class="fin-box">
         <div class="fin-title">Faturamento mensal — últimos 12 meses</div>
-        <div class="bars" style="padding-top:18px">${fatBars}</div>
+        <div class="bars">${fatBars}</div>
         <div class="kpi-row">
           <span>FMM: <b>${fmtMoneyAbr(fmm)}</b></span>
           <span>Total 12M: <b>${fmtMoneyAbr(total12)}</b></span>
