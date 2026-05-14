@@ -11,10 +11,12 @@ import { fmtBRL, fmtDate, safeNum } from "@/lib/formatters";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
+// Onda B1 (2026-05-14): assertiva_pj e assertiva_pf removidos das tarifas.
+// Assertiva foi desativada (memória project_assertiva_descontinuada). Logs
+// históricos com calls.assertiva_pj > 0 continuam no banco mas o cálculo
+// agora ignora — não infla mais o custo de análises antigas.
 interface BureauPrices {
   credithub_empresa: number;
-  assertiva_pj: number;
-  assertiva_pf: number;
   bdc_empresa: number;
   bdc_socio: number;
   databox360_empresa: number;
@@ -100,8 +102,6 @@ interface AnalysisRow {
 // Flash: $0.075 input / $0.30 output → R$ 0,375 / R$ 1,50 por 1M tokens.
 const DEFAULT_PRICES: BureauPrices = {
   credithub_empresa:  0.31,
-  assertiva_pj:       1.20,
-  assertiva_pf:       0.60,
   bdc_empresa:        0.51,
   bdc_socio:          0.30,
   databox360_empresa: 2.49,
@@ -164,10 +164,10 @@ function custoDataBox360Mes(chamadasTotaisMes: number): number {
 }
 
 function calcCustoBureau(calls: BureauCalls, prices: BureauPrices): number {
+  // Onda B1: assertiva_pj/pf removidos do cálculo (bureau desativado).
+  // calls.assertiva_pj/pf de logs antigos continuam no banco mas são ignorados.
   return (
     safeNum(calls.credithub)           * safeNum(prices.credithub_empresa) +
-    safeNum(calls.assertiva_pj)        * safeNum(prices.assertiva_pj) +
-    safeNum(calls.assertiva_pf)        * safeNum(prices.assertiva_pf) +
     safeNum(calls.bdc_empresa)         * safeNum(prices.bdc_empresa) +
     safeNum(calls.bdc_socio)           * safeNum(prices.bdc_socio) +
     safeNum(calls.databox360_empresa)  * safeNum(prices.databox360_empresa) +
