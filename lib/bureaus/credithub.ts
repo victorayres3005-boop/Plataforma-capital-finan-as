@@ -1763,12 +1763,24 @@ function belloArrayToPefinData(bello: PalladiumBelloRow[]): PefinReginData {
 // evitando falso negativo silencioso.
 /**
  * Consulta uma query IRQL e devolve o body cru + parsed defensivo.
- * Trata 3 cenários:
+ * Trata 4 cenários:
  *   - HTTP 500 / BPQL XML com exception → retorna { error, raw } pra log
  *   - JSON OK → retorna { json, raw }
  *   - JSON malformado → retorna { error, raw }
+ *   - Mensagem "acesso web" → flag `planoAPINecessario: true` (regressão 2026-05-14)
+ *
+ * Detecção de chave rebaixada: a CreditHub passou a retornar exception com
+ * mensagem comercial ("Você está usando o acesso web. Assine o plano API...")
+ * quando a CREDITHUB_API_KEY perdeu permissão de IRQL automatizado. Sinalizar
+ * separadamente do erro genérico ajuda a operação a contatar a Nayara/CreditHub
+ * em vez de procurar bug no código.
  */
-async function fetchIRQL(query: string): Promise<{ json?: unknown; error?: string; raw: string; status: number }> {
+function isAcessoWebMessage(msg: string): boolean {
+  const norm = msg.toLowerCase();
+  return norm.includes("acesso web") || (norm.includes("plano api") && norm.includes("assine"));
+}
+
+async function fetchIRQL(query: string): Promise<{ json?: unknown; error?: string; raw: string; status: number; planoAPINecessario?: boolean }> {
   const params = new URLSearchParams({ q: query, apiKey: CREDITHUB_API_KEY });
   const res = await fetch(`https://irql.credithub.com.br/?${params.toString()}`, {
     cache: "no-store",
@@ -1776,11 +1788,18 @@ async function fetchIRQL(query: string): Promise<{ json?: unknown; error?: strin
   });
   const raw = await res.text();
   if (!res.ok) {
+    // HTTP 500 também é sintoma típico de chave sem permissão pro adapter (ex: SERASA).
+    // Não dá pra distinguir só pelo status, mas combinado com a mensagem comercial
+    // do PEFIN, o operador entende que é a mesma causa raiz.
     return { error: `HTTP ${res.status} ${res.statusText}`, raw, status: res.status };
   }
   if (raw.trimStart().startsWith("<")) {
     const exMatch = raw.match(/<exception[^>]*>([^<]+)<\/exception>/i);
-    return { error: `XML/BPQL: ${exMatch?.[1] ?? "erro desconhecido"}`, raw, status: res.status };
+    const msg = exMatch?.[1] ?? "erro desconhecido";
+    if (isAcessoWebMessage(msg)) {
+      return { error: `XML/BPQL: ${msg}`, raw, status: res.status, planoAPINecessario: true };
+    }
+    return { error: `XML/BPQL: ${msg}`, raw, status: res.status };
   }
   try {
     return { json: JSON.parse(raw), raw, status: res.status };
@@ -1801,7 +1820,9 @@ export async function consultarPefinRefin(cnpj: string): Promise<{ pefin?: Pefin
   const pefinQuery = `USING 'SCPCNET' SELECT FROM 'PROTESTOS'.'SCPCNET' WHERE 'DOCUMENTO' = '${cnpjNum}'`;
   try {
     const r = await fetchIRQL(pefinQuery);
-    if (r.error) {
+    if (r.planoAPINecessario) {
+      console.error(`[credithub][PLANO-API-NECESSARIO] PEFIN bloqueado — CREDITHUB_API_KEY no Vercel está em modo "acesso web" e não permite IRQL automatizado. Contatar Nayara/CreditHub pra reativar plano API. Mensagem do servidor: ${r.error}`);
+    } else if (r.error) {
       console.warn(`[credithub] PEFIN ${r.error} — tratando como não consultado`);
     } else if (r.json) {
       const parsed = r.json as { spc?: SCPCNETRow[] };
@@ -1827,7 +1848,9 @@ export async function consultarPefinRefin(cnpj: string): Promise<{ pefin?: Pefin
   const refinQuery = `SELECT FROM 'PROTESTOS'.'SERASA' WHERE 'DOCUMENTO' = '${cnpjNum}'`;
   try {
     const r = await fetchIRQL(refinQuery);
-    if (r.error) {
+    if (r.planoAPINecessario) {
+      console.error(`[credithub][PLANO-API-NECESSARIO] REFIN bloqueado — CREDITHUB_API_KEY no Vercel está em modo "acesso web". Contatar Nayara/CreditHub. Mensagem: ${r.error}`);
+    } else if (r.error) {
       console.warn(`[credithub] REFIN ${r.error} — tratando como não consultado`);
     } else if (r.json) {
       const parsed = r.json as { informacoes?: Array<{ bello?: PalladiumBelloRow[] }> };
