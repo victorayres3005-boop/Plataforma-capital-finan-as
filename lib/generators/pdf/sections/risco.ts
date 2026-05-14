@@ -779,29 +779,35 @@ export function renderRisco(ctx: PdfCtx): void {
       checkPageBreak(ctx, 14);
       pos.y += 4;
       stitle("09c · Sócios — Capacidade Financeira (PF)");
-      doc.setFont("helvetica", "normal"); doc.setFontSize(5);
+      doc.setFont("helvetica", "italic"); doc.setFontSize(5);
       doc.setTextColor(...P.x4);
       doc.text(`Fonte: BigDataCorp · dados presumidos por faixas (1 SM 2026 = R$ ${SM_2026.toLocaleString("pt-BR")})`, ML, pos.y);
-      pos.y += 4;
+      pos.y += 5;
 
-      // Card por sócio, altura dinâmica
+      // Card por sócio, altura dinâmica. Estética alinhada com seções vizinhas:
+      // - Rótulos em UPPERCASE com letter-spacing, cor P.x4 (igual icell .l)
+      // - Valores em courier bold 6.5 cor P.n9 (azul escuro do tema)
+      // - Header separado das linhas por hairline P.x1
+      // - Tamanhos padronizados com sintese.ts
       sociosCap.forEach(sc => {
         const rows: Array<[string, string, string?, [number,number,number]?]> = [];
-        if (sc.score !== undefined) rows.push(["Score Financeiro", `${sc.score}/1000`, sc.nivel ? `Nível ${sc.nivel}` : undefined]);
-        if (sc.renda)  rows.push(["Renda mensal est.", sc.renda.label, sc.renda.sub]);
-        if (sc.patrim) rows.push(["Patrimônio est.", sc.patrim.label]);
-        rows.push(["Cobranças 365d", sc.cob365 > 0 ? `${sc.cob365} ocorrência${sc.cob365 > 1 ? "s" : ""}` : "0", undefined, sc.cob365 > 0 ? P.r6 : P.g6]);
-        if (sc.pgfnTot) rows.push(["Dívida ativa PGFN", `${sc.pgfnTot}${sc.pgfnQtd ? ` (${sc.pgfnQtd})` : ""}`, undefined, P.r6]);
+        if (sc.score !== undefined) rows.push(["SCORE FINANCEIRO", `${sc.score}/1000`, sc.nivel ? `Nv. ${sc.nivel}` : undefined]);
+        if (sc.renda)  rows.push(["RENDA MENSAL EST.", sc.renda.label, sc.renda.sub]);
+        if (sc.patrim) rows.push(["PATRIMÔNIO EST.", sc.patrim.label]);
+        rows.push(["COBRANÇAS 365D", sc.cob365 > 0 ? `${sc.cob365} ocorrência${sc.cob365 > 1 ? "s" : ""}` : "0", undefined, sc.cob365 > 0 ? P.r6 : P.g6]);
+        if (sc.pgfnTot) rows.push(["DÍVIDA ATIVA PGFN", `${sc.pgfnTot}${sc.pgfnQtd ? ` (${sc.pgfnQtd})` : ""}`, undefined, P.r6]);
         if (sc.procTot > 0) {
           const procLabel = `${sc.procTot}${sc.procPas > 0 ? ` · ${sc.procPas} passivo${sc.procPas > 1 ? "s" : ""}` : ""}`;
-          rows.push(["Processos judiciais", `${procLabel}${sc.procVal ? ` — ${sc.procVal}` : ""}`, undefined, P.r6]);
+          rows.push(["PROCESSOS JUDICIAIS", `${procLabel}${sc.procVal ? ` — ${sc.procVal}` : ""}`, undefined, P.r6]);
         }
 
-        const HDR_H = 9;
-        const ROW_H = 4.5;
-        const PAD = 2.5;
-        const cardH = HDR_H + rows.length * ROW_H + PAD * 2;
-        checkPageBreak(ctx, cardH + 3);
+        const HDR_H = 10;       // cabeçalho mais alto pra acomodar nome + sub-linha
+        const HDR_SEP = 1.5;    // espaço da hairline divisória
+        const ROW_H = 5;        // espaço entre linhas
+        const PAD_TOP = 3;
+        const PAD_BOT = 3;
+        const cardH = HDR_H + HDR_SEP + ROW_H * rows.length + PAD_TOP + PAD_BOT;
+        checkPageBreak(ctx, cardH + 4);
 
         const y0 = pos.y;
         // Card background
@@ -810,47 +816,57 @@ export function renderRisco(ctx: PdfCtx): void {
         doc.setLineWidth(0.25);
         doc.roundedRect(ML, y0, CW, cardH, 2, 2, "FD");
 
-        // Cabeçalho: nome + CPF/qualificação à esquerda, badge nível à direita
-        doc.setFont("helvetica", "bold"); doc.setFontSize(7.5);
-        doc.setTextColor(...P.x9);
-        doc.text(sc.nome, ML + 3, y0 + 4);
-        doc.setFont("helvetica", "normal"); doc.setFontSize(5.5);
-        doc.setTextColor(...P.x5);
-        doc.text(`CPF ${fmtCpfBR(sc.cpf)} · ${sc.qualificacao || "Sócio"} · ${sc.participacao}`, ML + 3, y0 + 7.5);
+        // Cabeçalho: nome em bold P.n9, sub em normal P.x4
+        doc.setFont("helvetica", "bold"); doc.setFontSize(8);
+        doc.setTextColor(...P.n9);
+        doc.text(sc.nome, ML + 4, y0 + 4.5);
+        doc.setFont("helvetica", "normal"); doc.setFontSize(5);
+        doc.setTextColor(...P.x4);
+        doc.text(`${fmtCpfBR(sc.cpf)} · ${sc.qualificacao || "Sócio"} · ${sc.participacao}`, ML + 4, y0 + 8);
 
+        // Badge nível à direita
         if (sc.nivel) {
           const cor = nivelCor(sc.nivel);
           const badgeLabel = `● ${sc.nivel.toUpperCase()}`;
           doc.setFont("helvetica", "bold"); doc.setFontSize(7);
           const bw = doc.getTextWidth(badgeLabel) + 6;
           doc.setFillColor(...cor.bg);
-          doc.roundedRect(ML + CW - bw - 3, y0 + 2, bw, 5.5, 1, 1, "F");
+          doc.roundedRect(ML + CW - bw - 4, y0 + 2.5, bw, 5.5, 1, 1, "F");
           doc.setTextColor(...cor.fg);
-          doc.text(badgeLabel, ML + CW - bw - 3 + bw / 2, y0 + 5.7, { align: "center" });
+          doc.text(badgeLabel, ML + CW - bw - 4 + bw / 2, y0 + 6.2, { align: "center" });
         }
 
-        // Linhas de dados
-        let ry = y0 + HDR_H + PAD;
+        // Hairline divisória entre header e dados
+        doc.setDrawColor(...P.x1);
+        doc.setLineWidth(0.15);
+        doc.line(ML + 4, y0 + HDR_H, ML + CW - 4, y0 + HDR_H);
+
+        // Linhas de dados: rótulo uppercase letter-spacing à esquerda, valor mono à direita
+        let ry = y0 + HDR_H + HDR_SEP + PAD_TOP;
         rows.forEach(([label, val, sub, valColor]) => {
-          doc.setFont("helvetica", "normal"); doc.setFontSize(5.5);
-          doc.setTextColor(...P.x5);
-          doc.text(label, ML + 4, ry + 3);
+          doc.setFont("helvetica", "bold"); doc.setFontSize(4.5);
+          doc.setTextColor(...P.x4);
+          doc.setCharSpace(0.2);
+          doc.text(label, ML + 4, ry);
+          doc.setCharSpace(0);
 
           doc.setFont("courier", "bold"); doc.setFontSize(6.5);
-          doc.setTextColor(...(valColor ?? P.x9));
-          doc.text(val, ML + CW - 4, ry + 3, { align: "right" });
+          doc.setTextColor(...(valColor ?? P.n9));
+          const valW = doc.getTextWidth(val);
+          doc.text(val, ML + CW - 4, ry, { align: "right" });
 
+          // Sub na mesma linha, à esquerda do valor
           if (sub) {
             doc.setFont("helvetica", "normal"); doc.setFontSize(4.5);
             doc.setTextColor(...P.x4);
-            doc.text(sub, ML + CW - 4, ry + 6, { align: "right" });
+            doc.text(sub, ML + CW - 4 - valW - 2, ry, { align: "right" });
           }
           ry += ROW_H;
         });
 
-        pos.y = y0 + cardH + 2;
+        pos.y = y0 + cardH + 3;
       });
-      pos.y += 3;
+      pos.y += 2;
     }
   }
 

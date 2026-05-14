@@ -1616,40 +1616,44 @@ function pageSintese(params: PDFReportParams, date: string): string {
           const part = s.participacao || "—";
           const cleanQual = (s.qualificacao ?? "").replace(/^\d{1,3}[-\s]+/, "").trim();
 
+          // Linha de dado padronizada com o resto do relatório:
+          // - Rótulo UPPERCASE 8px var(--x4) (idêntico a .icell .l)
+          // - Valor via class="mono" (utilitária global)
+          // - Sem border-bottom dashed (não é o padrão das outras tabelas)
           const row = (label: string, val: string, sub?: string, color?: string) => `
-            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:3px 0;border-bottom:1px dashed var(--x1)">
-              <span style="color:var(--x5);font-size:10px">${label}</span>
-              <span style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;${color ? `color:${color};` : ""}text-align:right">${val}${sub ? `<br><span style="font-size:9px;color:var(--x4);font-weight:400">${sub}</span>` : ""}</span>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:5px 0">
+              <span style="font-size:var(--fs-tag);font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--x4)">${label}</span>
+              <span class="mono" style="font-weight:700;text-align:right;${color ? `color:${color}` : "color:var(--n9)"}">${val}${sub ? `<span style="margin-left:8px;font-size:var(--fs-tag);color:var(--x4);font-weight:400">${sub}</span>` : ""}</span>
             </div>`;
 
           const badges: string[] = [];
-          if (cobAtiva) badges.push(`<span style="display:inline-block;padding:2px 8px;background:var(--a1);color:var(--a5);border-radius:3px;font-size:9.5px;font-weight:700;letter-spacing:0.05em;margin-right:4px">NEGATIVADO</span>`);
-          if ((procTot ?? 0) > 0) badges.push(`<span style="display:inline-block;padding:2px 8px;background:var(--r1);color:var(--r6);border-radius:3px;font-size:9.5px;font-weight:700;letter-spacing:0.05em;margin-right:4px">${procTot} PROC.${procPas > 0 ? ` PASSIVO${procPas > 1 ? "S" : ""}` : ""}${procVal ? ` — ${esc(procVal)}` : ""}</span>`);
-          if (pgfnTot) badges.push(`<span style="display:inline-block;padding:2px 8px;background:var(--r1);color:var(--r6);border-radius:3px;font-size:9.5px;font-weight:700;letter-spacing:0.05em;margin-right:4px">PGFN ${esc(pgfnTot)}${pgfnQtd ? ` (${pgfnQtd})` : ""}</span>`);
+          if (cobAtiva) badges.push(`<span style="display:inline-block;padding:2px 8px;background:var(--a1);color:var(--a5);border-radius:3px;font-size:var(--fs-label);font-weight:700;letter-spacing:0.05em;margin-right:4px">NEGATIVADO</span>`);
+          if ((procTot ?? 0) > 0) badges.push(`<span style="display:inline-block;padding:2px 8px;background:var(--r1);color:var(--r6);border-radius:3px;font-size:var(--fs-label);font-weight:700;letter-spacing:0.05em;margin-right:4px">${procTot} PROC.${procPas > 0 ? ` PASSIVO${procPas > 1 ? "S" : ""}` : ""}${procVal ? ` — ${esc(procVal)}` : ""}</span>`);
+          if (pgfnTot) badges.push(`<span style="display:inline-block;padding:2px 8px;background:var(--r1);color:var(--r6);border-radius:3px;font-size:var(--fs-label);font-weight:700;letter-spacing:0.05em;margin-right:4px">PGFN ${esc(pgfnTot)}${pgfnQtd ? ` (${pgfnQtd})` : ""}</span>`);
 
-          return `<div style="background:#fafbfc;border:1px solid var(--x2);border-radius:6px;padding:10px 12px;margin-bottom:6px">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+          return `<div style="background:var(--x0);border:1px solid var(--x2);border-radius:6px;padding:12px 14px;margin-bottom:8px">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--x1)">
               <div>
-                <div style="font-weight:700;font-size:12px">${esc(s.nome)}</div>
-                <div style="color:var(--x4);font-size:10px;margin-top:1px">CPF ${fmtCpf(cpfRaw)} · ${esc(cleanQual || "Sócio")} · ${fmt(part)}</div>
+                <div style="font-weight:700;color:var(--n9)">${esc(s.nome)}</div>
+                <div style="color:var(--x4);font-size:var(--fs-label);margin-top:3px">${fmtCpf(cpfRaw)} · ${esc(cleanQual || "Sócio")} · ${fmt(part)}</div>
               </div>
-              ${nivel ? `<span style="display:inline-block;padding:3px 10px;background:${bgN};color:${fgN};border-radius:4px;font-weight:700;font-size:11px;letter-spacing:0.05em">● ${esc(nivel)}</span>` : ""}
+              ${nivel ? `<span style="display:inline-block;padding:3px 10px;background:${bgN};color:${fgN};border-radius:4px;font-weight:700;font-size:var(--fs-label);letter-spacing:0.05em;white-space:nowrap">● ${esc(nivel)}</span>` : ""}
             </div>
-            <div style="margin-top:6px">
-              ${score !== undefined ? row("Score Financeiro", `${score}/1000`, nivel ? `Nível ${nivel}` : undefined) : ""}
+            <div>
+              ${score !== undefined ? row("Score Financeiro", `${score}/1000`, nivel ? `Nv. ${nivel}` : undefined) : ""}
               ${renda ? row("Renda mensal est.", renda.label, renda.sub) : ""}
               ${patrim ? row("Patrimônio est.", patrim.label) : ""}
               ${row("Cobranças 365d", cob365 > 0 ? `${cob365} ocorrência${cob365 > 1 ? "s" : ""}` : "0", undefined, cob365 > 0 ? "var(--r6)" : "var(--g6)")}
             </div>
-            ${badges.length ? `<div style="margin-top:8px">${badges.join("")}</div>` : ""}
+            ${badges.length ? `<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--x1)">${badges.join("")}</div>` : ""}
           </div>`;
         }).filter(Boolean).join("");
 
         if (!cards) return "";
 
         return `<div style="margin-top:12px">
-          <div class="label" style="font-size:var(--fs-label);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--x4);margin-bottom:4px">Sócios — Capacidade Financeira (PF)</div>
-          <div style="font-size:9.5px;color:var(--x4);margin-bottom:8px">Fonte: BigDataCorp · dados presumidos por faixas (1 SM 2026 = R$ ${SM.toLocaleString("pt-BR")})</div>
+          <div class="label" style="font-size:var(--fs-label);font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--x4);margin-bottom:4px">Sócios — Capacidade Financeira (PF)</div>
+          <div style="font-size:var(--fs-tag);color:var(--x4);margin-bottom:8px">Fonte: BigDataCorp · dados presumidos por faixas (1 SM 2026 = R$ ${SM.toLocaleString("pt-BR")})</div>
           ${cards}
         </div>`;
       })()}
