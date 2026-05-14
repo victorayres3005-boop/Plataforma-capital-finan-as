@@ -283,6 +283,8 @@ export default function CustosPage() {
   const [logs, setLogs] = useState<ApiLog[]>([]);
   const [stubs, setStubs] = useState<CollectionStub[]>([]);
   const [loading, setLoading] = useState(true);
+  // Onda B4: estado de erro pra renderizar painel quando /api/custos falha.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [prices, setPrices] = useState<BureauPrices>(DEFAULT_PRICES);
   const [showConfig, setShowConfig] = useState(false);
   const [draftPrices, setDraftPrices] = useState<BureauPrices>(DEFAULT_PRICES);
@@ -311,16 +313,26 @@ export default function CustosPage() {
   const fetchData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await fetch("/api/custos");
-      if (res.ok) {
-        const json = await res.json();
-        if (json.success) {
-          setLogs(json.logs ?? []);
-          setStubs(json.collectionsWithoutLogs ?? []);
-        }
+      if (!res.ok) {
+        // Onda B4: antes era silencioso (página em branco em 401/500).
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || `HTTP ${res.status}`);
       }
-    } catch { /* ignore */ }
+      const json = await res.json();
+      if (!json.success) {
+        throw new Error(json.error || "Resposta sem sucesso");
+      }
+      setLogs(json.logs ?? []);
+      setStubs(json.collectionsWithoutLogs ?? []);
+    } catch (err) {
+      console.error("[custos] fetch falhou:", err);
+      setLoadError(err instanceof Error ? err.message : "Erro desconhecido");
+      setLogs([]);
+      setStubs([]);
+    }
     setLoading(false);
   }, [user]);
 
@@ -468,6 +480,30 @@ export default function CustosPage() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", gap: "10px", color: "#6b7280" }}>
         <RefreshCw size={18} className="animate-spin" />
         <span style={{ fontSize: "14px" }}>Carregando...</span>
+      </div>
+    );
+  }
+
+  // Onda B4: painel de erro quando /api/custos falhou
+  if (loadError) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", gap: "12px", padding: "0 24px" }}>
+        <AlertCircle size={36} style={{ color: "#d97706" }} />
+        <span style={{ fontSize: "14px", fontWeight: 600, color: "#374151" }}>
+          Não foi possível carregar os custos
+        </span>
+        <span style={{ fontSize: "12px", color: "#6b7280", textAlign: "center", maxWidth: 480 }}>
+          {loadError}
+        </span>
+        <button
+          onClick={() => fetchData()}
+          style={{
+            marginTop: 4, padding: "8px 16px", borderRadius: 8, fontSize: 12, fontWeight: 600,
+            background: "#1a2f6b", color: "#fff", border: "none", cursor: "pointer",
+          }}
+        >
+          Tentar novamente
+        </button>
       </div>
     );
   }
