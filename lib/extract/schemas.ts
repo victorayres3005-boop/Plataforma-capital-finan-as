@@ -187,7 +187,14 @@ export function safeParseExtracted<T>(
   try {
     const coerced = schema.parse(input) as T;
     return { data: coerced, warnings };
-  } catch {
+  } catch (e) {
+    // Onda 1 #1.2: antes silencioso. Esse catch significa que o input nao
+    // bate com o schema mesmo depois do fallback permissivo — fillDefaults
+    // vai receber shape errado e provavelmente zerar campos. Sintoma:
+    // "extraido com sucesso mas todos os campos vazios".
+    console.warn(
+      `[extract][${docType}] safeParseExtracted: schema.parse no catch tambem falhou — retornando input cru com tipagem incorreta. erro=${e instanceof Error ? e.message : String(e)}`,
+    );
     return { data: input as T, warnings };
   }
 }

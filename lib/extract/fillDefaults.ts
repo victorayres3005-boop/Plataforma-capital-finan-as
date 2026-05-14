@@ -101,11 +101,21 @@ export function fillFaturamentoDefaults(data: Partial<FaturamentoData>): Faturam
   const mesesComAno = inferirAnosCronologicamente(mesesEntrada);
 
   const _mesesFuturosDropados: string[] = [];
+  const _mesesInvalidosDropados: string[] = [];
   const meses = mesesComAno
     .filter(m => {
-      if (!m.mes) return false;
+      if (!m.mes) {
+        _mesesInvalidosDropados.push("(mes vazio)");
+        return false;
+      }
       const [mesNum, anoNum] = m.mes.split("/").map(Number);
-      if (!mesNum || !anoNum) return false;
+      if (!mesNum || !anoNum) {
+        // Onda 1 #1.1: antes era silencioso. Agora regista pra detectar
+        // casos onde Gemini retornou formato inesperado (ex: "Março", "03/24",
+        // "03-2024"). Sintoma típico: FMM divergente da soma das barras.
+        _mesesInvalidosDropados.push(m.mes);
+        return false;
+      }
 
       // Meses futuros: marca como dropado pra expor na Review, nao silencia
       if (anoNum > _anoAtualFiltro || (anoNum === _anoAtualFiltro && mesNum > _mesAtualFiltro)) {
@@ -116,6 +126,9 @@ export function fillFaturamentoDefaults(data: Partial<FaturamentoData>): Faturam
     });
   if (_mesesFuturosDropados.length > 0) {
     console.warn(`[extract][faturamento] ${_mesesFuturosDropados.length} mes(es) futuro(s) descartado(s): ${_mesesFuturosDropados.join(", ")}`);
+  }
+  if (_mesesInvalidosDropados.length > 0) {
+    console.warn(`[extract][faturamento] ${_mesesInvalidosDropados.length} mes(es) com formato invalido descartado(s): ${_mesesInvalidosDropados.join(", ")}`);
   }
   const parseBR = (v: string) => parseFloat((v || "0").replace(/\./g, "").replace(",", ".")) || 0;
   const fmtBR = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });

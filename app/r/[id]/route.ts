@@ -30,7 +30,14 @@ function applyOverrides(html: string, overrides: Partial<Record<Section, string[
     const arr = overrides[sec];
     if (!Array.isArray(arr)) continue;
     const re = new RegExp(`<!--EDIT:${sec}:START-->[\\s\\S]*?<!--EDIT:${sec}:END-->`);
+    const before = out;
     out = out.replace(re, `<!--EDIT:${sec}:START-->${renderItems(arr)}<!--EDIT:${sec}:END-->`);
+    if (before === out) {
+      // Onda 1 #1.4: regex nao casou — marcador foi renomeado/removido do
+      // template e a edicao do analista some silenciosamente. Sintoma:
+      // "minha edicao nao aparece no relatorio publico apesar de salvar".
+      console.warn(`[r/applyOverrides] regex EDIT:${sec}:START/END nao casou no HTML — override de ${arr.length} item(ns) ignorado`);
+    }
   }
   return out;
 }

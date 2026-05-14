@@ -737,7 +737,14 @@ async function processExtract(
         curva_abc: 60000,
         // relatorio_visita / contrato → modo visual, não chegam aqui
       };
-      textContent = textContent.substring(0, maxChars[docType] || 10000);
+      const limit = maxChars[docType] || 10000;
+      const originalLen = textContent.length;
+      if (originalLen > limit) {
+        // Onda 1 #1.5: antes silencioso. Texto cortado pode perder tabela
+        // util que estava no fim do PDF (totais, rodape, paginas finais).
+        console.warn(`[extract][${docType}] texto truncado: ${originalLen} → ${limit} chars (${Math.round((1 - limit/originalLen) * 100)}% descartado)`);
+      }
+      textContent = textContent.substring(0, limit);
     }
 
     // Curva ABC com texto grande (>15k chars): tenta parser direto antes de chamar Gemini.

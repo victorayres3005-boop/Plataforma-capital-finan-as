@@ -42,7 +42,10 @@ export async function cacheGet<T>(cnpj: string): Promise<T | null> {
       return null;
     }
     return data.result as T;
-  } catch {
+  } catch (e) {
+    // Onda 1 #1.3: antes silencioso. cacheGet falhar = caller re-consulta
+    // bureau pago. Custo dobra sem alerta. Loga pra dar visibilidade.
+    console.warn(`[bureau-cache] cacheGet falhou pra cnpj=${cnpj} — operando sem cache:`, e instanceof Error ? e.message : e);
     return null;
   }
 }
@@ -53,8 +56,9 @@ export async function cacheSet<T>(cnpj: string, result: T): Promise<void> {
   const expires_at = new Date(Date.now() + TTL_MS).toISOString();
   try {
     await db.from("bureau_cache").upsert({ cnpj, result, expires_at });
-  } catch {
-    // Falha silenciosa — cache é best-effort
+  } catch (e) {
+    // Onda 1 #1.3: best-effort vira "loop quente" se cacheSet falha repetido.
+    console.warn(`[bureau-cache] cacheSet falhou pra cnpj=${cnpj} — resultado nao foi cacheado:`, e instanceof Error ? e.message : e);
   }
 }
 
