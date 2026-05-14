@@ -298,12 +298,8 @@ export function renderABC(ctx: PdfCtx): void {
 
   pos.y = y0 + TH + 5;
 
-  // Legenda compacta — explica os ícones da tabela
-  if (enriquecidos > 0) {
-    doc.setFont("helvetica","normal"); doc.setFontSize(6); doc.setTextColor(...P.x5);
-    doc.text("Prot./Proc.: ✓ = sem ocorrência · número = qtd · — = sem dado", ML + 4, pos.y);
-    pos.y += 4;
-  }
+  // Onda relatório (2026-05-14): legenda removida — ícones ✓/—/número são
+  // auto-explicativos no contexto da tabela.
 
   // Alerts
   const top1 = shown[0];

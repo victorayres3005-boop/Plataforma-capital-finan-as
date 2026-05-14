@@ -1356,7 +1356,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
             <td class="mono" style="text-align:right;color:${hasVenc ? "var(--r6)" : "var(--x4)"};font-weight:${hasVenc ? "700" : "400"}">${hasVenc ? fmtMoneyAbr(e.scrVencidos) : "—"}</td>
             <td style="text-align:center;color:${hasProt && e.protestos !== "0" ? "var(--r6)" : "var(--g6)"};font-weight:600">${hasProt ? e.protestos : "—"}</td>
             <td style="text-align:center;color:${hasProc && e.processos !== "0" ? "var(--r6)" : "var(--g6)"};font-weight:600">${hasProc ? e.processos : "—"}</td>
-            <td class="mono" style="color:${hasVal && e.valorProcessos !== "R$ 0,00" ? "var(--r6)" : "var(--x4)"};font-size:var(--fs-tag)">${hasVal ? esc(e.valorProcessos!) : "—"}</td>
+            <td class="mono" style="color:${hasVal && e.valorProcessos !== "R$ 0,00" ? "var(--r6)" : "var(--x4)"}">${hasVal ? esc(e.valorProcessos!) : "—"}</td>
           </tr>`;
         };
         const rowsAtivas = empsAtivas.map(renderRow).join("");
@@ -1369,7 +1369,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
           <span style="font-weight:500;color:var(--n8);margin-left:auto">${totalEmps} empresa${totalEmps > 1 ? "s" : ""}${empsNaoAtivas.length > 0 ? ` <span style="color:var(--x4)">(${empsAtivas.length} ativa${empsAtivas.length !== 1 ? "s" : ""})</span>` : ""}</span>
         </div>
         ${rowsAtivas ? `<table class="ge-tbl">${headerCols}<tbody>${rowsAtivas}</tbody></table>` : ""}
-        ${rowsNaoAtivas ? `<div style="font-size:10px;font-weight:600;color:var(--x4);text-transform:uppercase;letter-spacing:0.05em;margin:8px 0 4px">⚠ Empresas não-ativas (${empsNaoAtivas.length})</div><table class="ge-tbl" style="opacity:0.85">${headerCols}<tbody>${rowsNaoAtivas}</tbody></table>` : ""}`;
+        ${rowsNaoAtivas ? `<table class="ge-tbl" style="opacity:0.85;${rowsAtivas ? "margin-top:8px" : ""}">${headerCols}<tbody>${rowsNaoAtivas}</tbody></table>` : ""}`;
       }).join("");
 
       const alertaParentesco = ge.alertaParentesco && (ge.parentescosDetectados ?? []).length > 0
@@ -1760,7 +1760,6 @@ function pageSintese(params: PDFReportParams, date: string): string {
           </tr></thead>
           <tbody>${linhas}</tbody>
         </table>
-        <div style="padding:8px 14px;background:var(--n0);border-top:1px solid var(--n1);font-size:10px;color:var(--x5)"><b>✓</b>=sem ocorrência · número=qtd (com valor total) · <b>—</b>=sem dado · 🚩=parte relacionada com cedente</div>
       </div>`;
     })()}
 
