@@ -1005,26 +1005,11 @@ async function processExtract(
               : `[binary ${_imageContent?.mimeType}, base64 len: ${_imageContent?.base64.length}]`
             );
 
-            switch (_docType) {
-              case "cnpj":           data = fillCNPJDefaults({}); break;
-              case "qsa":            data = fillQSADefaults({}); break;
-              case "contrato":       data = fillContratoDefaults({}); break;
-              case "faturamento":    data = fillFaturamentoDefaults({}); break;
-              case "scr":            data = fillSCRDefaults({}); break;
-              case "protestos":      data = fillProtestosDefaults({}); break;
-              case "processos":      data = fillProcessosDefaults({}); break;
-              case "grupoEconomico": data = fillGrupoEconomicoDefaults({}); break;
-              case "curva_abc":      data = fillCurvaABCDefaults({}); break;
-              case "dre":            data = fillDREDefaults({}); break;
-              case "balanco":        data = fillBalancoDefaults({}); break;
-              case "ir_socio":       data = fillIRSocioDefaults({}); break;
-              case "relatorio_visita": data = fillRelatorioVisitaDefaults({}); break;
-              case "divida_ativa":   data = fillDividaAtivaDefaults({}); break;
-              case "cenprot":        data = fillCenprotDefaults({}); break;
-              case "gefip":          data = fillGefipDefaults({}); break;
-              default:               data = fillCNPJDefaults({});
-            }
-
+            // Onda 2 #2.2: antes este catch montava `data = fillXxxDefaults({})`
+            // (objeto preenchido com strings vazias) e mandava no payload de erro.
+            // Risco: qualquer consumer futuro que esquecesse de checar `success:false`
+            // ia mesclar esse objeto em cima de dados reais, zerando campos. Trocado
+            // por `data: null` — caller é obrigado a checar antes de usar.
             let errorType: "quota" | "parse" | "empty" | "unknown" = "unknown";
             if (errMsg.includes("429") || errMsg.includes("EXHAUSTED") || errMsg.includes("quota") || errMsg.includes("rate")) {
               errorType = "quota";
@@ -1039,7 +1024,7 @@ async function processExtract(
             // success: false quando IA falhou — o frontend trata como erro visivel
             // em vez de fingir sucesso com dados vazios
             _send(controller, "result", {
-              success: false, data,
+              success: false, data: null,
               error: errMsg.substring(0, 200),
               meta: { rawTextLength: _textContent.length, filledFields: 0, isScanned: _isImage, aiError: true, errorType, errorMessage: errMsg.substring(0, 200) },
             });
