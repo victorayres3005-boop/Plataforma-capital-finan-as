@@ -12,9 +12,11 @@ import { createServerSupabase } from "@/lib/supabase/server";
 export async function GET(req: NextRequest) {
   try {
     // Auth check via server supabase
+    // Onda B3: getSession() em vez de getUser() — alinhado com CLAUDE.md
+    // (auth Edge usa getSession; getUser faz RTT extra ao Auth, +100-300ms).
     const authSb = await createServerSupabase();
-    const { data: { user } } = await authSb.auth.getUser();
-    if (!user) {
+    const { data: { session } } = await authSb.auth.getSession();
+    if (!session?.user) {
       return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
     }
 
