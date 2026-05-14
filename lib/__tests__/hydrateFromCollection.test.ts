@@ -132,8 +132,8 @@ describe("hydrateFromCollection", () => {
     ];
     const result = hydrateFromCollection(docs);
     expect(result.irSocios).toHaveLength(2);
-    expect((result.irSocios as Record<string, unknown>[])[0].nomeSocio).toBe("Socio 1");
-    expect((result.irSocios as Record<string, unknown>[])[1].nomeSocio).toBe("Socio 2");
+    expect((result.irSocios as unknown as Record<string, unknown>[])[0].nomeSocio).toBe("Socio 1");
+    expect((result.irSocios as unknown as Record<string, unknown>[])[1].nomeSocio).toBe("Socio 2");
   });
 
   it("hidrata relatorio de visita", () => {
@@ -151,7 +151,7 @@ describe("hydrateFromCollection", () => {
     ];
     const result = hydrateFromCollection(docs);
     expect(result.cnpj.razaoSocial).toBe("Teste");
-    expect((result.cnpj as Record<string, unknown>)._editedManually).toBeUndefined();
+    expect((result.cnpj as unknown as Record<string, unknown>)._editedManually).toBeUndefined();
   });
 
   it("ignora tipos desconhecidos sem erro", () => {
