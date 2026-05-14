@@ -5,6 +5,10 @@
 
 Visão consolidada das integrações de dados externos. **Desde 2026-05-05** o orquestrador `app/api/bureaus/route.ts` segue padrão **CreditHub-first, BDC só como fallback total** — ver [orquestração](#orquestração-creditHub-first).
 
+> ⚠️ **2026-05-14 — Exceção: BDC sócios PF SEMPRE consultado**. `consultarBDCSocios` entrou no Promise.allSettled principal (commit `5af30e4`). Motivo: BDC pessoa retorna campos exclusivos (financialRiskScore, estimatedIncomeRange, totalAssetsRange, isCurrentlyOnCollection, pgfnDebt*) que o CreditHub não cobre. Custo: ~R$ 0,30/sócio PF.
+
+> 🔴 **2026-05-14 — PEFIN/REFIN/Score BoaVista BLOQUEADOS — exigem JWT**. A CreditHub mudou auth dos endpoints IRQL pagos (Serasa/BoaVista/SPC) para JWT, não basta `?apiKey=`. Mensagem do servidor: "Esta consulta acessa um fornecedor externo pago (...) e exige autenticação via JWT. Gere um JWT a partir da sua API Key". Detector reconhece (commit `1c9d545`), implementação real depende de doc da CreditHub. Endpoints `/simples` continuam OK.
+
 ## CreditHub — `lib/bureaus/credithub.ts`  *(fonte primária)*
 
 **Auth:** `CREDITHUB_API_KEY` (Bearer), `CREDITHUB_API_URL=https://irql.credithub.com.br`. Cache em `bureau_cache`.

@@ -11,6 +11,24 @@ Log datado de mudanças significativas. Adicionar entrada nova **no topo** quand
 
 ---
 
+## 2026-05-14 (noite) — Fix Patricia + BDC PF sempre + Bloco Capacidade Financeira + Score BoaVista + JWT da CreditHub
+
+Sessão longa noturna. 7 commits no master. Detalhe completo em [[sessao-2026-05-14]].
+
+**Commits**: `8a28202` (fix merger Patricia) · `5af30e4` (BDC PF sempre) · `01b554e` (bloco Capacidade Financeira) · `95c78ce` (detect acesso web) · `434b776` (refino visual) · `35e2198` (Score BoaVista) · `1c9d545` (detect JWT).
+
+**Descobertas chave**:
+- Bug merger.ts:167 — bloco `qsaEnrichment` sobrescrevia silenciosamente o KYC populado pelo bloco anterior (causa raiz Patricia "N/D")
+- Cobertura BDC PF era inconsistente — agora sempre rodando (custo +R$ 18/mês)
+- Bloco UI novo "Sócios — Capacidade Financeira (PF)" com 7 campos (Score BoaVista + BDC + renda + patrimônio + cobranças + PGFN + processos)
+- CreditHub mudou auth IRQL — pagos exigem JWT, não basta apiKey. Implementação pendente
+
+**Validação em produção**: FE/NI CONSULTING (CNPJ 46901139000107) confirmou todos os fixes. João Paulo aparece com PGFN R$ 37.562,53 em vermelho.
+
+**Pendências críticas**: [[pendencias-proxima-sessao-2026-05-14]] — JWT da CreditHub + validação SPEED PACK + 3 issues no Linear quando destravar.
+
+---
+
 ## 2026-05-14 — Organização Linear: Project completo + 13 Documents + Milestones + protocolo Linear↔Cérebro
 
 Sessão de ~6h focada exclusivamente em estruturar o **Linear** como espelho profissional do projeto, sem mexer em código de produção. Único commit no repo: `chore(ci): adiciona Dependabot` (7216ef6).
