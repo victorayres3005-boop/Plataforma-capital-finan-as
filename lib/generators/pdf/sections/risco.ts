@@ -746,12 +746,22 @@ export function renderRisco(ctx: PdfCtx): void {
 
     type SocioCap = {
       nome: string; cpf: string; qualificacao: string; participacao: string;
+      scoreBV?: number;
       score?: number; nivel?: string;
       renda?: { label: string; sub?: string };
       patrim?: { label: string };
       cobAtiva: boolean; cob365: number;
       pgfnTot?: string; pgfnQtd?: number;
       procTot: number; procPas: number; procVal?: string;
+    };
+
+    // Faixa BoaVista oficial pra colorir badge do score
+    const faixaBoaVista = (n: number): { label: string; cor: [number,number,number] } => {
+      if (n >= 901) return { label: "A · muito baixo", cor: P.g6 };
+      if (n >= 701) return { label: "B · baixo",       cor: P.g6 };
+      if (n >= 501) return { label: "C · médio",       cor: P.n8 };
+      if (n >= 301) return { label: "D · médio-alto",  cor: P.a5 };
+      return            { label: "E · alto",           cor: P.r6 };
     };
 
     const sociosCap: SocioCap[] = ((data.qsa?.quadroSocietario ?? []) as unknown as Array<Record<string, unknown>>)
@@ -761,6 +771,7 @@ export function renderRisco(ctx: PdfCtx): void {
         cpf: (s.cpfCnpj as string) ?? "",
         qualificacao: ((s.qualificacao as string) ?? "").replace(/^\d{1,3}[-\s]+/, "").trim(),
         participacao: (s.participacao as string) ?? "—",
+        scoreBV: s.scoreBoaVistaPF as number | undefined,
         score: s.financialRiskScore as number | undefined,
         nivel: s.financialRiskLevel as string | undefined,
         renda: parseSMRange(s.estimatedIncomeRange as string | undefined) ?? undefined,
@@ -773,7 +784,7 @@ export function renderRisco(ctx: PdfCtx): void {
         procPas: (s.processosPassivo as number | undefined) ?? 0,
         procVal: s.processosValorTotal as string | undefined,
       }))
-      .filter(sc => sc.score !== undefined || sc.nivel || sc.renda || sc.patrim || sc.cobAtiva || sc.cob365 > 0 || sc.pgfnTot || sc.procTot > 0);
+      .filter(sc => sc.scoreBV !== undefined || sc.score !== undefined || sc.nivel || sc.renda || sc.patrim || sc.cobAtiva || sc.cob365 > 0 || sc.pgfnTot || sc.procTot > 0);
 
     if (sociosCap.length > 0) {
       checkPageBreak(ctx, 14);
@@ -791,7 +802,11 @@ export function renderRisco(ctx: PdfCtx): void {
       // - Tamanhos padronizados com sintese.ts
       sociosCap.forEach(sc => {
         const rows: Array<[string, string, string?, [number,number,number]?]> = [];
-        if (sc.score !== undefined) rows.push(["SCORE FINANCEIRO", `${sc.score}/1000`, sc.nivel ? `Nv. ${sc.nivel}` : undefined]);
+        if (sc.scoreBV !== undefined) {
+          const bv = faixaBoaVista(sc.scoreBV);
+          rows.push(["SCORE BOAVISTA", `${sc.scoreBV}/1000`, bv.label, bv.cor]);
+        }
+        if (sc.score !== undefined) rows.push(["SCORE FINANCEIRO BDC", `${sc.score}/1000`, sc.nivel ? `Nv. ${sc.nivel}` : undefined]);
         if (sc.renda)  rows.push(["RENDA MENSAL EST.", sc.renda.label, sc.renda.sub]);
         if (sc.patrim) rows.push(["PATRIMÔNIO EST.", sc.patrim.label]);
         rows.push(["COBRANÇAS 365D", sc.cob365 > 0 ? `${sc.cob365} ocorrência${sc.cob365 > 1 ? "s" : ""}` : "0", undefined, sc.cob365 > 0 ? P.r6 : P.g6]);

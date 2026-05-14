@@ -79,6 +79,8 @@ export interface QSASocio {
   isPEP?: boolean;
   isSanctioned?: boolean;
   sanctionSources?: string[];
+  // Enriched from CreditHub IRQL SPCNet.ScoreBoaVista (CPF only)
+  scoreBoaVistaPF?: number;         // 0-1000 (padrão BoaVista de mercado)
   // Enriched from BigDataCorp financial_risk (pessoas)
   financialRiskScore?: number;      // 0-1000
   financialRiskLevel?: string;      // A-H
@@ -868,6 +870,8 @@ export interface SocioKycCreditHub {
   ultimoProcessoData?: string;
   protestosQtd?: number;
   ultimoProtestoData?: string;
+  // Score BoaVista (SPCNet.ScoreBoaVista) — 0-1000
+  scoreBoaVistaPF?: number;
 }
 
 export interface GrupoEconomicoData {

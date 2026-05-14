@@ -1595,6 +1595,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
         };
 
         const cards = socios.map((s: any) => {
+          const scoreBV  = s.scoreBoaVistaPF as number | undefined;
           const score    = s.financialRiskScore as number | undefined;
           const nivel    = s.financialRiskLevel as string | undefined;
           const renda    = parseRange(s.estimatedIncomeRange, "SM");
@@ -1608,8 +1609,20 @@ function pageSintese(params: PDFReportParams, date: string): string {
           const procVal  = s.processosValorTotal as string | undefined;
 
           // Sem nenhum dado de capacidade financeira → não renderiza esse sócio
-          const temAlgo = score !== undefined || nivel !== undefined || renda || patrim || cobAtiva || cob365 > 0 || pgfnTot || (procTot ?? 0) > 0;
+          const temAlgo = scoreBV !== undefined || score !== undefined || nivel !== undefined || renda || patrim || cobAtiva || cob365 > 0 || pgfnTot || (procTot ?? 0) > 0;
           if (!temAlgo) return "";
+
+          // Faixa BoaVista oficial (banda de risco — usada pela própria BoaVista):
+          //  A (901-1000): muito baixo · B (701-900): baixo · C (501-700): médio
+          //  D (301-500): médio-alto · E (0-300): alto
+          const faixaBV = (n: number): { label: string; cor: string } => {
+            if (n >= 901) return { label: "A · muito baixo", cor: "var(--g6)" };
+            if (n >= 701) return { label: "B · baixo",       cor: "var(--g6)" };
+            if (n >= 501) return { label: "C · médio",       cor: "var(--n8)" };
+            if (n >= 301) return { label: "D · médio-alto",  cor: "var(--a5)" };
+            return            { label: "E · alto",           cor: "var(--r6)" };
+          };
+          const bv = scoreBV !== undefined ? faixaBV(scoreBV) : null;
 
           const [bgN, fgN] = nivelCor(nivel);
           const cpfRaw = (s.cpfCnpj ?? "").replace(/\D/g, "");
@@ -1640,7 +1653,8 @@ function pageSintese(params: PDFReportParams, date: string): string {
               ${nivel ? `<span style="display:inline-block;padding:3px 10px;background:${bgN};color:${fgN};border-radius:4px;font-weight:700;font-size:var(--fs-label);letter-spacing:0.05em;white-space:nowrap">● ${esc(nivel)}</span>` : ""}
             </div>
             <div>
-              ${score !== undefined ? row("Score Financeiro", `${score}/1000`, nivel ? `Nv. ${nivel}` : undefined) : ""}
+              ${scoreBV !== undefined && bv ? row("Score BoaVista", `${scoreBV}/1000`, bv.label, bv.cor) : ""}
+              ${score !== undefined ? row("Score Financeiro BDC", `${score}/1000`, nivel ? `Nv. ${nivel}` : undefined) : ""}
               ${renda ? row("Renda mensal est.", renda.label, renda.sub) : ""}
               ${patrim ? row("Patrimônio est.", patrim.label) : ""}
               ${row("Cobranças 365d", cob365 > 0 ? `${cob365} ocorrência${cob365 > 1 ? "s" : ""}` : "0", undefined, cob365 > 0 ? "var(--r6)" : "var(--g6)")}

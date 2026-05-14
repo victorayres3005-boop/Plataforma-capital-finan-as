@@ -1016,6 +1016,10 @@ async function consultarCreditHubPorCPF(cpf: string, nomeSocio: string): Promise
   const MAX_ATTEMPTS = 5;
   const DELAY_MS = 3000;
 
+  // Score BoaVista é independente da consulta /simples; chama em paralelo
+  // pra não pesar latência. Custo: 0 (mesma chave CreditHub, mesmo plano).
+  const scoreBoaVistaPromise = consultarScoreBoaVistaPF(cpfNum);
+
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       const res = await fetch(url, {
@@ -1080,6 +1084,10 @@ async function consultarCreditHubPorCPF(cpf: string, nomeSocio: string): Promise
         ? [...prot.detalhes].sort((a, b) => (b.data ?? "").localeCompare(a.data ?? "")).find(p => p.data)?.data
         : undefined;
 
+      // Aguarda Score BoaVista (já está em andamento em paralelo). Não bloqueia
+      // mais que o fetch principal pois ambos rodam concorrentemente.
+      const scoreBoaVistaPF = await scoreBoaVistaPromise;
+
       const kyc: SocioKycCreditHub = {
         cpf: cpfNum,
         // BUG-FIX 2026-05-09: trocar `Number(x) || undefined` por preservar
@@ -1095,9 +1103,10 @@ async function consultarCreditHubPorCPF(cpf: string, nomeSocio: string): Promise
         ultimoProcessoData,
         protestosQtd:        Number(prot.vigentesQtd ?? 0),
         ultimoProtestoData,
+        scoreBoaVistaPF,
       };
 
-      console.log(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** total empresas: diretas=${empresasDirectas.length} rfb=${empresaRFB.length} | processos=${kyc.processosTotal ?? 0} protestos=${kyc.protestosQtd ?? 0}`);
+      console.log(`[credithub][cpf] CPF=${cpfNum.slice(0,3)}*** total empresas: diretas=${empresasDirectas.length} rfb=${empresaRFB.length} | processos=${kyc.processosTotal ?? 0} protestos=${kyc.protestosQtd ?? 0} scoreBV=${scoreBoaVistaPF ?? "—"}`);
       return { empresas: todas, kyc };
 
     } catch (err: unknown) {
@@ -1867,4 +1876,76 @@ export async function consultarPefinRefin(cnpj: string): Promise<{ pefin?: Pefin
   }
 
   return { pefin, refin };
+}
+
+/**
+ * Score BoaVista CPF — via IRQL CreditHub (SPCNet.ScoreBoaVista).
+ * Doc: `q=SELECT FROM 'SPCNet'.'ScoreBoaVista'&documento=CPF&apiKey=...`
+ *
+ * Diferente do PEFIN/REFIN, o CPF vai como query param `documento=` em vez
+ * de dentro do WHERE. Range esperado: 0-1000 (padrão BoaVista de mercado).
+ * Parser tolerante — a estrutura exata da resposta não está documentada,
+ * então tenta vários caminhos antes de desistir.
+ *
+ * Retorna undefined em qualquer erro (incluindo "acesso web") pra que o
+ * relatório distinga "não consultado" (N/D) de "consultado e sem score".
+ */
+async function consultarScoreBoaVistaPF(cpf: string): Promise<number | undefined> {
+  if (!CREDITHUB_API_KEY) return undefined;
+  const cpfNum = cpf.replace(/\D/g, "");
+  if (cpfNum.length !== 11) return undefined;
+
+  const params = new URLSearchParams({
+    q: `SELECT FROM 'SPCNet'.'ScoreBoaVista'`,
+    documento: cpfNum,
+    apiKey: CREDITHUB_API_KEY,
+  });
+  try {
+    const res = await fetch(`https://irql.credithub.com.br/?${params.toString()}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(15000),
+    });
+    const raw = await res.text();
+    if (!res.ok) {
+      console.warn(`[credithub] ScoreBoaVista CPF=${cpfNum.slice(0,3)}*** HTTP ${res.status} ${res.statusText} — não consultado`);
+      return undefined;
+    }
+    if (raw.trimStart().startsWith("<")) {
+      const exMatch = raw.match(/<exception[^>]*>([^<]+)<\/exception>/i);
+      const msg = exMatch?.[1] ?? "erro desconhecido";
+      if (isAcessoWebMessage(msg)) {
+        console.error(`[credithub][PLANO-API-NECESSARIO] ScoreBoaVista bloqueado — chave em modo "acesso web". CPF=${cpfNum.slice(0,3)}*** Mensagem: ${msg}`);
+      } else {
+        console.warn(`[credithub] ScoreBoaVista CPF=${cpfNum.slice(0,3)}*** XML/BPQL: ${msg}`);
+      }
+      return undefined;
+    }
+    let json: unknown;
+    try {
+      json = JSON.parse(raw);
+    } catch {
+      console.warn(`[credithub] ScoreBoaVista CPF=${cpfNum.slice(0,3)}*** JSON inválido: ${raw.slice(0, 120)}`);
+      return undefined;
+    }
+    const j = (json ?? {}) as Record<string, unknown>;
+    const arrSpc = (j.spc ?? j.SCPC ?? j.scpc) as Array<Record<string, unknown>> | undefined;
+    const arrInfo = (j.informacoes ?? j.dadosCadastrais) as Array<Record<string, unknown>> | undefined;
+    const candidates: unknown[] = [
+      j.score, j.Score, j.SCORE, j.pontuacao, j.pontos, j.scoreBoaVista, j.score_boa_vista,
+      arrSpc?.[0]?.score, arrSpc?.[0]?.Score, arrSpc?.[0]?.pontuacao,
+      arrInfo?.[0]?.score, arrInfo?.[0]?.Score, arrInfo?.[0]?.pontuacao,
+    ];
+    for (const c of candidates) {
+      const n = typeof c === "number" ? c : typeof c === "string" ? parseInt(c.replace(/\D/g, ""), 10) : NaN;
+      if (Number.isFinite(n) && n >= 0 && n <= 1000) {
+        console.log(`[credithub] ScoreBoaVista CPF=${cpfNum.slice(0,3)}*** = ${n}`);
+        return n;
+      }
+    }
+    console.log(`[credithub] ScoreBoaVista CPF=${cpfNum.slice(0,3)}*** retorno inesperado, keys: ${Object.keys(j).join(",") || "(vazio)"}`);
+    return undefined;
+  } catch (err) {
+    console.warn(`[credithub] ScoreBoaVista CPF=${cpfNum.slice(0,3)}*** falhou: ${err instanceof Error ? err.message : String(err)}`);
+    return undefined;
+  }
 }

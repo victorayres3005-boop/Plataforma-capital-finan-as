@@ -121,6 +121,9 @@ export function mergeBureauResults(
                 ultimoProcessoData:  s.ultimoProcessoData   ?? kyc.ultimoProcessoData,
                 protestosSocioQtd:   s.protestosSocioQtd   ?? kyc.protestosQtd,
                 ultimoProtestoData:  s.ultimoProtestoData   ?? kyc.ultimoProtestoData,
+                // Score BoaVista é exclusivo do CreditHub (SPCNet.ScoreBoaVista),
+                // não tem equivalente no BDC — propaga sem precedência.
+                scoreBoaVistaPF:     s.scoreBoaVistaPF      ?? kyc.scoreBoaVistaPF,
               };
             }),
           };
