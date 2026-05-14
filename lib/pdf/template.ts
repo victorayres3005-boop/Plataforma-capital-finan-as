@@ -867,7 +867,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
       : validacao === "alerta"
         ? `<span style="display:inline-block;margin-left:5px;padding:1px 5px;background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;border-radius:3px;font-size:8.5px;font-weight:700;letter-spacing:0.05em;vertical-align:middle">ID ALERTA</span>`
         : "";
-    return `<tr><td><b>${esc(s.nome)}</b>${obitBadge}${cpfBadge}${scorePFBadge}${validacaoBadge}</td><td style="font-family:'JetBrains Mono',monospace;font-size:11px">${fmtCpf(cpfRaw)}</td><td>${esc(cleanQual)}</td><td style="color:var(--x4)">${fmt(part)}</td></tr>`;
+    return `<tr><td><b>${esc(s.nome)}</b>${obitBadge}${cpfBadge}${scorePFBadge}${validacaoBadge}</td><td style="font-family:'JetBrains Mono',monospace;font-size:11px">${fmtCpf(cpfRaw)}</td><td>${esc(cleanQual)}</td><td style="color:var(--n8);font-weight:700">${fmt(part)}</td></tr>`;
   }).join("");
 
   // SCR cards — usa helper único `calcScrTotal` (carteira+vencidos+prejuízos)
