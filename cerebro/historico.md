@@ -11,6 +11,63 @@ Log datado de mudanças significativas. Adicionar entrada nova **no topo** quand
 
 ---
 
+## 2026-05-14 — Organização Linear: Project completo + 13 Documents + Milestones + protocolo Linear↔Cérebro
+
+Sessão de ~6h focada exclusivamente em estruturar o **Linear** como espelho profissional do projeto, sem mexer em código de produção. Único commit no repo: `chore(ci): adiciona Dependabot` (7216ef6).
+
+### Frente 1 — Linear como camada de stakeholder
+
+Criado o Project `Capital Finanças — Análise de Crédito` no workspace `capitalfinancas` (time `CapitalFinancas`, key `CAP`) com 13 Documents profundos, todos versionados (v1.0, v1.1, v2.0) e padronizados no estilo do "Plano Técnico BFF" do @italo.gomes:
+
+- **Onboarding — Leia Primeiro** (ordem de leitura recomendada, checklist 30min, primeira contribuição)
+- **Glossário de Termos** (~50 termos em 7 categorias)
+- **Documentação Técnica — Análise de Crédito v2.0** (visão geral + arquitetura + Mermaid + criticidade por arquivo)
+- **ADRs — Decisões Arquiteturais v2.0** (12 ADRs no formato Contexto/Decisão/Consequência — espelho de `decisoes.md`)
+- **Manual de Integração — API v1.1** (41 endpoints com curl + schemas TypeScript + fluxos)
+- **Manual de Integração — Apêndices Técnicos** (headers customizados, webhook parser Goalfy 5 formatos, fixtures de teste, curls detalhados)
+- **Catálogo de Bureaus & Integrações v2.0** (espelho de `bureaus.md`)
+- **Guia de Páginas — Frontend & Backend v1.1** (18 rotas com componentes, endpoints, tipos, hooks — espelho de `ui-fluxos.md`)
+- **Guia de Setup** (envs, scripts, primeira coleta, troubleshooting — equivalente a parte de `setup-claude-code.md`)
+- **Guia de Testes** (Vitest + Playwright + fixtures — sem equivalente direto no cérebro hoje)
+- **Política de Crédito V2 — Especificação v2.0** (espelho de `politica-credito.md`)
+- **Pipeline de Extração de Documentos v2.0** (espelho de `extracao.md`)
+- **[DELETAR] Protótipo v2 antigo** (Document residual de uma migração de estilo — pode deletar manualmente no Linear UI, API MCP não tem permissão)
+
+Padronização visual: todos os Documents usam icon `:clipboard:` (estilo Italo) — antes era um zoológico (foguete, tubo de ensaio, livro, paleta, etc).
+
+### Frente 2 — Issues e Milestones
+
+- **18 issues criadas:** CAP-338 a CAP-345 (8 abertas como roadmap) + CAP-346 a CAP-355 (10 finalizadas como histórico de entrega: Política V2, Edição inline, /custos, Snapshots, Histórico Fase 1, Pleito Comitê, Goalfy, DataBox360 SCR, 3 docs novos Dívida Ativa/CENPROT/GEFIP, Top sacados PJ)
+- **3 Milestones definidos:** **Q2/2026 — Estabilidade & Observabilidade** (até 2026-06-30, contém CAP-338, 343, 344, 345), **Q3/2026 — Calibração & Workspaces (Fase 2)** (até 2026-09-30, contém CAP-339, 341, 342), **Decisões Pendentes** (sem data, contém CAP-340 — substituto da Assertiva)
+- **Status Update inicial postado** em 2026-05-14 marcando baseline (health: 🟢 On Track)
+- **5 issues bloqueadas pelo limite gratuito do Linear** ao tentar criar: Sentry com PII scrubbing, Better Stack uptime monitor, env Zod no boot, safeLog com PII masking, padrão de erro estruturado + HttpError classes. Conteúdo das 5 documentado em `memory/reference_aprendizados_projects_irmaos.md` para recriar quando houver upgrade.
+
+### Frente 3 — Dependabot ativado no GitHub
+
+`chore(ci)` 7216ef6 — `.github/dependabot.yml` no repo: PRs semanais (segunda 03:00 BRT) agrupados production/development, só minor/patch (major exige decisão manual). GitHub Actions atualizado mensalmente. Os 4 toggles de Settings → Security ativados pelo Victor (Dependency graph, Dependabot alerts, Dependabot security updates, Secret scanning + Push protection).
+
+### Frente 4 — Protocolo Linear ↔ Cérebro (este arquivo)
+
+Estabelecida nova regra durante a sessão (ver `protocolo-claude.md` seção "Sincronização Linear ↔ Cérebro"): toda mudança feita no Linear que mexer em invariantes do projeto deve ser refletida no `cerebro/*.md` correspondente + replicada para o vault Obsidian. **Linear e Cérebro são complementares, não duplicatas:** Linear é a camada profissional (stakeholders, time, Italo); Cérebro é a memória técnica viva (markdown editável, navegável no Obsidian).
+
+### Descobertas operacionais documentadas
+
+- **URL real de produção:** `plataformacapital.vercel.app` (NÃO `capital-financas.vercel.app` que está zumbi com HTTP 500 em tudo, NEM `capitalfinancas.vercel.app` que parece outro projeto). Recomendação: deletar os 2 deploys zumbi no Vercel Dashboard.
+- **`/api/health/schema` está protegido por middleware em produção** (retorna 401 sem cookie) — gap conhecido para monitor externo tipo Better Stack. Precisa criar `/api/health/public` mais leve.
+- **`/api/diag-credithub` removido por segurança** (vazava info da chave) — só retorna 404. Documentado no Manual de Integração.
+- **`/api/goalfy/webhook` está deprecated** — usar `/api/goalfy/receber?secret=...` em automações novas.
+- **`/api/r/[id]/pleito-comite` é PATCH (não POST)** com whitelist de 15 campos, max 80 chars cada.
+- **`x-e2e-mode: true` sem proteção em produção** (cliente malicioso pode pedir stub) — risco baixo (não vaza dado real, só fixture), anotado como atenção.
+- **Migrations 16/17/18 com colisões de número** no Supabase — dívida operacional rastreada em CAP-341 (eliminar pendências de migration manual com adoção de Supabase CLI).
+
+### Pendência para próxima sessão
+
+- Deletar manualmente o Document `[DELETAR] Protótipo v2 antigo` no Linear UI (a API MCP não tem delete de Document).
+- Avaliar upgrade do plano Linear pra criar as 5 issues pendentes do BFF Italo.
+- Compartilhar Project com @italo.gomes para revisão sênior.
+
+---
+
 ## 2026-05-12 — Auditoria de frontend + Comparativo BDC × PGFN na Dívida Ativa
 
 7 commits. 3 frentes:

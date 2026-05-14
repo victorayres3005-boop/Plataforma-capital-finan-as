@@ -1,4 +1,5 @@
 > Hub: [[CAPITAL]]
+> Espelho no Linear: [ADRs — Decisões Arquiteturais](https://linear.app/capitalfinancas/document/adrs-decisoes-arquiteturais-15ac9623c168). Cérebro é fonte de verdade.
 
 # Decisões arquiteturais (ADRs)
 

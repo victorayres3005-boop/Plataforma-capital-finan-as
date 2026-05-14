@@ -3,6 +3,7 @@ tags: [capital-financas, ui, fluxos, frontend]
 ---
 
 > Hub: [[CAPITAL]]
+> Espelho no Linear: [Guia de Páginas — Frontend & Backend](https://linear.app/capitalfinancas/document/guia-de-paginas-frontend-and-backend-e57c6f45ff32). Cérebro é fonte de verdade.
 
 
 # Fluxos UI — telas e estados

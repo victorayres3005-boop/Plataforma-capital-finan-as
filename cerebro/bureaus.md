@@ -1,4 +1,5 @@
 > Hub: [[CAPITAL]]
+> Espelho no Linear: [Catálogo de Bureaus & Integrações](https://linear.app/capitalfinancas/document/catalogo-de-bureaus-and-integracoes-3e6b97985c61). Cérebro é fonte de verdade.
 
 # Bureaus & APIs externas
 

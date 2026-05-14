@@ -35,6 +35,25 @@ Mapa de Conteúdo do projeto. Aponta para o conhecimento estável (`cerebro/`) e
 Carrega automaticamente em toda sessão do Claude Code. Não precisa abrir manualmente.
 - `MEMORY.md` em `~/.claude/projects/.../memory/`
 
+### Espelho profissional no Linear (desde 2026-05-14)
+
+Project: [Capital Finanças — Análise de Crédito](https://linear.app/capitalfinancas/project/capital-financas-analise-de-credito-c3addfd8fb4e). 13 Documents técnicos no padrão Italo Gomes (BFF), 3 Milestones, 18 issues. Usado para comunicação com stakeholders, time externo e roadmap visível. **Não duplica o cérebro** — Linear é a "vitrine"; cérebro é a memória técnica viva. Regra de sync em [[protocolo-claude#sincronização-linear-cérebro]].
+
+Mapeamento Linear → Cérebro:
+- Documentação Técnica → [[arquitetura]] + [[inventario]]
+- ADRs (12) → [[decisoes]]
+- Catálogo de Bureaus → [[bureaus]]
+- Política de Crédito V2 → [[politica-credito]]
+- Pipeline de Extração → [[extracao]]
+- Guia de Páginas → [[ui-fluxos]]
+- Glossário → [[glossario]]
+- Milestones + Issues → [[roadmap-gaps]]
+- Sessões → [[historico]]
+- Manual de Integração + Apêndices → seção API em [[arquitetura]]
+- Guia de Setup → [[setup-claude-code]]
+- Guia de Testes → (sem equivalente; planejado criar `cerebro/testes.md`)
+- Onboarding → este arquivo (CAPITAL.md) + [[protocolo-claude]]
+
 ---
 
 ## O que é o cérebro

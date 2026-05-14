@@ -1,4 +1,5 @@
 > Hub: [[CAPITAL]]
+> Espelho no Linear: [Documentação Técnica — Análise de Crédito](https://linear.app/capitalfinancas/document/plano-tecnico-analise-de-credito-e51b3279709e). Cérebro é fonte de verdade; Linear é vitrine.
 
 # Arquitetura — Capital Finanças
 

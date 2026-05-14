@@ -1,4 +1,5 @@
 > Hub: [[CAPITAL]]
+> Espelho no Linear: [Política de Crédito V2 — Especificação](https://linear.app/capitalfinancas/document/politica-de-credito-v2-especificacao-19dc66d7c609). Cérebro é fonte de verdade.
 
 # Política de Crédito V2 — fonte única de verdade
 

@@ -3,11 +3,64 @@ tags: [capital-financas, roadmap, gaps, avaliacao]
 ---
 
 > Hub: [[CAPITAL]]
+> Espelho no Linear: 3 Milestones + 18 issues no Project [Capital Finanças — Análise de Crédito](https://linear.app/capitalfinancas/project/capital-financas-analise-de-credito-c3addfd8fb4e). Cérebro é fonte de verdade; Linear é vitrine pra stakeholders.
 
 
 # Roadmap, Gaps e Avaliação
 
 Estado da plataforma, gaps conhecidos e direção. Atualizar quando o próprio Victor recalibrar prioridades.
+
+## Roadmap formal (Milestones no Linear, definido em 2026-05-14)
+
+### Q2/2026 — Estabilidade e Observabilidade (até 2026-06-30)
+
+Frente focada em eliminar débitos operacionais e adicionar visibilidade. Critério de pronto: Sentry capturando erros, Better Stack monitorando uptime, zero migrations manuais pendentes, middleware de rotas públicas saneado.
+
+Issues alvo no Linear:
+
+- **CAP-338** — Expandir cobertura E2E (Playwright) do fluxo upload → parecer
+- **CAP-343** — Runbook de renovação de tokens (BDC semanal + Goalfy)
+- **CAP-344** — Middleware bloqueando `/r/*` — incluir em `PUBLIC_PREFIXES`
+- **CAP-345** — Auditar invariante `hasOverrides` em todas as colunas editáveis do `/r/[id]`
+
+Issues pendentes de criação (limite gratuito do Linear esgotado; conteúdo das 5 em `memory/reference_aprendizados_projects_irmaos.md`):
+
+- Sentry com PII scrubbing — observabilidade desde o MVP
+- Better Stack uptime monitor — sentinela 24/7
+- Validação de env vars com Zod no boot
+- safeLog wrapper com PII masking (CPF/CNPJ/JWT)
+- Padrão de resposta de erro estruturado + HttpError classes
+
+### Q3/2026 — Calibração e Workspaces (Fase 2) (até 2026-09-30)
+
+Frente focada em maturar o produto após base estável. Critério de pronto: rating IA recalibrado com snapshots reais, equipe usa workspaces isolados, schema Supabase 100% versionado por CLI.
+
+Issues alvo:
+
+- **CAP-339** — Migrar Histórico para modelo de workspaces (Fase 2)
+- **CAP-341** — Eliminar pendências de migration manual no Supabase
+- **CAP-342** — Pipeline de calibração contínua do rating com snapshots reais
+
+### Decisões Pendentes (sem data)
+
+Issues que dependem de decisão externa antes de virarem trabalho concreto.
+
+- **CAP-340** — Decidir substituto da Assertiva (Score PJ + Patrimônio & Bens). Aguarda alinhamento com @italo.gomes.
+
+### Histórico de entrega 2026-05-14 (issues `Finalizado` no Linear)
+
+- CAP-346 — Política de Crédito V2 (Score com 5 pilares + elegibilidade binária)
+- CAP-347 — Edição inline em `/r/[id]` com handshake `__EDIT_TOKEN__`
+- CAP-348 — Aba `/custos` (telemetria de bureaus)
+- CAP-349 — `/parecer` com snapshots para calibração
+- CAP-350 — Histórico compartilhado Fase 1 (todos veem tudo)
+- CAP-351 — Pleito do Comitê (quadro editável em `/r/[id]`)
+- CAP-352 — Integração Goalfy completa (webhook + receber + importar + sync)
+- CAP-353 — DataBox360 SCR (empresa + sócios + grupo + comparativo anual)
+- CAP-354 — 3 documentos uploadáveis novos (Dívida Ativa + CENPROT + GEFIP)
+- CAP-355 — Top sacados PJ com bureau e partes relacionadas
+
+
 
 ## Avaliação atual: ~9.5/10 (snapshot 2026-05-06 fim do dia)
 

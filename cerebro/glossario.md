@@ -3,6 +3,7 @@ tags: [capital-financas, glossario, dominio]
 ---
 
 > Hub: [[CAPITAL]]
+> Espelho no Linear: [Glossário de Termos](https://linear.app/capitalfinancas/document/glossario-de-termos-2d00461fff81). Cérebro é fonte de verdade.
 
 
 # Glossário — termos do domínio

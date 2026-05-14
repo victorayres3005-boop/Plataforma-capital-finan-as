@@ -3,6 +3,7 @@ tags: [capital-financas, extracao, gemini, documentos]
 ---
 
 > Hub: [[CAPITAL]]
+> Espelho no Linear: [Pipeline de Extração de Documentos](https://linear.app/capitalfinancas/document/pipeline-de-extracao-de-documentos-e7da44127ab8). Cérebro é fonte de verdade.
 
 
 # Pipeline de Extração — `/api/extract`

@@ -3,6 +3,7 @@ tags: [capital-financas, claude-code, setup, plugins, skills]
 ---
 
 > Hub: [[CAPITAL]]
+> Espelho no Linear: [Guia de Setup — Capital Finanças Análise de Crédito](https://linear.app/capitalfinancas/document/guia-de-setup-capital-financas-analise-de-credito-25ac24493d8b) (cobre setup do projeto + envs + scripts + troubleshooting; este arquivo é especificamente sobre Claude Code).
 
 
 # Setup Claude Code — Capital Finanças

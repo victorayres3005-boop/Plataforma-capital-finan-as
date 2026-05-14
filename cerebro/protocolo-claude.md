@@ -129,3 +129,44 @@ Quando o Victor pedir "atualiza o cérebro", "salva isso no cérebro", "registra
 4. Se for regra duradoura, adicione em decisoes como ADR
 
 Quando o Victor não pedir explicitamente mas a sessão executar mudanças com peso de invariante, **proponha** atualizar o cérebro antes de fechar.
+
+## Sincronização Linear ↔ Cérebro (regra desde 2026-05-14)
+
+Existe agora um espelho profissional do projeto no Linear ([Project page](https://linear.app/capitalfinancas/project/capital-financas-analise-de-credito-c3addfd8fb4e)). **Os dois são complementares, não duplicatas:**
+
+| Linear | Cérebro |
+|---|---|
+| Camada de stakeholders, time externo, Italo, roadmap visível | Memória técnica viva — markdown editável, navegável no Obsidian, versionado no Git |
+| 13 Documents + 3 Milestones + 18 issues + Status Updates semanais | 18 arquivos .md com voz consistente, formato denso |
+| Pesquisável pela equipe da Capital | Pesquisável só pelo Victor e Claude Code |
+| Limite do plano gratuito (~280 issues) | Sem limite |
+
+**Regra:** toda mudança em invariante do projeto deve ser refletida nos **dois** lugares.
+
+Mapeamento:
+
+| Mudança em… | Atualizar no Linear | Atualizar no Cérebro |
+|---|---|---|
+| Nova decisão arquitetural (ADR) | Document "ADRs — Decisões Arquiteturais" | `decisoes.md` (novo ADR no final) + `historico.md` (entrada no topo) |
+| Novo bureau / dataset | Document "Catálogo de Bureaus & Integrações" | `bureaus.md` |
+| Mudança na política V2 | Document "Política de Crédito V2 — Especificação" | `politica-credito.md` |
+| Mudança no pipeline de extração | Document "Pipeline de Extração de Documentos" | `extracao.md` |
+| Nova rota / mudança UI | Document "Guia de Páginas — Frontend & Backend" | `ui-fluxos.md` |
+| Novo endpoint API | Document "Manual de Integração — API" | seção API em `arquitetura.md` |
+| Novo termo do domínio | Document "Glossário de Termos" | `glossario.md` |
+| Nova issue / milestone | Issue/Milestone do Linear | `roadmap-gaps.md` |
+| Cirurgia / sessão concluída | Comentário na issue + Status Update | `historico.md` (entrada nova no topo) |
+| Stack ou modelo de dados | Document "Documentação Técnica" | `arquitetura.md` + `inventario.md` |
+
+**Ordem de atualização recomendada:**
+
+1. Mexer no código / fazer a decisão / executar a cirurgia
+2. Atualizar o **cérebro** (`cerebro/*.md` no projeto **e** no vault Obsidian)
+3. Atualizar o **Linear** (Document correspondente)
+4. Atualizar memória cronológica do Claude Code (se houver fato datado relevante)
+
+**Por que cérebro primeiro:** o cérebro vive próximo ao código (no repo), o Linear é a "vitrine". É mais natural manter o cérebro como fonte da verdade técnica e o Linear como apresentação polida.
+
+**Quando o Linear tem algo que o cérebro não tem:** ao identificar gap, trazer a info para o cérebro. Linear nunca é fonte única de informação técnica.
+
+**Quando o cérebro tem detalhe que o Linear não precisa ter:** OK. Linear é a versão estruturada e palatável para stakeholders; cérebro é a versão completa para quem mexe no código.
