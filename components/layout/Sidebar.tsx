@@ -1,10 +1,11 @@
 "use client";
 
+import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Home, Plus, Clock, Settings, HelpCircle, ClipboardList, Zap, ReceiptText, BarChart2,
-  ChevronLeft, ChevronRight, LogOut,
+  ChevronLeft, ChevronRight, ChevronDown, Activity, LogOut,
   type LucideIcon,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -30,6 +31,7 @@ type NavItem = {
   label: string;
   href: string;
   action?: "dashboard" | "coleta";
+  children?: Array<{ icon: LucideIcon; label: string; href: string }>;
 };
 
 const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
@@ -58,7 +60,15 @@ const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
   {
     label: "CONFIGURAÇÕES",
     items: [
-      { icon: Settings,   label: "Política de Fundo", href: "/configuracoes" },
+      {
+        icon: Settings,
+        label: "Política de Fundo",
+        href: "/configuracoes",
+        children: [
+          { icon: Settings,  label: "Política",          href: "/configuracoes" },
+          { icon: Activity,  label: "Saúde do Sistema",  href: "/configuracoes/saude" },
+        ],
+      },
       { icon: HelpCircle, label: "Suporte",        href: "/ajuda" },
     ],
   },
@@ -79,6 +89,41 @@ export default function Sidebar({
 }: SidebarProps) {
   const pathname = usePathname();
   const router   = useRouter();
+
+  // Sub-menus expansíveis. `expandedKeys` controla quais pais estão abertos
+  // (modo expandido da sidebar). `popupKey` controla qual pai tem popup aberto
+  // (modo minimizado). Auto-expande o pai se a rota atual bate com algum filho.
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => {
+    const initial = new Set<string>();
+    NAV_SECTIONS.forEach(sec => sec.items.forEach(it => {
+      if (it.children?.some(c => pathname === c.href.split("?")[0])) {
+        initial.add(it.label);
+      }
+    }));
+    return initial;
+  });
+  const [popupKey, setPopupKey] = useState<string | null>(null);
+  const popupRef = useRef<HTMLDivElement | null>(null);
+
+  // Fecha popup quando clica fora dele
+  useEffect(() => {
+    if (!popupKey) return;
+    function onDocClick(e: MouseEvent) {
+      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
+        setPopupKey(null);
+      }
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [popupKey]);
+
+  function toggleExpanded(key: string) {
+    setExpandedKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
 
   async function handleLogout() {
     const supabase = createClient();
@@ -122,7 +167,9 @@ export default function Sidebar({
   }
 
   function renderItem(item: NavItem) {
-    const active = isActive(item.href, item.action);
+    const hasChildren = !!item.children && item.children.length > 0;
+    const childActive = hasChildren && item.children!.some(c => pathname === c.href.split("?")[0]);
+    const active = isActive(item.href, item.action) || childActive;
     const Icon   = item.icon;
     const style  = itemStyle(active, collapsed);
     const iconEl = (
@@ -145,6 +192,125 @@ export default function Sidebar({
     };
 
     const title = collapsed ? item.label : undefined;
+
+    // Item com sub-menu (children): comportamento diferente expandido vs minimizado.
+    if (hasChildren) {
+      const expanded = expandedKeys.has(item.label);
+      const popupOpen = popupKey === item.label;
+
+      // Modo expandido: clica no pai abre/fecha; filhos aparecem indentados.
+      if (!collapsed) {
+        return (
+          <div key={item.label}>
+            <button
+              onClick={() => toggleExpanded(item.label)}
+              style={{ ...style, justifyContent: "space-between" }}
+              {...hoverProps}
+            >
+              <span style={{ display: "flex", alignItems: "center", gap: "9px" }}>
+                {iconEl}
+                {item.label}
+              </span>
+              <ChevronDown
+                size={14}
+                style={{
+                  flexShrink: 0,
+                  color: active ? "#fff" : ICON_IDLE,
+                  transform: expanded ? "rotate(0deg)" : "rotate(-90deg)",
+                  transition: "transform 0.15s",
+                }}
+              />
+            </button>
+            {expanded && (
+              <div style={{ marginLeft: "18px", marginTop: "2px", display: "flex", flexDirection: "column", gap: "2px" }}>
+                {item.children!.map(child => {
+                  const cActive = pathname === child.href.split("?")[0];
+                  const ChildIcon = child.icon;
+                  return (
+                    <Link
+                      key={child.label}
+                      href={child.href}
+                      style={{
+                        ...itemStyle(cActive, false),
+                        padding: "6px 10px 6px 8px",
+                        fontSize: "12.5px",
+                      }}
+                      onMouseEnter={e => onHover(e, cActive, true)}
+                      onMouseLeave={e => onHover(e, cActive, false)}
+                    >
+                      <ChildIcon size={13} style={{ flexShrink: 0, color: cActive ? "#fff" : ICON_IDLE }} />
+                      {child.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // Modo minimizado: clica no ícone abre popup à direita com os filhos.
+      return (
+        <div key={item.label} style={{ position: "relative" }}>
+          <button
+            onClick={() => setPopupKey(popupOpen ? null : item.label)}
+            style={style}
+            title={title}
+            {...hoverProps}
+          >
+            {iconEl}
+          </button>
+          {popupOpen && (
+            <div
+              ref={popupRef}
+              style={{
+                position: "absolute",
+                left: "100%",
+                top: 0,
+                marginLeft: "8px",
+                background: "#132055",
+                border: "1px solid rgba(255,255,255,0.12)",
+                borderRadius: "8px",
+                padding: "6px",
+                minWidth: "180px",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.35)",
+                zIndex: 50,
+                display: "flex",
+                flexDirection: "column",
+                gap: "2px",
+              }}
+            >
+              <p style={{
+                fontSize: "10px", fontWeight: 700,
+                color: "rgba(255,255,255,0.4)",
+                letterSpacing: "0.08em",
+                padding: "4px 10px 6px",
+                margin: 0,
+              }}>
+                {item.label.toUpperCase()}
+              </p>
+              {item.children!.map(child => {
+                const cActive = pathname === child.href.split("?")[0];
+                const ChildIcon = child.icon;
+                return (
+                  <Link
+                    key={child.label}
+                    href={child.href}
+                    onClick={() => setPopupKey(null)}
+                    style={{ ...itemStyle(cActive, false), fontSize: "13px" }}
+                    onMouseEnter={e => onHover(e, cActive, true)}
+                    onMouseLeave={e => onHover(e, cActive, false)}
+                  >
+                    <ChildIcon size={14} style={{ flexShrink: 0, color: cActive ? "#fff" : ICON_IDLE }} />
+                    {child.label}
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+    }
 
     if (item.action === "dashboard") {
       return (
