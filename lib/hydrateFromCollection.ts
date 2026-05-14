@@ -1,4 +1,5 @@
 import { ExtractedData, SCRData } from "@/types";
+import { fillSCRDefaults } from "@/lib/extract/fillDefaults";
 
 /**
  * Recalcula carteiraCurtoPrazo/LongoPrazo/vencidos/prejuizos/totalDividasAtivas
@@ -200,10 +201,15 @@ export function hydrateFromCollection(docs: { type: string; extracted_data: Reco
     (d.extracted_data?.tipoPessoa as string) === "PF"
   );
 
+  // Onda 4.1: fillSCRDefaults aplicado depois do merge raso. Antes, banco
+  // com faixasAVencer:{} fazia o merge copiar {} direto pra result.scr,
+  // sem as 8 chaves canônicas — tabela detalhada do PDF renderizava undefined.
+  // fillSCRDefaults normaliza chave-por-chave, então banco parcial vira
+  // objeto completo com strings vazias nas chaves faltantes.
   if (scrEmpresa.length === 1) {
     const { _editedManually: _em1, _warnings: _w1, ...data1 } = scrEmpresa[0].extracted_data!;
     void _em1; void _w1;
-    result.scr = recomputeSCRTotals({ ...result.scr, ...data1 }) as ExtractedData["scr"];
+    result.scr = recomputeSCRTotals(fillSCRDefaults({ ...result.scr, ...data1 } as Partial<SCRData>)) as ExtractedData["scr"];
   } else if (scrEmpresa.length >= 2) {
     const sorted = sortSCRDocsDesc(scrEmpresa);
     const kAtual = periodoRefToKey(sorted[0].extracted_data?.periodoReferencia);
@@ -216,8 +222,8 @@ export function hydrateFromCollection(docs: { type: string; extracted_data: Reco
     void _em1; void _w1;
     const { _editedManually: _em2, _warnings: _w2, ...data2 } = sorted[1].extracted_data!;
     void _em2; void _w2;
-    result.scr = recomputeSCRTotals({ ...result.scr, ...data1 }) as ExtractedData["scr"];
-    result.scrAnterior = recomputeSCRTotals({ ...result.scrAnterior, ...data2 }) as ExtractedData["scr"];
+    result.scr = recomputeSCRTotals(fillSCRDefaults({ ...result.scr, ...data1 } as Partial<SCRData>)) as ExtractedData["scr"];
+    result.scrAnterior = recomputeSCRTotals(fillSCRDefaults({ ...result.scrAnterior, ...data2 } as Partial<SCRData>)) as ExtractedData["scr"];
   }
 
   if (scrSociosDocs.length > 0) {

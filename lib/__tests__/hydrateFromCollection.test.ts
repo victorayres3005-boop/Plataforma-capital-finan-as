@@ -49,6 +49,71 @@ describe("hydrateFromCollection", () => {
     expect(result.scrAnterior!.totalDividasAtivas).toBe("400.000,00");
   });
 
+  describe("Onda 4.1 — regressão: faixas aninhadas vazias do banco", () => {
+    // Cenário real: coletas antigas (antes do prompt fillSCRDefaults estar
+    // sólido) podem ter sido salvas com `faixasAVencer: {}` (objeto vazio,
+    // sem as 8 chaves esperadas). O merge raso no hydrate ANTES da Onda 4.1
+    // copiava esse {} direto pra result.scr.faixasAVencer — tabela detalhada
+    // do PDF renderizava todas as colunas como undefined.
+
+    it("banco com faixasAVencer:{} → hydrate retorna 8 chaves preenchidas (mesmo que vazias)", () => {
+      const docs = [
+        {
+          type: "scr_bacen",
+          extracted_data: {
+            tipoPessoa: "PJ",
+            periodoReferencia: "02/2025",
+            carteiraAVencer: "100.000,00",
+            faixasAVencer: {}, // <-- bug histórico: banco salvou objeto vazio
+          },
+        },
+      ];
+      const result = hydrateFromCollection(docs);
+      // Espera-se as 8 chaves canônicas presentes (não undefined)
+      expect(result.scr.faixasAVencer).toBeDefined();
+      expect(result.scr.faixasAVencer?.ate30d).toBe("");
+      expect(result.scr.faixasAVencer?.d31_60).toBe("");
+      expect(result.scr.faixasAVencer?.d61_90).toBe("");
+      expect(result.scr.faixasAVencer?.d91_180).toBe("");
+      expect(result.scr.faixasAVencer?.d181_360).toBe("");
+      expect(result.scr.faixasAVencer?.acima360d).toBe("");
+      expect(result.scr.faixasAVencer?.prazoIndeterminado).toBe("");
+      expect(result.scr.faixasAVencer?.total).toBe("");
+    });
+
+    it("banco com faixasVencidos parcial → hydrate completa as chaves faltantes", () => {
+      const docs = [
+        {
+          type: "scr_bacen",
+          extracted_data: {
+            tipoPessoa: "PJ",
+            periodoReferencia: "02/2025",
+            faixasVencidos: { ate30d: "1.000,00", d31_60: "500,00" }, // só 2 chaves
+          },
+        },
+      ];
+      const result = hydrateFromCollection(docs);
+      expect(result.scr.faixasVencidos?.ate30d).toBe("1.000,00");
+      expect(result.scr.faixasVencidos?.d31_60).toBe("500,00");
+      // Chaves que não vieram no banco devem estar presentes como string vazia
+      expect(result.scr.faixasVencidos?.d61_90).toBe("");
+      expect(result.scr.faixasVencidos?.d91_180).toBe("");
+      expect(result.scr.faixasVencidos?.d181_360).toBe("");
+      expect(result.scr.faixasVencidos?.acima360d).toBe("");
+    });
+
+    it("scrAnterior também aplica fillSCRDefaults nas faixas", () => {
+      const docs = [
+        { type: "scr_bacen", extracted_data: { tipoPessoa: "PJ", periodoReferencia: "02/2025", carteiraAVencer: "100.000,00" } },
+        { type: "scr_bacen", extracted_data: { tipoPessoa: "PJ", periodoReferencia: "12/2024", faixasAVencer: {} } },
+      ];
+      const result = hydrateFromCollection(docs);
+      expect(result.scrAnterior).not.toBeNull();
+      expect(result.scrAnterior!.faixasAVencer?.ate30d).toBe("");
+      expect(result.scrAnterior!.faixasAVencer?.acima360d).toBe("");
+    });
+  });
+
   it("separa SCR PJ de SCR PF (socios)", () => {
     const docs = [
       { type: "scr_bacen", extracted_data: { tipoPessoa: "PJ", totalDividasAtivas: "500.000,00", periodoReferencia: "02/2025" } },
