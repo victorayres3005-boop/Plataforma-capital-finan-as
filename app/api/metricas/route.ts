@@ -42,8 +42,13 @@ export async function GET(req: NextRequest) {
       (users || []).forEach(u => {
         userMap[u.id] = u.user_metadata?.full_name || u.email?.split("@")[0] || u.email || u.id;
       });
-    } catch {
-      // fallback: usar user_id como nome
+    } catch (err) {
+      // Onda M2: antes era catch silencioso — ranking aparecia com IDs
+      // truncados sem aviso. Agora loga warn pra ficar visível em Vercel logs.
+      console.warn(
+        "[metricas] auth.admin.listUsers falhou — ranking vai usar IDs truncados:",
+        err instanceof Error ? err.message : err,
+      );
     }
   }
 
