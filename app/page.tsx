@@ -238,8 +238,21 @@ export default function HomePage() {
         if (documents.length === 0) continue;
         try {
           const supabase = createClient();
-          const { data: session } = await supabase.auth.getUser();
-          if (!session.user) continue;
+          // Fix 2026-05-14: antes usava getUser() que faz fetch HTTP — quando
+          // a rede flutuava (caso real SPEED PACK: net::ERR_NETWORK_CHANGED),
+          // getUser falhava + save abortava silenciosamente via `continue`,
+          // perdendo grupoEconomico/sacadosAnalisados que estavam em memória.
+          // getSession() lê do localStorage — não depende de rede.
+          const { data: sessionData } = await supabase.auth.getSession();
+          const session = { user: sessionData?.session?.user ?? null };
+          if (!session.user) {
+            // Re-enfilera o dado pra próxima execução tentar de novo (em vez
+            // de perder silenciosamente quando auth não estiver disponível).
+            console.warn("[autoSave] session sem user — re-enfileirando dirtyData pra retry");
+            dirtyData.current = data;
+            await new Promise(r => setTimeout(r, 500));
+            continue;
+          }
           const meta = {
             company_name: data.cnpj.razaoSocial || null,
             cnpj: data.cnpj.cnpj || null,
