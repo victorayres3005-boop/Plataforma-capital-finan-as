@@ -1586,7 +1586,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
     ${stitle("Faturamento & SCR")}
     <div class="fin-row">
       <div class="fin-box">
-        <div class="fin-title">Faturamento mensal — últimos 12 meses</div>
+        <div class="fin-title">Faturamento — últimos 12 meses</div>
         <div class="bars">${fatBars}</div>
         <div class="kpi-row">
           <span>FMM: <b>${fmtMoneyAbr(fmm)}</b></span>
