@@ -198,9 +198,11 @@ function calcCustoIA(
 }
 
 function estimateBureauCalls(hasAI: boolean): BureauCalls {
+  // Onda B2: assertiva_pj/pf zerados (Assertiva desativada). Análises antigas
+  // sem log de custo paravam de inflar +R$ 1,20 cada por estimativa fantasma.
   return {
     credithub:          hasAI ? 1 : 0,
-    assertiva_pj:       hasAI ? 1 : 0,
+    assertiva_pj:       0,
     assertiva_pf:       0,
     bdc_empresa:        hasAI ? 1 : 0,
     bdc_socio:          0,
