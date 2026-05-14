@@ -1,5 +1,8 @@
 export const maxDuration = 300;
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
+export const revalidate = 0;
 
 import { NextRequest, NextResponse } from "next/server";
 import { consultarCreditHub, consultarGrupoEconomicoSocios, consultarPefinRefin, buscarCNPJPorNome } from "@/lib/bureaus/credithub";

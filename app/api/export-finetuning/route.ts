@@ -4,6 +4,9 @@
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
+export const revalidate = 0;
 
 import { createClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";

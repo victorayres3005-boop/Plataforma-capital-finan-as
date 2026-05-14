@@ -36,6 +36,9 @@ import { callAI, GEMINI_API_KEYS } from "@/lib/extract/ai";
 import { parseJSON } from "@/lib/extract/json";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
+export const revalidate = 0;
 
 
 // ─────────────────────────────────────────

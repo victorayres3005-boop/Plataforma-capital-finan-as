@@ -1,5 +1,8 @@
 export const runtime  = "nodejs";
 export const maxDuration = 60;
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
+export const revalidate = 0;
 
 import { createServerSupabase } from "@/lib/supabase/server";
 import { put } from "@vercel/blob";
