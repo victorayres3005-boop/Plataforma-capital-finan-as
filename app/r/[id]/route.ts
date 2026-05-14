@@ -87,10 +87,9 @@ export async function GET(
   }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  // SERVICE_ROLE-only: shared_reports será protegida por RLS, ANON não tem acesso.
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !key) {
-    return new Response("Configuração de banco indisponível (SERVICE_ROLE_KEY ausente).", { status: 500 });
+    return new Response("Configuração de banco indisponível.", { status: 500 });
   }
 
   const supabase = createClient(url, key);

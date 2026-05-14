@@ -58,10 +58,9 @@ export async function POST(
   }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  // SERVICE_ROLE-only: shared_reports será protegida por RLS, ANON não tem acesso.
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !key) {
-    return Response.json({ error: "SUPABASE_SERVICE_ROLE_KEY ausente" }, { status: 500 });
+    return Response.json({ error: "Supabase não configurado" }, { status: 500 });
   }
 
   let body: EditPayload;
