@@ -31,7 +31,7 @@
     "jurischain": "^1.0.4",
     "lucide-react": "^1.7.0",
     "mammoth": "^1.12.0",
-    "next": "14.2.35",
+    "next": "16.2.6",
     "pdf-parse": "^1.1.1",
     "puppeteer-core": "^24.40.0",
     "react": "^18",
