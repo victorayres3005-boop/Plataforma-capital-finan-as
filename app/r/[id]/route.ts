@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest } from "next/server";
 import { unstable_noStore as noStore } from "next/cache";
+import { hasAnyOverride } from "@/lib/shared-reports/editableColumns";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
@@ -562,14 +563,11 @@ export async function GET(
   // cacheava a versão "vanilla IA" por 1h e leituras subsequentes em outra aba
   // sem ?k= ignoravam as edições salvas no banco — sintoma reportado 2026-05-12.
   const hasPleitoComite = !!data.pleito_comite && Object.values(data.pleito_comite as Record<string, unknown>).some(v => typeof v === "string" && v.trim());
-  const hasOverrides =
-    (Array.isArray(data.pontos_fortes) && data.pontos_fortes.length > 0) ||
-    (Array.isArray(data.pontos_fracos) && data.pontos_fracos.length > 0) ||
-    (Array.isArray(data.alertas)       && data.alertas.length > 0) ||
-    (typeof data.percepcao === "string" && data.percepcao.trim().length > 0) ||
-    (typeof data.percepcao_dre === "string" && data.percepcao_dre.trim().length > 0) ||
-    (typeof data.percepcao_faturamento === "string" && data.percepcao_faturamento.trim().length > 0) ||
-    (typeof data.percepcao_balanco === "string" && data.percepcao_balanco.trim().length > 0);
+  // Onda 2 #2.4: antes a lista de campos editáveis estava hardcoded aqui.
+  // Cada nova coluna editável (ex: futuro sugestao_analista) precisava ser
+  // adicionada manualmente — esquecer fazia o CDN cachear 1h a versão IA
+  // antiga. Agora delegamos pra EDITABLE_COLUMNS (fonte única da verdade).
+  const hasOverrides = hasAnyOverride(data as unknown as Record<string, unknown>);
 
   // P0 2026-05-12: quando o usuário entra com ?k= válido (modo edição), ele
   // está abrindo uma sessão de trabalho. Aproveita pra purgar o cache local
