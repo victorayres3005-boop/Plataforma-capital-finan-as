@@ -342,7 +342,11 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
       if (error) throw error;
       toast.success("Coleta excluída");
       onDelete(col.id);
-    } catch { toast.error("Erro ao excluir"); }
+    } catch (err) {
+      // Onda H1.c: antes era catch silencioso "Erro ao excluir" sem mensagem real.
+      console.error("[historico] handleDelete falhou:", err);
+      toast.error("Erro ao excluir: " + (err instanceof Error ? err.message : "desconhecido"));
+    }
     finally { setDeleting(false); setConfirmDelete(false); }
   };
 
@@ -350,10 +354,20 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
     setSavingNotes(true);
     try {
       const supabase = createClient();
-      await supabase.from("document_collections").update({ observacoes: observacoes.trim() || null }).eq("id", col.id).eq("user_id", userId);
+      // Onda H1.a: antes não checava `error` retornado. Se RLS rejeitasse,
+      // toast.success aparecia mesmo assim. Agora destructure + throw.
+      const { error } = await supabase
+        .from("document_collections")
+        .update({ observacoes: observacoes.trim() || null })
+        .eq("id", col.id)
+        .eq("user_id", userId);
+      if (error) throw error;
       setEditingNotes(false);
       toast.success("Observações salvas");
-    } catch { toast.error("Erro ao salvar observações"); }
+    } catch (err) {
+      console.error("[historico] saveNotes falhou:", err);
+      toast.error("Erro ao salvar observações: " + (err instanceof Error ? err.message : "desconhecido"));
+    }
     finally { setSavingNotes(false); }
   };
 
@@ -380,7 +394,11 @@ function CollectionRow({ col, isGrouped, userId, highlight, onDelete, onUpdate, 
       setEditingDoc(null);
       setEditValues({});
       toast.success("Documento atualizado");
-    } catch { setSaveError("Erro ao salvar. Tente novamente."); }
+    } catch (err) {
+      // Onda H1.c: antes só "Erro ao salvar. Tente novamente." — agora mostra o motivo real.
+      console.error("[historico] handleSaveDoc falhou:", err);
+      setSaveError("Erro ao salvar: " + (err instanceof Error ? err.message : "tente novamente"));
+    }
     finally { setSavingDoc(false); }
   };
 
@@ -1388,11 +1406,16 @@ function HistoricoContent() {
         setCollectionsTeam(team);
         const allIds = [...mine, ...team].map(c => c.id);
         if (allIds.length > 0) {
-          const { data: scoreRows } = await supabase
+          // Onda H1.b: antes ignorava `error` desse SELECT — Map vazio silencioso
+          // fazia UI mostrar coletas sem badge V2 sem aviso. Agora loga warn.
+          const { data: scoreRows, error: scoreErr } = await supabase
             .from("score_operacoes")
             .select("collection_id, score_result")
             .in("collection_id", allIds)
             .order("preenchido_em", { ascending: false });
+          if (scoreErr) {
+            console.warn(`[historico] falha ao carregar score_operacoes (V2 badges ficarão vazios):`, scoreErr.message);
+          }
           const map = new Map<string, string>();
           if (scoreRows) {
             for (const row of scoreRows) {
