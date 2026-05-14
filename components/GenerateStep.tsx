@@ -962,8 +962,17 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     if (collectionId) {
       try {
         const supabase = createClient();
-        await supabase.from("document_collections").update({ ai_analysis: null }).eq("id", collectionId);
-      } catch { /* ignore */ }
+        // Onda E3: checa error em vez de ignorar silenciosamente.
+        const { error } = await supabase
+          .from("document_collections")
+          .update({ ai_analysis: null })
+          .eq("id", collectionId);
+        if (error) {
+          console.warn(`[generate] falha ao limpar ai_analysis na reanálise:`, error.message);
+        }
+      } catch (err) {
+        console.warn(`[generate] exception ao limpar ai_analysis:`, err instanceof Error ? err.message : err);
+      }
     }
     runAnalysisRef.current?.();
   };
@@ -1342,7 +1351,17 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             } else {
               console.warn(`[autoSave] buildDocuments() retornou [] — preservando documents da coleta reusada ${existing[0].id}`);
             }
-            await supabase.from("document_collections").update(payload).eq("id", existing[0].id);
+            // Onda E3: antes não checava error — se falhasse, setSavedFeedback(true)
+            // mostrava "salvo" mesmo sem ter salvo. Agora valida.
+            const { error: reuseUpdErr } = await supabase
+              .from("document_collections")
+              .update(payload)
+              .eq("id", existing[0].id);
+            if (reuseUpdErr) {
+              console.error(`[autoSave] falha ao atualizar coleta reusada ${existing[0].id}:`, reuseUpdErr.message);
+              toast.error("Erro ao salvar coleta: " + reuseUpdErr.message);
+              return;
+            }
             setSavedFeedback(true);
             setTimeout(() => setSavedFeedback(false), 2000);
             return;
@@ -1700,8 +1719,17 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     const save = async () => {
       try {
         const supabase = createClient();
-        await supabase.from("document_collections").update({ fund_status: payload }).eq("id", collectionId);
-      } catch { /* ignore */ }
+        // Onda E3: checa error em vez de ignorar silenciosamente.
+        const { error } = await supabase
+          .from("document_collections")
+          .update({ fund_status: payload })
+          .eq("id", collectionId);
+        if (error) {
+          console.warn(`[generate] falha ao salvar fund_status:`, error.message);
+        }
+      } catch (err) {
+        console.warn(`[generate] exception ao salvar fund_status:`, err instanceof Error ? err.message : err);
+      }
     };
     save();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1728,8 +1756,19 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     setSavingNotes(true);
     try {
       const supabase = createClient();
-      await supabase.from("document_collections").update({ observacoes: notes.trim() || null }).eq("id", collectionId);
-    } catch { /* silently fail */ } finally { setSavingNotes(false); }
+      // Onda E3: checa error em vez de ignorar silenciosamente.
+      const { error } = await supabase
+        .from("document_collections")
+        .update({ observacoes: notes.trim() || null })
+        .eq("id", collectionId);
+      if (error) {
+        console.error("[generate] falha ao salvar notas do analista:", error.message);
+        toast.error("Erro ao salvar notas: " + error.message);
+      }
+    } catch (err) {
+      console.error("[generate] exception ao salvar notas:", err);
+      toast.error("Erro ao salvar notas");
+    } finally { setSavingNotes(false); }
   };
 
   // Busca o rating/decisao MAIS RECENTES direto do Supabase antes de gerar
