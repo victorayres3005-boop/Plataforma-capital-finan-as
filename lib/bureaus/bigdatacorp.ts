@@ -302,10 +302,40 @@ export async function consultarDividaAtivaBDC(cnpj: string): Promise<DividaAtiva
 
     const json = (await res.json()) as Record<string, unknown>;
     const arr = Array.isArray(json.Result) ? (json.Result as Record<string, unknown>[]) : [];
-    if (arr.length === 0) return { success: false, error: "sem Result do BDC" };
+    // Onda 2 #2.3: array vazio é resposta LEGÍTIMA do BDC = CNPJ limpo,
+    // sem dívida ativa. Antes era tratado como erro ("sem Result do BDC")
+    // e o orquestrador descartava a informação — certidão negativa do BDC
+    // nunca aparecia no relatório quando o BDC confirmava ausência.
+    if (arr.length === 0) {
+      console.log(`[bigdatacorp][divida-ativa] CNPJ=${cnpjNum.slice(0, 8)}*** Result vazio = certidão negativa`);
+      return {
+        success: true,
+        data: {
+          qtdRegistros: 0,
+          valorTotal: "R$ 0,00",
+          registros: [],
+          certidaoNegativa: true,
+          dataConsulta: new Date().toISOString(),
+        },
+      };
+    }
 
     const gd = getSection(arr[0], "government_debtors");
-    if (!gd) return { success: false, error: "section government_debtors ausente" };
+    // Se Result veio populado mas a seção government_debtors não está nele,
+    // ainda assim trata como negativa — BDC retornou vazio pra esse dataset.
+    if (!gd) {
+      console.log(`[bigdatacorp][divida-ativa] CNPJ=${cnpjNum.slice(0, 8)}*** section government_debtors ausente = certidão negativa`);
+      return {
+        success: true,
+        data: {
+          qtdRegistros: 0,
+          valorTotal: "R$ 0,00",
+          registros: [],
+          certidaoNegativa: true,
+          dataConsulta: new Date().toISOString(),
+        },
+      };
+    }
 
     const totalVal = _num(gd.TotalDebtValue ?? gd.TotalValue);
     const totalDebts = _num(gd.TotalDebts ?? gd.Count);
