@@ -738,7 +738,9 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
     const loadPolicy = async () => {
       try {
         const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
+        // Onda E2: getSession() em vez de getUser() — economia ~100-300ms.
+        const { data: { session } } = await supabase.auth.getSession();
+        const user = session?.user;
         if (!user) return;
         const [politicaRes, fundRes] = await Promise.all([
           supabase
@@ -1011,7 +1013,9 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
 
       try {
         const supabase = createClient();
-        const { data: { user: currentUser } } = await supabase.auth.getUser();
+        // Onda E2: getSession() em vez de getUser().
+        const { data: { session } } = await supabase.auth.getSession();
+        const currentUser = session?.user;
         const res = await fetch("/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1074,8 +1078,10 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
             // Auto-save não criou — cria a coleta aqui como fallback
             try {
               const supabase = createClient();
-              const { data: userData, error: userError } = await supabase.auth.getUser();
-              if (userError) console.warn("[generate] getUser error:", userError.message);
+              // Onda E2: getSession() em vez de getUser().
+              const { data: sessionData, error: userError } = await supabase.auth.getSession();
+              const userData = { user: sessionData?.session?.user ?? null };
+              if (userError) console.warn("[generate] getSession error:", userError.message);
 
               if (userData?.user?.id) {
                 const documents = buildDocuments();
@@ -1201,8 +1207,9 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       if (collectionId) {
         // Ensure upload context is set for report saves
         if (!_uploadCtx) {
-          const { data: session } = await supabase.auth.getUser();
-          _uploadCtx = { userId: session.user?.id ?? "anonymous", collectionId };
+          // Onda E2: getSession() em vez de getUser().
+          const { data: sessionData } = await supabase.auth.getSession();
+          _uploadCtx = { userId: sessionData?.session?.user?.id ?? "anonymous", collectionId };
         }
         // Proteção crítica: se buildDocuments() retornar vazio enquanto a coleta
         // no banco já tem documents preenchidos, NÃO sobrescreve. Isso evita o
@@ -1225,7 +1232,9 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
         setTimeout(() => setSavedFeedback(false), 2000);
         return collectionId;
       } else {
-        const { data: session } = await supabase.auth.getUser();
+        // Onda E2: getSession() em vez de getUser().
+        const { data: sessionData } = await supabase.auth.getSession();
+        const session = { user: sessionData?.session?.user ?? null };
         if (!session.user) {
           toast.error("Você precisa estar logado para salvar coletas.");
           return null;
@@ -1307,7 +1316,9 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       // para evitar duplicatas por StrictMode ou re-renders
       try {
         const supabase = createClient();
-        const { data: session } = await supabase.auth.getUser();
+        // Onda E2: getSession() em vez de getUser().
+        const { data: sessionData } = await supabase.auth.getSession();
+        const session = { user: sessionData?.session?.user ?? null };
         if (!session.user) { handleSave(); return; }
         const cnpj = data.cnpj.cnpj;
         if (cnpj) {
@@ -1776,7 +1787,9 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       if (cnpjCedente) {
         try {
           const supabase = createClient();
-          const { data: { user: u } } = await supabase.auth.getUser();
+          // Onda E2: getSession() em vez de getUser().
+          const { data: { session } } = await supabase.auth.getSession();
+          const u = session?.user;
           if (u) {
             const { data: ops } = await supabase
               .from("operacoes")
