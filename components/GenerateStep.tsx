@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { uploadFile } from "@/lib/storage";
 import { buildCollectionDocs } from "@/lib/buildCollectionDocs";
+import { parseValorBR } from "@/lib/extract/parseValorBR";
 import { validateReport, type ReportValidation } from "@/lib/validateReport";
 import AlertList from "@/components/AlertList";
 import VisitaSection from "@/components/generate/VisitaSection";
@@ -101,7 +102,9 @@ interface ValidationResult {
 // ── Fund Parameter Validation ──────────────────────────────────────────────
 
 function parseMoney(v: string): number {
-  return parseFloat((v || "0").replace(/\./g, "").replace(",", ".")) || 0;
+  // Onda E1: usa parseValorBR (algoritmo robusto, detecta separador decimal).
+  // Antes: replace(/\./g, "").replace(",", ".") — sensível a formato EN (caso PRANDOPEL).
+  return parseValorBR(v);
 }
 
 function fmtMoney(n: number): string {
@@ -279,14 +282,15 @@ function validarContraParametros(data: ExtractedData, settings: FundSettings): F
 // Recomputa faturamentoZerado dos meses reais (nunca confia no flag armazenado)
 function calcFaturamentoZerado(fat: ExtractedData["faturamento"]): boolean {
   if (!fat.meses || fat.meses.length === 0) return false; // sem meses = falta de doc, não zero
-  const parseFat = (v: string) => parseFloat((v || "0").replace(/\./g, "").replace(",", ".")) || 0;
-  return fat.meses.every(m => parseFat(m.valor) === 0);
+  // Onda E1: parseValorBR robusto (detecta separador BR/EN automaticamente).
+  return fat.meses.every(m => parseValorBR(m.valor) === 0);
 }
 
 function validateExtractedData(data: ExtractedData): ValidationResult {
   const errors: ValidationIssue[] = [];
   const warnings: ValidationIssue[] = [];
-  const parseFatVal = (v: string) => parseFloat((v || "0").replace(/\./g, "").replace(",", ".")) || 0;
+  // Onda E1: parseValorBR robusto.
+  const parseFatVal = (v: string) => parseValorBR(v);
   const now = new Date();
   const anoAtual = now.getFullYear();
 
@@ -1176,7 +1180,9 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   // (valor em memoria, frequentemente stale) e sobrescrevia o rating do analista.
   const getCollectionMeta = () => {
     const mediaStr = data.faturamento.mediaAno || "0";
-    const fmm = parseFloat(mediaStr.replace(/\./g, "").replace(",", ".")) || null;
+    // Onda E1: parseValorBR robusto. Mantém null quando 0 (legado).
+    const fmmNum = parseValorBR(mediaStr);
+    const fmm = fmmNum > 0 ? fmmNum : null;
     return {
       company_name: data.cnpj.razaoSocial || null,
       cnpj: data.cnpj.cnpj || null,
@@ -1342,10 +1348,8 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
   const dateStr = new Date().toISOString().slice(0, 10);
 
   // ── Helpers ──
-  const parseMoneyToNumber = (val: string): number => {
-    if (!val) return 0;
-    return parseFloat(val.replace(/\./g, "").replace(",", ".")) || 0;
-  };
+  // Onda E1: parseValorBR robusto (detecta separador decimal BR/EN).
+  const parseMoneyToNumber = (val: string): number => parseValorBR(val);
 
   // dividaAtiva agora usa calcScrTotal (soma componentes) em vez do campo
   // agregado da fonte que pode vir incompleto.
