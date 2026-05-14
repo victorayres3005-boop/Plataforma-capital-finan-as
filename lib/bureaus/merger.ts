@@ -475,17 +475,17 @@ export function mergeBureauResults(
     if (ass.socios?.length && data.scrSocios?.length) {
       const assertivaMap = new Map(ass.socios.map(s => [s.cpf.replace(/\D/g, ""), s]));
       merged.scrSocios = data.scrSocios.map(sc => {
-        const cpfNum = ((sc as any).cpf ?? "").replace(/\D/g, "");
+        const cpfNum = (sc.cpfSocio ?? "").replace(/\D/g, "");
         const aS = assertivaMap.get(cpfNum);
         if (!aS) return sc;
         return {
           ...sc,
-          scoreAssertivaPF:    aS.scoreAssertivaPF    || (sc as any).scoreAssertivaPF,
-          rendaPresumida:      aS.rendaPresumida       || (sc as any).rendaPresumida,
-          patrimonioEstimado:  aS.patrimonioEstimado   || (sc as any).patrimonioEstimado,
-          validacaoIdentidade: aS.validacaoIdentidade  ?? (sc as any).validacaoIdentidade,
-          bensVeiculos:        aS.bensVeiculos?.length ? aS.bensVeiculos : (sc as any).bensVeiculos,
-          bensImoveis:         aS.bensImoveis?.length  ? aS.bensImoveis  : (sc as any).bensImoveis,
+          scoreAssertivaPF:    aS.scoreAssertivaPF    || sc.scoreAssertivaPF,
+          rendaPresumida:      aS.rendaPresumida       || sc.rendaPresumida,
+          patrimonioEstimado:  aS.patrimonioEstimado   || sc.patrimonioEstimado,
+          validacaoIdentidade: aS.validacaoIdentidade  ?? sc.validacaoIdentidade,
+          bensVeiculos:        aS.bensVeiculos?.length ? aS.bensVeiculos : sc.bensVeiculos,
+          bensImoveis:         aS.bensImoveis?.length  ? aS.bensImoveis  : sc.bensImoveis,
         };
       });
     }
