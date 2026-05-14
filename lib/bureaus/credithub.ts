@@ -1786,7 +1786,17 @@ function belloArrayToPefinData(bello: PalladiumBelloRow[]): PefinReginData {
  */
 function isAcessoWebMessage(msg: string): boolean {
   const norm = msg.toLowerCase();
-  return norm.includes("acesso web") || (norm.includes("plano api") && norm.includes("assine"));
+  // Variante 1 (até 2026-05-13): "Você está usando o acesso web. Assine o plano API..."
+  // Variante 2 (a partir de 2026-05-14): "exige autenticação via JWT. Gere um JWT a partir
+  //   da sua API Key (ou assine o plano-api) para liberar o acesso."
+  // Ambas significam: chave/auth atual não tem permissão pro fornecedor pago (Serasa/BoaVista/SPC).
+  return (
+    norm.includes("acesso web") ||
+    (norm.includes("plano api") && norm.includes("assine")) ||
+    norm.includes("plano-api") ||
+    (norm.includes("jwt") && norm.includes("autenticação")) ||
+    (norm.includes("jwt") && norm.includes("autenticacao"))
+  );
 }
 
 async function fetchIRQL(query: string): Promise<{ json?: unknown; error?: string; raw: string; status: number; planoAPINecessario?: boolean }> {
