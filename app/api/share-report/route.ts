@@ -15,9 +15,12 @@ export async function POST(req: Request) {
   }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  // SERVICE_ROLE-only: ANON_KEY é pública (exposta no bundle) e permitiria
+  // dump da tabela shared_reports via curl. Quando RLS for habilitado,
+  // ANON será bloqueado de qualquer forma — exigir SERVICE_ROLE aqui já fail-closed.
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {
-    return Response.json({ error: "Supabase não configurado" }, { status: 500 });
+    return Response.json({ error: "SUPABASE_SERVICE_ROLE_KEY ausente — necessário para acesso a shared_reports" }, { status: 500 });
   }
 
   let html: string;
