@@ -1542,6 +1542,117 @@ function pageSintese(params: PDFReportParams, date: string): string {
           </table>
         </div>`;
       })()}
+      ${(() => {
+        // ── Bloco "Sócios — Capacidade Financeira (PF)" ─────────────────────
+        // Renderiza dados exclusivos do BDC pessoa: financialRiskScore/Level,
+        // estimatedIncomeRange, totalAssetsRange, isCurrentlyOnCollection,
+        // last365DaysCollections, pgfn*. Esconde se nenhum sócio tem dado.
+        const socios = (d.qsa?.quadroSocietario ?? []).filter((s: any) => s.nome && (s.cpfCnpj ?? "").replace(/\D/g, "").length === 11);
+        if (!socios.length) return "";
+
+        const SM = 1518;
+        const parseRange = (raw: string | undefined, mode: "SM" | "MM"): { label: string; sub?: string } | null => {
+          if (!raw) return null;
+          const r = raw.toUpperCase().replace(/\s+/g, " ").trim();
+          if (mode === "SM") {
+            const m = r.match(/^(\d+)\s*[AÀ]\s*(\d+)\s*SM/);
+            if (m) {
+              const min = Math.round(parseInt(m[1]) * SM / 1000);
+              const max = Math.round(parseInt(m[2]) * SM / 1000);
+              return { label: `R$ ${min}k – R$ ${max}k`, sub: `${m[1]}–${m[2]} SM` };
+            }
+            const ate = r.match(/^AT[EÉ]\s*(\d+)\s*SM/);
+            if (ate) {
+              const max = Math.round(parseInt(ate[1]) * SM / 1000);
+              return { label: `até R$ ${max}k`, sub: `até ${ate[1]} SM` };
+            }
+            const acima = r.match(/^ACIMA\s*(?:DE)?\s*(\d+)\s*SM/);
+            if (acima) {
+              const min = Math.round(parseInt(acima[1]) * SM / 1000);
+              return { label: `acima de R$ ${min}k`, sub: `+${acima[1]} SM` };
+            }
+            return { label: raw, sub: undefined };
+          }
+          // MM (patrimônio total)
+          const m = r.match(/^(\d+(?:[.,]\d+)?)\s*[AÀ]\s*(\d+(?:[.,]\d+)?)\s*MM/);
+          if (m) return { label: `R$ ${m[1]}M – R$ ${m[2]}M` };
+          const mil = r.match(/^(\d+)\s*[AÀ]\s*(\d+)\s*MIL/);
+          if (mil) return { label: `R$ ${mil[1]}k – R$ ${mil[2]}k` };
+          const ate = r.match(/^AT[EÉ]\s*(\d+(?:[.,]\d+)?)\s*(MM|MIL)/);
+          if (ate) return { label: `até R$ ${ate[1]}${ate[2] === "MM" ? "M" : "k"}` };
+          const acima = r.match(/^ACIMA\s*(?:DE)?\s*(\d+(?:[.,]\d+)?)\s*(MM|MIL)/);
+          if (acima) return { label: `acima de R$ ${acima[1]}${acima[2] === "MM" ? "M" : "k"}` };
+          if (r === "NAO POSSUI" || r === "NÃO POSSUI") return { label: "sem patrimônio declarado" };
+          return { label: raw };
+        };
+
+        const nivelCor = (n: string | undefined): [string, string] => {
+          const u = (n ?? "").toUpperCase();
+          if (u === "A" || u === "B") return ["var(--g1)", "var(--g6)"];
+          if (u === "C")               return ["var(--n0)", "var(--n8)"];
+          if (u === "D" || u === "E") return ["var(--r1)", "var(--r6)"];
+          return ["var(--x1)", "var(--x4)"];
+        };
+
+        const cards = socios.map((s: any) => {
+          const score    = s.financialRiskScore as number | undefined;
+          const nivel    = s.financialRiskLevel as string | undefined;
+          const renda    = parseRange(s.estimatedIncomeRange, "SM");
+          const patrim   = parseRange(s.totalAssetsRange, "MM");
+          const cobAtiva = s.isCurrentlyOnCollection === true;
+          const cob365   = (s.last365DaysCollections ?? 0) as number;
+          const pgfnTot  = s.pgfnDebtTotal as string | undefined;
+          const pgfnQtd  = s.pgfnTotalDebts as number | undefined;
+          const procTot  = s.processosTotal as number | undefined;
+          const procPas  = (s.processosPassivo ?? 0) as number;
+          const procVal  = s.processosValorTotal as string | undefined;
+
+          // Sem nenhum dado de capacidade financeira → não renderiza esse sócio
+          const temAlgo = score !== undefined || nivel !== undefined || renda || patrim || cobAtiva || cob365 > 0 || pgfnTot || (procTot ?? 0) > 0;
+          if (!temAlgo) return "";
+
+          const [bgN, fgN] = nivelCor(nivel);
+          const cpfRaw = (s.cpfCnpj ?? "").replace(/\D/g, "");
+          const part = s.participacao || "—";
+          const cleanQual = (s.qualificacao ?? "").replace(/^\d{1,3}[-\s]+/, "").trim();
+
+          const row = (label: string, val: string, sub?: string, color?: string) => `
+            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:3px 0;border-bottom:1px dashed var(--x1)">
+              <span style="color:var(--x5);font-size:10px">${label}</span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;${color ? `color:${color};` : ""}text-align:right">${val}${sub ? `<br><span style="font-size:9px;color:var(--x4);font-weight:400">${sub}</span>` : ""}</span>
+            </div>`;
+
+          const badges: string[] = [];
+          if (cobAtiva) badges.push(`<span style="display:inline-block;padding:2px 8px;background:var(--a1);color:var(--a5);border-radius:3px;font-size:9.5px;font-weight:700;letter-spacing:0.05em;margin-right:4px">NEGATIVADO</span>`);
+          if ((procTot ?? 0) > 0) badges.push(`<span style="display:inline-block;padding:2px 8px;background:var(--r1);color:var(--r6);border-radius:3px;font-size:9.5px;font-weight:700;letter-spacing:0.05em;margin-right:4px">${procTot} PROC.${procPas > 0 ? ` PASSIVO${procPas > 1 ? "S" : ""}` : ""}${procVal ? ` — ${esc(procVal)}` : ""}</span>`);
+          if (pgfnTot) badges.push(`<span style="display:inline-block;padding:2px 8px;background:var(--r1);color:var(--r6);border-radius:3px;font-size:9.5px;font-weight:700;letter-spacing:0.05em;margin-right:4px">PGFN ${esc(pgfnTot)}${pgfnQtd ? ` (${pgfnQtd})` : ""}</span>`);
+
+          return `<div style="background:#fafbfc;border:1px solid var(--x2);border-radius:6px;padding:10px 12px;margin-bottom:6px">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+              <div>
+                <div style="font-weight:700;font-size:12px">${esc(s.nome)}</div>
+                <div style="color:var(--x4);font-size:10px;margin-top:1px">CPF ${fmtCpf(cpfRaw)} · ${esc(cleanQual || "Sócio")} · ${fmt(part)}</div>
+              </div>
+              ${nivel ? `<span style="display:inline-block;padding:3px 10px;background:${bgN};color:${fgN};border-radius:4px;font-weight:700;font-size:11px;letter-spacing:0.05em">● ${esc(nivel)}</span>` : ""}
+            </div>
+            <div style="margin-top:6px">
+              ${score !== undefined ? row("Score Financeiro", `${score}/1000`, nivel ? `Nível ${nivel}` : undefined) : ""}
+              ${renda ? row("Renda mensal est.", renda.label, renda.sub) : ""}
+              ${patrim ? row("Patrimônio est.", patrim.label) : ""}
+              ${row("Cobranças 365d", cob365 > 0 ? `${cob365} ocorrência${cob365 > 1 ? "s" : ""}` : "0", undefined, cob365 > 0 ? "var(--r6)" : "var(--g6)")}
+            </div>
+            ${badges.length ? `<div style="margin-top:8px">${badges.join("")}</div>` : ""}
+          </div>`;
+        }).filter(Boolean).join("");
+
+        if (!cards) return "";
+
+        return `<div style="margin-top:12px">
+          <div class="label" style="font-size:var(--fs-label);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--x4);margin-bottom:4px">Sócios — Capacidade Financeira (PF)</div>
+          <div style="font-size:9.5px;color:var(--x4);margin-bottom:8px">Fonte: BigDataCorp · dados presumidos por faixas (1 SM 2026 = R$ ${SM.toLocaleString("pt-BR")})</div>
+          ${cards}
+        </div>`;
+      })()}
       <div style="margin-top:8px">
         <div class="label" style="font-size:var(--fs-label);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--x4);margin-bottom:4px">CCF — Cheques Sem Fundo</div>
         ${ccfBlock}

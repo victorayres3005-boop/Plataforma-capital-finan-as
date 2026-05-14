@@ -696,6 +696,165 @@ export function renderRisco(ctx: PdfCtx): void {
   }
 
   // ════════════════════════════════════════════════════════════════════════════
+  // SEÇÃO 09c — SÓCIOS — CAPACIDADE FINANCEIRA (PF)
+  // Dados exclusivos do BDC pessoa: financialRiskScore/Level, renda/patrimônio
+  // por faixas, cobranças, PGFN, processos detalhados. Esconde se ninguém tem dado.
+  // ════════════════════════════════════════════════════════════════════════════
+  {
+    const SM_2026 = 1518;
+    const parseSMRange = (raw: string | undefined): { label: string; sub?: string } | null => {
+      if (!raw) return null;
+      const r = raw.toUpperCase().replace(/\s+/g, " ").trim();
+      const m = r.match(/^(\d+)\s*[AÀ]\s*(\d+)\s*SM/);
+      if (m) {
+        const min = Math.round(parseInt(m[1]) * SM_2026 / 1000);
+        const max = Math.round(parseInt(m[2]) * SM_2026 / 1000);
+        return { label: `R$ ${min}k – R$ ${max}k`, sub: `${m[1]}–${m[2]} SM` };
+      }
+      const ate = r.match(/^AT[EÉ]\s*(\d+)\s*SM/);
+      if (ate) return { label: `até R$ ${Math.round(parseInt(ate[1]) * SM_2026 / 1000)}k`, sub: `até ${ate[1]} SM` };
+      const acima = r.match(/^ACIMA\s*(?:DE)?\s*(\d+)\s*SM/);
+      if (acima) return { label: `acima de R$ ${Math.round(parseInt(acima[1]) * SM_2026 / 1000)}k`, sub: `+${acima[1]} SM` };
+      return { label: raw };
+    };
+    const parseMMRange = (raw: string | undefined): { label: string } | null => {
+      if (!raw) return null;
+      const r = raw.toUpperCase().replace(/\s+/g, " ").trim();
+      const mm = r.match(/^(\d+(?:[.,]\d+)?)\s*[AÀ]\s*(\d+(?:[.,]\d+)?)\s*MM/);
+      if (mm) return { label: `R$ ${mm[1]}M – R$ ${mm[2]}M` };
+      const mil = r.match(/^(\d+)\s*[AÀ]\s*(\d+)\s*MIL/);
+      if (mil) return { label: `R$ ${mil[1]}k – R$ ${mil[2]}k` };
+      const ate = r.match(/^AT[EÉ]\s*(\d+(?:[.,]\d+)?)\s*(MM|MIL)/);
+      if (ate) return { label: `até R$ ${ate[1]}${ate[2] === "MM" ? "M" : "k"}` };
+      const acima = r.match(/^ACIMA\s*(?:DE)?\s*(\d+(?:[.,]\d+)?)\s*(MM|MIL)/);
+      if (acima) return { label: `acima de R$ ${acima[1]}${acima[2] === "MM" ? "M" : "k"}` };
+      if (r === "NAO POSSUI" || r === "NÃO POSSUI") return { label: "sem patrimônio declarado" };
+      return { label: raw };
+    };
+    const nivelCor = (n: string | undefined): { bg: [number,number,number]; fg: [number,number,number] } => {
+      const u = (n ?? "").toUpperCase();
+      if (u === "A" || u === "B") return { bg: P.g1, fg: P.g6 };
+      if (u === "C")               return { bg: P.n0, fg: P.n8 };
+      if (u === "D" || u === "E") return { bg: P.r1, fg: P.r6 };
+      return { bg: P.x1, fg: P.x4 };
+    };
+    const fmtCpfBR = (cpf: string): string => {
+      const c = cpf.replace(/\D/g, "");
+      if (c.length !== 11) return cpf;
+      return `${c.slice(0,3)}.${c.slice(3,6)}.${c.slice(6,9)}-${c.slice(9)}`;
+    };
+
+    type SocioCap = {
+      nome: string; cpf: string; qualificacao: string; participacao: string;
+      score?: number; nivel?: string;
+      renda?: { label: string; sub?: string };
+      patrim?: { label: string };
+      cobAtiva: boolean; cob365: number;
+      pgfnTot?: string; pgfnQtd?: number;
+      procTot: number; procPas: number; procVal?: string;
+    };
+
+    const sociosCap: SocioCap[] = ((data.qsa?.quadroSocietario ?? []) as unknown as Array<Record<string, unknown>>)
+      .filter(s => typeof s.nome === "string" && s.nome && (((s.cpfCnpj as string | undefined) ?? "").replace(/\D/g, "").length === 11))
+      .map(s => ({
+        nome: s.nome as string,
+        cpf: (s.cpfCnpj as string) ?? "",
+        qualificacao: ((s.qualificacao as string) ?? "").replace(/^\d{1,3}[-\s]+/, "").trim(),
+        participacao: (s.participacao as string) ?? "—",
+        score: s.financialRiskScore as number | undefined,
+        nivel: s.financialRiskLevel as string | undefined,
+        renda: parseSMRange(s.estimatedIncomeRange as string | undefined) ?? undefined,
+        patrim: parseMMRange(s.totalAssetsRange as string | undefined) ?? undefined,
+        cobAtiva: s.isCurrentlyOnCollection === true,
+        cob365: (s.last365DaysCollections as number | undefined) ?? 0,
+        pgfnTot: s.pgfnDebtTotal as string | undefined,
+        pgfnQtd: s.pgfnTotalDebts as number | undefined,
+        procTot: (s.processosTotal as number | undefined) ?? 0,
+        procPas: (s.processosPassivo as number | undefined) ?? 0,
+        procVal: s.processosValorTotal as string | undefined,
+      }))
+      .filter(sc => sc.score !== undefined || sc.nivel || sc.renda || sc.patrim || sc.cobAtiva || sc.cob365 > 0 || sc.pgfnTot || sc.procTot > 0);
+
+    if (sociosCap.length > 0) {
+      checkPageBreak(ctx, 14);
+      pos.y += 4;
+      stitle("09c · Sócios — Capacidade Financeira (PF)");
+      doc.setFont("helvetica", "normal"); doc.setFontSize(5);
+      doc.setTextColor(...P.x4);
+      doc.text(`Fonte: BigDataCorp · dados presumidos por faixas (1 SM 2026 = R$ ${SM_2026.toLocaleString("pt-BR")})`, ML, pos.y);
+      pos.y += 4;
+
+      // Card por sócio, altura dinâmica
+      sociosCap.forEach(sc => {
+        const rows: Array<[string, string, string?, [number,number,number]?]> = [];
+        if (sc.score !== undefined) rows.push(["Score Financeiro", `${sc.score}/1000`, sc.nivel ? `Nível ${sc.nivel}` : undefined]);
+        if (sc.renda)  rows.push(["Renda mensal est.", sc.renda.label, sc.renda.sub]);
+        if (sc.patrim) rows.push(["Patrimônio est.", sc.patrim.label]);
+        rows.push(["Cobranças 365d", sc.cob365 > 0 ? `${sc.cob365} ocorrência${sc.cob365 > 1 ? "s" : ""}` : "0", undefined, sc.cob365 > 0 ? P.r6 : P.g6]);
+        if (sc.pgfnTot) rows.push(["Dívida ativa PGFN", `${sc.pgfnTot}${sc.pgfnQtd ? ` (${sc.pgfnQtd})` : ""}`, undefined, P.r6]);
+        if (sc.procTot > 0) {
+          const procLabel = `${sc.procTot}${sc.procPas > 0 ? ` · ${sc.procPas} passivo${sc.procPas > 1 ? "s" : ""}` : ""}`;
+          rows.push(["Processos judiciais", `${procLabel}${sc.procVal ? ` — ${sc.procVal}` : ""}`, undefined, P.r6]);
+        }
+
+        const HDR_H = 9;
+        const ROW_H = 4.5;
+        const PAD = 2.5;
+        const cardH = HDR_H + rows.length * ROW_H + PAD * 2;
+        checkPageBreak(ctx, cardH + 3);
+
+        const y0 = pos.y;
+        // Card background
+        doc.setFillColor(...P.x0);
+        doc.setDrawColor(...P.x2);
+        doc.setLineWidth(0.25);
+        doc.roundedRect(ML, y0, CW, cardH, 2, 2, "FD");
+
+        // Cabeçalho: nome + CPF/qualificação à esquerda, badge nível à direita
+        doc.setFont("helvetica", "bold"); doc.setFontSize(7.5);
+        doc.setTextColor(...P.x9);
+        doc.text(sc.nome, ML + 3, y0 + 4);
+        doc.setFont("helvetica", "normal"); doc.setFontSize(5.5);
+        doc.setTextColor(...P.x5);
+        doc.text(`CPF ${fmtCpfBR(sc.cpf)} · ${sc.qualificacao || "Sócio"} · ${sc.participacao}`, ML + 3, y0 + 7.5);
+
+        if (sc.nivel) {
+          const cor = nivelCor(sc.nivel);
+          const badgeLabel = `● ${sc.nivel.toUpperCase()}`;
+          doc.setFont("helvetica", "bold"); doc.setFontSize(7);
+          const bw = doc.getTextWidth(badgeLabel) + 6;
+          doc.setFillColor(...cor.bg);
+          doc.roundedRect(ML + CW - bw - 3, y0 + 2, bw, 5.5, 1, 1, "F");
+          doc.setTextColor(...cor.fg);
+          doc.text(badgeLabel, ML + CW - bw - 3 + bw / 2, y0 + 5.7, { align: "center" });
+        }
+
+        // Linhas de dados
+        let ry = y0 + HDR_H + PAD;
+        rows.forEach(([label, val, sub, valColor]) => {
+          doc.setFont("helvetica", "normal"); doc.setFontSize(5.5);
+          doc.setTextColor(...P.x5);
+          doc.text(label, ML + 4, ry + 3);
+
+          doc.setFont("courier", "bold"); doc.setFontSize(6.5);
+          doc.setTextColor(...(valColor ?? P.x9));
+          doc.text(val, ML + CW - 4, ry + 3, { align: "right" });
+
+          if (sub) {
+            doc.setFont("helvetica", "normal"); doc.setFontSize(4.5);
+            doc.setTextColor(...P.x4);
+            doc.text(sub, ML + CW - 4, ry + 6, { align: "right" });
+          }
+          ry += ROW_H;
+        });
+
+        pos.y = y0 + cardH + 2;
+      });
+      pos.y += 3;
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
   // SEÇÃO 10 — GRUPO ECONÔMICO
   // ════════════════════════════════════════════════════════════════════════════
   const grupo = data.grupoEconomico;
