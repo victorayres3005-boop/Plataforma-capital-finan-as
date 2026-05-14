@@ -143,6 +143,44 @@ describe("fillFaturamentoDefaults", () => {
     expect(r.temMesesZerados).toBe(true);
     expect(r.quantidadeMesesZerados).toBe(1);
   });
+
+  describe("parseBR robusto — regressão caso PRANDOPEL", () => {
+    // Cenário: Gemini ocasionalmente retorna valor em formato EN (ponto como
+    // decimal) em vez de formato BR (vírgula como decimal). Antes do fix da
+    // Onda 2, "1234.56" virava 123456 (100× maior) — sintoma observado em
+    // PRANDOPEL Fev/2025 com R$ 29.499.805,06 num mês onde os outros eram
+    // R$ 2 milhões.
+
+    it("valor em formato EN '1234.56' deve resultar em 1234.56 (NÃO 123456)", () => {
+      const r = fillFaturamentoDefaults({
+        meses: [{ mes: "01/2024", valor: "1234.56" }],
+      });
+      // somatoriaAno é string formatada em BR ("1.234,56")
+      expect(r.somatoriaAno).toBe("1.234,56");
+      expect(r.faturamentoZerado).toBe(false);
+    });
+
+    it("valor em formato EN com milhares '29499805.06' deve resultar em 29.499.805,06 (NÃO 2.949.980.506,00)", () => {
+      const r = fillFaturamentoDefaults({
+        meses: [{ mes: "01/2024", valor: "29499805.06" }],
+      });
+      expect(r.somatoriaAno).toBe("29.499.805,06");
+    });
+
+    it("formato BR continua funcionando: '1.234.567,89' → 1.234.567,89", () => {
+      const r = fillFaturamentoDefaults({
+        meses: [{ mes: "01/2024", valor: "1.234.567,89" }],
+      });
+      expect(r.somatoriaAno).toBe("1.234.567,89");
+    });
+
+    it("formato BR com prefixo R$ continua funcionando", () => {
+      const r = fillFaturamentoDefaults({
+        meses: [{ mes: "01/2024", valor: "R$ 1.234,56" }],
+      });
+      expect(r.somatoriaAno).toBe("1.234,56");
+    });
+  });
 });
 
 describe("fillSCRDefaults", () => {

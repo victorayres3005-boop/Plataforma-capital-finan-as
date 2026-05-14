@@ -16,6 +16,7 @@ import type {
 } from "@/types";
 import { sanitizeDescricaoDebitos, sanitizeStr, sanitizeEnum, sanitizeMoney } from "@/lib/extract/sanitize";
 import { inferirAnosCronologicamente } from "@/lib/extract/inferAnoMeses";
+import { parseValorBR } from "@/lib/extract/parseValorBR";
 
 export function fillCNPJDefaults(data: Partial<CNPJData>): CNPJData {
   return {
@@ -130,7 +131,11 @@ export function fillFaturamentoDefaults(data: Partial<FaturamentoData>): Faturam
   if (_mesesInvalidosDropados.length > 0) {
     console.warn(`[extract][faturamento] ${_mesesInvalidosDropados.length} mes(es) com formato invalido descartado(s): ${_mesesInvalidosDropados.join(", ")}`);
   }
-  const parseBR = (v: string) => parseFloat((v || "0").replace(/\./g, "").replace(",", ".")) || 0;
+  // Onda 2 #2.1: substituído `parseBR` interno (sensível a separador) por
+  // `parseValorBR` robusto. Caso real: Gemini retornou "1234.56" (formato EN)
+  // em vez de "1.234,56" (BR); o algoritmo antigo `replace(/\./g, "").replace(",", ".")`
+  // virava 123456 (100× maior — outlier PRANDOPEL Fev/2025).
+  const parseBR = (v: string) => parseValorBR(v);
   const fmtBR = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const ordenados = [...meses].sort((a, b) => {
