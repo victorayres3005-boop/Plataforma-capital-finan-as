@@ -6,13 +6,13 @@ export const revalidate = 0;
 
 import { NextRequest, NextResponse } from "next/server";
 import { consultarCreditHub, consultarGrupoEconomicoSocios, consultarPefinRefin, buscarCNPJPorNome } from "@/lib/bureaus/credithub";
-import { consultarSerasa } from "@/lib/bureaus/serasa";
-import { consultarSPC } from "@/lib/bureaus/spc";
-import { consultarQuod } from "@/lib/bureaus/quod";
+// Onda 3: Serasa/SPC/Quod removidos do paralelismo (decisão 2026-05-14: nunca
+// foram pra produção, eram stubs). Assertiva removida (desativada 2026-05-13).
+// Os arquivos lib/bureaus/{serasa,spc,quod,assertiva}.ts ficam no repositório
+// caso alguma volte um dia — basta restaurar o import + a entry do Promise.allSettled.
 import { consultarBrasilApi } from "@/lib/bureaus/brasilapi";
 import { consultarSancoes } from "@/lib/bureaus/transparencia";
 import { consultarEmpresa as consultarBigDataCorp, consultarSocios as consultarBDCSocios, consultarDividaAtivaBDC } from "@/lib/bureaus/bigdatacorp";
-import { consultarEmpresa as consultarAssertiva, consultarSocios as consultarSociosAssertiva } from "@/lib/bureaus/assertiva";
 import { mergeBureauResults } from "@/lib/bureaus/merger";
 import { enrichProcessosWithDataJud } from "@/lib/bureaus/datajud";
 import { cacheGet, cacheSet, cacheClear, cacheClearAll, cacheSize } from "@/lib/bureaus/cache";
@@ -133,16 +133,11 @@ export async function POST(req: NextRequest) {
       console.log(`[bureaus][divida-ativa] upload PGFN presente — BDC government_debtors NÃO será consultado (economia de custo)`);
     }
 
-    const [credithub, serasa, spc, quod, grupoEconomico, brasilapi, sancoes, assertivaEmpresa, assertivaSocios, db360Empresa, db360Socios, pefinRefin, dividaAtivaBDC] = await Promise.allSettled([
+    const [credithub, grupoEconomico, brasilapi, sancoes, db360Empresa, db360Socios, pefinRefin, dividaAtivaBDC] = await Promise.allSettled([
       withTimeout(consultarCreditHubComCache(cnpj, creditHubRaw), BUREAU_TIMEOUT, "credithub"),
-      withTimeout(consultarSerasa(cnpj), BUREAU_TIMEOUT, "serasa"),
-      withTimeout(consultarSPC(cnpj), BUREAU_TIMEOUT, "spc"),
-      withTimeout(consultarQuod(cnpj), BUREAU_TIMEOUT, "quod"),
       withTimeout(consultarGrupoEconomicoSocios(sociosParaGrupo, cnpj), BUREAU_TIMEOUT, "grupo-economico"),
       withTimeout(consultarBrasilApi(cnpj), BUREAU_TIMEOUT, "brasilapi"),
       withTimeout(consultarSancoes(cnpj, sociosParaGrupo), BUREAU_TIMEOUT, "sancoes"),
-      withTimeout(consultarAssertiva(cnpj), BUREAU_TIMEOUT, "assertiva-empresa"),
-      withTimeout(consultarSociosAssertiva(assertivaSociosInput), BUREAU_TIMEOUT, "assertiva-socios"),
       withTimeout(consultarSCREmpresa(cnpj), BUREAU_TIMEOUT, "databox360-empresa"),
       withTimeout(consultarSCRSocios(sociosParaGrupo), BUREAU_TIMEOUT, "databox360-socios"),
       withTimeout(consultarPefinRefin(cnpj), BUREAU_TIMEOUT, "credithub-pefin-refin"),
@@ -200,14 +195,9 @@ export async function POST(req: NextRequest) {
       console.log(`[bureaus] CreditHub respondeu (cnae="${credithubValue?.cnpjEnrichment?.cnaePrincipal ?? ""}", QSA=${credithubValue?.qsaEnrichment?.quadroSocietario?.length ?? 0}) — BDC ignorado (economia de custo)`);
     }
 
-    // Mescla socios Assertiva no resultado da empresa
-    let assertivaResult = assertivaEmpresa.status === "fulfilled" ? assertivaEmpresa.value : undefined;
-    if (assertivaResult && assertivaSocios.status === "fulfilled" && assertivaSocios.value.length > 0) {
-      assertivaResult = { ...assertivaResult, socios: assertivaSocios.value };
-    }
-
     // Fallback: se QSA/IR vieram vazios mas BDC retornou sócios PF, faz 2ª rodada
-    // para Assertiva PF e DataBox360 SCR sócios (não bloqueia o início — só roda no edge case)
+    // para DataBox360 SCR sócios (não bloqueia o início — só roda no edge case).
+    // Onda 3 (2026-05-14): Assertiva removida desse fallback também.
     let db360SociosFallback: typeof db360SociosResult = undefined;
     if (bigdatacorpResult?.qsaEnrichment?.quadroSocietario?.length) {
       const sociosBDC = bigdatacorpResult.qsaEnrichment.quadroSocietario
@@ -216,18 +206,11 @@ export async function POST(req: NextRequest) {
         .map(s => ({ nome: s.nome, cpfCnpj: s.cpfCnpj }));
 
       if (sociosBDC.length > 0) {
-        console.log(`[bureaus] Fallback BDC: ${sociosBDC.length} sócio(s) PF não estavam em QSA/IR — consultando Assertiva PF + SCR`);
-        const [assertivaSociosBDC, db360SociosBDC] = await Promise.allSettled([
-          withTimeout(consultarSociosAssertiva(sociosBDC.map(s => ({ cpf: s.cpfCnpj, nome: s.nome }))), BUREAU_TIMEOUT, "assertiva-socios-fallback"),
+        console.log(`[bureaus] Fallback BDC: ${sociosBDC.length} sócio(s) PF não estavam em QSA/IR — consultando SCR`);
+        const [db360SociosBDC] = await Promise.allSettled([
           withTimeout(consultarSCRSocios(sociosBDC), BUREAU_TIMEOUT, "databox360-socios-fallback"),
         ]);
 
-        if (assertivaSociosBDC.status === "fulfilled" && assertivaSociosBDC.value.length > 0) {
-          const novos = assertivaSociosBDC.value;
-          const existentes = assertivaResult?.socios ?? [];
-          assertivaResult = { ...(assertivaResult ?? { success: true, mock: false }), socios: [...existentes, ...novos] };
-          console.log(`[bureaus] Fallback Assertiva: ${novos.length} sócio(s) adicionados`);
-        }
         if (db360SociosBDC.status === "fulfilled" && db360SociosBDC.value.length > 0) {
           db360SociosFallback = db360SociosBDC.value;
           console.log(`[bureaus] Fallback DataBox360: ${db360SociosFallback.length} sócio(s) com SCR`);
@@ -244,7 +227,6 @@ export async function POST(req: NextRequest) {
     console.log(`[bureaus] BrasilAPI: ${brasilapiResult?.success ? "ok" : brasilapiResult?.error || "erro"}`);
     console.log(`[bureaus] Sanções: ${sancoesResult?.mock ? "sem chave API" : sancoesResult?.success ? `${sancoesResult.totalSancoes} sanção(ões)` : sancoesResult?.error || "erro"}`);
     console.log(`[bureaus] BigDataCorp: ${bigdatacorpResult?.mock ? "sem credenciais" : bigdatacorpResult?.success ? "ok" : bigdatacorpResult?.error || "erro"}`);
-    console.log(`[bureaus] Assertiva: ${assertivaResult?.mock ? "sem credenciais" : assertivaResult?.success ? "ok" : assertivaResult?.error || "erro"}`);
     console.log(`[bureaus] DataBox360 SCR empresa: ${db360EmpresaResult?.mock ? "sem chave API" : db360EmpresaResult?.scr ? "ok" : "sem dados"}`);
     console.log(`[bureaus] DataBox360 SCR sócios: ${db360SociosMerged.length} sócio(s) consultado(s)`);
 
@@ -252,23 +234,15 @@ export async function POST(req: NextRequest) {
       credithub: credithub.status === "fulfilled"
         ? { ...credithub.value, grupoEconomicoEnrichment: grupoEconomicoResult }
         : undefined,
-      serasa: serasa.status === "fulfilled" ? serasa.value : undefined,
-      spc:    spc.status    === "fulfilled" ? spc.value    : undefined,
-      quod:   quod.status   === "fulfilled" ? quod.value   : undefined,
       brasilapi:   brasilapiResult,
       sancoes:     sancoesResult,
       bigdatacorp: bigdatacorpResult,
-      assertiva:   assertivaResult,
       databox360:  db360EmpresaResult?.mock ? undefined : { empresa: db360EmpresaResult, socios: db360SociosMerged },
     };
 
     // Marca como "consultado" só quando a Promise resolveu E o bureau não retornou em modo mock.
-    // Promise rejeitada → results.X === undefined → não conta (antes contava por bug do ternário).
     const bureausConsultados = [
       results.credithub && !results.credithub.mock ? "credithub" : null,
-      results.serasa    && !results.serasa.mock    ? "serasa"    : null,
-      results.spc       && !results.spc.mock       ? "spc"       : null,
-      results.quod      && !results.quod.mock      ? "quod"      : null,
     ].filter(Boolean);
 
     const merged = mergeBureauResults(data, results);
@@ -514,10 +488,13 @@ export async function POST(req: NextRequest) {
         // em data.dividaAtiva (sem upload) quanto o snapshot pra comparação
         // (com upload PGFN) — em ambos os casos a request foi feita.
         const dividaAtivaSucesso = dividaAtivaBDC.status === "fulfilled" && dividaAtivaBDC.value?.success;
+        // Onda 3: assertiva_pj/pf zerados (Assertiva desativada 2026-05-13).
+        // sacado_assertiva_pj mantido em 0 mesmo após remoção do bureau pra
+        // preservar histórico da coluna nas métricas de /custos.
         const bureau_calls = {
           credithub:            results.credithub?.success && !results.credithub?.mock ? 1 : 0,
-          assertiva_pj:         results.assertiva?.success && !results.assertiva?.mock  ? 1 : 0,
-          assertiva_pf:         results.assertiva?.success && !results.assertiva?.mock  ? numSociosPF : 0,
+          assertiva_pj:         0,
+          assertiva_pf:         0,
           bdc_empresa:          results.bigdatacorp?.success && !results.bigdatacorp?.mock ? 1 : 0,
           bdc_socio:            results.bigdatacorp?.success && !results.bigdatacorp?.mock ? numSociosPF : 0,
           bdc_government_debtors: dividaAtivaSucesso ? 1 : 0,
@@ -526,7 +503,7 @@ export async function POST(req: NextRequest) {
           sacado_credithub:     sacadosCount,
           sacado_bdc_empresa:   sacadosCount,
           sacado_bdc_pessoa:    sacadosBdcPessoasCount,
-          sacado_assertiva_pj:  sacadosCount,
+          sacado_assertiva_pj:  0,
         };
         await sb.from("api_usage_logs").insert({
           collection_id: collection_id ?? null,
@@ -543,9 +520,6 @@ export async function POST(req: NextRequest) {
       merged,
       bureaus: {
         credithub:   { success: results.credithub?.success,   mock: results.credithub?.mock,   error: results.credithub?.error   },
-        serasa:      { success: results.serasa?.success,      mock: results.serasa?.mock,      error: results.serasa?.error      },
-        spc:         { success: results.spc?.success,         mock: results.spc?.mock,         error: results.spc?.error         },
-        quod:        { success: results.quod?.success,        mock: results.quod?.mock,        error: results.quod?.error        },
         brasilapi:   { success: results.brasilapi?.success,   mock: results.brasilapi?.mock,   error: results.brasilapi?.error,
                        situacaoCadastral: results.brasilapi?.data?.situacaoCadastral,
                        ativa: results.brasilapi?.data?.ativa },
@@ -559,7 +533,6 @@ export async function POST(req: NextRequest) {
           alertaParentesco:      results.bigdatacorp?.alertaParentesco,
           parentescosDetectados: results.bigdatacorp?.parentescosDetectados,
         },
-        assertiva: { success: results.assertiva?.success, mock: results.assertiva?.mock, error: results.assertiva?.error },
         databox360: {
           empresa: db360EmpresaResult?.mock ? null : !!db360EmpresaResult?.scr,
           socios: db360SociosMerged.length,
