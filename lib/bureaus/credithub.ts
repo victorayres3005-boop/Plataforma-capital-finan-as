@@ -400,6 +400,7 @@ function parseProcessos(d: any): ProcessosData {
 
   let poloAtivoQtd = 0;
   let poloPassivoQtd = 0;
+  let unclassifiedQtd = 0;
   let temFalencia = false;
 
   processos.forEach(p => {
@@ -422,8 +423,22 @@ function parseProcessos(d: any): ProcessosData {
     if (envEmpresa) {
       if (/ativo/i.test(envEmpresa.envolvido_tipo)) poloAtivoQtd++;
       else poloPassivoQtd++;
+      return;
     }
+
+    // Fix 2026-05-14: quando não conseguir classificar (tipo_envolvido vazio
+    // E nenhum envolvido com nome que case com a empresa — comum em razões
+    // sociais genéricas tipo "INDUSTRIA E COMERCIO LTDA"), assume polo PASSIVO
+    // por padrão. Pior caso pra análise de crédito (empresa como ré).
+    // Antes esses processos sumiam da contagem — Total/Passivo/Ativo todos 0
+    // mesmo com 10 processos no array.
+    unclassifiedQtd++;
+    poloPassivoQtd++;
   });
+
+  if (unclassifiedQtd > 0) {
+    console.warn(`[credithub] processos: ${unclassifiedQtd}/${processos.length} sem classificação polo (tipo_envolvido vazio + nome empresa não casa) — assumidos como polo passivo (default conservador)`);
+  }
 
   // Recuperação judicial
   const temRJ = processos.some(p =>
