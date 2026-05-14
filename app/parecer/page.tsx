@@ -241,6 +241,13 @@ function ParecerContent() {
 
       // Snapshot na tabela `pareceres` (usada por /pareceres e cron de reanálise).
       // Campos não-essenciais ficam null; pareceres antigos preservam valores.
+      //
+      // Fix 2026-05-14: antes esse bloco estava em try/catch silencioso que só
+      // logava warn. Se o save falhasse aqui, toast.success ainda era exibido
+      // — analista pensava que salvou, mas a empresa nunca aparecia com parecer
+      // formal em /pareceres. Agora checa error explicitamente e mostra mensagem
+      // diferente quando o segundo passo (pareceres) falhou.
+      let parecerSaveError: string | null = null;
       try {
         const parecerPayload = {
           collection_id: id,
@@ -271,16 +278,27 @@ function ParecerContent() {
           score_v2: null,
         };
         if (parecerId) {
-          await supabase.from("pareceres").update(parecerPayload).eq("id", parecerId);
+          const { error: updErr } = await supabase.from("pareceres").update(parecerPayload).eq("id", parecerId);
+          if (updErr) parecerSaveError = updErr.message;
         } else {
-          const { data: np } = await supabase.from("pareceres").insert(parecerPayload).select("id").single();
-          if (np?.id) setParecerId(np.id as string);
+          const { data: np, error: insErr } = await supabase.from("pareceres").insert(parecerPayload).select("id").single();
+          if (insErr) parecerSaveError = insErr.message;
+          else if (np?.id) setParecerId(np.id as string);
         }
       } catch (parecerErr) {
-        console.warn("[parecer] falha ao salvar em pareceres:", parecerErr);
+        parecerSaveError = parecerErr instanceof Error ? parecerErr.message : String(parecerErr);
       }
 
-      toast.success("Parecer confirmado!");
+      if (parecerSaveError) {
+        console.error("[parecer] falha ao salvar em pareceres:", parecerSaveError);
+        toast.error(
+          "Coleta finalizada, mas houve erro ao registrar o parecer formal. " +
+          "A empresa pode não aparecer corretamente em /pareceres. " +
+          "Recarregue a página e clique em Confirmar novamente.",
+        );
+      } else {
+        toast.success("Parecer confirmado!");
+      }
     } catch (err) {
       toast.error("Erro ao confirmar: " + (err instanceof Error ? err.message : "desconhecido"));
     } finally {
