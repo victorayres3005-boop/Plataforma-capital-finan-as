@@ -899,10 +899,18 @@ function pageSintese(params: PDFReportParams, date: string): string {
   const alavAtual = params.alavancagem ?? (fmmNumVal > 0 ? totalNum / fmmNumVal : 0);
   const alavStr = alavAtual > 0 ? alavAtual.toFixed(2) + "x" : "—";
 
-  // Protestos
+  // Protestos — decisão Victor 2026-05-15: upload CENPROT (Central Nacional de
+  // Protestos / IEPTB-BR) tem prioridade sobre bureau (CreditHub/BDC) pra
+  // vigentes. Bureau vira fallback quando CENPROT ausente. Bureau ainda fornece
+  // PEFIN/REFIN/fiscais (CENPROT não cobre).
   const prot = d.protestos;
-  const protQtd = numVal(prot?.vigentesQtd ?? "0");
-  const protVal = prot?.vigentesValor ?? "0";
+  const cenPrimario = d.cenprot && (d.cenprot.qtdRegistros > 0 || d.cenprot.certidaoNegativa);
+  const protQtd = cenPrimario
+    ? (d.cenprot!.certidaoNegativa ? 0 : d.cenprot!.qtdRegistros)
+    : numVal(prot?.vigentesQtd ?? "0");
+  const protVal = cenPrimario
+    ? (d.cenprot!.certidaoNegativa ? "0" : (d.cenprot!.valorTotal ?? "0"))
+    : (prot?.vigentesValor ?? "0");
   const protColor = protQtd > 0 ? "red" : "green";
   const protDetails = (prot?.detalhes ?? []).slice(0, 4);
   const protRows = protDetails.map(p => {
@@ -2132,11 +2140,20 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
   const prot = params.data.protestos;
   const proc = params.data.processos;
 
-  // Protestos
-  const vigQtd = numVal(prot?.vigentesQtd ?? "0");
-  const vigVal = prot?.vigentesValor ?? "0";
-  const regQtd = numVal(prot?.regularizadosQtd ?? "0");
-  const regVal = prot?.regularizadosValor ?? "0";
+  // Protestos — CENPROT prioritário sobre bureau (decisão Victor 2026-05-15).
+  // Quando upload CENPROT existe, "Regularizados" some — CENPROT só lista
+  // vigentes; manter número do bureau ao lado seria confuso. Fiscais e
+  // PEFIN/REFIN continuam do bureau (CENPROT não cobre).
+  const cenPrim = params.data.cenprot && (params.data.cenprot.qtdRegistros > 0 || params.data.cenprot.certidaoNegativa);
+  const cen = cenPrim ? params.data.cenprot! : null;
+  const vigQtd = cen
+    ? (cen.certidaoNegativa ? 0 : cen.qtdRegistros)
+    : numVal(prot?.vigentesQtd ?? "0");
+  const vigVal = cen
+    ? (cen.certidaoNegativa ? "0" : (cen.valorTotal ?? "0"))
+    : (prot?.vigentesValor ?? "0");
+  const regQtd = cen ? 0 : numVal(prot?.regularizadosQtd ?? "0");
+  const regVal = cen ? "0" : (prot?.regularizadosValor ?? "0");
   const fiscQtd = numVal(prot?.fiscaisQtd ?? "0");
   const fiscVal = prot?.fiscaisValor ?? "0";
   const pefinData = params.data.pefin;
@@ -2408,14 +2425,12 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
     ${(() => {
       const cen = params.data.cenprot;
       if (!cen || (cen.qtdRegistros === 0 && !cen.certidaoNegativa)) return "";
-      const bureauVig = parseInt(params.data.protestos?.vigentesQtd || "0", 10);
-      const div = cen.qtdRegistros !== bureauVig;
-      const divergenciaBlock = div
-        ? `<div class="alert mod"><span class="atag">MOD</span> Divergência: bureau registra <b>${bureauVig}</b> protesto(s) vigente(s); CENPROT (oficial) registra <b>${cen.qtdRegistros}</b>. Verificar manualmente.</div>`
-        : "";
+      // Decisão Victor 2026-05-15: alerta de divergência CENPROT vs bureau
+      // removido. Agora os KPIs principais (seção 03) já vêm do CENPROT quando
+      // upload existe, então não há mais "divergência" pra alertar — a fonte
+      // virou única.
       if (cen.certidaoNegativa) {
         return `${stitle("CENPROT — Certidão Oficial de Protestos")}
-        ${divergenciaBlock}
         <div class="alert" style="background:#f0fdf4;border-color:#bbf7d0;color:#15803d"><span class="atag" style="background:#16a34a;color:#fff">NEGATIVA</span> Certidão CENPROT negativa${cen.dataConsulta ? ` (emitida ${esc(cen.dataConsulta)})` : ""}</div>`;
       }
       // Helper de badge pra status do protesto (campo novo opcional).
@@ -2438,7 +2453,6 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
         ${algumStatus ? `<td><span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;background:rgba(0,0,0,0.04);color:${statusCorCenprot(r.status)}">${esc(r.status || "Vigente")}</span></td>` : ""}
       </tr>`).join("");
       return `${stitle("CENPROT — Certidão Oficial de Protestos")}
-      ${divergenciaBlock}
       <div class="alert alta"><span class="atag">ALTA</span> <b>${cen.qtdRegistros}</b> protesto(s) certificado(s) — total <b>${esc(cen.valorTotal || "—")}</b>${cen.dataConsulta ? ` · emitida ${esc(cen.dataConsulta)}` : ""}</div>
       ${rows ? `<table class="tbl"><thead><tr><th>Cartório</th><th>Cidade/UF</th><th>Data</th><th class="r">Valor</th><th>Cedente</th>${algumTipo ? "<th>Tipo do título</th>" : ""}${algumStatus ? "<th>Status</th>" : ""}</tr></thead><tbody>${rows}</tbody></table>` : ""}
       ${cen.chaveValidacao ? `<div style="margin-top:6px;font-size:9px;color:var(--x4);font-family:'JetBrains Mono',monospace;letter-spacing:0.04em">Validação: ${esc(cen.chaveValidacao)}</div>` : ""}`;
