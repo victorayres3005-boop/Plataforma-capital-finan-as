@@ -12,7 +12,7 @@ import { consultarCreditHub, consultarGrupoEconomicoSocios, consultarPefinRefin,
 // caso alguma volte um dia — basta restaurar o import + a entry do Promise.allSettled.
 import { consultarBrasilApi } from "@/lib/bureaus/brasilapi";
 import { consultarSancoes } from "@/lib/bureaus/transparencia";
-import { consultarEmpresa as consultarBigDataCorp, consultarSocios as consultarBDCSocios, consultarDividaAtivaBDC } from "@/lib/bureaus/bigdatacorp";
+import { consultarEmpresa as consultarBigDataCorp, consultarSocios as consultarBDCSocios, consultarDividaAtivaBDC, consultarProcessosBDC } from "@/lib/bureaus/bigdatacorp";
 import { mergeBureauResults } from "@/lib/bureaus/merger";
 import { enrichProcessosWithDataJud } from "@/lib/bureaus/datajud";
 import { cacheGet, cacheSet, cacheClear, cacheClearAll, cacheSize } from "@/lib/bureaus/cache";
@@ -144,7 +144,7 @@ export async function POST(req: NextRequest) {
       ? withTimeout(consultarBDCSocios(cpfsParaBDC), BUREAU_TIMEOUT, "bigdatacorp-socios-pf")
       : Promise.resolve({ socios: [], sociosFalecidos: [], alertaParentesco: false, parentescosDetectados: [] } as Awaited<ReturnType<typeof consultarBDCSocios>>);
 
-    const [credithub, grupoEconomico, brasilapi, sancoes, db360Empresa, db360Socios, pefinRefin, dividaAtivaBDC, bdcSociosPF] = await Promise.allSettled([
+    const [credithub, grupoEconomico, brasilapi, sancoes, db360Empresa, db360Socios, pefinRefin, dividaAtivaBDC, bdcSociosPF, bdcProcessosEmpresa] = await Promise.allSettled([
       withTimeout(consultarCreditHubComCache(cnpj, creditHubRaw), BUREAU_TIMEOUT, "credithub"),
       withTimeout(consultarGrupoEconomicoSocios(sociosParaGrupo, cnpj), BUREAU_TIMEOUT, "grupo-economico"),
       withTimeout(consultarBrasilApi(cnpj), BUREAU_TIMEOUT, "brasilapi"),
@@ -157,6 +157,12 @@ export async function POST(req: NextRequest) {
         ? Promise.resolve({ success: false, error: "skipped: upload PGFN presente" } as Awaited<ReturnType<typeof consultarDividaAtivaBDC>>)
         : withTimeout(consultarDividaAtivaBDC(cnpj), BUREAU_TIMEOUT, "bdc-divida-ativa"),
       bdcSociosTask,
+      // BDC processos da EMPRESA PRINCIPAL sempre (fix 2026-05-15 — bug de
+      // processos zerados em prod). Antes só rodava no fallback total quando CH
+      // vinha vazio; agora roda paralelo SEMPRE pra garantir cobertura completa
+      // de TJs estaduais. Custo ~R$ 0,05-0,10/análise. Mais barato que o
+      // consultarEmpresa completo (~R$ 0,30) que tem outros datasets.
+      withTimeout(consultarProcessosBDC(cnpj), BUREAU_TIMEOUT, "bdc-processos-empresa"),
     ]);
 
     const grupoEconomicoResult = grupoEconomico.status === "fulfilled" ? grupoEconomico.value : undefined;
@@ -210,6 +216,10 @@ export async function POST(req: NextRequest) {
       // 2026-05-14: mesmo quando BDC empresa é pulado, propaga BDC sócios PF se houver
       // dados — assim os campos exclusivos do BDC pessoa (financialRiskScore, renda,
       // patrimônio, collections, processos detalhados, PGFN) chegam ao QSA via merger.
+      // 2026-05-15 (fix): também propaga BDC processos da empresa principal, capturado
+      // pelo allSettled mesmo quando consultarBigDataCorp completo foi pulado. Sem isso,
+      // relatório mostra 0 processos pra empresas com TJs estaduais quando CH não cobre.
+      const bdcProcEmpResult = bdcProcessosEmpresa.status === "fulfilled" ? bdcProcessosEmpresa.value : undefined;
       if (bdcSociosPFResult && bdcSociosPFResult.socios.length > 0) {
         bigdatacorpResult = {
           success: true,
@@ -218,7 +228,11 @@ export async function POST(req: NextRequest) {
           sociosFalecidos:       bdcSociosPFResult.sociosFalecidos,
           alertaParentesco:      bdcSociosPFResult.alertaParentesco,
           parentescosDetectados: bdcSociosPFResult.parentescosDetectados,
+          ...(bdcProcEmpResult?.success && bdcProcEmpResult.data ? { processos: bdcProcEmpResult.data, rawData: bdcProcEmpResult.rawJson } : {}),
         };
+        if (bdcProcEmpResult?.success && bdcProcEmpResult.data) {
+          console.log(`[bureaus] BDC processos empresa: passivos=${bdcProcEmpResult.data.passivosTotal} ativos=${bdcProcEmpResult.data.ativosTotal} (propagado mesmo com BDC empresa pulado)`);
+        }
         console.log(`[bureaus] BDC sócios PF: ${bdcSociosPFResult.socios.length} sócio(s) consultado(s) (cobertura financialRisk + collections + processos + PGFN)`);
         if (bdcSociosPFResult.sociosFalecidos.length > 0) {
           console.warn(`[bureaus] BDC sócios PF: óbito: ${bdcSociosPFResult.sociosFalecidos.join(", ")}`);
@@ -226,6 +240,16 @@ export async function POST(req: NextRequest) {
         if (bdcSociosPFResult.alertaParentesco) {
           console.warn(`[bureaus] BDC sócios PF: parentesco detectado: ${bdcSociosPFResult.parentescosDetectados.map(p => `${p.socio1} + ${p.socio2}`).join(" | ")}`);
         }
+      } else if (bdcProcEmpResult?.success && bdcProcEmpResult.data) {
+        // Edge case: sem sócios PF pra BDC consultar mas tem processos da empresa.
+        // Ainda cria bigdatacorpResult mínimo pra processos chegarem ao merger.
+        bigdatacorpResult = {
+          success: true,
+          mock: false,
+          processos: bdcProcEmpResult.data,
+          rawData: bdcProcEmpResult.rawJson,
+        };
+        console.log(`[bureaus] BDC processos empresa (sem sócios PF): passivos=${bdcProcEmpResult.data.passivosTotal} ativos=${bdcProcEmpResult.data.ativosTotal}`);
       }
     }
 
