@@ -2390,7 +2390,7 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
       <thead><tr><th>Data</th><th>Credor</th><th class="r">Valor</th><th>Status</th></tr></thead>
       <tbody>${top5ProtRows}</tbody>
     </table>` : ""}
-    ${vigQtd > 2 ? `<div class="alert alta"><span class="atag">ALTA</span> ${vigQtd} protestos vigentes — ${fmtMoneyAbr(vigVal)}</div>` : ""}
+    ${vigQtd > 2 && !HIDE_ALERTAS_CRITICOS ? `<div class="alert alta"><span class="atag">ALTA</span> ${vigQtd} protestos vigentes — ${fmtMoneyAbr(vigVal)}</div>` : ""}
 
     ${stitle("04 · Processos judiciais")}
     <div class="istrip c4" style="margin-bottom:14px">
@@ -2420,8 +2420,8 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
       <thead><tr><th>Faixa</th><th class="r">Qtd</th><th class="r">Valor</th><th>Proporção</th></tr></thead>
       <tbody>${distFaixaProcRows}</tbody>
     </table>` : ""}
-    ${numVal(passivo) > 5 ? `<div class="alert alta"><span class="atag">ALTA</span> ${fmt(passivo)} processos no polo passivo — verificar detalhes</div>` : totalProc > 5 ? `<div class="alert mod"><span class="atag">MOD</span> ${totalProc} processos judiciais identificados — verificar detalhes</div>` : ""}
-    ${temRJ ? `<div class="alert alta"><span class="atag">ALTA</span> Pedido de falência ou recuperação judicial identificado</div>` : ""}
+    ${numVal(passivo) > 5 && !HIDE_ALERTAS_CRITICOS ? `<div class="alert alta"><span class="atag">ALTA</span> ${fmt(passivo)} processos no polo passivo — verificar detalhes</div>` : totalProc > 5 ? `<div class="alert mod"><span class="atag">MOD</span> ${totalProc} processos judiciais identificados — verificar detalhes</div>` : ""}
+    ${temRJ && !HIDE_ALERTAS_CRITICOS ? `<div class="alert alta"><span class="atag">ALTA</span> Pedido de falência ou recuperação judicial identificado</div>` : ""}
 
     ${(() => {
       const ccf = params.data.ccf;
@@ -2451,7 +2451,7 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
           <thead><tr><th>Banco</th><th>Agência</th><th class="r">Qtd</th><th class="r">Último</th><th>Motivo</th></tr></thead>
           <tbody>${bancosRows}</tbody>
         </table>` : ""}
-        ${ccfQtd > 0 && tendLabel === "crescimento" ? `<div class="alert mod"><span class="atag">MOD</span> CCF em crescimento — ${ccfQtd} registro(s) com tendência de alta nos últimos 6 meses</div>` : ccfQtd > 0 ? `<div class="alert alta"><span class="atag">ALTA</span> ${ccfQtd} registro(s) de cheque sem fundo identificado(s)</div>` : ""}
+        ${ccfQtd > 0 && tendLabel === "crescimento" ? `<div class="alert mod"><span class="atag">MOD</span> CCF em crescimento — ${ccfQtd} registro(s) com tendência de alta nos últimos 6 meses</div>` : ccfQtd > 0 && !HIDE_ALERTAS_CRITICOS ? `<div class="alert alta"><span class="atag">ALTA</span> ${ccfQtd} registro(s) de cheque sem fundo identificado(s)</div>` : ""}
       `;
     })()}
 
@@ -2487,7 +2487,7 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
       // pipeline de banco (types/buildCollection/hydrate) caso queiramos
       // reativar o comparativo no futuro.
       return `${stitle("Dívida Ativa (PGFN/UF/Município)")}
-      <div class="alert alta"><span class="atag">ALTA</span> <b>${da.qtdRegistros}</b> inscrição(ões) — total <b>${esc(da.valorTotal || "—")}</b>${da.dataConsulta ? ` · consulta ${esc(da.dataConsulta)}` : ""}</div>
+      ${HIDE_ALERTAS_CRITICOS ? "" : `<div class="alert alta"><span class="atag">ALTA</span> <b>${da.qtdRegistros}</b> inscrição(ões) — total <b>${esc(da.valorTotal || "—")}</b>${da.dataConsulta ? ` · consulta ${esc(da.dataConsulta)}` : ""}</div>`}
       ${rows ? `<table class="tbl"><thead><tr><th>Origem</th><th>Inscrição</th><th class="r">Valor</th><th>Situação</th><th>Data</th><th>Natureza</th></tr></thead><tbody>${rows}</tbody></table>` : ""}`;
     })()}
 
@@ -2522,7 +2522,7 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
         ${algumStatus ? `<td><span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;background:rgba(0,0,0,0.04);color:${statusCorCenprot(r.status)}">${esc(r.status || "Vigente")}</span></td>` : ""}
       </tr>`).join("");
       return `${stitle("CENPROT — Certidão Oficial de Protestos")}
-      <div class="alert alta"><span class="atag">ALTA</span> <b>${cen.qtdRegistros}</b> protesto(s) certificado(s) — total <b>${esc(cen.valorTotal || "—")}</b>${cen.dataConsulta ? ` · emitida ${esc(cen.dataConsulta)}` : ""}</div>
+      ${HIDE_ALERTAS_CRITICOS ? "" : `<div class="alert alta"><span class="atag">ALTA</span> <b>${cen.qtdRegistros}</b> protesto(s) certificado(s) — total <b>${esc(cen.valorTotal || "—")}</b>${cen.dataConsulta ? ` · emitida ${esc(cen.dataConsulta)}` : ""}</div>`}
       ${rows ? `<table class="tbl"><thead><tr><th>Cartório</th><th>Cidade/UF</th><th>Data</th><th class="r">Valor</th><th>Cedente</th>${algumTipo ? "<th>Tipo do título</th>" : ""}${algumStatus ? "<th>Status</th>" : ""}</tr></thead><tbody>${rows}</tbody></table>` : ""}
       ${cen.chaveValidacao ? `<div style="margin-top:6px;font-size:9px;color:var(--x4);font-family:'JetBrains Mono',monospace;letter-spacing:0.04em">Validação: ${esc(cen.chaveValidacao)}</div>` : ""}`;
     })()}
@@ -2815,8 +2815,8 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
     const lastAno = dre.anos[dre.anos.length - 1];
     const ml = numVal(lastAno?.margemLiquida ?? "0");
     const dreAlerts = [
-      ml < -30 ? `<div class="alert alta"><span class="atag">ALTA</span> Margem líquida ${fmtPct(lastAno?.margemLiquida)} — operação deficitária</div>` : "",
-      numVal(lastAno?.ebitda ?? "0") < 0 ? `<div class="alert alta"><span class="atag">ALTA</span> EBITDA negativo ${fmtMoneyAbr(lastAno?.ebitda)} — não gera caixa operacional</div>` : "",
+      ml < -30 && !HIDE_ALERTAS_CRITICOS ? `<div class="alert alta"><span class="atag">ALTA</span> Margem líquida ${fmtPct(lastAno?.margemLiquida)} — operação deficitária</div>` : "",
+      numVal(lastAno?.ebitda ?? "0") < 0 && !HIDE_ALERTAS_CRITICOS ? `<div class="alert alta"><span class="atag">ALTA</span> EBITDA negativo ${fmtMoneyAbr(lastAno?.ebitda)} — não gera caixa operacional</div>` : "",
     ].filter(Boolean).join("");
 
     const tableBody = `<thead><tr><th>Métrica</th>${headers}</tr></thead><tbody>${dreRows}</tbody>`;
@@ -2994,7 +2994,7 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
       ${subTable("ATIVO", ativoRows)}
       ${subTable("PASSIVO + PL", passivoRows)}
     </div>
-    ${pl < 0 ? `<div class="alert alta" style="margin-top:8px"><span class="atag">ALTA</span> PL negativo ${fmtMoneyAbr(lastBal?.patrimonioLiquido)} — passivo a descoberto</div>` : ""}
+    ${pl < 0 && !HIDE_ALERTAS_CRITICOS ? `<div class="alert alta" style="margin-top:8px"><span class="atag">ALTA</span> PL negativo ${fmtMoneyAbr(lastBal?.patrimonioLiquido)} — passivo a descoberto</div>` : ""}
     ${editBox("balanco", "Percepção do Analista — Balanço Patrimonial")}`;
   }
 
@@ -3101,7 +3101,7 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
       </table>
     </div>
     <div class="abc-summary">Top 3: <b>${fmtPct(top3Pct)}</b> · Top 5: <b>${fmtPct(top5Pct)}</b> · Total clientes: <b>${totalCli}</b></div>
-    ${abc.alertaConcentracao && abc.clientes[0] ? `<div class="alert alta" style="margin-top:8px"><span class="atag">ALTA</span> ${esc(abc.clientes[0].nome)} concentra ${fmtPct(abc.clientes[0].percentualReceita)} da receita — acima do limite recomendado</div>` : ""}`;
+    ${abc.alertaConcentracao && abc.clientes[0] && !HIDE_ALERTAS_CRITICOS ? `<div class="alert alta" style="margin-top:8px"><span class="atag">ALTA</span> ${esc(abc.clientes[0].nome)} concentra ${fmtPct(abc.clientes[0].percentualReceita)} da receita — acima do limite recomendado</div>` : ""}`;
   }
 
   // ── Sacados analisados (top 5 PJ da Curva ABC com bureau + cruzamento) ──
@@ -3208,7 +3208,7 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
     sacadosSection = `
     ${stitle("12 · Análise dos Top 5 Sacados — Bureau + Partes Relacionadas")}
     <div style="font-size:11px;color:var(--x5);margin-bottom:10px">Consulta CreditHub + BigDataCorp para os principais sacados da Curva ABC. Cruzamento de sócios indica possível parte relacionada (CPF comum, mãe comum, endereço, sobrenome + UF).</div>
-    ${totalComVinculo > 0 ? `<div class="alert alta" style="margin-bottom:10px"><span class="atag">ATENÇÃO</span> <b>${totalComVinculo} de ${sacados.length}</b> sacado(s) com vínculo detectado com o cedente — verificar relacionamento societário/familiar antes da operação.</div>` : ""}
+    ${totalComVinculo > 0 && !HIDE_ALERTAS_CRITICOS ? `<div class="alert alta" style="margin-bottom:10px"><span class="atag">ATENÇÃO</span> <b>${totalComVinculo} de ${sacados.length}</b> sacado(s) com vínculo detectado com o cedente — verificar relacionamento societário/familiar antes da operação.</div>` : ""}
     ${sacadoBlocks}`;
   }
 
@@ -3248,7 +3248,7 @@ function pageBalancoABC(params: PDFReportParams, date: string): string {
     gefipSection = `
     ${stitle(tituloGefip)}
     ${cnpjDivergente ? `<div class="alert mod" style="margin-bottom:6px"><span class="atag">ATENÇÃO</span> CNPJ no cabeçalho do GEFIP (${esc(gefip.cnpjDeclarado || "—")}) diverge do CNPJ do cedente — verificar se o documento é da empresa correta.</div>` : ""}
-    ${danger ? `<div class="alert alta"><span class="atag">ALTA</span> <b>${atrasos}</b> competência(s) em atraso — passivo trabalhista identificado.</div>` : `<div class="alert" style="background:#f0fdf4;border-color:#bbf7d0;color:#15803d"><span class="atag" style="background:#16a34a;color:#fff">REGULAR</span> Recolhimentos em dia.</div>`}
+    ${danger ? (HIDE_ALERTAS_CRITICOS ? "" : `<div class="alert alta"><span class="atag">ALTA</span> <b>${atrasos}</b> competência(s) em atraso — passivo trabalhista identificado.</div>`) : `<div class="alert" style="background:#f0fdf4;border-color:#bbf7d0;color:#15803d"><span class="atag" style="background:#16a34a;color:#fff">REGULAR</span> Recolhimentos em dia.</div>`}
     <div class="kpi-snap c4" style="margin-bottom:10px">
       <div class="icell"><div class="l">Período</div><div class="v sm">${esc(gefip.competenciaInicio || "—")} → ${esc(gefip.competenciaFim || "—")}</div></div>
       <div class="icell"><div class="l">Funcionários</div><div class="v sm">${gefip.totalFuncionarios ?? 0}</div></div>
@@ -3342,7 +3342,7 @@ function pageIRVisita(params: PDFReportParams, date: string): string {
             <table style="width:100%;border-collapse:collapse">${rows}</table>
           </div>`;
         })()}
-        ${!ir.debitosEmAberto ? `<div class="alert ok" style="margin:0"><span class="atag">OK</span> Sem débitos com a Receita Federal</div>` : `<div class="alert alta" style="margin:0"><span class="atag">ALTA</span> Débitos em aberto: ${esc(ir.descricaoDebitos ?? "")}</div>`}
+        ${!ir.debitosEmAberto ? `<div class="alert ok" style="margin:0"><span class="atag">OK</span> Sem débitos com a Receita Federal</div>` : (HIDE_ALERTAS_CRITICOS ? "" : `<div class="alert alta" style="margin:0"><span class="atag">ALTA</span> Débitos em aberto: ${esc(ir.descricaoDebitos ?? "")}</div>`)}
         ${(() => {
           const quotasV = numVal((ir as { participacoesSocietarias?: string }).participacoesSocietarias ?? (ir as { outrosBens?: string }).outrosBens ?? "0");
           const soma = numVal(bensImoveis) + numVal(bensVeiculos) + numVal(ir.aplicacoesFinanceiras) + quotasV;
