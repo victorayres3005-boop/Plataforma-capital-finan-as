@@ -867,6 +867,10 @@ export interface EmpresaGrupo {
   mudancasHistoricas?: number;
   /** Lista das mudanças (pra tooltip). Ex: ["razão social", "regime tributário", "endereço"]. */
   tiposMudanca?: string[];
+  /** JSON raw das consultas BDC pra esta empresa do grupo (processes +
+   *  basic_data). Usado pra modal "Ver dados BDC" na revisão.
+   *  Limpo de EmpresaGrupo antes de salvar no banco — fica só em rawBDC.grupo. */
+  rawBDC?: unknown;
 }
 
 export interface ParentescoDetectado {
@@ -1050,6 +1054,19 @@ export interface ExtractedData {
   analiseContabil?: string;
   dre?: DREData;
   balanco?: BalancoData;
+  /** JSON raw das consultas BigDataCorp — persistido pra permitir que o
+   *  analista revise os dados crus na aba de revisão e no relatório (modais
+   *  "Ver dados BDC"). Adicionado 2026-05-15 — replica funcionalidade que o
+   *  DataBox360 oferece via campo urlRelatorio. Não é exibido em PDF
+   *  diretamente, só consultado via UI. */
+  rawBDC?: {
+    /** Resposta crua de consultarEmpresa (BasicData + Processes + Relationships + ...) */
+    empresa?: { cnpj: string; consultadoEm: string; json: unknown };
+    /** Resposta crua de consultarBDCSocios — uma entrada por sócio PF */
+    socios?: Array<{ cpf: string; nome: string; consultadoEm: string; json: unknown }>;
+    /** Resposta crua das chamadas BDC pras empresas do grupo (cap 5) */
+    grupo?: Array<{ cnpj: string; razaoSocial: string; consultadoEm: string; json: unknown }>;
+  };
   irSocios?: IRSocioData[];
   relatorioVisita?: RelatorioVisitaData;
   scrSocios?: SCRSocioData[];
@@ -1143,7 +1160,7 @@ export type AppStep = 'upload' | 'review' | 'generate';
 
 // ─── Supabase — Histórico de coletas ───
 export interface CollectionDocument {
-  type: 'cnpj' | 'qsa' | 'contrato_social' | 'faturamento' | 'scr_bacen' | 'protestos' | 'processos' | 'grupo_economico' | 'dre' | 'balanco' | 'curva_abc' | 'ir_socio' | 'relatorio_visita' | 'ccf' | 'divida_ativa' | 'divida_ativa_bdc' | 'cenprot' | 'gefip' | 'bureau_meta' | 'outro';
+  type: 'cnpj' | 'qsa' | 'contrato_social' | 'faturamento' | 'scr_bacen' | 'protestos' | 'processos' | 'grupo_economico' | 'dre' | 'balanco' | 'curva_abc' | 'ir_socio' | 'relatorio_visita' | 'ccf' | 'divida_ativa' | 'divida_ativa_bdc' | 'cenprot' | 'gefip' | 'bureau_meta' | 'bdc_raw' | 'outro';
   filename: string;
   extracted_data: Record<string, unknown>;
   uploaded_at: string;

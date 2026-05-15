@@ -2,6 +2,7 @@
 import { Plus, Trash2, AlertTriangle, FileSignature } from "lucide-react";
 import { QSAData, QSASocio } from "@/types";
 import { Field, QualityBadge, SectionCard, QualityResult, qualityAccent } from "./shared";
+import { BDCDataButton } from "./BDCDataModal";
 
 type MergeFlag = {
   cpfCnpj?:          boolean;
@@ -22,6 +23,8 @@ interface Props {
   // Mapa nome-normalizado → flags dos campos vindos do Contrato Social.
   // Quando presente, a UI mostra um badge "do contrato" ao lado do campo.
   mergeMap?: Record<string, MergeFlag>;
+  /** Raws BDC por sócio (CPF normalizado) — decisão 2026-05-15. */
+  rawBDCSocios?: Array<{ cpf: string; nome: string; consultadoEm: string; json: unknown }>;
 }
 
 // Mesma normalização do mergeQsaWithContrato — manter sincronizada.
@@ -51,7 +54,9 @@ function FromContratoBadge() {
   );
 }
 
-export function SectionQSA({ data, setField, setSocio, addSocio, removeSocio, expanded, onToggle, quality, mergeMap }: Props) {
+export function SectionQSA({ data, setField, setSocio, addSocio, removeSocio, expanded, onToggle, quality, mergeMap, rawBDCSocios }: Props) {
+  // Index por CPF normalizado pra lookup O(1) no loop dos sócios.
+  const rawBDCByCpf = new Map((rawBDCSocios ?? []).map(s => [s.cpf.replace(/\D/g, ""), s]));
   return (
     <SectionCard
       number="02"
@@ -86,6 +91,7 @@ export function SectionQSA({ data, setField, setSocio, addSocio, removeSocio, ex
               const initial = s.nome ? s.nome.trim().charAt(0).toUpperCase() : String(i + 1);
               const hasCPF = s.cpfCnpj && s.cpfCnpj.trim();
               const flags = mergeMap?.[normalizeName(s.nome)] || {};
+              const rawBDC = rawBDCByCpf.get((s.cpfCnpj ?? "").replace(/\D/g, ""));
               return (
                 <div
                   key={i}
@@ -159,6 +165,15 @@ export function SectionQSA({ data, setField, setSocio, addSocio, removeSocio, ex
                       />
                       {flags.capitalInvestido && <div style={{ marginTop: 3 }}><FromContratoBadge /></div>}
                     </div>
+                    {rawBDC && (
+                      <div style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "flex-end", marginTop: "4px" }}>
+                        <BDCDataButton
+                          title={`Dados BigDataCorp — ${rawBDC.nome || s.nome}`}
+                          subtitle={`CPF ${rawBDC.cpf} · consultado em ${new Date(rawBDC.consultadoEm).toLocaleString("pt-BR")}`}
+                          raw={rawBDC.json}
+                        />
+                      </div>
+                    )}
                   </div>
 
                   {/* Remover */}

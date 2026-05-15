@@ -1432,6 +1432,12 @@ async function enriquecerEmpresasGrupoEconomico(
     await Promise.allSettled(paraProcessos.map(async emp => {
       try {
         const result = await consultarProcessosBDC(emp.cnpj!);
+        // Anexa raw pra modal "Ver dados BDC" (decisão 2026-05-15) — populado
+        // mesmo quando não há dados de processo, pra registrar que consultamos.
+        if (result.success && result.rawJson) {
+          const prev = (emp.rawBDC as Record<string, unknown> | undefined) ?? {};
+          emp.rawBDC = { ...prev, processes: result.rawJson };
+        }
         if (result.success && result.data) {
           const bdcPassivos = Number(result.data.passivosTotal ?? 0);
           const bdcAtivos = Number(result.data.ativosTotal ?? 0);
@@ -1467,6 +1473,11 @@ async function enriquecerEmpresasGrupoEconomico(
         if (hist.success && (hist.mudancas ?? 0) > 0) {
           emp.mudancasHistoricas = hist.mudancas;
           emp.tiposMudanca = hist.tipos;
+        }
+        // Anexa raw basic_data pra modal "Ver dados BDC" (decisão 2026-05-15).
+        if (hist.success && hist.rawJson) {
+          const prev = (emp.rawBDC as Record<string, unknown> | undefined) ?? {};
+          emp.rawBDC = { ...prev, basic_data: hist.rawJson };
         }
       } catch (err) {
         console.warn(`[credithub][enrich-historico] ${emp.cnpj!.slice(0,4)}*** erro:`, err instanceof Error ? err.message : String(err));

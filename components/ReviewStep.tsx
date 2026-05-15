@@ -412,8 +412,8 @@ export default function ReviewStep({ data, onComplete, onBack, onDataChange }: R
       </div>
 
       {/* Sections */}
-      <SectionCNPJ data={form.cnpj} set={setCNPJ} expanded={open.cnpj} onToggle={() => toggle("cnpj")} quality={qualityMap.cnpj} />
-      <SectionQSA data={form.qsa} setField={setQSAField} setSocio={setQSASocio} addSocio={addQSASocio} removeSocio={removeQSASocio} expanded={open.qsa} onToggle={() => toggle("qsa")} quality={qualityMap.qsa} mergeMap={(data as { _qsaMergeMap?: Record<string, { cpfCnpj?: boolean; qualificacao?: boolean; participacao?: boolean; capitalInvestido?: boolean }> })._qsaMergeMap} />
+      <SectionCNPJ data={form.cnpj} set={setCNPJ} expanded={open.cnpj} onToggle={() => toggle("cnpj")} quality={qualityMap.cnpj} rawBDCEmpresa={data.rawBDC?.empresa} />
+      <SectionQSA data={form.qsa} setField={setQSAField} setSocio={setQSASocio} addSocio={addQSASocio} removeSocio={removeQSASocio} expanded={open.qsa} onToggle={() => toggle("qsa")} quality={qualityMap.qsa} mergeMap={(data as { _qsaMergeMap?: Record<string, { cpfCnpj?: boolean; qualificacao?: boolean; participacao?: boolean; capitalInvestido?: boolean }> })._qsaMergeMap} rawBDCSocios={data.rawBDC?.socios} />
       <SectionContrato data={form.contrato} set={setContrato} setSocio={setSocio} addSocio={addSocio} removeSocio={removeSocio} expanded={open.contrato} onToggle={() => toggle("contrato")} quality={qualityMap.contrato} dataConstituicaoFromCnpj={dataConstituicaoEhDoCnpj} />
       <SectionFaturamento data={form.faturamento} setMes={setFatMes} addMes={addFatMes} removeMes={removeFatMes} expanded={open.faturamento} onToggle={() => toggle("faturamento")} quality={qualityMap.faturamento} />
       <SectionSCR data={form.scr} anterior={form.scrAnterior ?? undefined} set={setSCR} setMod={setSCRMod} addMod={addSCRMod} removeMod={removeSCRMod} setInst={setSCRInst} addInst={addSCRInst} removeInst={removeSCRInst} showDetails={showSCRDetails} setShowDetails={setShowSCRDetails} expanded={open.scr} onToggle={() => toggle("scr")} quality={qualityMap.scr} />
@@ -425,7 +425,7 @@ export default function ReviewStep({ data, onComplete, onBack, onDataChange }: R
       {form.relatorioVisita && <SectionRelatorioVisita data={form.relatorioVisita} set={setVisita} setLista={setVisitaLista} addLista={addVisitaLista} removeLista={removeVisitaLista} expanded={open.relatorioVisita} onToggle={() => toggle("relatorioVisita")} />}
       <SectionProtestos data={form.protestos} expanded={open.protestos} onToggle={() => toggle("protestos")} />
       <SectionProcessos data={form.processos} expanded={open.processos} onToggle={() => toggle("processos")} />
-      <SectionGrupoEconomico data={form.grupoEconomico} expanded={open.grupoEconomico} onToggle={() => toggle("grupoEconomico")} />
+      <SectionGrupoEconomico data={form.grupoEconomico} expanded={open.grupoEconomico} onToggle={() => toggle("grupoEconomico")} rawBDCGrupo={data.rawBDC?.grupo} />
       {/* Análise Contábil removida da aba de Revisão em 2026-05-10 a pedido do Victor.
           O campo `form.analiseContabil` continua persistindo (compatibilidade com
           análises antigas) e o relatório (pág 3 da síntese) ainda renderiza o texto

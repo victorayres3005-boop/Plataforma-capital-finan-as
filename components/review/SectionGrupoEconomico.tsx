@@ -1,11 +1,14 @@
 "use client";
 import { GrupoEconomicoData } from "@/types";
 import { SectionCard } from "./shared";
+import { BDCDataButton } from "./BDCDataModal";
 
 interface Props {
   data: GrupoEconomicoData;
   expanded: boolean;
   onToggle: () => void;
+  /** Raws BDC por CNPJ das empresas do grupo (decisão 2026-05-15). */
+  rawBDCGrupo?: Array<{ cnpj: string; razaoSocial: string; consultadoEm: string; json: unknown }>;
 }
 
 function parseNum(v: string | undefined | null): number {
@@ -13,12 +16,13 @@ function parseNum(v: string | undefined | null): number {
   return parseFloat(String(v).replace(/[^\d,-]/g, "").replace(",", ".")) || 0;
 }
 
-export function SectionGrupoEconomico({ data, expanded, onToggle }: Props) {
+export function SectionGrupoEconomico({ data, expanded, onToggle, rawBDCGrupo }: Props) {
   const empresas = data.empresas || [];
   const hasEmpresas = empresas.length > 0;
   const alertaParentesco = data.alertaParentesco;
   const parentescos = data.parentescosDetectados || [];
   const sociosKyc = data.sociosKyc || [];
+  const rawBDCByCnpj = new Map((rawBDCGrupo ?? []).map(g => [g.cnpj.replace(/\D/g, ""), g]));
 
   const totalSCR = empresas.reduce((acc, e) => acc + parseNum(e.scrTotal), 0);
   const empresasAtivas = empresas.filter(e => !e.situacao || e.situacao === "ATIVA");
@@ -91,9 +95,21 @@ export function SectionGrupoEconomico({ data, expanded, onToggle }: Props) {
                   const temDivida = parseNum(e.scrTotal) > 0;
                   const temProtesto = parseInt(e.protestos || "0", 10) > 0;
                   const temProcesso = parseInt(e.processos || "0", 10) > 0;
+                  const rawBDC = rawBDCByCnpj.get((e.cnpj ?? "").replace(/\D/g, ""));
                   return (
                     <tr key={i} style={{ borderTop: "1px solid #F3F4F6", opacity: baixada ? 0.6 : 1 }}>
-                      <td style={{ padding: "8px 10px", color: "#111827", fontWeight: 600, maxWidth: "180px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={e.razaoSocial}>{e.razaoSocial || "—"}</td>
+                      <td style={{ padding: "8px 10px", color: "#111827", fontWeight: 600, maxWidth: "180px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={e.razaoSocial}>
+                        {e.razaoSocial || "—"}
+                        {rawBDC && (
+                          <div style={{ marginTop: "4px" }}>
+                            <BDCDataButton
+                              title={`Dados BigDataCorp — ${rawBDC.razaoSocial || e.razaoSocial}`}
+                              subtitle={`CNPJ ${rawBDC.cnpj} · consultado em ${new Date(rawBDC.consultadoEm).toLocaleString("pt-BR")}`}
+                              raw={rawBDC.json}
+                            />
+                          </div>
+                        )}
+                      </td>
                       <td style={{ padding: "8px 10px", color: "#6B7280", fontFamily: "ui-monospace, monospace", fontSize: "11px", whiteSpace: "nowrap" }}>{e.cnpj || "—"}</td>
                       <td style={{ padding: "8px 10px", color: "#374151", whiteSpace: "nowrap" }}>{e.relacao || "—"}</td>
                       <td style={{ padding: "8px 10px", color: "#374151", maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={e.socioOrigem}>

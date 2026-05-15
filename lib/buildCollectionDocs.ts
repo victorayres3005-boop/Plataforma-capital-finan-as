@@ -125,6 +125,12 @@ export function buildCollectionDocs(data: ExtractedData): CollectionDocument[] {
   if (data.dividaAtivaBDC && (data.dividaAtivaBDC.qtdRegistros > 0 || data.dividaAtivaBDC.certidaoNegativa)) {
     docs.push({ type: "divida_ativa_bdc" as CollectionDocument["type"], filename: "divida-ativa-bdc.json", extracted_data: asRec(data.dividaAtivaBDC), uploaded_at: ts() });
   }
+  // BDC raw — JSONs crus das consultas BDC (empresa + sócios + grupo). Persiste
+  // pra modal "Ver dados BDC" na revisão do analista (decisão 2026-05-15).
+  // Pode ser pesado (~5-50kb por consulta); só salva se há pelo menos um escopo.
+  if (data.rawBDC && (data.rawBDC.empresa || (data.rawBDC.socios?.length ?? 0) > 0 || (data.rawBDC.grupo?.length ?? 0) > 0)) {
+    docs.push({ type: "bdc_raw" as CollectionDocument["type"], filename: "bdc-raw.json", extracted_data: asRec(data.rawBDC), uploaded_at: ts() });
+  }
   if (data.cenprot && (data.cenprot.qtdRegistros > 0 || data.cenprot.certidaoNegativa)) {
     docs.push({ type: "cenprot" as CollectionDocument["type"], filename: "cenprot.pdf", extracted_data: asRec(data.cenprot), uploaded_at: ts() });
   }

@@ -281,6 +281,39 @@ export async function POST(req: NextRequest) {
 
     const merged = mergeBureauResults(data, results);
 
+    // ── Persistência do JSON raw do BDC (decisão 2026-05-15) ──────────────────
+    // Captura os JSONs crus das chamadas BDC pra permitir que o analista
+    // revise os dados detalhados via modal "Ver dados BDC" na aba de revisão.
+    // Substitui o equivalente DataBox360 que tem `urlRelatorio` no payload.
+    //
+    // 3 escopos: empresa principal, sócios PF, empresas do grupo (top 5).
+    {
+      const empresaRaw = bigdatacorpResult?.rawData;
+      const sociosRaws = (bdcSociosPFResult?.socios ?? [])
+        .filter(s => s.rawJson)
+        .map(s => ({ cpf: s.cpf, nome: s.nome, consultadoEm: new Date().toISOString(), json: s.rawJson }));
+      const grupoRaws = ((merged.grupoEconomico?.empresas ?? [])
+        .filter(e => e.rawBDC)
+        .map(e => ({ cnpj: e.cnpj, razaoSocial: e.razaoSocial, consultadoEm: new Date().toISOString(), json: e.rawBDC }))) as NonNullable<typeof merged.rawBDC>["grupo"];
+
+      if (empresaRaw || sociosRaws.length > 0 || (grupoRaws?.length ?? 0) > 0) {
+        merged.rawBDC = {
+          ...(empresaRaw ? { empresa: { cnpj, consultadoEm: new Date().toISOString(), json: empresaRaw } } : {}),
+          ...(sociosRaws.length > 0 ? { socios: sociosRaws } : {}),
+          ...(grupoRaws && grupoRaws.length > 0 ? { grupo: grupoRaws } : {}),
+        };
+        console.log(`[bureaus][raw-bdc] persistindo raws: empresa=${!!empresaRaw} socios=${sociosRaws.length} grupo=${grupoRaws?.length ?? 0}`);
+      }
+
+      // Limpa o campo `rawBDC` das EmpresaGrupo após copiar pra evitar duplicação
+      // no banco (o raw fica só em merged.rawBDC.grupo).
+      if (merged.grupoEconomico?.empresas) {
+        for (const e of merged.grupoEconomico.empresas) {
+          if ("rawBDC" in e) delete e.rawBDC;
+        }
+      }
+    }
+
     // ── Dívida Ativa via BDC ──────────────────────────────────────────────────
     // Upload manual de certidão PGFN tem prioridade nos cálculos (PGFN é fonte
     // autoritativa). BDC government_debtors é populado em DOIS papéis:

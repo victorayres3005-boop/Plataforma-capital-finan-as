@@ -52,6 +52,9 @@ export interface BigDataCorpSocioData {
   processosPassivo?:            number;
   processosAtivo?:              number;
   processosValorTotal?:         string;
+  /** Resposta crua da API BDC (datasets pessoa) — persistida pra modal
+   *  "Ver dados BDC" na revisão do analista. Adicionado 2026-05-15. */
+  rawJson?:                     unknown;
 }
 
 export interface OwnerKycData {
@@ -214,7 +217,10 @@ export async function consultarSocios(cpfs: string[]): Promise<BigDataCorpSocios
         }
         const json = await res.json();
         console.log(`[bigdatacorp] raw sócio ${cpf.slice(0,3)}***:`, JSON.stringify(json, null, 2));
-        return parsePessoaResponse(cpf, json);
+        const parsed = parsePessoaResponse(cpf, json);
+        // Anexa raw pra modal "Ver dados BDC" (decisão 2026-05-15).
+        if (parsed) parsed.rawJson = json;
+        return parsed;
       } catch (err) {
         clearTimeout(tid);
         console.warn(`[bigdatacorp] consultarSocios CPF ${cpf.slice(0,3)}*** erro:`, err instanceof Error ? err.message : err);
@@ -262,6 +268,7 @@ export async function consultarSocios(cpfs: string[]): Promise<BigDataCorpSocios
 export interface ProcessosBDCResult {
   success: boolean;
   data?: ProcessosData;
+  rawJson?: unknown;
   error?: string;
 }
 
@@ -294,9 +301,9 @@ export async function consultarProcessosBDC(cnpj: string): Promise<ProcessosBDCR
     const parsed = parseEmpresaResponse({ Result: arr });
     if (parsed.success && parsed.processos) {
       console.log(`[bigdatacorp][processos] CNPJ=${cnpjNum.slice(0,8)}*** ativos=${parsed.processos.ativosTotal} passivos=${parsed.processos.passivosTotal}`);
-      return { success: true, data: parsed.processos };
+      return { success: true, data: parsed.processos, rawJson: json };
     }
-    return { success: true, data: undefined };
+    return { success: true, data: undefined, rawJson: json };
   } catch (err) {
     clearTimeout(tid);
     return { success: false, error: err instanceof Error ? err.message : String(err) };
@@ -314,6 +321,7 @@ export interface HistoricoBDCResult {
   success: boolean;
   mudancas?: number;
   tipos?: string[];
+  rawJson?: unknown;
   error?: string;
 }
 
@@ -363,7 +371,7 @@ export async function consultarHistoricoBDC(cnpj: string): Promise<HistoricoBDCR
     }
 
     console.log(`[bigdatacorp][historico] CNPJ=${cnpjNum.slice(0,8)}*** mudancas=${mudancas} tipos=[${tipos.join(",")}]`);
-    return { success: true, mudancas, tipos };
+    return { success: true, mudancas, tipos, rawJson: json };
   } catch (err) {
     clearTimeout(tid);
     return { success: false, error: err instanceof Error ? err.message : String(err) };

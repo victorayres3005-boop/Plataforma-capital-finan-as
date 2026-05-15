@@ -150,6 +150,7 @@ export function hydrateFromCollection(docs: { type: string; extracted_data: Reco
     ccf: "ccf",
     divida_ativa: "dividaAtiva",
     divida_ativa_bdc: "dividaAtivaBDC",
+    bdc_raw: "rawBDC",
     cenprot: "cenprot",
     gefip: "gefip",
   };
