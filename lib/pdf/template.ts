@@ -2394,69 +2394,15 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
         <td style="white-space:nowrap">${esc(r.dataInscricao || "—")}</td>
         <td>${esc(r.natureza || "—")}</td>
       </tr>`).join("");
-      // Comparativo BDC × PGFN: só renderiza quando temos AMBOS (analista
-      // subiu certidão E orquestrador consultou BDC pra snapshot). Categoriza
-      // as inscrições do BDC em "confirmadas" (também no PGFN), "fora da lista"
-      // (BDC tem, PGFN não — provavelmente parceladas/SISPAR/pagas) e mostra
-      // "novas no PGFN" (no PGFN mas não no BDC — BDC desatualizado).
-      const bdc = params.data.dividaAtivaBDC;
-      let comparativoBlock = "";
-      if (bdc && bdc.qtdRegistros > 0 && da.qtdRegistros > 0) {
-        const normInsc = (s: string | undefined) => (s ?? "").replace(/\D/g, "");
-        const pgfnIds = new Set((da.registros ?? []).map(r => normInsc(r.numeroInscricao)).filter(Boolean));
-        const bdcIds = new Set((bdc.registros ?? []).map(r => normInsc(r.numeroInscricao)).filter(Boolean));
-        const foraDaLista = (bdc.registros ?? []).filter(r => {
-          const id = normInsc(r.numeroInscricao);
-          return id && !pgfnIds.has(id);
-        });
-        const novasPGFN = (da.registros ?? []).filter(r => {
-          const id = normInsc(r.numeroInscricao);
-          return id && !bdcIds.has(id);
-        });
-        const confirmadasQtd = bdcIds.size - foraDaLista.length;
-        const deltaValor = numVal(da.valorTotal) - numVal(bdc.valorTotal);
-        const deltaPct = numVal(bdc.valorTotal) > 0 ? Math.round((deltaValor / numVal(bdc.valorTotal)) * 100) : 0;
-        const foraRows = foraDaLista.map(r => `<tr style="opacity:0.6">
-          <td class="mono" style="font-size:10px">${esc(r.numeroInscricao || "—")}</td>
-          <td style="font-size:11px">${esc(r.origem || "—")}</td>
-          <td class="r mono" style="text-decoration:line-through;color:var(--x5)">${esc(r.valor || "—")}</td>
-          <td style="font-size:10px;color:var(--x5)">${esc(r.situacao || "—")}</td>
-        </tr>`).join("");
-        const novasRows = novasPGFN.map(r => `<tr style="background:#fff7ed">
-          <td class="mono" style="font-size:10px">${esc(r.numeroInscricao || "—")}</td>
-          <td style="font-size:11px">${esc(r.origem || "—")}</td>
-          <td class="r red mono">${esc(r.valor || "—")}</td>
-          <td style="font-size:10px">${esc(r.situacao || "—")}</td>
-        </tr>`).join("");
-        comparativoBlock = `
-        <div style="margin-top:14px;padding:10px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-            <span style="font-size:9px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:var(--x5)">Comparativo BDC × PGFN</span>
-            <span style="flex:1;height:1px;background:var(--x2)"></span>
-            <span style="font-size:10px;color:var(--x5)">PGFN é fonte autoritativa</span>
-          </div>
-          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px;font-size:11px">
-            <div><div style="font-size:9px;color:var(--x4);text-transform:uppercase;letter-spacing:0.06em">BDC (snapshot)</div><div class="mono">${esc(bdc.valorTotal || "—")} · ${bdc.qtdRegistros}</div></div>
-            <div><div style="font-size:9px;color:var(--x4);text-transform:uppercase;letter-spacing:0.06em">PGFN (oficial)</div><div class="mono"><b>${esc(da.valorTotal || "—")} · ${da.qtdRegistros}</b></div></div>
-            <div><div style="font-size:9px;color:var(--x4);text-transform:uppercase;letter-spacing:0.06em">Confirmadas em ambos</div><div>${confirmadasQtd}</div></div>
-            <div><div style="font-size:9px;color:var(--x4);text-transform:uppercase;letter-spacing:0.06em">Delta</div><div style="color:${deltaValor > 0 ? "var(--r6)" : "var(--g6)"}">${deltaValor > 0 ? "+" : ""}${deltaPct}%</div></div>
-          </div>
-          ${foraDaLista.length > 0 ? `
-          <div style="margin-top:8px">
-            <div style="font-size:10px;color:var(--x5);margin-bottom:4px">⊘ ${foraDaLista.length} inscrição(ões) no BDC ausente(s) do PGFN — provavelmente parceladas/quitadas após o snapshot</div>
-            <table class="tbl" style="font-size:10px"><thead><tr><th>Inscrição</th><th>Origem</th><th class="r">Valor BDC</th><th>Situação BDC</th></tr></thead><tbody>${foraRows}</tbody></table>
-          </div>` : ""}
-          ${novasPGFN.length > 0 ? `
-          <div style="margin-top:8px">
-            <div style="font-size:10px;color:var(--a5);margin-bottom:4px">⚠ ${novasPGFN.length} inscrição(ões) no PGFN ausente(s) do BDC — provavelmente inscritas após o último crawl do BDC</div>
-            <table class="tbl" style="font-size:10px"><thead><tr><th>Inscrição</th><th>Origem</th><th class="r">Valor PGFN</th><th>Situação</th></tr></thead><tbody>${novasRows}</tbody></table>
-          </div>` : ""}
-        </div>`;
-      }
+      // Decisão Victor 2026-05-15: comparativo BDC×PGFN removido do relatório.
+      // Upload de Dívida Ativa é a única fonte exibida — BDC government_debtors
+      // só é usado como fallback quando upload está ausente (lógica em
+      // app/api/bureaus/route.ts:299). Campo `data.dividaAtivaBDC` continua no
+      // pipeline de banco (types/buildCollection/hydrate) caso queiramos
+      // reativar o comparativo no futuro.
       return `${stitle("Dívida Ativa (PGFN/UF/Município)")}
-      <div class="alert alta"><span class="atag">ALTA</span> <b>${da.qtdRegistros}</b> inscrição(ões) — total <b>${esc(da.valorTotal || "—")}</b>${da.dataConsulta ? ` · consulta ${esc(da.dataConsulta)}` : ""}${bdc ? ` · <span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:99px;background:#dcfce7;color:#15803d;margin-left:4px">PGFN ✓</span>` : ""}</div>
-      ${rows ? `<table class="tbl"><thead><tr><th>Origem</th><th>Inscrição</th><th class="r">Valor</th><th>Situação</th><th>Data</th><th>Natureza</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
-      ${comparativoBlock}`;
+      <div class="alert alta"><span class="atag">ALTA</span> <b>${da.qtdRegistros}</b> inscrição(ões) — total <b>${esc(da.valorTotal || "—")}</b>${da.dataConsulta ? ` · consulta ${esc(da.dataConsulta)}` : ""}</div>
+      ${rows ? `<table class="tbl"><thead><tr><th>Origem</th><th>Inscrição</th><th class="r">Valor</th><th>Situação</th><th>Data</th><th>Natureza</th></tr></thead><tbody>${rows}</tbody></table>` : ""}`;
     })()}
 
     ${(() => {
