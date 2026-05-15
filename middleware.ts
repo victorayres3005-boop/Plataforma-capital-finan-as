@@ -69,15 +69,9 @@ export async function middleware(request: NextRequest) {
     },
   );
 
-  // getSession() lê do cookie, mas se o token estiver expirado, ele faz uma chamada de rede para renovar.
-  // Para evitar o erro 504 MIDDLEWARE_INVOCATION_TIMEOUT quando a rede do Supabase estiver instável,
-  // vamos envolver a chamada em um timeout de 3 segundos. Se demorar mais, forçamos o redirecionamento.
-  const getSessionPromise = supabase.auth.getSession().catch(() => ({ data: { session: null } }));
-  const timeoutPromise = new Promise<{ data: { session: null } }>((resolve) => 
-    setTimeout(() => resolve({ data: { session: null } }), 3000)
-  );
-
-  const { data: { session } } = await Promise.race([getSessionPromise, timeoutPromise]);
+  // getSession() lê do cookie (sem rede) — evita timeout no Edge.
+  // getUser() (valida com servidor) fica nas rotas individuais que precisam.
+  const { data: { session } } = await supabase.auth.getSession();
   const user = session?.user ?? null;
 
   // /login é público mas tem lógica especial: usuário logado é redirecionado pra home
