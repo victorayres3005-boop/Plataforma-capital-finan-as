@@ -7,7 +7,7 @@ import type {
 } from "@/types";
 import { protestosSave, protestosLoad, processosSave, processosLoad, ccfSave, ccfLoad } from "@/lib/bureaus/cache";
 import { parseBRL } from "@/lib/generators/report-shared";
-import { consultarEmpresa as consultarBDCEmpresa, consultarHistoricoBDC } from "@/lib/bureaus/bigdatacorp";
+import { consultarEmpresa as consultarBDCEmpresa, consultarHistoricoBDC, consultarProcessosBDC } from "@/lib/bureaus/bigdatacorp";
 
 const CREDITHUB_API_URL = process.env.CREDITHUB_API_URL || "";
 const CREDITHUB_API_KEY = process.env.CREDITHUB_API_KEY || "";
@@ -1417,6 +1417,38 @@ async function enriquecerEmpresasGrupoEconomico(
         }
       } catch (err) {
         console.warn(`[credithub][enrich-brapi] ${emp.cnpj!.slice(0,4)}*** falhou:`, err instanceof Error ? err.message : String(err));
+      }
+    }));
+  }
+
+  // PROCESSOS BDC PRIMÁRIO (decisão Andressa 2026-05-15): consulta BDC.processes
+  // pra cada empresa do grupo (cap 5). Substitui dados de CH `/simples` quando
+  // BDC tem dados. CH vira fallback (já está em emp.processos preenchido pelo
+  // loop anterior). Custo ~R$ 0,05-0,10 por empresa = R$ 0,25-0,50/análise.
+  const MAX_PROCESSOS_BDC = 5;
+  const paraProcessos = paraEnriquecer.filter(e => e.cnpj && e.cnpj.length === 14).slice(0, MAX_PROCESSOS_BDC);
+  if (paraProcessos.length > 0) {
+    console.log(`[credithub][enrich] consultando processos BDC pra ${paraProcessos.length} empresa(s) (decisão 2026-05-15: BDC primário)`);
+    await Promise.allSettled(paraProcessos.map(async emp => {
+      try {
+        const result = await consultarProcessosBDC(emp.cnpj!);
+        if (result.success && result.data) {
+          const bdcPassivos = Number(result.data.passivosTotal ?? 0);
+          const bdcAtivos = Number(result.data.ativosTotal ?? 0);
+          const bdcTemDados = bdcPassivos > 0 || bdcAtivos > 0 ||
+            (result.data.top10Valor?.length ?? 0) > 0 ||
+            (result.data.top10Recentes?.length ?? 0) > 0;
+          if (bdcTemDados) {
+            // Sobrescreve dados CH com BDC (BDC tem cobertura mais profunda de TJs).
+            emp.processos = String(bdcPassivos);
+            if (result.data.valorTotalEstimado && result.data.valorTotalEstimado !== "R$ 0,00") {
+              emp.valorProcessos = result.data.valorTotalEstimado;
+            }
+            console.log(`[credithub][enrich-bdc-proc] ${emp.cnpj!.slice(0,4)}*** processos=${bdcPassivos} valor=${result.data.valorTotalEstimado ?? "—"} (sobrescreveu CH)`);
+          }
+        }
+      } catch (err) {
+        console.warn(`[credithub][enrich-bdc-proc] ${emp.cnpj!.slice(0,4)}*** erro:`, err instanceof Error ? err.message : String(err));
       }
     }));
   }

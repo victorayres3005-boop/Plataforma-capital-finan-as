@@ -57,14 +57,17 @@ export function mergeBureauResults(
     if (chp) {
       protestos = chp;
     }
-    // Processos: passa sempre que o CH consultou; evita apagar dados vindos de documento
-    // só descarta se passivosTotal também for 0 E já existir dado de documento
+    // Processos: decisão Andressa (chefe Victor) 2026-05-15 — BDC vira fonte
+    // primária pra processos. CH vira fallback (este bloco roda primeiro mas
+    // só preenche se CH tem dados; depois no bloco BDC ~linha 290, BDC
+    // sobrescreve sempre que tiver dados). Antes era CH primário.
+    // CH continua armazenado como fallback caso BDC retorne vazio.
     const chProc = results.credithub.processos;
     if (chProc) {
       const temDadoDocumento = Number(data.processos?.passivosTotal ?? 0) > 0;
       const temDadoCH = Number(chProc.passivosTotal ?? 0) > 0 || (chProc.top10Valor?.length ?? 0) > 0;
       if (temDadoCH || !temDadoDocumento) {
-        processos = chProc;
+        processos = chProc; // valor temporário — pode ser sobrescrito por BDC abaixo
       }
     }
 
@@ -286,21 +289,25 @@ export function mergeBureauResults(
       }
     }
 
-    // Processos: usa BDC se CreditHub não trouxe ou se CH veio vazio e BDC tem dados individuais
-    if (!processos && bdc.processos) {
-      processos = bdc.processos;
-    } else if (processos && bdc.processos) {
-      // CH trouxe resultado vazio (0 passivos, 0 top10) mas BDC tem entradas com datas — enriquece
-      const chVazio = Number(processos.passivosTotal ?? 0) === 0 &&
-        (processos.top10Valor?.length ?? 0) === 0 &&
-        (processos.top10Recentes?.length ?? 0) === 0;
+    // Processos: BDC é fonte PRIMÁRIA desde 2026-05-15 (decisão Andressa,
+    // chefe Victor). BDC sempre vence quando tem dados; CH só prevalece se
+    // BDC vier completamente vazio. Antes era inverso (CH primário, BDC
+    // fallback). Motivo: BDC tem cobertura mais profunda de processos
+    // judiciais (TJs estaduais + valor + polo) que CH `/simples`.
+    if (bdc.processos) {
       const bdcTemDados = (bdc.processos.top10Valor?.length ?? 0) > 0 ||
         (bdc.processos.top10Recentes?.length ?? 0) > 0 ||
-        Number(bdc.processos.passivosTotal ?? 0) > 0;
-      if (chVazio && bdcTemDados) {
+        Number(bdc.processos.passivosTotal ?? 0) > 0 ||
+        Number(bdc.processos.ativosTotal ?? 0) > 0;
+      if (bdcTemDados) {
         processos = bdc.processos;
-        console.log("[merger] processos: CH vazio → usando BDC com dados individuais");
+        console.log("[merger] processos: BDC primário (decisão 2026-05-15)");
+      } else if (!processos) {
+        // BDC vazio e CH também vazio/ausente — preserva o objeto BDC vazio
+        // pra indicar "consultado mas sem registros".
+        processos = bdc.processos;
       }
+      // Se BDC vazio mas CH tem dados → mantém CH (preserva fallback)
     }
 
     // Grupo econômico: fonte = CreditHub; BDC enriquece campos vazios (participação, relação)

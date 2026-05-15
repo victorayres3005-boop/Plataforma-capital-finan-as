@@ -252,6 +252,57 @@ export async function consultarSocios(cpfs: string[]): Promise<BigDataCorpSocios
   return { socios, sociosFalecidos, alertaParentesco: parentescosDetectados.length > 0, parentescosDetectados };
 }
 
+// ── consultarProcessosBDC ────────────────────────────────────────────────────
+// Decisão Andressa (chefe Victor) 2026-05-15: BDC vira fonte primária pra
+// processos judiciais (inverte regra CH-first de 2026-05-05). Esta função
+// consulta APENAS o dataset `processes` pra cada empresa do grupo econômico,
+// substituindo dados do CreditHub `/simples` quando BDC tem dados. Custo
+// reduzido (~R$ 0,05-0,10/chamada) vs consultarEmpresa completo.
+
+export interface ProcessosBDCResult {
+  success: boolean;
+  data?: ProcessosData;
+  error?: string;
+}
+
+export async function consultarProcessosBDC(cnpj: string): Promise<ProcessosBDCResult> {
+  const cnpjNum = cnpj.replace(/\D/g, "");
+  if (cnpjNum.length !== 14) return { success: false, error: "CNPJ inválido" };
+  if (!hasCredentials()) return { success: false, error: "BDC sem credenciais" };
+
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), 10000);
+  try {
+    const res = await fetch(`${BDC_BASE}/empresas`, {
+      method: "POST",
+      headers: bdcHeaders(),
+      body: JSON.stringify({
+        q: `doc{${cnpjNum}}`,
+        Datasets: "processes",
+        Tags: { host: "pendente_capital", process: "grupo_economico_processos" },
+      }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(tid);
+    if (!res.ok) return { success: false, error: `HTTP ${res.status}` };
+
+    const json = (await res.json()) as Record<string, unknown>;
+    const arr = Array.isArray(json.Result) ? (json.Result as Record<string, unknown>[]) : [];
+    if (arr.length === 0) return { success: true, data: undefined };
+
+    // Reusa parseProcessosBDC do consultarEmpresa pra consistência de estrutura.
+    const parsed = parseEmpresaResponse({ Result: arr });
+    if (parsed.success && parsed.processos) {
+      console.log(`[bigdatacorp][processos] CNPJ=${cnpjNum.slice(0,8)}*** ativos=${parsed.processos.ativosTotal} passivos=${parsed.processos.passivosTotal}`);
+      return { success: true, data: parsed.processos };
+    }
+    return { success: true, data: undefined };
+  } catch (err) {
+    clearTimeout(tid);
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 // ── consultarHistoricoBDC ────────────────────────────────────────────────────
 // Pacote B parte 2 (2026-05-15): consulta BDC dataset basic_data e extrai
 // `BasicData.HistoricalData` (HasChangedTradeName + HasChangedTaxRegime +
