@@ -853,6 +853,20 @@ export interface EmpresaGrupo {
   cpfSocio?: string;
   participacao?: string;
   situacao?: string;      // "ATIVA" | "BAIXADA" | "SUSPENSA"
+  /** Motivo da baixa/inaptidão extraído de BDC BasicData.TaxIdStatusReason.
+   *  Ex: "Falência decretada", "Encerramento voluntário", "Inapta - Falta de declarações".
+   *  Pacote B (2026-05-15) — distingue baixa grave de baixa neutra. */
+  motivoBaixa?: string;
+  /** Classificação do motivo: "grave" (falência/inapta/extinção judicial) vira
+   *  destaque vermelho no relatório; "neutro" (encerramento voluntário,
+   *  incorporação, fusão) vira cinza. */
+  motivoBaixaTipo?: "grave" | "neutro";
+  /** Quantidade de mudanças históricas (razão social + regime tributário +
+   *  endereço) detectadas no BDC HistoricalData. Quando ≥3, ganha bandeirinha
+   *  🚩 indicando padrão de "empresa-camaleão". */
+  mudancasHistoricas?: number;
+  /** Lista das mudanças (pra tooltip). Ex: ["razão social", "regime tributário", "endereço"]. */
+  tiposMudanca?: string[];
 }
 
 export interface ParentescoDetectado {

@@ -378,6 +378,11 @@ body{font-family:'DM Sans',sans-serif;font-size:var(--fs-body);background:#fff;c
 .ge-rel{display:inline-block;font-size:var(--fs-tag);font-weight:600;padding:2px 7px;border-radius:3px;background:var(--n0);color:var(--n7);white-space:nowrap}
 .ge-parentesco{display:flex;align-items:center;gap:8px;padding:9px 14px;background:var(--a0);border-top:1px solid var(--a1);font-size:var(--fs-body);color:var(--a5)}
 .ge-parentesco .atag{background:var(--a1)}
+/* Pacote B (2026-05-15): motivo da baixa (sub-info embaixo do badge Situação) +
+   bandeirinha 🚩 inline ao lado da razão social quando ≥2 mudanças históricas. */
+.motivo-sub{font-size:var(--fs-tag);color:var(--r6);margin-top:2px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em}
+.motivo-sub.neutral{color:var(--x5)}
+.flag-instab{display:inline-block;font-size:10px;margin-left:4px;cursor:help}
 /* ── Risk blocks ── */
 .risk-section{background:var(--x0);border-radius:10px;border:1px solid var(--x2);padding:20px;margin-bottom:18px}
 .risk-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
@@ -1381,11 +1386,23 @@ function pageSintese(params: PDFReportParams, date: string): string {
           const hasProt = e.protestos && e.protestos !== "—";
           const hasProc = e.processos && e.processos !== "—";
           const hasVal  = e.valorProcessos && e.valorProcessos !== "—";
+          // Pacote B: bandeirinha 🚩 quando ≥2 mudanças históricas detectadas;
+          // tooltip lista os tipos (razão social, regime tributário).
+          const mudancas = e.mudancasHistoricas ?? 0;
+          const flagInstab = mudancas >= 2
+            ? ` <span class="flag-instab" title="${esc((e.tiposMudanca ?? []).join(", "))} (${mudancas} mudanças)">🚩</span>`
+            : "";
+          // Pacote B: motivo da baixa como sub-info embaixo do badge Situação.
+          // "grave" (falência/inapta) fica vermelho; "neutro" (encerramento
+          // voluntário, fusão) fica cinza pra sinalizar baixa risco.
+          const motivoSub = e.motivoBaixa
+            ? `<div class="motivo-sub${e.motivoBaixaTipo === "neutro" ? " neutral" : ""}">${esc(e.motivoBaixa)}</div>`
+            : "";
           return `<tr>
-            <td><b>${esc(e.razaoSocial)}</b></td>
+            <td><b>${esc(e.razaoSocial)}</b>${flagInstab}</td>
             <td class="mono">${cnpjFmt}</td>
             <td style="text-align:right;font-variant-numeric:tabular-nums;color:${e.participacao ? "var(--n8)" : "var(--x4)"};font-weight:${e.participacao ? "600" : "400"}">${e.participacao ? esc(e.participacao) : "—"}</td>
-            <td><span class="ge-badge ${sitCls}">${esc(sitDisplay)}</span></td>
+            <td><span class="ge-badge ${sitCls}">${esc(sitDisplay)}</span>${motivoSub}</td>
             <td class="mono" style="color:${hasSCR ? "var(--n9)" : "var(--x4)"}">${hasSCR ? fmtMoneyAbr(e.scrTotal) : "—"}</td>
             <td class="mono" style="text-align:right;color:${hasVenc ? "var(--r6)" : "var(--x4)"};font-weight:${hasVenc ? "700" : "400"}">${hasVenc ? fmtMoneyAbr(e.scrVencidos) : "—"}</td>
             <td style="text-align:center;color:${hasProt && e.protestos !== "0" ? "var(--r6)" : "var(--g6)"};font-weight:600">${hasProt ? e.protestos : "—"}</td>

@@ -252,6 +252,73 @@ export async function consultarSocios(cpfs: string[]): Promise<BigDataCorpSocios
   return { socios, sociosFalecidos, alertaParentesco: parentescosDetectados.length > 0, parentescosDetectados };
 }
 
+// ── consultarHistoricoBDC ────────────────────────────────────────────────────
+// Pacote B parte 2 (2026-05-15): consulta BDC dataset basic_data e extrai
+// `BasicData.HistoricalData` (HasChangedTradeName + HasChangedTaxRegime +
+// HistoricalDataEvolution). Quando >=2 mudanças, empresa ganha bandeirinha 🚩
+// na tabela do Grupo Econômico (sinal de "empresa-camaleão"). Custo: 1 chamada
+// BDC adicional por empresa do grupo (~R$ 0,10).
+
+export interface HistoricoBDCResult {
+  success: boolean;
+  mudancas?: number;
+  tipos?: string[];
+  error?: string;
+}
+
+export async function consultarHistoricoBDC(cnpj: string): Promise<HistoricoBDCResult> {
+  const cnpjNum = cnpj.replace(/\D/g, "");
+  if (cnpjNum.length !== 14) return { success: false, error: "CNPJ inválido" };
+  if (!hasCredentials()) return { success: false, error: "BDC sem credenciais" };
+
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const res = await fetch(`${BDC_BASE}/empresas`, {
+      method: "POST",
+      headers: bdcHeaders(),
+      body: JSON.stringify({
+        q: `doc{${cnpjNum}}`,
+        Datasets: "basic_data",
+        Tags: { host: "pendente_capital", process: "grupo_economico_historico" },
+      }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(tid);
+    if (!res.ok) return { success: false, error: `HTTP ${res.status}` };
+
+    const json = (await res.json()) as Record<string, unknown>;
+    const arr = Array.isArray(json.Result) ? (json.Result as Record<string, unknown>[]) : [];
+    if (arr.length === 0) return { success: true, mudancas: 0, tipos: [] };
+
+    const bd = (arr[0]?.BasicData ?? arr[0]?.basic_data) as Record<string, unknown> | undefined;
+    const h = bd?.HistoricalData as Record<string, unknown> | undefined;
+    if (!h) return { success: true, mudancas: 0, tipos: [] };
+
+    const tipos: string[] = [];
+    let mudancas = 0;
+    if (h.HasChangedTradeName === true) { tipos.push("razão social"); mudancas++; }
+    if (h.HasChangedTaxRegime === true) { tipos.push("regime tributário"); mudancas++; }
+
+    // Conta entradas históricas adicionais (>1 = houve transições reais).
+    const evo = h.HistoricalDataEvolution as Record<string, unknown> | undefined;
+    const tradeNameArr = Array.isArray(evo?.TradeName) ? (evo!.TradeName as unknown[]) : [];
+    const taxRegimeArr = Array.isArray(evo?.TaxRegime) ? (evo!.TaxRegime as unknown[]) : [];
+    if (tradeNameArr.length >= 2 && !tipos.includes("razão social")) {
+      tipos.push("razão social"); mudancas++;
+    }
+    if (taxRegimeArr.length >= 2 && !tipos.includes("regime tributário")) {
+      tipos.push("regime tributário"); mudancas++;
+    }
+
+    console.log(`[bigdatacorp][historico] CNPJ=${cnpjNum.slice(0,8)}*** mudancas=${mudancas} tipos=[${tipos.join(",")}]`);
+    return { success: true, mudancas, tipos };
+  } catch (err) {
+    clearTimeout(tid);
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 // ── consultarDividaAtivaBDC ──────────────────────────────────────────────────
 // Dispara isoladamente o dataset government_debtors em /empresas para popular
 // data.dividaAtiva quando o analista NÃO subiu certidão. Não substitui upload

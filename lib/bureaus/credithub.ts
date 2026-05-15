@@ -7,7 +7,7 @@ import type {
 } from "@/types";
 import { protestosSave, protestosLoad, processosSave, processosLoad, ccfSave, ccfLoad } from "@/lib/bureaus/cache";
 import { parseBRL } from "@/lib/generators/report-shared";
-import { consultarEmpresa as consultarBDCEmpresa } from "@/lib/bureaus/bigdatacorp";
+import { consultarEmpresa as consultarBDCEmpresa, consultarHistoricoBDC } from "@/lib/bureaus/bigdatacorp";
 
 const CREDITHUB_API_URL = process.env.CREDITHUB_API_URL || "";
 const CREDITHUB_API_KEY = process.env.CREDITHUB_API_KEY || "";
@@ -1283,6 +1283,23 @@ async function enriquecerEmpresasGrupoEconomico(
           emp.situacao = normalizeSituacaoCadastral(sit) || sit || "VERIFICAR";
         }
 
+        // PACOTE B parte 1 (2026-05-15): motivo da baixa via CreditHub /simples.
+        // Distingue "Falência" (grave, vermelho) de "Encerramento voluntário"
+        // (neutro, cinza). Campos `receitaMotivoStatus` (texto direto) ou
+        // `rfb.motivo_situacao_cadastral` (idem em estrutura aninhada).
+        const motivo = String(
+          d?.receitaMotivoStatus ?? d?.rfb?.motivo_situacao_cadastral ?? ""
+        ).trim();
+        if (motivo) {
+          emp.motivoBaixa = motivo;
+          const motivoUp = motivo.toUpperCase();
+          // Grave: falência, inaptidão (RFB inativa), extinção judicial, omissão
+          // contumaz. Neutro: encerramento voluntário, distrato, incorporação,
+          // fusão, mudança de modalidade (CNPJ vivo, outra empresa).
+          const isGrave = /FAL[EÊ]NCIA|INAPT|EXTIN|JUDICIAL|OMISS/.test(motivoUp);
+          emp.motivoBaixaTipo = isGrave ? "grave" : "neutro";
+        }
+
         // OPÇÃO A: % participação do sócio via QSA da empresa do grupo.
         // CreditHub /simples PJ retorna `quadroSocietario[]` da própria empresa
         // do grupo. Procura o sócio cedente nesse QSA pelo CPF e extrai a %.
@@ -1400,6 +1417,27 @@ async function enriquecerEmpresasGrupoEconomico(
         }
       } catch (err) {
         console.warn(`[credithub][enrich-brapi] ${emp.cnpj!.slice(0,4)}*** falhou:`, err instanceof Error ? err.message : String(err));
+      }
+    }));
+  }
+
+  // PACOTE B parte 2 (2026-05-15): consulta BDC.HistoricalData pra cada empresa
+  // do grupo (cap 5 pra controlar custo ~R$ 0,50/análise). Quando ≥2 mudanças
+  // detectadas (razão social + regime tributário), empresa ganha 🚩 no relatório.
+  // Falhas silenciosas via Promise.allSettled — não bloqueia retorno.
+  const MAX_HISTORICO = 5;
+  const paraHistorico = paraEnriquecer.filter(e => e.cnpj && e.cnpj.length === 14).slice(0, MAX_HISTORICO);
+  if (paraHistorico.length > 0) {
+    console.log(`[credithub][enrich] consultando histórico BDC pra ${paraHistorico.length} empresa(s)`);
+    await Promise.allSettled(paraHistorico.map(async emp => {
+      try {
+        const hist = await consultarHistoricoBDC(emp.cnpj!);
+        if (hist.success && (hist.mudancas ?? 0) > 0) {
+          emp.mudancasHistoricas = hist.mudancas;
+          emp.tiposMudanca = hist.tipos;
+        }
+      } catch (err) {
+        console.warn(`[credithub][enrich-historico] ${emp.cnpj!.slice(0,4)}*** erro:`, err instanceof Error ? err.message : String(err));
       }
     }));
   }
