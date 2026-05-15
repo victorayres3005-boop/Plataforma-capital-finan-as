@@ -5,6 +5,10 @@
 import type { PdfCtx } from "../context";
 import { newPage, drawHeader, checkPageBreak, parseMoneyToNumber, fmtBR, drawBannerNaoConsultado } from "../helpers";
 
+// ⚠️ TEMP: alertas críticos (sev="alta") escondidos enquanto política V2 calibra.
+// Espelha HIDE_ALERTAS_CRITICOS em lib/pdf/template.ts. Trocar para `false` em ambos.
+const HIDE_ALERTAS_CRITICOS = true;
+
 // Detecta "bureau de Protestos não consultado": objeto default com todos os
 // campos vazios e nenhum dado em PEFIN/REFIN. Sem isto, o PDF mostra "0
 // protestos / Nenhum protesto identificado", convertendo dado ausente em
@@ -125,6 +129,7 @@ export function renderRisco(ctx: PdfCtx): void {
   };
 
   const alertRow = (sev: "alta"|"mod"|"info"|"ok", msg: string) => {
+    if (HIDE_ALERTAS_CRITICOS && sev === "alta") return;
     const bg: [number,number,number] = sev==="alta"?P.r0:sev==="mod"?P.a0:sev==="ok"?P.g0:P.n0;
     const bd: [number,number,number] = sev==="alta"?P.r1:sev==="mod"?P.a1:sev==="ok"?P.g1:P.n1;
     const fg: [number,number,number] = sev==="alta"?P.r6:sev==="mod"?P.a5:sev==="ok"?P.g6:P.n7;

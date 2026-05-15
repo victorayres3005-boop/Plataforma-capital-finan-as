@@ -6,6 +6,10 @@ import type { PdfCtx } from "../context";
 import { checkPageBreak, parseMoneyToNumber, fmtBR } from "../helpers";
 import { calcScrTotal } from "@/lib/scrTotal";
 
+// ⚠️ TEMP: alertas críticos (sev="alta") escondidos enquanto política V2 calibra.
+// Espelha HIDE_ALERTAS_CRITICOS em lib/pdf/template.ts. Trocar para `false` em ambos.
+const HIDE_ALERTAS_CRITICOS = true;
+
 const P = {
   n9:  [12,  27,  58]  as [number,number,number],
   n8:  [19,  41,  82]  as [number,number,number],
@@ -65,6 +69,7 @@ export function renderSCR(ctx: PdfCtx): void {
   };
 
   const alertRow = (sev: "alta"|"mod"|"info"|"ok", msg: string) => {
+    if (HIDE_ALERTAS_CRITICOS && sev === "alta") return;
     const bg: [number,number,number] = sev==="alta"?P.r0:sev==="mod"?P.a0:sev==="ok"?P.g0:P.n0;
     const bd: [number,number,number] = sev==="alta"?P.r1:sev==="mod"?P.a1:sev==="ok"?P.g1:P.n1;
     const fg: [number,number,number] = sev==="alta"?P.r6:sev==="mod"?P.a5:sev==="ok"?P.g6:P.n7;

@@ -115,6 +115,10 @@ function decisionBg(decision: string): string {
 // enquanto a avaliação automatizada está em calibração. Trocar para `false` quando
 // a nota voltar a ser confiável. Tela do app continua mostrando normalmente.
 const HIDE_AVALIACAO = true;
+// ⚠️ TEMP: alertas de severidade CRÍTICA (CRÍTICO/alta/ALTA) escondidos enquanto a
+// política V2 está em calibração. Cobre painel resumo HTML, KYC inline e todos os
+// alertRow("alta", ...) dos geradores jsPDF. Mods/Info/OK seguem visíveis.
+const HIDE_ALERTAS_CRITICOS = true;
 const BANNER_CALIBRACAO = `<div style="display:inline-block;padding:8px 18px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(115,184,21,0.12);color:#73b815;border:1px solid rgba(115,184,21,0.3);letter-spacing:0.02em">Rating em calibração — siga pela análise quantitativa</div>`;
 const BANNER_CALIBRACAO_LIGHT = `<div style="display:inline-block;padding:6px 14px;border-radius:5px;font-size:10px;font-weight:600;background:#f8fafc;color:#64748b;border:1px solid #e2e8f0">Rating em calibração</div>`;
 
@@ -1147,7 +1151,11 @@ function pageSintese(params: PDFReportParams, date: string): string {
   const fortes = params.pontosFortes ?? [];
   const fracos = params.pontosFracos ?? [];
   const alertsArr = (params.alerts ?? [])
-    .filter(a => (a.severity === "CRÍTICO" || a.severity === "RESTRITIVO") && a.message?.trim() && a.message.trim() !== "—")
+    .filter(a => {
+      if (!(a.severity === "CRÍTICO" || a.severity === "RESTRITIVO")) return false;
+      if (HIDE_ALERTAS_CRITICOS && a.severity === "CRÍTICO") return false;
+      return !!a.message?.trim() && a.message.trim() !== "—";
+    })
     .slice(0, 5).map(a => a.message);
   // Cada bloco entre marcadores EDIT:<sec>:START/END é substituível pelo
   // route.ts em /r/[id] quando há overrides salvos no Supabase.
@@ -1424,7 +1432,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
     <!-- 5d. Alertas KYC sócios (óbito / CPF irregular) -->
     ${(() => {
       const alertas: string[] = [];
-      if ((d as any).sociosFalecidos?.length) {
+      if (!HIDE_ALERTAS_CRITICOS && (d as any).sociosFalecidos?.length) {
         const nomes = ((d as any).sociosFalecidos as string[]).map(n => `<b>${esc(n)}</b>`).join(", ");
         alertas.push(`<div class="alert alta" style="margin-top:8px"><span class="atag">CRÍTICO</span> Sócio(s) com indicação de óbito: ${nomes}. Verificar sucessão e situação jurídica da empresa.</div>`);
       }
