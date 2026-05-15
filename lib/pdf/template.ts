@@ -912,7 +912,20 @@ function pageSintese(params: PDFReportParams, date: string): string {
     ? (d.cenprot!.certidaoNegativa ? "0" : (d.cenprot!.valorTotal ?? "0"))
     : (prot?.vigentesValor ?? "0");
   const protColor = protQtd > 0 ? "red" : "green";
-  const protDetails = (prot?.detalhes ?? []).slice(0, 4);
+  // Detalhes top 4 do card sumário: deriva de CENPROT (cedente/tipoTitulo)
+  // quando upload existe; senão, usa bureau (credor/especie).
+  type ProtTopItem = { credor: string; valor: string; data: string; especie?: string; apresentante?: string; regularizado?: boolean };
+  const protDetailsAll: ProtTopItem[] = cenPrimario && !d.cenprot!.certidaoNegativa
+    ? (d.cenprot!.registros ?? []).map(r => ({
+        credor: r.cedente || r.cartorio || "—",
+        valor: r.valor,
+        data: r.data,
+        especie: r.tipoTitulo,
+        apresentante: r.cedente,
+        regularizado: /pag|cancel|regular|quit|sust/i.test(r.status ?? ""),
+      }))
+    : (prot?.detalhes ?? []);
+  const protDetails = protDetailsAll.slice(0, 4);
   const protRows = protDetails.map(p => {
     const tag = (p.especie ?? "").toLowerCase().includes("prom") ? "np" :
                 (p.apresentante ?? "").toLowerCase().includes("banco") || (p.apresentante ?? "").toLowerCase().includes("bradesco") || (p.apresentante ?? "").toLowerCase().includes("itaú") ? "banco" :
@@ -920,7 +933,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
     const tagLabel = tag === "np" ? "Nota Prom." : tag === "banco" ? "Banco" : tag === "sust" ? "Sustação" : "Execução";
     return `<div class="risk-item"><span class="risk-tag ${tag}">${tagLabel}</span><span class="desc">${esc(p.credor)}</span><span class="amt red">${fmtMoney(p.valor)}</span></div>`;
   }).join("");
-  const lastProt = (prot?.detalhes ?? []).filter(p => !p.regularizado)[0];
+  const lastProt = protDetailsAll.filter(p => !p.regularizado)[0];
 
   // Processos
   // procTotal = polo passivo + polo ativo (decisão produto 2026-05-10).
@@ -2154,8 +2167,27 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
     : (prot?.vigentesValor ?? "0");
   const regQtd = cen ? 0 : numVal(prot?.regularizadosQtd ?? "0");
   const regVal = cen ? "0" : (prot?.regularizadosValor ?? "0");
-  const fiscQtd = numVal(prot?.fiscaisQtd ?? "0");
-  const fiscVal = prot?.fiscaisValor ?? "0";
+  // Fiscais zera quando CENPROT existe — CENPROT não traz tipoCredor; mostrar
+  // número do bureau ao lado seria conflito (poderia incluir títulos que o
+  // CENPROT classifica diferente). Tabela "Protestos Fiscais" some via gate.
+  const fiscQtd = cen ? 0 : numVal(prot?.fiscaisQtd ?? "0");
+  const fiscVal = cen ? "0" : (prot?.fiscaisValor ?? "0");
+  // Lista efetiva de detalhes de protesto pra credor/top/distribuições.
+  // Quando CENPROT existe, deriva de cen.registros mapeando pra estrutura
+  // tipo-bureau (credor ← cedente, regularizado ← status). Caso contrário,
+  // usa prot.detalhes do bureau.
+  type ProtDetalheEfetivo = { credor: string; valor: string; regularizado: boolean; data: string };
+  const protDetalhesEfetivos: ProtDetalheEfetivo[] = cen && !cen.certidaoNegativa
+    ? (cen.registros ?? []).map(r => {
+        const s = (r.status ?? "").toLowerCase();
+        return {
+          credor: r.cedente || r.cartorio || "—",
+          valor: r.valor,
+          regularizado: /pag|cancel|regular|quit|sust/.test(s),
+          data: r.data,
+        };
+      })
+    : (prot?.detalhes ?? []).map(p => ({ credor: p.credor, valor: p.valor, regularizado: !!p.regularizado, data: p.data }));
   const pefinData = params.data.pefin;
   const refinData = params.data.refin;
   const pefinQtd = pefinData?.qtd ?? 0;
@@ -2165,7 +2197,7 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
 
   // Group credores
   const credorMap: Record<string, {qtd:number;valor:number;ultimo:string}> = {};
-  (prot?.detalhes ?? []).filter(p => !p.regularizado).forEach(p => {
+  protDetalhesEfetivos.filter(p => !p.regularizado).forEach(p => {
     const k = p.credor || "Desconhecido";
     if (!credorMap[k]) credorMap[k] = {qtd:0,valor:0,ultimo:""};
     credorMap[k].qtd++;
@@ -2176,7 +2208,7 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
     `<tr><td class="b">${esc(nome)}</td><td class="r">${d.qtd}</td><td class="r red">${fmtMoney(d.valor)}</td><td class="r">${fmtDate(d.ultimo)}</td></tr>`
   ).join("");
 
-  const top5Prot = [...(prot?.detalhes ?? [])].filter(p => !p.regularizado).sort((a,b) => numVal(b.valor)-numVal(a.valor)).slice(0,5);
+  const top5Prot = [...protDetalhesEfetivos].filter(p => !p.regularizado).sort((a,b) => numVal(b.valor)-numVal(a.valor)).slice(0,5);
   const top5ProtRows = top5Prot.map(p =>
     `<tr><td>${fmtDate(p.data)}</td><td>${esc(p.credor)}</td><td class="r red">${fmtMoney(p.valor)}</td><td>${p.regularizado ? "Regularizado" : "Vigente"}</td></tr>`
   ).join("");
@@ -2230,16 +2262,53 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
     </tr>`;
   }).join("");
 
-  // Distribuição temporal de protestos (campo extra não obrigatório no tipo)
+  // Distribuição temporal/faixa de protestos. Quando CENPROT existe, deriva
+  // dos registros do upload (agrupando por ano e faixa de valor). Sem CENPROT,
+  // usa campos opcionais que o bureau pode trazer.
   type DistTempItem = {periodo:string;qtd:string;valor:string};
   type DistFaixaItem = {faixa:string;qtd:string;valor:string;pct:string};
-  const distTempProt = ((prot as unknown as {distribuicaoTemporal?:DistTempItem[]})?.distribuicaoTemporal ?? []);
+  const distTempProt: DistTempItem[] = cen && !cen.certidaoNegativa
+    ? (() => {
+        const vigentes = protDetalhesEfetivos.filter(p => !p.regularizado);
+        const porAno = new Map<string, {qtd:number;valor:number}>();
+        vigentes.forEach(p => {
+          const m = (p.data ?? "").match(/(\d{4})/);
+          const ano = m ? m[1] : "Sem data";
+          const cur = porAno.get(ano) ?? {qtd:0,valor:0};
+          cur.qtd++;
+          cur.valor += numVal(p.valor);
+          porAno.set(ano, cur);
+        });
+        return Array.from(porAno.entries()).sort((a,b) => b[0].localeCompare(a[0])).map(([ano,v]) => ({
+          periodo: ano,
+          qtd: String(v.qtd),
+          valor: String(v.valor),
+        }));
+      })()
+    : ((prot as unknown as {distribuicaoTemporal?:DistTempItem[]})?.distribuicaoTemporal ?? []);
   const distTempProtRows = distTempProt.map((d: DistTempItem) =>
     `<tr><td class="b">${esc(d.periodo)}</td><td class="r">${esc(d.qtd)}</td><td class="r red">${fmtMoney(d.valor)}</td></tr>`
   ).join("");
 
-  // Distribuição por faixa de protestos
-  const distFaixaProt = ((prot as unknown as {distribuicaoPorFaixa?:DistFaixaItem[]})?.distribuicaoPorFaixa ?? []);
+  const distFaixaProt: DistFaixaItem[] = cen && !cen.certidaoNegativa
+    ? (() => {
+        const vigentes = protDetalhesEfetivos.filter(p => !p.regularizado);
+        const total = vigentes.length;
+        if (!total) return [];
+        const faixas: Array<{label:string;test:(v:number)=>boolean}> = [
+          {label:"Até R$ 1.000",        test:(v) => v <= 1000},
+          {label:"R$ 1.001 a 10.000",   test:(v) => v > 1000 && v <= 10000},
+          {label:"R$ 10.001 a 50.000",  test:(v) => v > 10000 && v <= 50000},
+          {label:"Acima de R$ 50.000",  test:(v) => v > 50000},
+        ];
+        return faixas.map(f => {
+          const lista = vigentes.filter(p => f.test(numVal(p.valor)));
+          const valor = lista.reduce((s,p) => s + numVal(p.valor), 0);
+          const pct = total > 0 ? Math.round((lista.length / total) * 100) : 0;
+          return {faixa: f.label, qtd: String(lista.length), valor: String(valor), pct: `${pct}%`};
+        }).filter(d => d.qtd !== "0");
+      })()
+    : ((prot as unknown as {distribuicaoPorFaixa?:DistFaixaItem[]})?.distribuicaoPorFaixa ?? []);
   const distFaixaProtRows = distFaixaProt.map((d: DistFaixaItem) => {
     const pct = parseFloat(String(d.pct)) || 0;
     return `<tr>
@@ -2257,7 +2326,7 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
     if (br) return `${br[3]}-${br[2]}-${br[1]}`;
     return d; // já ISO ou outro formato — fica como está
   };
-  const top10ProtRecentes = [...(prot?.detalhes ?? [])].filter(p => !p.regularizado).sort((a,b) => dateKey(b.data).localeCompare(dateKey(a.data))).slice(0,10);
+  const top10ProtRecentes = [...protDetalhesEfetivos].filter(p => !p.regularizado).sort((a,b) => dateKey(b.data).localeCompare(dateKey(a.data))).slice(0,10);
   const top10ProtRecentesRows = top10ProtRecentes.map(p =>
     `<tr><td>${fmtDate(p.data)}</td><td class="b">${esc(p.credor)}</td><td class="r red">${fmtMoney(p.valor)}</td><td>${p.regularizado ? '<span style="color:var(--g6)">Reg.</span>' : '<span style="color:var(--r6)">Vigente</span>'}</td></tr>`
   ).join("");
