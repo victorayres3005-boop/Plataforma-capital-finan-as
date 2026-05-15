@@ -981,12 +981,17 @@ function pageSintese(params: PDFReportParams, date: string): string {
     </table>`;
   }
 
-  // Alerts from params
-  const alertsHtml = (params.alertsHigh ?? []).slice(0, 4).map(a => {
-    const cls = a.severity === "CRÍTICO" ? "alta" : a.severity === "RESTRITIVO" ? "mod" : "info";
-    const tag3 = a.severity === "CRÍTICO" ? "CRÍTICO" : a.severity === "RESTRITIVO" ? "RESTRITIVO" : "OBSERVAÇÃO";
-    return `<div class="alert ${cls}"><span class="atag">${tag3}</span> ${esc(a.message)}</div>`;
-  }).join("");
+  // Alerts from params — filtra CRÍTICO quando flag de calibração está ativa
+  // (mesma lógica do painel alertsArr na seção resumo). Cobre o caso
+  // "Empresa com X anos abaixo do mínimo" que vem de calculations.ts:327
+  // e era exibido como CRÍTICO na capa mesmo com a flag ligada.
+  const alertsHtml = (params.alertsHigh ?? [])
+    .filter(a => !(HIDE_ALERTAS_CRITICOS && a.severity === "CRÍTICO"))
+    .slice(0, 4).map(a => {
+      const cls = a.severity === "CRÍTICO" ? "alta" : a.severity === "RESTRITIVO" ? "mod" : "info";
+      const tag3 = a.severity === "CRÍTICO" ? "CRÍTICO" : a.severity === "RESTRITIVO" ? "RESTRITIVO" : "OBSERVAÇÃO";
+      return `<div class="alert ${cls}"><span class="atag">${tag3}</span> ${esc(a.message)}</div>`;
+    }).join("");
 
   // Faturamento chart
   const fatMeses = sortMesCrono(d.faturamento?.meses ?? []).slice(-12);
