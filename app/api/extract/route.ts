@@ -22,7 +22,7 @@ import {
 import {
   adaptCNPJNew, adaptQSANew, adaptContratoNew, adaptFaturamentoNew,
   adaptSCRNew, adaptCurvaABCNew, adaptDRENew, adaptBalancoNew,
-  adaptIRNew, adaptVisitaNew, directParseCurvaABC,
+  adaptIRNew, adaptVisitaNew, directParseCurvaABC, separarCpfDoValor,
 } from "@/lib/extract/adapters";
 import {
   fillCNPJDefaults, fillQSADefaults, fillContratoDefaults, fillFaturamentoDefaults,
@@ -730,6 +730,19 @@ async function processExtract(
     }
 
     if (textContent) {
+      // Fix Curva ABC 2026-05-15: PDFs trazem clientes PF com CPF 11 dígitos
+      // colado direto no valor monetário ("MARIA SILVA 12345678901234.567,89"),
+      // sem espaço. Tanto pdf-parse quanto Gemini interpretam errado, inflando
+      // o valor em 100-1000x. Normaliza inserindo espaço antes de truncar/
+      // enviar pro modelo. Ver `separarCpfDoValor` em adapters.ts.
+      if (docType === "curva_abc") {
+        const beforeLen = textContent.length;
+        textContent = separarCpfDoValor(textContent);
+        if (textContent.length !== beforeLen) {
+          console.log(`[extract][curva_abc] separarCpfDoValor: ${beforeLen} → ${textContent.length} chars (separou CPF de valor)`);
+        }
+      }
+
       const maxChars: Record<string, number> = {
         cnpj: 4000, qsa: 6000, faturamento: 20000, scr: 15000,
         protestos: 8000, processos: 12000, grupoEconomico: 8000,

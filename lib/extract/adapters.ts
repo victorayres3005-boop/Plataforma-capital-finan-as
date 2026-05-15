@@ -580,13 +580,39 @@ export function adaptCurvaABCNew(raw: Record<string, unknown>): Partial<CurvaABC
   };
 }
 
+/**
+ * Fix de 2026-05-15 — Curva ABC com CPF colado no valor.
+ *
+ * PDFs de Curva ABC frequentemente trazem clientes PF com CPF sem máscara
+ * colado direto no valor monetário, sem espaço entre os dois:
+ *   "VITOR FERNANDES GUIMARAES 421916408181.618.225,00"
+ *                              └─ CPF 11d ─┘└── valor ──┘
+ * Quando extraído pelo pdf-parse a sequência vira string única. Tanto o
+ * parser regex local quanto o Gemini interpretam o número errado (lendo
+ * CPF de 9 dígitos e inflando o valor 100-1000x).
+ *
+ * Esta função insere um espaço entre CPF 11d e valor BRL (X.XXX,XX) antes
+ * de qualquer parsing, deixando o token claro. CPFs com máscara
+ * (XXX.XXX.XXX-XX) já vêm separados naturalmente e não são afetados.
+ */
+export function separarCpfDoValor(text: string): string {
+  // Captura 11 dígitos seguidos imediatamente por um valor BRL.
+  // Negative lookbehind \d evita pegar dentro de números maiores (CNPJ etc).
+  return text.replace(
+    /(?<!\d)(\d{11})(\d{1,3}(?:\.\d{3})*,\d{2})/g,
+    "$1 $2"
+  );
+}
+
 // Parser direto de Curva ABC para evitar timeout Gemini em arquivos grandes (400+ clientes).
 // Extrai linhas de clientes via regex sem depender de IA.
-export function directParseCurvaABC(text: string): {
+export function directParseCurvaABC(rawText: string): {
   clientes: Array<{ cliente: string; valor: number; percentual: number; classificacao: string }>;
   periodoReferencia: string;
   totalFaturado: number;
 } | null {
+  // Normaliza CPFs colados em valores antes do parsing (ver doc de separarCpfDoValor).
+  const text = separarCpfDoValor(rawText);
   const lines = text.split('\n');
 
   // Período de referência

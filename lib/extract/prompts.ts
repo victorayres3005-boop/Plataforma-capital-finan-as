@@ -674,6 +674,12 @@ Regras:
   • em linha abaixo do nome (alguns relatórios quebram em duas linhas)
   • em formato cru sem pontuação (14 dígitos seguidos = CNPJ; 11 dígitos = CPF)
   Se o documento não trouxer CNPJ/CPF do cliente, retornar "" (string vazia). NUNCA inventar nem deduzir CNPJ a partir do nome.
+- ⚠ CPF SEM MÁSCARA COLADO NO VALOR — REGRA CRÍTICA: alguns PDFs (especialmente extraídos via pdf-parse) trazem o CPF de 11 dígitos grudado diretamente no valor monetário SEM ESPAÇO entre eles. Quando ver uma sequência de 11+ dígitos seguida imediatamente por um valor BRL no formato X.XXX,XX ou X,XX, ENTENDA QUE: os primeiros 11 dígitos são o CPF e o restante é o valor.
+  Exemplos REAIS de extração problemática (com a leitura correta):
+    • "VITOR FERNANDES GUIMARAES 421916408181.618.225,00" → CPF=42191640818, valor=1618225.00  (NÃO 181618225!)
+    • "MARIA MAZETTO 2553915187924.072,60"                → CPF=25539151879, valor=24072.60   (NÃO 924072.60!)
+    • "CLEBER PRATA 268071078971.300,00"                  → CPF=26807107897, valor=1300.00    (NÃO 971300.00!)
+  Sinal de alerta: se o valor parecer absurdamente grande (ex: cliente comum com R$ 100M), você provavelmente caiu no bug — releia com regra dos 11 dígitos primeiros = CPF.
 - classificacao → classificar cada cliente como "A", "B" ou "C" com base no percentual acumulado: A = até 80%, B = 80–95%, C = acima de 95%. Se o próprio documento já trouxer a classificação, use-a para validar.
 - CRÍTICO — TOP 5: os 5 primeiros clientes por valor são os mais importantes. Confira duas vezes: o cliente com o MAIOR valor monetário (R$) deve aparecer em posicao=1. Se o valor do 1º for menor que o do 2º, você errou — revise.
 - Se o documento mostrar apenas percentuais sem valor absoluto e o total_faturado estiver disponível, calcule: valor = (percentual/100) * total_faturado.
