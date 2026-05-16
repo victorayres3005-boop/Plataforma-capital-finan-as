@@ -20,7 +20,8 @@ Nunca aplique uma mudança que falhe em qualquer item sem avisar Victor explicit
 - `buildCollectionDocs` e `hydrateFromCollection` reconhecem campo/tipo novo?
 
 ### 3. Autenticação
-- Rotas API usam `createServerSupabase()` + `getSession()` (NUNCA `getUser()` no Edge — causa 504)?
+- Rotas API usam `getUser()` (padrão oficial SSR).
+- NO MIDDLEWARE (`middleware.ts`), usamos `getUser()` com `Promise.race` de 3.5s (Fail-Open) para evitar o erro 504 Gateway Timeout causado por lentidão no Supabase (sa-east-1). Se der timeout, o middleware **deixa passar** para os Server Components lidarem com a autenticação real. Nunca mude isso!
 - Endpoints protegidos retornam 401 sem sessão?
 
 ### 4. Extração de documentos
@@ -60,7 +61,7 @@ Nunca aplique uma mudança que falhe em qualquer item sem avisar Victor explicit
 | `types/index.ts` | Todas as interfaces TypeScript |
 
 **Padrões obrigatórios:**
-- Auth Edge: `getSession()`, nunca `getUser()`
+- Auth Edge: `getUser()` com timeout Fail-Open de 3.5s (ver `middleware.ts`). Nunca remova o Fail-Open.
 - Extração: sempre `adaptXxx()` + `fillXxxDefaults()`
 - Frontend merge: sempre `mergeData()` em UploadStep
 - PDF/HTML: sempre gate em `campo?.length > 0`
