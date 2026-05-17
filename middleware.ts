@@ -69,8 +69,8 @@ export async function middleware(request: NextRequest) {
     },
   );
 
-  // Verificação inicial rápida se o usuário possui os cookies de autenticação
-  const hasSessionCookie = request.cookies.getAll().some(c => c.name.startsWith('sb-') && c.name.endsWith('-auth-token'));
+  // Verificação inicial rápida se o usuário possui os cookies de autenticação (incluindo cookies divididos .0, .1)
+  const hasSessionCookie = request.cookies.getAll().some(c => c.name.startsWith('sb-') && c.name.includes('-auth-token'));
   
   let user = null;
 
