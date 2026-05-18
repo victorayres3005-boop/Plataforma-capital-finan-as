@@ -690,7 +690,7 @@ export default function HomePage() {
       const supabase = createClient();
       const { data, error } = await supabase
         .from("document_collections")
-        .select("*")
+        .select("id, user_id, created_at, finished_at, status, label, company_name, cnpj, rating, decisao, fmm_12m, documents, fund_status, created_by_name, reopened_by, reopened_at, last_reopened_at, observacoes")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })
         .limit(50);

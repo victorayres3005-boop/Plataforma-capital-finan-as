@@ -1634,9 +1634,9 @@ export async function consultarCreditHub(cnpj: string, rawDataFromClient?: unkno
     }
     const url = `${CREDITHUB_API_URL}/simples/${CREDITHUB_API_KEY}/${cnpjNum}`;
     // A API CreditHub é assíncrona: pode retornar 500 + XML push="true" enquanto processa.
-    // Fazemos retry até 8 vezes com 3s de intervalo (24s total).
-    const MAX_SERVER_ATTEMPTS = 8;
-    const DELAY_MS = 3000;
+    // Fazemos retry até 4 vezes com 2s de intervalo (~40s worst case).
+    const MAX_SERVER_ATTEMPTS = 4;
+    const DELAY_MS = 2000;
     let lastError = "";
     for (let attempt = 1; attempt <= MAX_SERVER_ATTEMPTS; attempt++) {
       try {

@@ -69,8 +69,9 @@ export async function middleware(request: NextRequest) {
     },
   );
 
-  // getUser() é o método seguro recomendado pelo Supabase, e também renova o token se necessário.
-  const { data: { user } } = await supabase.auth.getUser();
+  // getSession() lê o cookie local sem RTT extra — adequado para checar auth no Edge.
+  const { data: { session } } = await supabase.auth.getSession();
+  const user = session?.user;
 
   // /login é público mas tem lógica especial: usuário logado é redirecionado pra home
   if (pathname === "/login") {

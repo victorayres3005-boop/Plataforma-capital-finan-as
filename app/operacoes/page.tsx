@@ -304,7 +304,9 @@ export default function OperacoesPage() {
     if (!confirm("Excluir esta operação permanentemente?")) return;
     setDeleting(id);
     const supabase = createClient();
-    const { error } = await supabase.from("operacoes").delete().eq("id", id);
+    const { data: { user: u } } = await supabase.auth.getUser();
+    if (!u) { toast.error("Não autenticado"); setDeleting(null); return; }
+    const { error } = await supabase.from("operacoes").delete().eq("id", id).eq("user_id", u.id);
     if (error) { toast.error("Erro ao excluir: " + error.message); }
     else { toast.success("Operação excluída"); setOperacoes(prev => prev.filter(o => o.id !== id)); }
     setDeleting(null);
