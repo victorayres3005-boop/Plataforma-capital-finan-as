@@ -283,6 +283,7 @@ export default function CustosPage() {
   const [logs, setLogs] = useState<ApiLog[]>([]);
   const [stubs, setStubs] = useState<CollectionStub[]>([]);
   const [loading, setLoading] = useState(true);
+  const [logsTruncated, setLogsTruncated] = useState(false);
   // Onda B4: estado de erro pra renderizar painel quando /api/custos falha.
   const [loadError, setLoadError] = useState<string | null>(null);
   const [prices, setPrices] = useState<BureauPrices>(DEFAULT_PRICES);
@@ -331,6 +332,7 @@ export default function CustosPage() {
       }
       setLogs(json.logs ?? []);
       setStubs(json.collectionsWithoutLogs ?? []);
+      setLogsTruncated(json.truncated === true);
     } catch (err) {
       console.error("[custos] fetch falhou:", err);
       setLoadError(err instanceof Error ? err.message : "Erro desconhecido");
@@ -559,6 +561,17 @@ export default function CustosPage() {
           </button>
         </div>
       </div>
+
+      {/* Aviso de truncamento — exibido quando o período tem mais de 5000 logs */}
+      {logsTruncated && (
+        <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "12px 16px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "10px", marginBottom: "16px", fontSize: "13px" }}>
+          <AlertCircle size={16} color="#dc2626" style={{ flexShrink: 0, marginTop: "1px" }} />
+          <div style={{ color: "#991b1b", lineHeight: 1.5 }}>
+            <strong>Atenção: período com muitos registros.</strong>{" "}
+            Foram carregados os 5.000 logs mais recentes. Custos do período completo podem estar subestimados — use o filtro de datas para um intervalo menor.
+          </div>
+        </div>
+      )}
 
       {/* Logging status banner */}
       {!hasAnyReal ? (

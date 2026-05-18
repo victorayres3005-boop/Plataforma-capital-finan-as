@@ -8,20 +8,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase/server";
 
 export async function GET(req: NextRequest) {
-  // Auth — endpoint expõe collections de todos os usuários (dados de negócio)
-  // Onda M3: getSession() em vez de getUser() — alinhado com CLAUDE.md
-  // (auth Edge usa getSession; getUser faz RTT extra ao Auth, +100-300ms).
-  // Mesmo em runtime nodejs (este endpoint), getSession é mais rápido.
+  // Auth — endpoint expõe dados de negócio de todos os analistas; getUser()
+  // verifica o JWT no servidor (não apenas lê o cookie local como getSession()).
   const authSb = await createServerSupabase();
-  const { data: { session } } = await authSb.auth.getSession();
-  if (!session?.user) {
+  const { data: { user } } = await authSb.auth.getUser();
+  if (!user) {
     return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
   }
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceKey) {
+    console.error("[metricas] SUPABASE_SERVICE_ROLE_KEY ausente — configure a env na Vercel");
+    return NextResponse.json({ error: "Configuração do servidor incompleta" }, { status: 500 });
+  }
+  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceKey);
 
   const { searchParams } = new URL(req.url);
   const dias = parseInt(searchParams.get("dias") || "30");

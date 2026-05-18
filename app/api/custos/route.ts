@@ -11,32 +11,33 @@ import { createServerSupabase } from "@/lib/supabase/server";
 // Returns all api_usage_logs enriched with collection company info
 export async function GET(req: NextRequest) {
   try {
-    // Auth check via server supabase
-    // Onda B3: getSession() em vez de getUser() — alinhado com CLAUDE.md
-    // (auth Edge usa getSession; getUser faz RTT extra ao Auth, +100-300ms).
+    // Auth — getUser() verifica JWT no servidor (não apenas lê cookie local).
     const authSb = await createServerSupabase();
-    const { data: { session } } = await authSb.auth.getSession();
-    if (!session?.user) {
+    const { data: { user } } = await authSb.auth.getUser();
+    if (!user) {
       return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
     }
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!supabaseUrl || !supabaseKey) {
-      return NextResponse.json({ error: "Supabase não configurado" }, { status: 500 });
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !serviceKey) {
+      console.error("[custos] SUPABASE_SERVICE_ROLE_KEY ou NEXT_PUBLIC_SUPABASE_URL ausente");
+      return NextResponse.json({ error: "Configuração do servidor incompleta" }, { status: 500 });
     }
-    const sb = createClient(supabaseUrl, supabaseKey);
+    const sb = createClient(supabaseUrl, serviceKey);
 
     const { searchParams } = req.nextUrl;
     const from = searchParams.get("from");
     const to   = searchParams.get("to");
 
-    // Fetch logs
+    // Fetch logs — limite alto (5000) para cobrir meses movimentados.
+    // Se ultrapassar, a rota avisa no response para o frontend exibir alerta.
+    const LOGS_LIMIT = 5000;
     let logsQuery = sb
       .from("api_usage_logs")
       .select("*")
       .order("created_at", { ascending: false })
-      .limit(500);
+      .limit(LOGS_LIMIT);
 
     if (from) logsQuery = logsQuery.gte("created_at", from);
     if (to)   logsQuery = logsQuery.lte("created_at", to + "T23:59:59Z");
@@ -100,10 +101,13 @@ export async function GET(req: NextRequest) {
         has_ai_analysis: c.ai_analysis !== null,
       }));
 
+    const truncated = (logs ?? []).length >= LOGS_LIMIT;
+
     return NextResponse.json({
       success: true,
       logs: enrichedLogs,
       collectionsWithoutLogs,
+      truncated,
     });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
