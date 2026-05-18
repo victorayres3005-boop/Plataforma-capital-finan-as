@@ -1450,7 +1450,6 @@ function pageSintese(params: PDFReportParams, date: string): string {
           const hasProcRisk = hasProc && e.processos !== "0";
           return `<tr>
             <td><div class="cell-empresa"><span class="razao">${esc(e.razaoSocial)}${flagInstab}</span><span class="cnpj-sub">${cnpjFmt}</span></div></td>
-            <td style="text-align:right;font-variant-numeric:tabular-nums;color:${e.participacao ? "var(--n8)" : "var(--x4)"};font-weight:${e.participacao ? "600" : "400"}">${e.participacao ? esc(e.participacao) : "—"}</td>
             <td class="group-sep"><div class="cell-sit"><span class="ge-badge ${sitCls}">${esc(sitDisplay)}</span>${motivoSub}</div></td>
             <td class="group-sep"><div class="cell-scr"><span class="scr-total" style="color:${hasSCR ? "var(--n9)" : "var(--x4)"}">${hasSCR ? fmtMoneyAbr(e.scrTotal) : "—"}</span>${hasVenc ? `<span class="scr-venc">▲ ${fmtMoneyAbr(e.scrVencidos)} venc.</span>` : `<span class="scr-venc scr-venc-zero">sem vencidos</span>`}</div></td>
             <td class="group-sep"><div class="cell-litigio"><div class="litigio-counts"><span class="litigio-item ${hasProtRisk ? "red" : "green"}"><span class="litigio-label">Prot</span>${hasProt ? e.protestos : "0"}</span><span style="color:var(--x2)">|</span><span class="litigio-item ${hasProcRisk ? "red" : "green"}"><span class="litigio-label">Proc</span>${hasProc ? e.processos : "0"}</span></div>${hasVal && e.valorProcessos !== "R$ 0,00" ? `<span class="litigio-valor">${esc(e.valorProcessos!)}</span>` : `<span class="litigio-valor litigio-valor-zero">—</span>`}</div></td>
@@ -1459,7 +1458,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
         const rowsAtivas = empsAtivas.map(renderRow).join("");
         const rowsNaoAtivas = empsNaoAtivas.map(renderRow).join("");
         const totalEmps = empsAtivas.length + empsNaoAtivas.length;
-        const headerCols = `<thead><tr><th style="width:38%">Empresa</th><th style="text-align:right;width:8%">Part.</th><th class="group-sep" style="width:14%">Situação</th><th class="group-sep" style="text-align:right;width:18%">SCR / Vencidos</th><th class="group-sep">Litígios</th></tr></thead>`;
+        const headerCols = `<thead><tr><th style="width:44%">Empresa</th><th class="group-sep" style="width:14%">Situação</th><th class="group-sep" style="text-align:right;width:20%">SCR / Vencidos</th><th class="group-sep">Litígios</th></tr></thead>`;
 
         return `<div class="ge-socio-hdr">
           <span style="font-size:14px">👤</span> Via sócio: ${esc(socio)}
