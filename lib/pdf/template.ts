@@ -1673,17 +1673,17 @@ function pageSintese(params: PDFReportParams, date: string): string {
             if (m) {
               const min = Math.round(parseInt(m[1]) * SM / 1000);
               const max = Math.round(parseInt(m[2]) * SM / 1000);
-              return { label: `R$ ${min}k – R$ ${max}k`, sub: `${m[1]}–${m[2]} SM` };
+              return { label: `R$ ${min}k – R$ ${max}k` };
             }
             const ate = r.match(/^AT[EÉ]\s*(\d+)\s*SM/);
             if (ate) {
               const max = Math.round(parseInt(ate[1]) * SM / 1000);
-              return { label: `até R$ ${max}k`, sub: `até ${ate[1]} SM` };
+              return { label: `até R$ ${max}k` };
             }
             const acima = r.match(/^ACIMA\s*(?:DE)?\s*(\d+)\s*SM/);
             if (acima) {
               const min = Math.round(parseInt(acima[1]) * SM / 1000);
-              return { label: `acima de R$ ${min}k`, sub: `+${acima[1]} SM` };
+              return { label: `acima de R$ ${min}k` };
             }
             return { label: raw, sub: undefined };
           }
@@ -1768,7 +1768,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
             </div>
             <div>
               ${scoreBV !== undefined && bv ? row("Score BoaVista", `${scoreBV}/1000`, bv.label, bv.cor) : ""}
-              ${score !== undefined ? row("Score Financeiro BDC", `${score}/1000`, nivel ? `Nv. ${nivel}` : undefined) : ""}
+              ${score !== undefined ? row("Score Financeiro BDC", `${score}/1000`) : ""}
               ${renda ? row("Renda mensal est.", renda.label, renda.sub) : ""}
               ${patrim ? row("Patrimônio est.", patrim.label) : ""}
               ${row("Cobranças 365d", cob365 > 0 ? `${cob365} ocorrência${cob365 > 1 ? "s" : ""}` : "0", undefined, cob365 > 0 ? "var(--r6)" : "var(--g6)")}
