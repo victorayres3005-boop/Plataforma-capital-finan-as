@@ -20,8 +20,8 @@ Nunca aplique uma mudança que falhe em qualquer item sem avisar Victor explicit
 - `buildCollectionDocs` e `hydrateFromCollection` reconhecem campo/tipo novo?
 
 ### 3. Autenticação
-- Rotas API usam `getUser()` (padrão oficial SSR).
-- NO MIDDLEWARE (`middleware.ts`), usamos `getUser()` com `Promise.race` de 3.5s (Fail-Open) para evitar o erro 504 Gateway Timeout causado por lentidão no Supabase (sa-east-1). Se der timeout, o middleware **deixa passar** para os Server Components lidarem com a autenticação real. Nunca mude isso!
+- Rotas API e Middleware usam `getUser()` (padrão oficial SSR da Supabase).
+- 🚨 **ERRO 504 NO MIDDLEWARE / TELA BRANCA / LOGIN QUEBRADO**: Se a Vercel der 504 Gateway Timeout ou o login parar de funcionar repentinamente com "Failed to fetch", o problema **NÃO É O CÓDIGO**. O banco Supabase (plano grátis) entrou em status "Paused" / "Insalubre" por inatividade. A solução NÃO é colocar `Promise.race` ou timeouts no código, e sim **acessar o painel do Supabase e clicar em "Restart Project"**.
 - Endpoints protegidos retornam 401 sem sessão?
 
 ### 4. Extração de documentos
@@ -61,7 +61,7 @@ Nunca aplique uma mudança que falhe em qualquer item sem avisar Victor explicit
 | `types/index.ts` | Todas as interfaces TypeScript |
 
 **Padrões obrigatórios:**
-- Auth Edge: `getUser()` com timeout Fail-Open de 3.5s (ver `middleware.ts`). Nunca remova o Fail-Open.
+- Auth Edge: Usar `getUser()` padrão. Se der 504, o Supabase está pausado (reiniciar no painel, não mexer no código).
 - Extração: sempre `adaptXxx()` + `fillXxxDefaults()`
 - Frontend merge: sempre `mergeData()` em UploadStep
 - PDF/HTML: sempre gate em `campo?.length > 0`

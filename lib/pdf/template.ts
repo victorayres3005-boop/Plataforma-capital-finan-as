@@ -383,6 +383,25 @@ body{font-family:'DM Sans',sans-serif;font-size:var(--fs-body);background:#fff;c
 .motivo-sub{font-size:var(--fs-tag);color:var(--r6);margin-top:2px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em}
 .motivo-sub.neutral{color:var(--x5)}
 .flag-instab{display:inline-block;font-size:10px;margin-left:4px;cursor:help}
+/* Grupo econômico — células condensadas (9→5 colunas) */
+.ge-tbl tbody tr:nth-child(even) td{background:rgba(0,0,0,0.015)}
+.ge-tbl .group-sep{border-left:1px solid var(--x1)}
+.cell-empresa{display:flex;flex-direction:column;gap:2px}
+.cell-empresa .razao{font-weight:600;color:var(--n9);font-size:var(--fs-body)}
+.cell-empresa .cnpj-sub{font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--x4);letter-spacing:0.02em}
+.cell-scr{display:flex;flex-direction:column;gap:1px;align-items:flex-end}
+.scr-total{font-family:'JetBrains Mono',monospace;font-size:var(--fs-body);font-weight:600}
+.scr-venc{font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--r6);font-weight:700}
+.scr-venc-zero{color:var(--x4);font-weight:400}
+.cell-litigio{display:flex;flex-direction:column;gap:2px}
+.litigio-counts{display:flex;gap:6px;align-items:center}
+.litigio-item{font-size:var(--fs-body);font-weight:700}
+.litigio-item.red{color:var(--r6)}
+.litigio-item.green{color:var(--g6)}
+.litigio-label{font-size:8.5px;color:var(--x4);text-transform:uppercase;margin-right:2px;font-weight:400}
+.litigio-valor{font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--r6);font-weight:600}
+.litigio-valor-zero{color:var(--x4)}
+.cell-sit{display:flex;flex-direction:column;gap:2px}
 /* ── Risk blocks ── */
 .risk-section{background:var(--x0);border-radius:10px;border:1px solid var(--x2);padding:20px;margin-bottom:18px}
 .risk-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
@@ -1398,22 +1417,20 @@ function pageSintese(params: PDFReportParams, date: string): string {
           const motivoSub = e.motivoBaixa
             ? `<div class="motivo-sub${e.motivoBaixaTipo === "neutro" ? " neutral" : ""}">${esc(e.motivoBaixa)}</div>`
             : "";
+          const hasProtRisk = hasProt && e.protestos !== "0";
+          const hasProcRisk = hasProc && e.processos !== "0";
           return `<tr>
-            <td><b>${esc(e.razaoSocial)}</b>${flagInstab}</td>
-            <td class="mono">${cnpjFmt}</td>
+            <td><div class="cell-empresa"><span class="razao">${esc(e.razaoSocial)}${flagInstab}</span><span class="cnpj-sub">${cnpjFmt}</span></div></td>
             <td style="text-align:right;font-variant-numeric:tabular-nums;color:${e.participacao ? "var(--n8)" : "var(--x4)"};font-weight:${e.participacao ? "600" : "400"}">${e.participacao ? esc(e.participacao) : "—"}</td>
-            <td><span class="ge-badge ${sitCls}">${esc(sitDisplay)}</span>${motivoSub}</td>
-            <td class="mono" style="color:${hasSCR ? "var(--n9)" : "var(--x4)"}">${hasSCR ? fmtMoneyAbr(e.scrTotal) : "—"}</td>
-            <td class="mono" style="text-align:right;color:${hasVenc ? "var(--r6)" : "var(--x4)"};font-weight:${hasVenc ? "700" : "400"}">${hasVenc ? fmtMoneyAbr(e.scrVencidos) : "—"}</td>
-            <td style="text-align:center;color:${hasProt && e.protestos !== "0" ? "var(--r6)" : "var(--g6)"};font-weight:600">${hasProt ? e.protestos : "—"}</td>
-            <td style="text-align:center;color:${hasProc && e.processos !== "0" ? "var(--r6)" : "var(--g6)"};font-weight:600">${hasProc ? e.processos : "—"}</td>
-            <td class="mono" style="color:${hasVal && e.valorProcessos !== "R$ 0,00" ? "var(--r6)" : "var(--x4)"}">${hasVal ? esc(e.valorProcessos!) : "—"}</td>
+            <td class="group-sep"><div class="cell-sit"><span class="ge-badge ${sitCls}">${esc(sitDisplay)}</span>${motivoSub}</div></td>
+            <td class="group-sep"><div class="cell-scr"><span class="scr-total" style="color:${hasSCR ? "var(--n9)" : "var(--x4)"}">${hasSCR ? fmtMoneyAbr(e.scrTotal) : "—"}</span>${hasVenc ? `<span class="scr-venc">▲ ${fmtMoneyAbr(e.scrVencidos)} venc.</span>` : `<span class="scr-venc scr-venc-zero">sem vencidos</span>`}</div></td>
+            <td class="group-sep"><div class="cell-litigio"><div class="litigio-counts"><span class="litigio-item ${hasProtRisk ? "red" : "green"}"><span class="litigio-label">Prot</span>${hasProt ? e.protestos : "0"}</span><span style="color:var(--x2)">|</span><span class="litigio-item ${hasProcRisk ? "red" : "green"}"><span class="litigio-label">Proc</span>${hasProc ? e.processos : "0"}</span></div>${hasVal && e.valorProcessos !== "R$ 0,00" ? `<span class="litigio-valor">${esc(e.valorProcessos!)}</span>` : `<span class="litigio-valor litigio-valor-zero">—</span>`}</div></td>
           </tr>`;
         };
         const rowsAtivas = empsAtivas.map(renderRow).join("");
         const rowsNaoAtivas = empsNaoAtivas.map(renderRow).join("");
         const totalEmps = empsAtivas.length + empsNaoAtivas.length;
-        const headerCols = `<thead><tr><th>Razão Social</th><th>CNPJ</th><th style="text-align:right">% Part.</th><th>Situação</th><th>SCR Total</th><th style="text-align:right;color:var(--r6)">Vencidos</th><th style="text-align:center">Prot.</th><th style="text-align:center">Proc.</th><th style="text-align:right">Valor Proc.</th></tr></thead>`;
+        const headerCols = `<thead><tr><th style="width:38%">Empresa</th><th style="text-align:right;width:8%">Part.</th><th class="group-sep" style="width:14%">Situação</th><th class="group-sep" style="text-align:right;width:18%">SCR / Vencidos</th><th class="group-sep">Litígios</th></tr></thead>`;
 
         return `<div class="ge-socio-hdr">
           <span style="font-size:14px">👤</span> Via sócio: ${esc(socio)}

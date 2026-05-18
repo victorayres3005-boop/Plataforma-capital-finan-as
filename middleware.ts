@@ -69,39 +69,8 @@ export async function middleware(request: NextRequest) {
     },
   );
 
-  // Verificação inicial rápida se o usuário possui os cookies de autenticação (incluindo cookies divididos .0, .1)
-  const hasSessionCookie = request.cookies.getAll().some(c => c.name.startsWith('sb-') && c.name.includes('-auth-token'));
-  
-  let user = null;
-
-  if (hasSessionCookie) {
-    try {
-      // getUser() é o método seguro recomendado pelo Supabase, e também renova o token se necessário.
-      // Como a Vercel Edge derruba a requisição em ~5s se a rede (sa-east-1) estiver instável,
-      // usamos um timeout de 3.5s. Se a rede demorar, abortamos a espera aqui e deixamos passar.
-      const authPromise = supabase.auth.getUser();
-      const timeoutPromise = new Promise<{ timeout: boolean }>((resolve) => 
-        setTimeout(() => resolve({ timeout: true }), 3500)
-      );
-      
-      const result = await Promise.race([authPromise, timeoutPromise]) as any;
-      
-      if (result.timeout) {
-        // Timeout atingido: a rede do Supabase está muito lenta.
-        // Falha graciosamente ("Fail Open"): não desloga o usuário, apenas deixa a requisição passar.
-        // O Server Component (Node.js Serverless) fará o seu próprio getUser() que tem um limite
-        // muito maior (10 a 60 segundos), então a página vai carregar sem erro 504!
-        console.warn('Middleware: Supabase getUser timeout - repassando validação para o Server Component');
-        return response; 
-      } else if (result.data?.user) {
-        user = result.data.user;
-      }
-    } catch (error) {
-      console.error('Middleware Supabase error:', error);
-      // Em caso de outro erro de rede, se tem cookie, deixa o Server Component resolver
-      return response;
-    }
-  }
+  // getUser() é o método seguro recomendado pelo Supabase, e também renova o token se necessário.
+  const { data: { user } } = await supabase.auth.getUser();
 
   // /login é público mas tem lógica especial: usuário logado é redirecionado pra home
   if (pathname === "/login") {
