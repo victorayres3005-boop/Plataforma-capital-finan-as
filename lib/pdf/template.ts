@@ -1531,7 +1531,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
           !dividaAtivaTemDados
             ? `<div class="v" style="color:var(--x4)">—</div>`
             : dividaAtivaNegativa
-              ? `<div class="v green">Nada consta</div>`
+              ? `<div class="v mono green">R$ 0,00</div>`
               : `<div class="v mono ${dividaAtivaNum > 0 ? "red" : ""}">${dividaAtivaNum > 0 ? fmtMoneyAbr(dividaAtiva!.valorTotal) : "—"}</div>`
         }</div>
         <div class="scr-card"><div class="l">Alavancagem</div><div class="v" style="color:var(--x4)">${esc(alavStr)}</div></div>
