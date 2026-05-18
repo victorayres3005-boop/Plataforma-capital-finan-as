@@ -935,7 +935,11 @@ function pageSintese(params: PDFReportParams, date: string): string {
   const protVal = cenPrimario
     ? (d.cenprot!.certidaoNegativa ? "0" : (d.cenprot!.valorTotal ?? "0"))
     : (prot?.vigentesValor ?? "0");
-  const protColor = protQtd > 0 ? "red" : "green";
+  // Netting: CENPROT vigentes − CreditHub regularizados = efetivos reais
+  const regQtdSintese = (cenPrimario && prot) ? numVal(prot.regularizadosQtd ?? "0") : 0;
+  const protEfetivos = (cenPrimario && regQtdSintese > 0) ? Math.max(0, protQtd - regQtdSintese) : protQtd;
+  const temNetting = cenPrimario && regQtdSintese > 0 && protEfetivos < protQtd;
+  const protColor = (temNetting ? protEfetivos : protQtd) > 0 ? "red" : "green";
   // Detalhes top 4 do card sumário: deriva de CENPROT (cedente/tipoTitulo)
   // quando upload existe; senão, usa bureau (credor/especie).
   type ProtTopItem = { credor: string; valor: string; data: string; especie?: string; apresentante?: string; regularizado?: boolean };
@@ -1556,8 +1560,8 @@ function pageSintese(params: PDFReportParams, date: string): string {
       <div class="risk-cols">
         <div class="risk-block">
           <div class="risk-block-hdr">
-            <div><div class="title">Protestos</div><div style="font-size:10px;color:var(--x5)">${fmtMoneyAbr(protVal)} vigentes</div></div>
-            <div class="big ${protColor}">${protQtd}</div>
+            <div><div class="title">Protestos</div><div style="font-size:10px;color:var(--x5)">${fmtMoneyAbr(protVal)} vigentes${temNetting ? ` · <span style="color:var(--g6)">${regQtdSintese} reg.</span>` : ""}</div></div>
+            <div class="big ${protColor}">${temNetting ? protEfetivos : protQtd}${temNetting ? `<div style="font-size:9px;font-weight:400;color:var(--x4);margin-top:1px">${protQtd}−${regQtdSintese}</div>` : ""}</div>
           </div>
           <div class="risk-block-body">
             <div class="risk-detail"><span class="label">Por tipo</span></div>
@@ -2224,6 +2228,11 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
   // complementa com protestos que já foram pagos/regularizados (ausentes no CENPROT).
   const regQtd = numVal(prot?.regularizadosQtd ?? "0");
   const regVal = prot?.regularizadosValor ?? "0";
+  // Netting: quando CENPROT é primário e CreditHub tem regularizados, o número
+  // efetivo = vigentes CENPROT − regularizados CH. Math.max(0) protege contra
+  // over-report do bureau vs. certidão real.
+  const protEfetivosPage = (cenPrim && regQtd > 0) ? Math.max(0, vigQtd - regQtd) : vigQtd;
+  const temNettingPage = cenPrim && regQtd > 0 && protEfetivosPage < vigQtd;
   // Fiscais zera quando CENPROT existe — CENPROT não traz tipoCredor; mostrar
   // número do bureau ao lado seria conflito (poderia incluir títulos que o
   // CENPROT classifica diferente). Tabela "Protestos Fiscais" some via gate.
@@ -2404,11 +2413,12 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
 
   const content = `
     ${stitle("03 · Protestos")}
-    <div class="istrip c4" style="margin-bottom:8px">
+    <div class="istrip ${temNettingPage ? "c5" : "c4"}" style="margin-bottom:8px">
       <div class="icell ${vigQtd > 0 ? "danger" : "success"}"><div class="l">Vigentes (Qtd)</div><div class="v ${vigQtd > 0 ? "red" : "green"}">${vigQtd}</div></div>
       <div class="icell ${vigQtd > 0 ? "danger" : ""}"><div class="l">Vigentes (R$)</div><div class="v ${vigQtd > 0 ? "red" : "muted"} sm mono">${fmtMoney(vigVal)}</div></div>
       <div class="icell ${regQtd > 0 ? "success" : ""}"><div class="l">Regularizados (Qtd)</div><div class="v ${regQtd > 0 ? "green" : "muted"}">${regQtd}</div></div>
       <div class="icell"><div class="l">Regularizados (R$)</div><div class="v muted sm mono">${fmtMoney(regVal)}</div></div>
+      ${temNettingPage ? `<div class="icell ${protEfetivosPage > 0 ? "danger" : "success"}" style="border-left:2px solid var(--n3)"><div class="l">Efetivos (est.)</div><div class="v ${protEfetivosPage > 0 ? "red" : "green"}">${protEfetivosPage}</div><div class="sub" style="font-size:9px;color:var(--x4)">${vigQtd}−${regQtd} reg.</div></div>` : ""}
     </div>
     ${(fiscQtd > 0 || pefinQtd > 0 || refinQtd > 0) ? `
     <div class="istrip c4" style="margin-bottom:14px">
@@ -2472,7 +2482,7 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
       <thead><tr><th>Data</th><th>Credor</th><th class="r">Valor</th><th>Status</th></tr></thead>
       <tbody>${top5ProtRows}</tbody>
     </table>` : ""}
-    ${vigQtd > 2 && !HIDE_ALERTAS_CRITICOS ? `<div class="alert alta"><span class="atag">ALTA</span> ${vigQtd} protestos vigentes — ${fmtMoneyAbr(vigVal)}</div>` : ""}
+    ${(temNettingPage ? protEfetivosPage : vigQtd) > 2 && !HIDE_ALERTAS_CRITICOS ? `<div class="alert alta"><span class="atag">ALTA</span> ${temNettingPage ? `${protEfetivosPage} protestos efetivos (${vigQtd} bruto − ${regQtd} regularizados)` : `${vigQtd} protestos vigentes`} — ${fmtMoneyAbr(vigVal)}</div>` : ""}
 
     ${stitle("04 · Processos judiciais")}
     <div class="istrip c4" style="margin-bottom:14px">
