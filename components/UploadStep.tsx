@@ -433,74 +433,13 @@ export default function UploadStep({
 
     (async () => {
       try {
-        // 1. Fetch CreditHub DIRECTLY from browser com RETRY POLLING
-        // A API do CreditHub é assíncrona: retorna 500+402 com push=true até os dados estarem prontos
-        const cnpjNum = cnpj.replace(/\D/g, "");
-        const CREDITHUB_KEY = "9d3b1f096fe2b4c5ba9855d286c92d38";
-        const CH_URL = `https://irql.credithub.com.br/simples/${CREDITHUB_KEY}/${cnpjNum}`;
-        const MAX_ATTEMPTS = 15;
-        const RETRY_DELAY_MS = 2000;
-        let creditHubRaw: unknown = null;
-        const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-
-        console.log(`[credithub] iniciando polling (${MAX_ATTEMPTS} tentativas, ${RETRY_DELAY_MS}ms entre)`);
-        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-          try {
-            const chRes = await fetch(CH_URL);
-            const text = await chRes.text();
-            const ct = chRes.headers.get("content-type") || "";
-            // Tenta parsear JSON mesmo se status não for 2xx
-            // (CreditHub usa 500 para avisar "em processamento" com push=true)
-            if (text.trim().startsWith("{") || ct.includes("json")) {
-              try {
-                const parsed = JSON.parse(text);
-                // Sucesso: JSON válido com dados
-                if (parsed && (parsed.data || parsed.cnpj || parsed.razaoSocial || parsed.protestos || parsed.processos || parsed.completed !== undefined)) {
-                  creditHubRaw = parsed;
-                  console.log(`[credithub] ✓ tentativa ${attempt}: JSON recebido | completed=${parsed.completed ?? parsed.data?.completed} | keys=${Object.keys(parsed).slice(0, 10).join(",")}`);
-                  // Se a consulta está completa, para o polling
-                  if (parsed.completed === true || parsed.data?.completed === true) {
-                    console.log("[credithub] ✓ consulta COMPLETED — parando polling");
-                    break;
-                  }
-                }
-              } catch {
-                // JSON parse falhou — continua polling
-              }
-            }
-            // Se recebeu XML com push=true → consulta em processamento, tenta de novo
-            if (text.includes("push=\"true\"")) {
-              if (attempt < MAX_ATTEMPTS) {
-                console.log(`[credithub] tentativa ${attempt}/${MAX_ATTEMPTS}: consulta em processamento, aguardando ${RETRY_DELAY_MS}ms...`);
-                await sleep(RETRY_DELAY_MS);
-                continue;
-              }
-            }
-            // Status 500 sem push=true = erro real, para de tentar
-            if (!chRes.ok && !text.includes("push=\"true\"")) {
-              console.error(`[credithub] erro definitivo status=${chRes.status}:`, text.substring(0, 200));
-              break;
-            }
-            // Se chegou aqui sem creditHubRaw definido ainda, continua tentando
-            if (!creditHubRaw && attempt < MAX_ATTEMPTS) {
-              await sleep(RETRY_DELAY_MS);
-            }
-          } catch (fetchErr) {
-            console.warn(`[credithub] tentativa ${attempt} exception:`, fetchErr);
-            if (attempt < MAX_ATTEMPTS) await sleep(RETRY_DELAY_MS);
-          }
-        }
-
-        if (!creditHubRaw) {
-          console.warn("[credithub] ⚠ nenhum dado retornado após", MAX_ATTEMPTS, "tentativas");
-        }
-
-        // 2. Send everything to bureaus endpoint (server parses + merges)
-        console.log("[bureaus] iniciando consulta BDC + Assertiva + demais bureaus...");
+        // CreditHub é consultado server-side via CREDITHUB_API_KEY (env var).
+        // O servidor já tem loop de retry em lib/bureaus/credithub.ts.
+        console.log("[bureaus] iniciando consulta BDC + CreditHub + demais bureaus...");
         const res = await fetch("/api/bureaus", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cnpj, data: extractedRef.current, creditHubRaw }),
+          body: JSON.stringify({ cnpj, data: extractedRef.current }),
         });
         if (!res.ok) {
           console.warn(`[bureaus] HTTP ${res.status} — resposta não-JSON`);
@@ -510,7 +449,7 @@ export default function UploadStep({
         const json = await res.json();
         console.log(`[bureaus] resposta: success=${json.success} | bureaus=${Object.keys(json.bureaus ?? {}).join(",")} | mock=${Object.entries(json.bureaus ?? {}).filter(([,v]: any) => v?.mock).map(([k]) => k).join(",") || "nenhum"}`);
         if (json.success && json.merged) {
-          setExtracted(prev => ({ ...prev, ...json.merged }));
+          setExtracted(prev => mergeData(prev as unknown as Record<string, unknown>, json.merged as Record<string, unknown>) as unknown as ExtractedData);
         }
         if (json.bureaus) setBureauDetail(json.bureaus);
         setBureauStatus(json.success ? "done" : "error");
@@ -1222,6 +1161,9 @@ export default function UploadStep({
             contrato: defaultContrato,
             faturamento: defaultFaturamento,
             scr: defaultSCR,
+            divida_ativa: { qtdRegistros: 0, valorTotal: "", registros: [], certidaoNegativa: false, dataConsulta: "" },
+            cenprot: { qtdRegistros: 0, valorTotal: "", registros: [], certidaoNegativa: false, dataConsulta: "" },
+            gefip: { competenciaInicio: "", competenciaFim: "", totalFuncionarios: 0, valorFgtsTotal: "", valorInssTotal: "", competenciasEmAtraso: 0, competencias: [] },
           };
           if (defaults[type]) {
             setExtracted(e => ({ ...e, [type]: defaults[type] }));
@@ -1272,6 +1214,9 @@ export default function UploadStep({
       dre: 'dre' as CollectionDocument["type"], balanco: 'balanco' as CollectionDocument["type"],
       curva_abc: 'curva_abc' as CollectionDocument["type"], ir_socio: 'ir_socio' as CollectionDocument["type"],
       relatorio_visita: 'relatorio_visita' as CollectionDocument["type"],
+      divida_ativa: 'divida_ativa' as CollectionDocument["type"],
+      cenprot: 'cenprot' as CollectionDocument["type"],
+      gefip: 'gefip' as CollectionDocument["type"],
     };
     const now = new Date().toISOString();
     const processedDocs: CollectionDocument[] = [];

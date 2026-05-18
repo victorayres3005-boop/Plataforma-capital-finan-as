@@ -161,13 +161,17 @@ export function hydrateFromCollection(docs: { type: string; extracted_data: Reco
     // bureau_meta guarda score + bureausConsultados + sacadosAnalisados +
     // analiseContabil + flags de sandbox (auditoria B1 2026-05-12).
     if (doc.type === "bureau_meta" && doc.extracted_data) {
-      const { score, bureausConsultados, sacadosAnalisados, analiseContabil, scrSandboxSemHistorico, grupoEconomicoScrSandbox } = doc.extracted_data as {
+      const { score, bureausConsultados, sacadosAnalisados, analiseContabil, scrSandboxSemHistorico, grupoEconomicoScrSandbox, pefin, refin, sancoes, sociosFalecidos } = doc.extracted_data as {
         score?: ExtractedData["score"];
         bureausConsultados?: string[];
         sacadosAnalisados?: ExtractedData["sacadosAnalisados"];
         analiseContabil?: string;
         scrSandboxSemHistorico?: boolean;
         grupoEconomicoScrSandbox?: boolean;
+        pefin?: ExtractedData["pefin"];
+        refin?: ExtractedData["refin"];
+        sancoes?: ExtractedData["sancoes"];
+        sociosFalecidos?: string[];
       };
       if (score) result.score = score;
       if (bureausConsultados && bureausConsultados.length > 0) result.bureausConsultados = bureausConsultados;
@@ -175,6 +179,10 @@ export function hydrateFromCollection(docs: { type: string; extracted_data: Reco
       if (analiseContabil && analiseContabil.trim()) result.analiseContabil = analiseContabil;
       if (scrSandboxSemHistorico === true) result.scrSandboxSemHistorico = true;
       if (grupoEconomicoScrSandbox === true) result.grupoEconomicoScrSandbox = true;
+      if (pefin) result.pefin = pefin;
+      if (refin) result.refin = refin;
+      if (sancoes) result.sancoes = sancoes;
+      if (sociosFalecidos && sociosFalecidos.length > 0) result.sociosFalecidos = sociosFalecidos;
       continue;
     }
 

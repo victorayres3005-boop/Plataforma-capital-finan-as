@@ -155,6 +155,10 @@ export function buildCollectionDocs(data: ExtractedData): CollectionDocument[] {
         analiseContabil: data.analiseContabil ?? "",
         scrSandboxSemHistorico: data.scrSandboxSemHistorico ?? false,
         grupoEconomicoScrSandbox: data.grupoEconomicoScrSandbox ?? false,
+        pefin: data.pefin ?? null,
+        refin: data.refin ?? null,
+        sancoes: data.sancoes ?? null,
+        sociosFalecidos: data.sociosFalecidos ?? [],
       }),
       uploaded_at: ts(),
     });

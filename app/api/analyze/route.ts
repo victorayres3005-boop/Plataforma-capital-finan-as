@@ -32,7 +32,8 @@ function getAnalysisCacheKey(data: unknown): string {
     const cnpj = ((d.cnpj as Record<string, string>)?.cnpj || "").replace(/\D/g, "");
     const fmm = (d.faturamento as Record<string, string>)?.fmm12m || (d.faturamento as Record<string, string>)?.mediaAno || "";
     const scr = (d.scr as Record<string, string>)?.totalDividasAtivas || "";
-    return `${cnpj}|${fmm}|${scr}`.substring(0, 120);
+    const scoreV2 = (d.scoreV2 as Record<string, unknown>)?.score_final ?? "";
+    return `${cnpj}|${fmm}|${scr}|${scoreV2}`.substring(0, 120);
   } catch { return ""; }
 }
 
