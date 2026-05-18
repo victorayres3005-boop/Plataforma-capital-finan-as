@@ -928,7 +928,16 @@ function pageSintese(params: PDFReportParams, date: string): string {
   // vigentes. Bureau vira fallback quando CENPROT ausente. Bureau ainda fornece
   // PEFIN/REFIN/fiscais (CENPROT não cobre).
   const prot = d.protestos;
-  const cenPrimario = d.cenprot && (d.cenprot.qtdRegistros > 0 || d.cenprot.certidaoNegativa);
+  // Staleness: CENPROT perde prioridade se certidão >30 dias E CreditHub tiver mais vigentes
+  const cenStaleInfo = (() => {
+    const dc = d.cenprot?.dataConsulta;
+    if (!dc) return { isStale: false, ageDays: 0 };
+    const [dDay, dMon, dYr] = dc.split("/").map(Number);
+    const days = (Date.now() - new Date(dYr, dMon - 1, dDay).getTime()) / 86400000;
+    return { isStale: days > 30, ageDays: Math.floor(days) };
+  })();
+  const cenSuperado = cenStaleInfo.isStale && numVal(prot?.vigentesQtd ?? "0") > (d.cenprot?.qtdRegistros ?? 0);
+  const cenPrimario = d.cenprot && (d.cenprot.qtdRegistros > 0 || d.cenprot.certidaoNegativa) && !cenSuperado;
   const protQtd = cenPrimario
     ? (d.cenprot!.certidaoNegativa ? 0 : d.cenprot!.qtdRegistros)
     : numVal(prot?.vigentesQtd ?? "0");
@@ -1570,6 +1579,7 @@ function pageSintese(params: PDFReportParams, date: string): string {
             <div class="risk-detail"><span class="label">Último protesto</span><span class="val">${fmtDate(lastProt.data)}</span></div>
             <div class="risk-detail"><span class="label">Apresentante</span><span class="val" style="font-size:10px">${esc(lastProt.apresentante ?? lastProt.credor)}</span></div>
             <div class="risk-detail"><span class="label">Valor</span><span class="val red">${fmtMoney(lastProt.valor)}</span></div>` : ""}
+            ${cenSuperado ? `<div class="risk-sep"></div><div class="risk-detail"><span class="label" style="color:var(--a5)">⚠ Fonte: CreditHub</span><span class="val" style="font-size:9px;color:var(--x4)">CENPROT com ${cenStaleInfo.ageDays}d</span></div>` : ""}
           </div>
         </div>
         <div class="risk-block">
@@ -2216,7 +2226,16 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
   // Quando upload CENPROT existe, "Regularizados" some — CENPROT só lista
   // vigentes; manter número do bureau ao lado seria confuso. Fiscais e
   // PEFIN/REFIN continuam do bureau (CENPROT não cobre).
-  const cenPrim = params.data.cenprot && (params.data.cenprot.qtdRegistros > 0 || params.data.cenprot.certidaoNegativa);
+  // Staleness: CENPROT perde prioridade se certidão >30 dias E CreditHub tiver mais vigentes
+  const cenStaleInfo9 = (() => {
+    const dc = params.data.cenprot?.dataConsulta;
+    if (!dc) return { isStale: false, ageDays: 0 };
+    const [dDay, dMon, dYr] = dc.split("/").map(Number);
+    const days = (Date.now() - new Date(dYr, dMon - 1, dDay).getTime()) / 86400000;
+    return { isStale: days > 30, ageDays: Math.floor(days) };
+  })();
+  const cenSuperado9 = cenStaleInfo9.isStale && numVal(prot?.vigentesQtd ?? "0") > (params.data.cenprot?.qtdRegistros ?? 0);
+  const cenPrim = params.data.cenprot && (params.data.cenprot.qtdRegistros > 0 || params.data.cenprot.certidaoNegativa) && !cenSuperado9;
   const cen = cenPrim ? params.data.cenprot! : null;
   const vigQtd = cen
     ? (cen.certidaoNegativa ? 0 : cen.qtdRegistros)
@@ -2413,6 +2432,7 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
 
   const content = `
     ${stitle("03 · Protestos")}
+    ${cenSuperado9 ? `<div class="alert mod" style="margin-bottom:10px"><span class="atag">INFO</span> Certidão CENPROT com <b>${cenStaleInfo9.ageDays} dias</b> — CreditHub registrou mais protestos vigentes e foi usado como fonte primária. CENPROT (${params.data.cenprot!.qtdRegistros} vigentes · ${params.data.cenprot!.dataConsulta}) fica como referência histórica.</div>` : ""}
     <div class="istrip ${temNettingPage ? "c5" : "c4"}" style="margin-bottom:8px">
       <div class="icell ${vigQtd > 0 ? "danger" : "success"}"><div class="l">Vigentes (Qtd)</div><div class="v ${vigQtd > 0 ? "red" : "green"}">${vigQtd}</div></div>
       <div class="icell ${vigQtd > 0 ? "danger" : ""}"><div class="l">Vigentes (R$)</div><div class="v ${vigQtd > 0 ? "red" : "muted"} sm mono">${fmtMoney(vigVal)}</div></div>
