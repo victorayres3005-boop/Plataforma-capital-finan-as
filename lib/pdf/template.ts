@@ -949,15 +949,31 @@ function pageSintese(params: PDFReportParams, date: string): string {
         regularizado: /pag|cancel|regular|quit|sust/i.test(r.status ?? ""),
       }))
     : (prot?.detalhes ?? []);
-  const protDetails = protDetailsAll.slice(0, 4);
+  // Top 4 por valor (exclui vigentes sem valor para card mais limpo)
+  const protDetails = [...protDetailsAll]
+    .filter(p => !p.regularizado)
+    .sort((a, b) => numVal(b.valor) - numVal(a.valor))
+    .slice(0, 4);
   const protRows = protDetails.map(p => {
-    const tag = (p.especie ?? "").toLowerCase().includes("prom") ? "np" :
+    const espLc = (p.especie ?? "").toLowerCase();
+    const tag = espLc.includes("prom") ? "np" :
                 (p.apresentante ?? "").toLowerCase().includes("banco") || (p.apresentante ?? "").toLowerCase().includes("bradesco") || (p.apresentante ?? "").toLowerCase().includes("itaú") ? "banco" :
-                (p.especie ?? "").toLowerCase().includes("sust") ? "sust" : "exec";
-    const tagLabel = tag === "np" ? "Nota Prom." : tag === "banco" ? "Banco" : tag === "sust" ? "Sustação" : "Execução";
+                espLc.includes("sust") ? "sust" : "exec";
+    // Label deriva do tipoTitulo (CENPROT) quando disponível, evitando "Execução" genérico
+    const tagLabel = espLc.includes("prom") ? "Nota Prom." :
+                     espLc.includes("banco") || (p.apresentante ?? "").toLowerCase().includes("banco") ? "Banco" :
+                     espLc.includes("sust") ? "Sustação" :
+                     espLc.includes("duplic") ? "Duplicata" :
+                     espLc.includes("cheque") ? "Cheque" :
+                     espLc.includes("cedul") ? "Cédula" :
+                     espLc.includes("letra") ? "Letra" :
+                     p.especie ? esc(p.especie).slice(0, 12) : "Protesto";
     return `<div class="risk-item"><span class="risk-tag ${tag}">${tagLabel}</span><span class="desc">${esc(p.credor)}</span><span class="amt red">${fmtMoney(p.valor)}</span></div>`;
   }).join("");
-  const lastProt = protDetailsAll.filter(p => !p.regularizado)[0];
+  // Último protesto = mais recente com data; fallback para qualquer vigente
+  const lastProt = protDetailsAll.filter(p => !p.regularizado && !!p.data)
+    .sort((a, b) => b.data.localeCompare(a.data))[0]
+    ?? protDetailsAll.find(p => !p.regularizado);
 
   // Processos
   // procTotal = polo passivo + polo ativo (decisão produto 2026-05-10).
@@ -2239,6 +2255,10 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
         })),
       ]
     : (prot?.detalhes ?? []).map(p => ({ credor: p.credor, valor: p.valor, regularizado: !!p.regularizado, data: p.data }));
+  // Nota de cobertura parcial: CENPROT pode ter N registros no total mas
+  // listar só M detalhados no PDF. Distribuição/top10 reflete só os M.
+  const protVigentesDetalhados = protDetalhesEfetivos.filter(p => !p.regularizado).length;
+  const protRegistrosParciais = cen && !cen.certidaoNegativa && protVigentesDetalhados < vigQtd;
   const pefinData = params.data.pefin;
   const refinData = params.data.refin;
   const pefinQtd = pefinData?.qtd ?? 0;
@@ -2426,6 +2446,9 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
         `<tr><td>${fmtDate(p.data)}</td><td class="b">${esc(p.credor)}</td><td class="r" style="color:var(--g6)">${fmtMoney(p.valor)}</td></tr>`
       ).join("")}</tbody>
     </table>` : ""}
+    ${protRegistrosParciais ? `<div style="font-size:var(--fs-body);color:var(--x5);background:var(--n0);border:1px solid var(--x1);border-radius:6px;padding:8px 12px;margin-bottom:10px">
+      ⚠ Certidão CENPROT registra <b>${vigQtd} protestos vigentes</b> (R$ ${fmtMoneyAbr(vigVal)}), mas o PDF detalha apenas <b>${protVigentesDetalhados}</b> individualmente. Distribuição e top 10 abaixo refletem os ${protVigentesDetalhados} com registro completo.
+    </div>` : ""}
     ${distTempProtRows ? `${stitle("Distribuição temporal")}
     <table class="tbl" style="margin-bottom:12px">
       <thead><tr><th>Período</th><th class="r">Qtd</th><th class="r">Valor</th></tr></thead>
