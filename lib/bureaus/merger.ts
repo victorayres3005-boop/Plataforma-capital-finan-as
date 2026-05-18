@@ -588,6 +588,32 @@ export function mergeBureauResults(
     }
   }
 
+  // CENPROT date enrichment via CreditHub — quando CENPROT tem registros sem
+  // data, tenta casar por proximidade de valor (±1%) nos vigentes do CH.
+  // Regularizados do CH são ignorados aqui (não existem no CENPROT).
+  const chDetalhesVigentes = (results.credithub?.protestos?.detalhes ?? []).filter(d => !d.regularizado);
+  if (data.cenprot?.registros?.length && chDetalhesVigentes.length) {
+    const semData = data.cenprot.registros.filter(r => !r.data);
+    if (semData.length > 0) {
+      const parseBRL = (s: string) => parseFloat((s ?? "").replace(/[R$\s.]/g, "").replace(",", ".")) || 0;
+      const enrichedRegistros = data.cenprot.registros.map(r => {
+        if (r.data) return r;
+        const rVal = parseBRL(r.valor);
+        if (rVal <= 0) return r;
+        const match = chDetalhesVigentes.find(d => {
+          const dVal = parseBRL(d.valor);
+          return dVal > 0 && Math.abs(rVal - dVal) / Math.max(rVal, dVal) < 0.01;
+        });
+        return match?.data ? { ...r, data: match.data } : r;
+      });
+      const nEnriched = enrichedRegistros.filter((r, i) => r.data && !data.cenprot!.registros[i].data).length;
+      if (nEnriched > 0) {
+        merged.cenprot = { ...data.cenprot, registros: enrichedRegistros };
+        console.log(`[merger] CENPROT: ${nEnriched}/${semData.length} datas enriquecidas via CreditHub`);
+      }
+    }
+  }
+
   merged.score = Object.keys(score).length > 0 ? score : data.score;
   merged.bureausConsultados = bureausConsultados.length > 0 ? bureausConsultados : data.bureausConsultados;
 
