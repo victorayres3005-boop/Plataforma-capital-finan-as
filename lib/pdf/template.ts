@@ -2204,28 +2204,40 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
   const vigVal = cen
     ? (cen.certidaoNegativa ? "0" : (cen.valorTotal ?? "0"))
     : (prot?.vigentesValor ?? "0");
-  const regQtd = cen ? 0 : numVal(prot?.regularizadosQtd ?? "0");
-  const regVal = cen ? "0" : (prot?.regularizadosValor ?? "0");
+  // Regularizados vêm sempre do CreditHub — CENPROT só lista vigentes; o bureau
+  // complementa com protestos que já foram pagos/regularizados (ausentes no CENPROT).
+  const regQtd = numVal(prot?.regularizadosQtd ?? "0");
+  const regVal = prot?.regularizadosValor ?? "0";
   // Fiscais zera quando CENPROT existe — CENPROT não traz tipoCredor; mostrar
   // número do bureau ao lado seria conflito (poderia incluir títulos que o
   // CENPROT classifica diferente). Tabela "Protestos Fiscais" some via gate.
   const fiscQtd = cen ? 0 : numVal(prot?.fiscaisQtd ?? "0");
   const fiscVal = cen ? "0" : (prot?.fiscaisValor ?? "0");
   // Lista efetiva de detalhes de protesto pra credor/top/distribuições.
-  // Quando CENPROT existe, deriva de cen.registros mapeando pra estrutura
-  // tipo-bureau (credor ← cedente, regularizado ← status). Caso contrário,
-  // usa prot.detalhes do bureau.
+  // Quando CENPROT existe: vigentes vêm do CENPROT + regularizados vêm do
+  // CreditHub (CENPROT não lista protestos já regularizados). Caso contrário,
+  // usa prot.detalhes do bureau como única fonte.
   type ProtDetalheEfetivo = { credor: string; valor: string; regularizado: boolean; data: string };
   const protDetalhesEfetivos: ProtDetalheEfetivo[] = cen && !cen.certidaoNegativa
-    ? (cen.registros ?? []).map(r => {
-        const s = (r.status ?? "").toLowerCase();
-        return {
-          credor: r.cedente || r.cartorio || "—",
-          valor: r.valor,
-          regularizado: /pag|cancel|regular|quit|sust/.test(s),
-          data: r.data,
-        };
-      })
+    ? [
+        // CENPROT — fonte primária para vigentes
+        ...(cen.registros ?? []).map(r => {
+          const s = (r.status ?? "").toLowerCase();
+          return {
+            credor: r.cedente || r.cartorio || "—",
+            valor: r.valor,
+            regularizado: /pag|cancel|regular|quit|sust/.test(s),
+            data: r.data,
+          };
+        }),
+        // CreditHub — complementa com regularizados ausentes no CENPROT
+        ...(prot?.detalhes ?? []).filter(p => !!p.regularizado).map(p => ({
+          credor: p.credor,
+          valor: p.valor,
+          regularizado: true as const,
+          data: p.data,
+        })),
+      ]
     : (prot?.detalhes ?? []).map(p => ({ credor: p.credor, valor: p.valor, regularizado: !!p.regularizado, data: p.data }));
   const pefinData = params.data.pefin;
   const refinData = params.data.refin;
@@ -2404,6 +2416,14 @@ function pageProtestosProcessos(params: PDFReportParams, date: string): string {
       <thead><tr><th>Data</th><th>Credor</th><th class="r">Valor</th><th>Modalidade</th></tr></thead>
       <tbody>${(refinData?.lista ?? []).map((r: {data?:string;valor?:number;credor?:string;modalidade?:string;contrato?:string}) =>
         `<tr><td>${fmtDate(r.data ?? "")}</td><td>${esc(r.credor ?? "—")}</td><td class="r red">${fmtMoney(String(r.valor ?? 0))}</td><td style="color:var(--x5)">${esc(r.modalidade ?? "—")}</td></tr>`
+      ).join("")}</tbody>
+    </table>` : ""}
+    ${cen && regQtd > 0 ? `${stitle("Protestos Regularizados (CreditHub)")}
+    <div style="font-size:var(--fs-body);color:var(--x5);margin-bottom:8px">Fonte: CreditHub — protestos quitados/cancelados não listados no CENPROT.</div>
+    <table class="tbl" style="margin-bottom:12px">
+      <thead><tr><th>Data</th><th>Credor</th><th class="r">Valor</th></tr></thead>
+      <tbody>${(prot?.detalhes ?? []).filter(p => !!p.regularizado).map(p =>
+        `<tr><td>${fmtDate(p.data)}</td><td class="b">${esc(p.credor)}</td><td class="r" style="color:var(--g6)">${fmtMoney(p.valor)}</td></tr>`
       ).join("")}</tbody>
     </table>` : ""}
     ${distTempProtRows ? `${stitle("Distribuição temporal")}
