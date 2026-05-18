@@ -67,6 +67,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "CNPJ não informado" }, { status: 400 });
     }
 
+    // Garante que o número do CNPJ está em data.cnpj mesmo sem upload do cartão
+    if (!data.cnpj?.cnpj && cnpj) {
+      data.cnpj = { ...data.cnpj, cnpj };
+    }
+
     // ── Stub E2E ──────────────────────────────────────────────────────────────
     // Quando rodando E2E (Playwright), retorna fixture estática em vez de chamar
     // bureaus reais. Evita custo + flakiness por dependência externa.
@@ -120,18 +125,9 @@ export async function POST(req: NextRequest) {
     // BDC é caro e renova token toda semana; entra apenas como fallback se CH vier vazio.
     // 90s cobre o pior caso: token DataBox360 (40s × 2 tentativas) + chamada SCR (15s)
     const BUREAU_TIMEOUT = 90_000;
-    // BDC government_debtors só é consultado quando o analista NÃO subiu
-    // certidão PGFN. Upload manual é fonte autoritativa — pular o BDC
-    // economiza R$ 0,05 por análise e respeita a hierarquia de fontes
-    // (decisão Débora 2026-05-13: "quando tiver upload nem precisa consultar
-    // o BigDataCorp"). Critério de pular: existe dividaAtiva com dados
-    // substantivos (qtdRegistros > 0) ou marcada como certidão negativa.
-    const pgfnTemDado =
-      !!data.dividaAtiva &&
-      (data.dividaAtiva.qtdRegistros > 0 || data.dividaAtiva.certidaoNegativa);
-    if (pgfnTemDado) {
-      console.log(`[bureaus][divida-ativa] upload PGFN presente — BDC government_debtors NÃO será consultado (economia de custo)`);
-    }
+    // Dívida Ativa é fonte exclusiva de upload PGFN (decisão Débora 2026-05-18).
+    // BDC government_debtors nunca é consultado — dados BDC podem ter até 10+ meses
+    // de defasagem e não devem substituir ou complementar a certidão oficial.
 
     // 2026-05-14: BDC sócios PF (consultarBDCSocios) entrou no allSettled principal
     // pra garantir cobertura dos campos exclusivos do BDC pessoa (financialRiskScore/Level,
@@ -144,7 +140,7 @@ export async function POST(req: NextRequest) {
       ? withTimeout(consultarBDCSocios(cpfsParaBDC), BUREAU_TIMEOUT, "bigdatacorp-socios-pf")
       : Promise.resolve({ socios: [], sociosFalecidos: [], alertaParentesco: false, parentescosDetectados: [] } as Awaited<ReturnType<typeof consultarBDCSocios>>);
 
-    const [credithub, grupoEconomico, brasilapi, sancoes, db360Empresa, db360Socios, pefinRefin, dividaAtivaBDC, bdcSociosPF, bdcProcessosEmpresa] = await Promise.allSettled([
+    const [credithub, grupoEconomico, brasilapi, sancoes, db360Empresa, db360Socios, pefinRefin, _dividaAtivaBDC, bdcSociosPF, bdcProcessosEmpresa] = await Promise.allSettled([
       withTimeout(consultarCreditHubComCache(cnpj, creditHubRaw), BUREAU_TIMEOUT, "credithub"),
       withTimeout(consultarGrupoEconomicoSocios(sociosParaGrupo, cnpj), BUREAU_TIMEOUT, "grupo-economico"),
       withTimeout(consultarBrasilApi(cnpj), BUREAU_TIMEOUT, "brasilapi"),
@@ -152,10 +148,8 @@ export async function POST(req: NextRequest) {
       withTimeout(consultarSCREmpresa(cnpj), BUREAU_TIMEOUT, "databox360-empresa"),
       withTimeout(consultarSCRSocios(sociosParaGrupo), BUREAU_TIMEOUT, "databox360-socios"),
       withTimeout(consultarPefinRefin(cnpj), BUREAU_TIMEOUT, "credithub-pefin-refin"),
-      // BDC government_debtors: pular se upload PGFN já tem dados.
-      pgfnTemDado
-        ? Promise.resolve({ success: false, error: "skipped: upload PGFN presente" } as Awaited<ReturnType<typeof consultarDividaAtivaBDC>>)
-        : withTimeout(consultarDividaAtivaBDC(cnpj), BUREAU_TIMEOUT, "bdc-divida-ativa"),
+      // Dívida Ativa exclusivo de upload PGFN — BDC nunca consultado.
+      Promise.resolve({ success: false, error: "skipped: dividaAtiva é exclusivo de upload PGFN" } as Awaited<ReturnType<typeof consultarDividaAtivaBDC>>),
       bdcSociosTask,
       // BDC processos da EMPRESA PRINCIPAL sempre (fix 2026-05-15 — bug de
       // processos zerados em prod). Antes só rodava no fallback total quando CH
@@ -338,34 +332,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ── Dívida Ativa via BDC ──────────────────────────────────────────────────
-    // Upload manual de certidão PGFN tem prioridade nos cálculos (PGFN é fonte
-    // autoritativa). BDC government_debtors é populado em DOIS papéis:
-    //  • Se NÃO houver upload PGFN → vira a fonte primária (data.dividaAtiva)
-    //  • Se HOUVER upload PGFN → vira snapshot para comparação (data.dividaAtivaBDC),
-    //    mantendo o upload do analista como fonte de verdade.
-    //
-    // Bug corrigido 2026-05-13: a condição antes checava `!dataConsulta`, mas
-    // muitas certidões PGFN (prints, PDFs antigos, certidões estaduais/
-    // municipais) não trazem a data de emissão em formato extraível pelo
-    // Gemini. Resultado: PGFN cheio de inscrições era sobrescrito por BDC
-    // só porque dataConsulta veio "". Agora a checagem é por dados
-    // substantivos (qtdRegistros > 0 OU certidão negativa explícita).
-    const bdcDA = dividaAtivaBDC.status === "fulfilled" ? dividaAtivaBDC.value : undefined;
+    // ── Dívida Ativa — exclusivo de upload PGFN ──────────────────────────────
+    // merged.dividaAtiva já vem de data.dividaAtiva (upload do analista).
+    // Não há fallback BDC (decisão Débora 2026-05-18: fonte única = certidão oficial).
     const pgfnUpload = data.dividaAtiva;
-    if (!pgfnUpload || (pgfnUpload.qtdRegistros === 0 && !pgfnUpload.certidaoNegativa)) {
-      if (bdcDA?.success && bdcDA.data) {
-        merged.dividaAtiva = bdcDA.data;
-        console.log(
-          `[bureaus][divida-ativa] populado via BDC: qtd=${bdcDA.data.qtdRegistros} ${bdcDA.data.certidaoNegativa ? "(negativa)" : `total=${bdcDA.data.valorTotal}`}`
-        );
-      } else {
-        console.log(`[bureaus][divida-ativa] BDC não retornou dado: ${bdcDA?.error ?? "indisponível"}`);
-      }
+    if (pgfnUpload && (pgfnUpload.qtdRegistros > 0 || pgfnUpload.certidaoNegativa)) {
+      console.log(`[bureaus][divida-ativa] upload PGFN presente: qtd=${pgfnUpload.qtdRegistros} ${pgfnUpload.certidaoNegativa ? "(negativa)" : `total=${pgfnUpload.valorTotal}`}`);
     } else {
-      console.log(`[bureaus][divida-ativa] preservando upload manual do analista (PGFN): qtd=${pgfnUpload.qtdRegistros} ${pgfnUpload.certidaoNegativa ? "(negativa)" : `total=${pgfnUpload.valorTotal}`} — BDC pulado`);
-      // Não há mais snapshot BDC quando PGFN existe (BDC não foi consultado).
-      // Se quiser comparativo BDC×PGFN no futuro, é só remover o skip acima.
+      console.log("[bureaus][divida-ativa] sem upload PGFN — seção ficará vazia no relatório");
     }
 
     // FASE 3 — Sacados da Curva ABC (top 5 PJ)
@@ -559,23 +533,17 @@ export async function POST(req: NextRequest) {
           (sum, s) => sum + s.socios.filter((sc) => (sc.cpf ?? "").length === 11).length,
           0,
         );
-        // bdc_government_debtors separado: chamada de Dívida Ativa via BDC é
-        // 1 dataset (R$ 0,05) — antes era contabilizada como bdc_empresa
-        // (R$ 0,51), inflando 10x o custo. Conta só quando o BDC respondeu
-        // com sucesso (dividaAtivaBDC). Captura tanto a chamada que entra
-        // em data.dividaAtiva (sem upload) quanto o snapshot pra comparação
-        // (com upload PGFN) — em ambos os casos a request foi feita.
-        const dividaAtivaSucesso = dividaAtivaBDC.status === "fulfilled" && dividaAtivaBDC.value?.success;
         // Onda 3: assertiva_pj/pf zerados (Assertiva desativada 2026-05-13).
         // sacado_assertiva_pj mantido em 0 mesmo após remoção do bureau pra
         // preservar histórico da coluna nas métricas de /custos.
+        // bdc_government_debtors: sempre 0 — BDC nunca consultado (decisão 2026-05-18).
         const bureau_calls = {
           credithub:            results.credithub?.success && !results.credithub?.mock ? 1 : 0,
           assertiva_pj:         0,
           assertiva_pf:         0,
           bdc_empresa:          results.bigdatacorp?.success && !results.bigdatacorp?.mock ? 1 : 0,
           bdc_socio:            results.bigdatacorp?.success && !results.bigdatacorp?.mock ? numSociosPF : 0,
-          bdc_government_debtors: dividaAtivaSucesso ? 1 : 0,
+          bdc_government_debtors: 0,
           databox360_empresa:   !db360EmpresaResult?.mock && db360EmpresaResult?.scr ? 1 : 0,
           databox360_socio:     db360SociosMerged.length,
           sacado_credithub:     sacadosCount,
