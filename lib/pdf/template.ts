@@ -363,7 +363,7 @@ body{font-family:'DM Sans',sans-serif;font-size:var(--fs-body);background:#fff;c
 .ge-header{background:var(--n9);padding:8px 14px;display:flex;justify-content:space-between;align-items:center}
 .ge-header .title{font-size:var(--fs-h3);font-weight:700;color:#fff}
 .ge-header .count{font-size:var(--fs-label);color:rgba(255,255,255,0.7);font-weight:500}
-.ge-socio-hdr{padding:7px 14px;background:var(--n0);border-bottom:1px solid var(--n1);font-size:var(--fs-label);font-weight:700;color:var(--n7);text-transform:uppercase;letter-spacing:0.06em;display:flex;align-items:center;gap:6px}
+.ge-socio-hdr{padding:8px 14px;background:linear-gradient(135deg,var(--n0),#dce7f7);border-top:2px solid var(--n7);border-bottom:1px solid var(--n1);font-size:var(--fs-label);font-weight:700;color:var(--n7);text-transform:uppercase;letter-spacing:0.06em;display:flex;align-items:center;gap:8px}
 .ge-tbl{width:100%;border-collapse:collapse;font-size:var(--fs-body)}
 .ge-tbl th{padding:6px 12px;font-size:var(--fs-tag);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--x4);border-bottom:1px solid var(--x1);text-align:left}
 .ge-tbl td{padding:7px 12px;border-bottom:1px solid var(--x1);color:var(--x7);vertical-align:middle}
@@ -376,31 +376,42 @@ body{font-family:'DM Sans',sans-serif;font-size:var(--fs-body);background:#fff;c
 .ge-badge.inapta{background:var(--r1);color:var(--r6)}
 .ge-badge.outro{background:var(--x1);color:var(--x5)}
 .ge-rel{display:inline-block;font-size:var(--fs-tag);font-weight:600;padding:2px 7px;border-radius:3px;background:var(--n0);color:var(--n7);white-space:nowrap}
-.ge-parentesco{display:flex;align-items:center;gap:8px;padding:9px 14px;background:var(--a0);border-top:1px solid var(--a1);font-size:var(--fs-body);color:var(--a5)}
-.ge-parentesco .atag{background:var(--a1)}
+.ge-parentesco{display:block;padding:8px 14px;background:var(--a0);border-left:3px solid var(--a5);border-top:1px solid var(--a1);font-size:var(--fs-body);color:var(--x7);margin-top:6px}
+.ge-parentesco-hdr{display:flex;align-items:center;gap:6px;font-weight:700;color:var(--a5);margin-bottom:4px}
+.ge-parentesco-hdr .atag{background:var(--a1);color:var(--a5)}
 /* Pacote B (2026-05-15): motivo da baixa (sub-info embaixo do badge Situação) +
    bandeirinha 🚩 inline ao lado da razão social quando ≥2 mudanças históricas. */
 .motivo-sub{font-size:var(--fs-tag);color:var(--r6);margin-top:2px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em}
 .motivo-sub.neutral{color:var(--x5)}
 .flag-instab{display:inline-block;font-size:10px;margin-left:4px;cursor:help}
-/* Grupo econômico — células condensadas (9→5 colunas) */
-.ge-tbl tbody tr:nth-child(even) td{background:rgba(0,0,0,0.015)}
-.ge-tbl .group-sep{border-left:1px solid var(--x1)}
+/* Grupo econômico — tabela 4 colunas */
+.ge-tbl thead tr{background:var(--x0)}
+.ge-tbl thead th{border-bottom:2px solid var(--x2)!important}
+.ge-tbl tbody tr:nth-child(even) td{background:rgba(0,0,0,.018)}
+.ge-tbl .group-sep{border-left:1px solid var(--x2)}
+.ge-tbl tbody tr td:first-child{border-left:3px solid transparent}
+.ge-tbl tbody tr.row-ativa td:first-child{border-left-color:var(--g6)}
+.ge-tbl tbody tr.row-baixada td:first-child{border-left-color:var(--r6)}
+.ge-tbl tbody tr.row-suspensa td:first-child{border-left-color:var(--a5)}
+.ge-badge{border-radius:20px!important}
+.ge-section-lbl{padding:4px 12px;font-size:var(--fs-tag);font-weight:700;text-transform:uppercase;letter-spacing:.06em;display:flex;align-items:center;gap:6px}
+.ge-section-lbl::before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor;flex-shrink:0}
+.ge-section-lbl.ativas{color:var(--g6);background:var(--g0);border-bottom:1px solid var(--g1)}
+.ge-section-lbl.inativas{color:var(--x5);background:var(--x0);border-top:1px solid var(--x2);border-bottom:1px solid var(--x2);margin-top:8px}
 .cell-empresa{display:flex;flex-direction:column;gap:2px}
 .cell-empresa .razao{font-weight:600;color:var(--n9);font-size:var(--fs-body)}
 .cell-empresa .cnpj-sub{font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--x4);letter-spacing:0.02em}
 .cell-scr{display:flex;flex-direction:column;gap:1px;align-items:flex-end}
 .scr-total{font-family:'JetBrains Mono',monospace;font-size:var(--fs-body);font-weight:600}
 .scr-venc{font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--r6);font-weight:700}
-.scr-venc-zero{color:var(--x4);font-weight:400}
-.cell-litigio{display:flex;flex-direction:column;gap:2px}
-.litigio-counts{display:flex;gap:6px;align-items:center}
-.litigio-item{font-size:var(--fs-body);font-weight:700}
-.litigio-item.red{color:var(--r6)}
-.litigio-item.green{color:var(--g6)}
-.litigio-label{font-size:8.5px;color:var(--x4);text-transform:uppercase;margin-right:2px;font-weight:400}
+.scr-venc-zero{color:var(--x4);font-weight:400;font-size:9.5px}
+.cell-litigio{display:flex;flex-direction:column;gap:3px}
+.litigio-chips{display:flex;gap:4px;flex-wrap:wrap}
+.litigio-chip{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:10px;font-size:var(--fs-body);font-weight:700;white-space:nowrap}
+.litigio-chip-lbl{font-size:7.5px;font-weight:400;text-transform:uppercase;opacity:.7}
+.litigio-chip.risco{background:var(--r1);color:var(--r6)}
+.litigio-chip.ok{background:var(--g1);color:var(--g6)}
 .litigio-valor{font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--r6);font-weight:600}
-.litigio-valor-zero{color:var(--x4)}
 .cell-sit{display:flex;flex-direction:column;gap:2px}
 /* ── Risk blocks ── */
 .risk-section{background:var(--x0);border-radius:10px;border:1px solid var(--x2);padding:20px;margin-bottom:18px}
@@ -1448,11 +1459,12 @@ function pageSintese(params: PDFReportParams, date: string): string {
             : "";
           const hasProtRisk = hasProt && e.protestos !== "0";
           const hasProcRisk = hasProc && e.processos !== "0";
-          return `<tr>
+          const rowCls = sitCls === "ativa" ? "row-ativa" : sitCls === "baixada" ? "row-baixada" : sitCls === "suspensa" ? "row-suspensa" : "";
+          return `<tr class="${rowCls}">
             <td><div class="cell-empresa"><span class="razao">${esc(e.razaoSocial)}${flagInstab}</span><span class="cnpj-sub">${cnpjFmt}</span></div></td>
             <td class="group-sep"><div class="cell-sit"><span class="ge-badge ${sitCls}">${esc(sitDisplay)}</span>${motivoSub}</div></td>
             <td class="group-sep"><div class="cell-scr"><span class="scr-total" style="color:${hasSCR ? "var(--n9)" : "var(--x4)"}">${hasSCR ? fmtMoneyAbr(e.scrTotal) : "—"}</span>${hasVenc ? `<span class="scr-venc">▲ ${fmtMoneyAbr(e.scrVencidos)} venc.</span>` : `<span class="scr-venc scr-venc-zero">sem vencidos</span>`}</div></td>
-            <td class="group-sep"><div class="cell-litigio"><div class="litigio-counts"><span class="litigio-item ${hasProtRisk ? "red" : "green"}"><span class="litigio-label">Prot</span>${hasProt ? e.protestos : "0"}</span><span style="color:var(--x2)">|</span><span class="litigio-item ${hasProcRisk ? "red" : "green"}"><span class="litigio-label">Proc</span>${hasProc ? e.processos : "0"}</span></div>${hasVal && e.valorProcessos !== "R$ 0,00" ? `<span class="litigio-valor">${esc(e.valorProcessos!)}</span>` : `<span class="litigio-valor litigio-valor-zero">—</span>`}</div></td>
+            <td class="group-sep"><div class="cell-litigio"><div class="litigio-chips"><span class="litigio-chip ${hasProtRisk ? "risco" : "ok"}"><span class="litigio-chip-lbl">Prot</span>${hasProt ? e.protestos : "0"}</span><span class="litigio-chip ${hasProcRisk ? "risco" : "ok"}"><span class="litigio-chip-lbl">Proc</span>${hasProc ? e.processos : "0"}</span></div>${hasVal && e.valorProcessos !== "R$ 0,00" ? `<span class="litigio-valor">${esc(e.valorProcessos!)}</span>` : ""}</div></td>
           </tr>`;
         };
         const rowsAtivas = empsAtivas.map(renderRow).join("");
@@ -1461,16 +1473,15 @@ function pageSintese(params: PDFReportParams, date: string): string {
         const headerCols = `<thead><tr><th style="width:44%">Empresa</th><th class="group-sep" style="width:14%">Situação</th><th class="group-sep" style="text-align:right;width:20%">SCR / Vencidos</th><th class="group-sep">Litígios</th></tr></thead>`;
 
         return `<div class="ge-socio-hdr">
-          <span style="font-size:14px">👤</span> Via sócio: ${esc(socio)}
-          <span style="font-weight:500;color:var(--n8);margin-left:auto">${totalEmps} empresa${totalEmps > 1 ? "s" : ""}${empsNaoAtivas.length > 0 ? ` <span style="color:var(--x4)">(${empsAtivas.length} ativa${empsAtivas.length !== 1 ? "s" : ""})</span>` : ""}</span>
+          <span style="background:var(--n7);color:#fff;font-size:var(--fs-tag);padding:1px 7px;border-radius:10px;letter-spacing:.02em">SÓCIO</span>${esc(socio)}
+          <span style="font-weight:500;color:var(--n8);margin-left:auto">${totalEmps} empresa${totalEmps > 1 ? "s" : ""}${empsNaoAtivas.length > 0 ? ` <span style="color:var(--x5);font-weight:400">(${empsAtivas.length} ativa${empsAtivas.length !== 1 ? "s" : ""})</span>` : ""}</span>
         </div>
-        ${rowsAtivas ? `<table class="ge-tbl">${headerCols}<tbody>${rowsAtivas}</tbody></table>` : ""}
-        ${rowsNaoAtivas ? `<table class="ge-tbl" style="opacity:0.85;${rowsAtivas ? "margin-top:8px" : ""}">${headerCols}<tbody>${rowsNaoAtivas}</tbody></table>` : ""}`;
+        ${rowsAtivas ? `<div class="ge-section-lbl ativas">Empresas ativas · ${empsAtivas.length}</div><table class="ge-tbl">${headerCols}<tbody>${rowsAtivas}</tbody></table>` : ""}
+        ${rowsNaoAtivas ? `<div class="ge-section-lbl inativas">Empresas inativas · ${empsNaoAtivas.length}</div><table class="ge-tbl" style="opacity:0.85">${headerCols}<tbody>${rowsNaoAtivas}</tbody></table>` : ""}`;
       }).join("");
 
       const alertaParentesco = ge.alertaParentesco && (ge.parentescosDetectados ?? []).length > 0
-        ? `<div class="ge-parentesco"><span class="atag alert mod" style="padding:2px 8px;border-radius:3px;font-size:var(--fs-tag);font-weight:700">ATENÇÃO</span>
-           Possível parentesco entre sócios: ${ge.parentescosDetectados!.map((p: {socio1:string;socio2:string;sobrenomeComum:string}) => `<b>${esc(p.socio1)}</b> e <b>${esc(p.socio2)}</b> (sobrenome <i>${esc(p.sobrenomeComum)}</i>)`).join("; ")}</div>`
+        ? `<div class="ge-parentesco"><div class="ge-parentesco-hdr"><span class="atag" style="background:var(--a1);color:var(--a5);padding:1px 7px;border-radius:3px;font-size:var(--fs-tag);font-weight:700">ATENÇÃO</span> Possível parentesco entre sócios</div><div style="font-size:var(--fs-body);color:var(--x7);line-height:1.8">${ge.parentescosDetectados!.map((p: {socio1:string;socio2:string;sobrenomeComum:string}) => `<b>${esc(p.socio1)}</b> e <b>${esc(p.socio2)}</b> — sobrenome <i style="color:var(--a5)">${esc(p.sobrenomeComum)}</i>`).join("<br>")}</div></div>`
         : "";
 
       const scrSandboxNote = d.grupoEconomicoScrSandbox
