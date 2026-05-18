@@ -622,12 +622,14 @@ export function mergeBureauResults(
   // evita que o analista veja 143 protestos do bureau quando CENPROT diz 3.
   const cenprotUploadado = !!(data.cenprot && (data.cenprot.qtdRegistros > 0 || data.cenprot.certidaoNegativa));
   if (cenprotUploadado) {
+    // Prefere merged.cenprot (com datas enriquecidas pelo CreditHub) sobre data.cenprot original
+    const cenSrc = merged.cenprot ?? data.cenprot!;
     merged.protestos = {
-      vigentesQtd: String(data.cenprot!.qtdRegistros),
-      vigentesValor: data.cenprot!.valorTotal || "R$ 0,00",
+      vigentesQtd: String(cenSrc.qtdRegistros),
+      vigentesValor: cenSrc.valorTotal || "R$ 0,00",
       regularizadosQtd: "",
       regularizadosValor: "",
-      detalhes: (data.cenprot!.registros ?? []).map(r => ({
+      detalhes: (cenSrc.registros ?? []).map(r => ({
         data: r.data || "",
         credor: r.cartorio || r.cedente || "",
         valor: r.valor || "",

@@ -159,6 +159,8 @@ export function buildCollectionDocs(data: ExtractedData): CollectionDocument[] {
         refin: data.refin ?? null,
         sancoes: data.sancoes ?? null,
         sociosFalecidos: data.sociosFalecidos ?? [],
+        historicoConsultas: data.historicoConsultas ?? [],
+        scrSociosErrors: data.scrSociosErrors ?? [],
       }),
       uploaded_at: ts(),
     });
