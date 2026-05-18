@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, Info, GitCompareArrows, Receipt, Scale, PieChart, FileKey, ClipboardList, Loader2 } from "lucide-react";
+import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, Info, GitCompareArrows, Receipt, Scale, PieChart, FileKey, ClipboardList, Loader2, AlertTriangle } from "lucide-react";
 import UploadArea from "./UploadArea";
 import OnboardingTooltip from "./OnboardingTooltip";
 import { useTooltips } from "@/lib/useTooltips";
@@ -1221,6 +1221,13 @@ export default function UploadStep({
 
   const canProceed = (allRequiredDone || forcarAvancar) && !anyProcessing && !anyRetrying && bureauStatus !== "loading";
 
+  // Seções com arquivo enviado mas extração falhou (processedCount=0 apesar de ter arquivo).
+  // Usado para exibir aviso antes de prosseguir — dados dessas seções não entrarão na análise.
+  const sectionsComFalha = SECTIONS.filter(s => {
+    const sec = sections[s.key];
+    return sec.processedCount === 0 && (sec.files.length > 0 || (sec.resumedFilenames?.length ?? 0) > 0);
+  });
+
   const handleSubmit = () => {
     if (!canProceed) return;
     const files: OriginalFiles = {
@@ -1460,6 +1467,16 @@ export default function UploadStep({
         className="sticky bottom-0 z-20 bg-white border-t border-cf-border"
         style={{ boxShadow: "0 -4px 16px rgba(32,59,136,0.07)" }}
       >
+        {canProceed && sectionsComFalha.length > 0 && (
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 16px", background: "#fffbeb", borderBottom: "1px solid #fcd34d", fontSize: 12 }}>
+            <AlertTriangle size={14} color="#d97706" style={{ flexShrink: 0, marginTop: 1 }} />
+            <span style={{ color: "#92400e", lineHeight: 1.5 }}>
+              <strong>Extração incompleta:</strong>{" "}
+              {sectionsComFalha.map(s => s.title).join(", ")}.{" "}
+              {sectionsComFalha.length === 1 ? "Esse documento" : "Esses documentos"} não entrar{sectionsComFalha.length === 1 ? "á" : "ão"} na análise — verifique o arquivo ou remova antes de prosseguir.
+            </span>
+          </div>
+        )}
         <div className="px-4 py-3 flex items-center justify-between gap-4">
 
           {/* Left: dots + bureau badges */}
