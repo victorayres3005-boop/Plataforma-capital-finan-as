@@ -617,8 +617,31 @@ export function mergeBureauResults(
   merged.score = Object.keys(score).length > 0 ? score : data.score;
   merged.bureausConsultados = bureausConsultados.length > 0 ? bureausConsultados : data.bureausConsultados;
 
-  // Só sobrescreve protestos/processos se vieram dos birôs
-  if (protestos) merged.protestos = protestos;
+  // Se CENPROT foi uploadado, ele é a fonte primária para protestos.
+  // Bureau (CreditHub/BDC/Assertiva) pode ter números desatualizados — usar CENPROT
+  // evita que o analista veja 143 protestos do bureau quando CENPROT diz 3.
+  const cenprotUploadado = !!(data.cenprot && (data.cenprot.qtdRegistros > 0 || data.cenprot.certidaoNegativa));
+  if (cenprotUploadado) {
+    merged.protestos = {
+      vigentesQtd: String(data.cenprot!.qtdRegistros),
+      vigentesValor: data.cenprot!.valorTotal || "R$ 0,00",
+      regularizadosQtd: "",
+      regularizadosValor: "",
+      detalhes: (data.cenprot!.registros ?? []).map(r => ({
+        data: r.data || "",
+        credor: r.cartorio || r.cedente || "",
+        valor: r.valor || "",
+        regularizado: ["regularizado", "cancelado", "pago"].includes((r.status ?? "").toLowerCase()),
+        especie: r.tipoTitulo,
+        numero: r.protocolo,
+        apresentante: r.cedente,
+        municipio: r.cidade,
+        uf: r.uf,
+      })),
+    } as ProtestosData;
+  } else if (protestos) {
+    merged.protestos = protestos;
+  }
   if (processos) merged.processos = processos;
 
   return merged;

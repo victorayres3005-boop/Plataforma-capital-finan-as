@@ -5,7 +5,7 @@ import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, Info, 
 import UploadArea from "./UploadArea";
 import OnboardingTooltip from "./OnboardingTooltip";
 import { useTooltips } from "@/lib/useTooltips";
-import { CNPJData, QSAData, ContratoSocialData, FaturamentoData, SCRData, SCRSocioData, ProtestosData, ProcessosData, GrupoEconomicoData, ExtractedData, IRSocioData, CollectionDocument } from "@/types";
+import { CNPJData, QSAData, ContratoSocialData, FaturamentoData, SCRData, SCRSocioData, ProtestosData, ProcessosData, GrupoEconomicoData, ExtractedData, IRSocioData, CollectionDocument, CenprotData } from "@/types";
 import { upload } from "@vercel/blob/client";
 import { mergeQsaWithContrato } from "@/lib/mergeQsaWithContrato";
 import { toast } from "sonner";
@@ -708,6 +708,31 @@ export default function UploadStep({
             if (!temQsa) {
               updated.qsa = qsaDetectado;
               console.log('[upload] QSA auto-detectado no Cartão CNPJ:', qsaDetectado.quadroSocietario.length, 'sócios');
+            }
+          }
+          // CENPROT é autoritativo para protestos: sobrepõe qualquer dado de bureau
+          // que tenha chegado antes (bureau pode reportar número diferente do oficial).
+          if (type === 'cenprot' && json.data) {
+            const cen = json.data as CenprotData;
+            if (cen.qtdRegistros > 0 || cen.certidaoNegativa) {
+              updated.protestos = {
+                vigentesQtd: String(cen.qtdRegistros),
+                vigentesValor: cen.valorTotal || "R$ 0,00",
+                regularizadosQtd: "",
+                regularizadosValor: "",
+                detalhes: (cen.registros ?? []).map(r => ({
+                  data: r.data || "",
+                  credor: r.cartorio || r.cedente || "",
+                  valor: r.valor || "",
+                  regularizado: ["regularizado", "cancelado", "pago"].includes((r.status ?? "").toLowerCase()),
+                  especie: r.tipoTitulo,
+                  numero: r.protocolo,
+                  apresentante: r.cedente,
+                  municipio: r.cidade,
+                  uf: r.uf,
+                })),
+              } as ProtestosData;
+              console.log('[upload] CENPROT → protestos sincronizado:', cen.qtdRegistros, 'registro(s)');
             }
           }
           return updated as unknown as typeof prev;

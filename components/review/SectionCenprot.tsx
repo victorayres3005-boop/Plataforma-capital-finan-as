@@ -15,7 +15,7 @@ export function SectionCenprot({ data, bureauProtestos, expanded, onToggle }: Pr
   const negativa = !!data?.certidaoNegativa;
   const regs = data?.registros ?? [];
   const bureauVigQtd = parseInt(bureauProtestos?.vigentesQtd || "0", 10);
-  const divergencia = !!data && bureauProtestos && qtd !== bureauVigQtd;
+  const divergencia = !!data && bureauProtestos && bureauVigQtd > 0 && qtd !== bureauVigQtd;
 
   return (
     <SectionCard
