@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { ArrowRight, ArrowLeft, AlertTriangle, AlertCircle, RefreshCw, CheckCircle2, ShieldCheck, ClipboardList } from "lucide-react";
 import { ExtractedData, Socio, QSASocio, FaturamentoMensal, SCRModalidade, SCRInstituicao, SCRData, IRSocioData } from "@/types";
 import { avaliarQualidade, podeAvancar, getAvisos } from "./review/shared";
+import { mergeData } from "@/components/UploadStep";
 import { SectionCNPJ } from "./review/SectionCNPJ";
 import { SectionQSA } from "./review/SectionQSA";
 import { SectionContrato } from "./review/SectionContrato";
@@ -140,7 +141,7 @@ export default function ReviewStep({ data, onComplete, onBack, onDataChange }: R
       const json = await res.json();
       console.log(`[bureaus] resposta: success=${json.success} | bureaus=${Object.keys(json.bureaus ?? {}).join(",")} | mock=${Object.entries(json.bureaus ?? {}).filter(([,v]: any) => v?.mock).map(([k]) => k).join(",") || "nenhum"}`);
       if (json.success && json.merged) {
-        setForm(prev => ({ ...prev, ...json.merged }));
+        setForm(prev => mergeData(prev as unknown as Record<string, unknown>, json.merged as Record<string, unknown>) as unknown as ExtractedData);
         const consultados: string[] = json.merged?.bureausConsultados || [];
         setBureauMsg(consultados.length > 0 ? `Consultado: ${consultados.join(", ")}` : "Consulta concluída.");
         setBureauStatus("done");

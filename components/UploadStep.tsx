@@ -158,7 +158,7 @@ function dedupeArray(key: string, arr: unknown[]): unknown[] {
   return out;
 }
 
-function mergeData(existing: Record<string, unknown>, incoming: Record<string, unknown>): Record<string, unknown> {
+export function mergeData(existing: Record<string, unknown>, incoming: Record<string, unknown>): Record<string, unknown> {
   const result = { ...existing };
   for (const [key, value] of Object.entries(incoming)) {
     if (Array.isArray(value) && Array.isArray(result[key])) {
@@ -1180,17 +1180,29 @@ export default function UploadStep({
             }),
           }));
         } else {
+          // DocKey == campo em ExtractedData
           const defaults: Record<string, unknown> = {
             cnpj: defaultCNPJ,
             qsa: defaultQSA,
             contrato: defaultContrato,
             faturamento: defaultFaturamento,
             scr: defaultSCR,
-            divida_ativa: { qtdRegistros: 0, valorTotal: "", registros: [], certidaoNegativa: false, dataConsulta: "" },
+            dre: { anos: [], crescimentoReceita: "0,00", tendenciaLucro: "estavel", periodoMaisRecente: "", observacoes: "" },
+            balanco: { anos: [], periodoMaisRecente: "", tendenciaPatrimonio: "estavel", observacoes: "" },
             cenprot: { qtdRegistros: 0, valorTotal: "", registros: [], certidaoNegativa: false, dataConsulta: "" },
             gefip: { competenciaInicio: "", competenciaFim: "", totalFuncionarios: 0, valorFgtsTotal: "", valorInssTotal: "", competenciasEmAtraso: 0, competencias: [] },
           };
-          if (defaults[type]) {
+          // DocKey difere do campo em ExtractedData
+          const remapped: Record<string, [string, unknown]> = {
+            divida_ativa:     ["dividaAtiva",     { qtdRegistros: 0, valorTotal: "", registros: [], certidaoNegativa: false, dataConsulta: "" }],
+            curva_abc:        ["curvaABC",        { clientes: [], totalClientesNaBase: 0, totalClientesExtraidos: 0, periodoReferencia: "", receitaTotalBase: "0,00", concentracaoTop3: "0.00", concentracaoTop5: "0.00", concentracaoTop10: "0.00", totalClientesClasseA: 0, receitaClasseA: "0,00", maiorCliente: "", maiorClientePct: "0.00", alertaConcentracao: false }],
+            ir_socio:         ["irSocios",        []],
+            relatorio_visita: ["relatorioVisita", undefined],
+          };
+          if (remapped[type]) {
+            const [field, val] = remapped[type];
+            setExtracted(e => ({ ...e, [field]: val }));
+          } else if (defaults[type] !== undefined) {
             setExtracted(e => ({ ...e, [type]: defaults[type] }));
           }
         }
