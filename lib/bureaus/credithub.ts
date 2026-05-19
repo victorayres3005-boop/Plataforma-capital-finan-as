@@ -1386,41 +1386,6 @@ async function enriquecerEmpresasGrupoEconomico(
     }));
   }
 
-  // OPÇÃO B: BrasilAPI fallback para % participação que ainda esteja vazia.
-  // BrasilAPI é fonte oficial Receita, gratuita, retorna QSA com
-  // `percentual_capital_social`. Cap de 5 chamadas (mesmo MAX_ENRICH).
-  const brasilApiPart = paraEnriquecer.filter(e =>
-    !e.participacao && e.cpfSocio && e.cnpj && e.cnpj.length === 14
-  );
-  if (brasilApiPart.length > 0) {
-    console.log(`[credithub][enrich] ${brasilApiPart.length} empresa(s) sem % part — BrasilAPI fallback`);
-    await Promise.allSettled(brasilApiPart.map(async emp => {
-      try {
-        const cpfNum = emp.cpfSocio!.replace(/\D/g, "");
-        const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${emp.cnpj}`, {
-          signal: AbortSignal.timeout(5000),
-          cache: "no-store",
-        });
-        if (!res.ok) {
-          console.warn(`[credithub][enrich-brapi] ${emp.cnpj!.slice(0,4)}*** HTTP ${res.status}`);
-          return;
-        }
-        const json = await res.json() as { qsa?: Array<{ cnpj_cpf_do_socio?: string; percentual_capital_social?: number }> };
-        const qsa = Array.isArray(json?.qsa) ? json.qsa : [];
-        const socioMatch = qsa.find(s =>
-          String(s?.cnpj_cpf_do_socio ?? "").replace(/\D/g, "") === cpfNum
-        );
-        const pct = socioMatch?.percentual_capital_social;
-        if (typeof pct === "number" && pct > 0) {
-          emp.participacao = `${pct}%`;
-          console.log(`[credithub][enrich-brapi] ${emp.cnpj!.slice(0,4)}*** %part recuperado: ${emp.participacao}`);
-        }
-      } catch (err) {
-        console.warn(`[credithub][enrich-brapi] ${emp.cnpj!.slice(0,4)}*** falhou:`, err instanceof Error ? err.message : String(err));
-      }
-    }));
-  }
-
   // PROCESSOS BDC PRIMÁRIO (decisão Andressa 2026-05-15): consulta BDC.processes
   // pra cada empresa do grupo (cap 5). Substitui dados de CH `/simples` quando
   // BDC tem dados. CH vira fallback (já está em emp.processos preenchido pelo

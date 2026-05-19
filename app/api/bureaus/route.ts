@@ -10,7 +10,6 @@ import { consultarCreditHub, consultarGrupoEconomicoSocios, consultarPefinRefin,
 // foram pra produção, eram stubs). Assertiva removida (desativada 2026-05-13).
 // Os arquivos lib/bureaus/{serasa,spc,quod,assertiva}.ts ficam no repositório
 // caso alguma volte um dia — basta restaurar o import + a entry do Promise.allSettled.
-import { consultarBrasilApi } from "@/lib/bureaus/brasilapi";
 import { consultarSancoes } from "@/lib/bureaus/transparencia";
 import { consultarEmpresa as consultarBigDataCorp, consultarSocios as consultarBDCSocios, consultarDividaAtivaBDC, consultarProcessosBDC } from "@/lib/bureaus/bigdatacorp";
 import { mergeBureauResults } from "@/lib/bureaus/merger";
@@ -145,10 +144,9 @@ export async function POST(req: NextRequest) {
       ? withTimeout(consultarBDCSocios(cpfsParaBDC), BUREAU_TIMEOUT, "bigdatacorp-socios-pf")
       : Promise.resolve({ socios: [], sociosFalecidos: [], alertaParentesco: false, parentescosDetectados: [] } as Awaited<ReturnType<typeof consultarBDCSocios>>);
 
-    const [credithub, grupoEconomico, brasilapi, sancoes, db360Empresa, db360Socios, pefinRefin, _dividaAtivaBDC, bdcSociosPF, bdcProcessosEmpresa] = await Promise.allSettled([
+    const [credithub, grupoEconomico, sancoes, db360Empresa, db360Socios, pefinRefin, _dividaAtivaBDC, bdcSociosPF, bdcProcessosEmpresa] = await Promise.allSettled([
       withTimeout(consultarCreditHubComCache(cnpj, creditHubRaw), BUREAU_TIMEOUT, "credithub"),
       withTimeout(consultarGrupoEconomicoSocios(sociosParaGrupo, cnpj), BUREAU_TIMEOUT, "grupo-economico"),
-      withTimeout(consultarBrasilApi(cnpj), BUREAU_TIMEOUT, "brasilapi"),
       withTimeout(consultarSancoes(cnpj, sociosParaGrupo), BUREAU_TIMEOUT, "sancoes"),
       withTimeout(consultarSCREmpresa(cnpj), BUREAU_TIMEOUT, "databox360-empresa"),
       withTimeout(consultarSCRSocios(sociosParaGrupo), BUREAU_TIMEOUT, "databox360-socios"),
@@ -165,7 +163,6 @@ export async function POST(req: NextRequest) {
     ]);
 
     const grupoEconomicoResult = grupoEconomico.status === "fulfilled" ? grupoEconomico.value : undefined;
-    const brasilapiResult      = brasilapi.status      === "fulfilled" ? brasilapi.value      : undefined;
     const sancoesResult        = sancoes.status        === "fulfilled" ? sancoes.value        : undefined;
     const db360EmpresaResult   = db360Empresa.status   === "fulfilled" ? db360Empresa.value   : undefined;
     const db360SociosResult    = db360Socios.status    === "fulfilled" ? db360Socios.value    : undefined;
@@ -281,7 +278,6 @@ export async function POST(req: NextRequest) {
       ...(db360SociosFallback ?? []),
     ];
 
-    console.log(`[bureaus] BrasilAPI: ${brasilapiResult?.success ? "ok" : brasilapiResult?.error || "erro"}`);
     console.log(`[bureaus] Sanções: ${sancoesResult?.mock ? "sem chave API" : sancoesResult?.success ? `${sancoesResult.totalSancoes} sanção(ões)` : sancoesResult?.error || "erro"}`);
     console.log(`[bureaus] BigDataCorp: ${bigdatacorpResult?.mock ? "sem credenciais" : bigdatacorpResult?.success ? "ok" : bigdatacorpResult?.error || "erro"}`);
     console.log(`[bureaus] DataBox360 SCR empresa: ${db360EmpresaResult?.mock ? "sem chave API" : db360EmpresaResult?.scr ? "ok" : "sem dados"}`);
@@ -291,7 +287,6 @@ export async function POST(req: NextRequest) {
       credithub: credithub.status === "fulfilled"
         ? { ...credithub.value, grupoEconomicoEnrichment: grupoEconomicoResult }
         : undefined,
-      brasilapi:   brasilapiResult,
       sancoes:     sancoesResult,
       bigdatacorp: bigdatacorpResult,
       databox360:  db360EmpresaResult?.mock ? undefined : { empresa: db360EmpresaResult, socios: db360SociosMerged },
@@ -571,9 +566,6 @@ export async function POST(req: NextRequest) {
       merged,
       bureaus: {
         credithub:   { success: results.credithub?.success,   mock: results.credithub?.mock,   error: results.credithub?.error   },
-        brasilapi:   { success: results.brasilapi?.success,   mock: results.brasilapi?.mock,   error: results.brasilapi?.error,
-                       situacaoCadastral: results.brasilapi?.data?.situacaoCadastral,
-                       ativa: results.brasilapi?.data?.ativa },
         sancoes:     { success: results.sancoes?.success,     mock: results.sancoes?.mock,     error: results.sancoes?.error,
                        totalSancoes: results.sancoes?.totalSancoes, cnpjLimpo: results.sancoes?.cnpjLimpo },
         bigdatacorp: {

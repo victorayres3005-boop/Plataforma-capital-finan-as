@@ -3,7 +3,6 @@ import type { CreditHubResult } from "./credithub";
 import type { SerasaResult } from "./serasa";
 import type { SPCResult } from "./spc";
 import type { QuodResult } from "./quod";
-import type { BrasilApiResult } from "./brasilapi";
 import type { SancoesResult } from "./transparencia";
 import type { BigDataCorpResult } from "./bigdatacorp";
 import type { AssertivaResult } from "./assertiva";
@@ -30,7 +29,6 @@ export interface BureauResults {
   serasa?: SerasaResult;
   spc?: SPCResult;
   quod?: QuodResult;
-  brasilapi?: BrasilApiResult;
   sancoes?: SancoesResult;
   bigdatacorp?: BigDataCorpResult;
   assertiva?: AssertivaResult;
@@ -205,43 +203,6 @@ export function mergeBureauResults(
     if (results.quod.score) score.quod = results.quod.score;
   }
 
-  // ── BrasilAPI (Receita Federal oficial) ─────────────────────────────────
-  if (results.brasilapi?.success && results.brasilapi.data) {
-    const ba = results.brasilapi.data;
-    const base = merged.cnpj ?? data.cnpj;
-    merged.cnpj = {
-      ...base,
-      // Situação cadastral da Receita tem prioridade — fonte mais confiável
-      situacaoCadastral: ba.situacaoCadastral || base.situacaoCadastral,
-      dataSituacaoCadastral: ba.dataSituacaoCadastral || base.dataSituacaoCadastral,
-      motivoSituacao: ba.motivoSituacaoCadastral || base.motivoSituacao,
-      // Preenche campos vazios
-      porte: base.porte || ba.porte,
-      naturezaJuridica: base.naturezaJuridica || ba.descricaoNaturezaJuridica || ba.naturezaJuridica,
-      cnaePrincipal: base.cnaePrincipal || ba.cnaePrincipal,
-      endereco: base.endereco || ba.endereco,
-      telefone: base.telefone || ba.telefones[0] || "",
-      email: base.email || ba.emails[0] || "",
-      dataAbertura: base.dataAbertura || ba.dataAbertura,
-      capitalSocialCNPJ: base.capitalSocialCNPJ || (ba.capitalSocial > 0 ? `R$ ${ba.capitalSocial.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : ""),
-    };
-    // QSA: se vazia, popula com dados da BrasilAPI
-    const sociosReais = (data.qsa?.quadroSocietario || []).filter(s => s.nome || s.cpfCnpj);
-    if (sociosReais.length === 0 && ba.qsa.length > 0) {
-      merged.qsa = {
-        capitalSocial: data.qsa?.capitalSocial || "",
-        quadroSocietario: ba.qsa.map(s => ({
-          nome: s.nome,
-          cpfCnpj: s.cpfCnpj,
-          qualificacao: s.qualificacao,
-          participacao: s.percentualCapital > 0 ? `${s.percentualCapital}%` : "",
-          dataEntrada: s.dataEntrada,
-        })),
-      };
-    }
-    bureausConsultados.push("BrasilAPI (Receita Federal)");
-  }
-
   // ── Sanções CEIS/CNEP (Portal da Transparência) ──────────────────────────
   if (results.sancoes?.success && !results.sancoes.mock) {
     const s = results.sancoes;
@@ -263,12 +224,13 @@ export function mergeBureauResults(
     bureausConsultados.push("BigDataCorp");
     const bdc = results.bigdatacorp;
 
-    // CNPJ: preenche apenas campos vazios (CreditHub e BrasilAPI têm prioridade)
+    // CNPJ: preenche apenas campos vazios (CreditHub tem prioridade)
     if (bdc.cnpjEnrichment) {
       const base = merged.cnpj ?? data.cnpj;
       const e = bdc.cnpjEnrichment;
       merged.cnpj = {
         ...base,
+        cnpj:              base.cnpj              || e.cnpj              || "",
         razaoSocial:       base.razaoSocial       || e.razaoSocial       || "",
         situacaoCadastral: base.situacaoCadastral  || e.situacaoCadastral || "",
         dataAbertura:      base.dataAbertura       || e.dataAbertura      || "",

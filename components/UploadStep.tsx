@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, Info, GitCompareArrows, Receipt, Scale, PieChart, FileKey, ClipboardList, Loader2, AlertTriangle } from "lucide-react";
+import { Building2, Users, ScrollText, TrendingUp, BarChart3, ArrowRight, Info, GitCompareArrows, Receipt, Scale, PieChart, FileKey, ClipboardList, Loader2, AlertTriangle, CheckCircle } from "lucide-react";
 import UploadArea from "./UploadArea";
 import OnboardingTooltip from "./OnboardingTooltip";
 import { useTooltips } from "@/lib/useTooltips";
@@ -196,8 +196,8 @@ interface SectionConfig {
 }
 
 const SECTIONS: SectionConfig[] = [
-  { key: 'cnpj',        title: 'Cartão CNPJ',                       description: 'Comprovante de inscrição emitido pela Receita Federal',           icon: <Building2 size={19} />,        stepNumber: '1', required: true },
-  { key: 'qsa',         title: 'QSA',                               description: 'Quadro de Sócios e Administradores',                              icon: <Users size={19} />,            stepNumber: '2', required: true },
+  { key: 'cnpj',        title: 'Cartão CNPJ',                       description: 'Dados obtidos automaticamente via API — upload opcional para nome fantasia e CNAEs secundários', icon: <Building2 size={19} />, stepNumber: '▿', required: false },
+  { key: 'qsa',         title: 'QSA',                               description: 'Obtido automaticamente via API — upload opcional para enriquecer dados dos sócios',            icon: <Users size={19} />,            stepNumber: '▿', required: false },
   { key: 'contrato',    title: 'Contrato Social',                   description: 'Contrato ou Estatuto Social — consolidado ou última alteração',   icon: <ScrollText size={19} />,       stepNumber: '3', required: true },
   { key: 'faturamento', title: 'Faturamento',                       description: 'Relatório de faturamento mensal — PDF ou planilha Excel (.xlsx)', icon: <TrendingUp size={19} />,       stepNumber: '4', required: true },
   // SCR removido: consultado automaticamente via DataBox360 (API BCB)
@@ -214,7 +214,7 @@ const SECTIONS: SectionConfig[] = [
   { key: 'gefip',            title: 'GEFIP / FGTS / INSS',               description: 'Recolhimentos previdenciários e trabalhistas',                  icon: <Receipt size={19} />,          stepNumber: '▿', required: false },
 ];
 
-const REQUIRED_KEYS: DocKey[] = ['cnpj', 'qsa', 'contrato', 'faturamento'];
+const REQUIRED_KEYS: DocKey[] = ['contrato', 'faturamento'];
 
 // ─── GroupHeader ───
 
@@ -330,6 +330,15 @@ function buildInitialSections(resumedDocs: CollectionDocument[]): Record<DocKey,
   return sections;
 }
 
+function formatarCNPJ(v: string): string {
+  const d = v.replace(/\D/g, "").slice(0, 14);
+  if (d.length <= 2) return d;
+  if (d.length <= 5) return `${d.slice(0,2)}.${d.slice(2)}`;
+  if (d.length <= 8) return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5)}`;
+  if (d.length <= 12) return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8)}`;
+  return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`;
+}
+
 export default function UploadStep({
   onComplete,
   resumedDocs,
@@ -423,6 +432,18 @@ export default function UploadStep({
   }, []);
   const bureauTriggered = useRef(false);
   const qsaBureauTriggered = useRef(false);
+
+  // CNPJ input manual — dispara bureaus sem precisar fazer upload do Cartão CNPJ
+  const [cnpjInput, setCnpjInput] = useState(() =>
+    formatarCNPJ((initialData?.cnpj?.cnpj || "").replace(/\D/g, ""))
+  );
+  const cnpjConfirmado = extracted.cnpj?.cnpj?.replace(/\D/g, "").length === 14;
+
+  const handleCnpjConfirm = useCallback(() => {
+    const digits = cnpjInput.replace(/\D/g, "");
+    if (digits.length !== 14) return;
+    setExtracted(e => ({ ...e, cnpj: { ...e.cnpj, cnpj: digits } }));
+  }, [cnpjInput]);
 
   // Auto-trigger bureaus when CNPJ is extracted
   useEffect(() => {
@@ -1296,7 +1317,7 @@ export default function UploadStep({
         <div className="flex items-start gap-3 bg-cf-navy/5 border border-cf-navy/15 rounded-xl px-4 py-3 mb-4">
           <Info size={15} className="text-cf-navy flex-shrink-0 mt-0.5" />
           <p className="text-xs text-cf-text-2 leading-relaxed">
-            Envie os 4 documentos obrigatórios. O SCR é consultado automaticamente via API. Os complementares são opcionais e enriquecem o relatório.
+            Informe o CNPJ para iniciar as consultas automáticas. Envie os 2 documentos obrigatórios (Contrato Social e Faturamento). Cartão CNPJ, QSA e SCR são obtidos via API.
           </p>
         </div>
       )}
@@ -1343,6 +1364,60 @@ export default function UploadStep({
         </div>
       )}
 
+      {/* ── CNPJ da empresa ── */}
+      <div style={{ background: cnpjConfirmado ? "#f0fdf4" : "#fff", border: `1px solid ${cnpjConfirmado ? "#bbf7d0" : "#e2e8f0"}`, borderRadius: 12, padding: "14px 16px", marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          <Building2 size={15} color={cnpjConfirmado ? "#16a34a" : "#1a2744"} />
+          <span style={{ fontSize: 12, fontWeight: 700, color: cnpjConfirmado ? "#15803d" : "#1a2744", textTransform: "uppercase", letterSpacing: ".05em" }}>
+            CNPJ da Empresa
+          </span>
+          {cnpjConfirmado && (
+            <span style={{ marginLeft: "auto", fontSize: 11, color: "#16a34a", fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+              <CheckCircle size={12} /> Consultas iniciadas
+            </span>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input
+            value={cnpjInput}
+            onChange={e => {
+              const formatted = formatarCNPJ(e.target.value);
+              setCnpjInput(formatted);
+              const digits = formatted.replace(/\D/g, "");
+              if (digits.length === 14 && !bureauTriggered.current) {
+                setExtracted(prev => ({ ...prev, cnpj: { ...prev.cnpj, cnpj: digits } }));
+              }
+            }}
+            onKeyDown={e => { if (e.key === "Enter") handleCnpjConfirm(); }}
+            placeholder="00.000.000/0000-00"
+            disabled={cnpjConfirmado}
+            style={{
+              flex: 1, padding: "8px 12px", border: `1px solid ${cnpjConfirmado ? "#bbf7d0" : "#e2e8f0"}`,
+              borderRadius: 8, fontSize: 14, fontFamily: "monospace", letterSpacing: ".05em",
+              background: cnpjConfirmado ? "#f0fdf4" : "#fafbfc", color: "#1e293b", outline: "none",
+            }}
+          />
+          {!cnpjConfirmado && (
+            <button
+              onClick={handleCnpjConfirm}
+              disabled={cnpjInput.replace(/\D/g, "").length !== 14}
+              style={{
+                padding: "8px 16px", borderRadius: 8, border: "none", background: "#1a2744",
+                color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer",
+                opacity: cnpjInput.replace(/\D/g, "").length !== 14 ? 0.4 : 1,
+              }}
+            >
+              Confirmar
+            </button>
+          )}
+        </div>
+        {!cnpjConfirmado && (
+          <p style={{ fontSize: 11, color: "#94a3b8", marginTop: 6 }}>
+            Informe o CNPJ para iniciar as consultas automáticas nos birôs de crédito
+          </p>
+        )}
+      </div>
+
       {/* ── Document cards ── */}
       <div className="space-y-6 pb-20">
 
@@ -1350,7 +1425,7 @@ export default function UploadStep({
         <div>
           <OnboardingTooltip
             id="upload-docs-obrigatorios"
-            message="Envie os 4 documentos obrigatórios: Cartão CNPJ, QSA, Contrato Social e Faturamento. O SCR é consultado automaticamente via API do Banco Central — sem upload."
+            message="Informe o CNPJ no campo acima para iniciar as consultas nos birôs. Depois envie os 2 documentos obrigatórios: Contrato Social e Faturamento. Cartão CNPJ, QSA e SCR chegam via API."
             position="right"
             isSeen={isSeen("upload-docs-obrigatorios")}
             onSeen={() => markSeen("upload-docs-obrigatorios")}
@@ -1500,12 +1575,11 @@ export default function UploadStep({
             })()}
             {bureauStatus === "done" && Object.keys(bureauDetail).length > 0 && (
               <div className="flex items-center gap-1 flex-wrap">
-                {(["credithub", "serasa", "spc", "quod", "bigdatacorp", "brasilapi", "sancoes", "databox360"] as const).map(key => {
+                {(["credithub", "serasa", "spc", "quod", "bigdatacorp", "sancoes", "databox360"] as const).map(key => {
                   const b = bureauDetail[key];
                   if (!b) return null;
                   const lbl = key === "credithub"  ? "Credit Hub"
                     : key === "bigdatacorp"         ? "BigDataCorp"
-                    : key === "brasilapi"            ? "BrasilAPI"
                     : key === "sancoes"              ? "Sanções"
                     : key === "databox360"           ? "SCR (DataBox360)"
                     : key.toUpperCase();
