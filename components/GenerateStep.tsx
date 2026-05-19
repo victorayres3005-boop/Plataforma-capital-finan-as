@@ -2081,17 +2081,16 @@ export default function GenerateStep({ data: initialData, originalFiles, onBack,
       }
     }
 
-    // ── Mapa estático sempre busca, com Camada 1 (lat/lng quando Places identificou)
-    // e Camada 2 (validação contextual via Gemini Vision) ─────────────────────
+    // ── Mapa estático: sempre usa o endereço do cartão CNPJ diretamente (string)
+    // Não usa lat/lng do Places pois o Places pode identificar a empresa em
+    // endereço diferente do registrado na Receita Federal (filial, mudança, homônimo).
     const mapResult = await fetchMapProxy({
       type: "map",
-      lat: placesLat,
-      lng: placesLng,
       validate: true,
     }).catch(() => ({} as { url?: string; aviso?: string }));
     const mp = mapResult.url;
     const mapaContextoAviso = mapResult.aviso;
-    console.log(`[fetchGoogleMapsImages] sv0=${!!sv0} sv90=${!!sv90} mp=${!!mp} source=${usedPlaces ? "places" : "streetview"} latlng=${placesLat != null ? `${placesLat},${placesLng}` : "—"} aviso=${mapaContextoAviso ?? "—"}`);
+    console.log(`[fetchGoogleMapsImages] sv0=${!!sv0} sv90=${!!sv90} mp=${!!mp} source=${usedPlaces ? "places" : "streetview"} aviso=${mapaContextoAviso ?? "—"}`);
 
     return {
       streetViewBase64: sv0,
