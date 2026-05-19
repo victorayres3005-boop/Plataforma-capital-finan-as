@@ -96,6 +96,11 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
     }
+    // Se há cookies Supabase, o token provavelmente só está sendo renovado.
+    // Deixa a página carregar — o client renova silenciosamente sem flash de redirect.
+    const hasSupabaseCookies = request.cookies.getAll().some(c => c.name.startsWith("sb-"));
+    if (hasSupabaseCookies) return response;
+
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
     const fullPath = pathname + (request.nextUrl.search || "");
