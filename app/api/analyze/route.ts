@@ -5,6 +5,7 @@ import type { ScoreResult, RespostaCriterio, ConfiguracaoPolitica } from "@/type
 import { mergeComDefaults, DEFAULT_POLITICA_V2 } from "@/lib/politica-credito/defaults";
 
 import { createClient } from "@supabase/supabase-js";
+import { createServerSupabase } from "@/lib/supabase/server";
 import { unstable_noStore as noStore } from "next/cache";
 import { generateEmbedding, buildEmbeddingText } from "@/lib/embeddings";
 import { ANALYSIS_PROMPT, PROMPT_SINTESE } from "@/lib/analyze/prompts";
@@ -363,6 +364,10 @@ export async function POST(request: NextRequest) {
       { status: 413 },
     );
   }
+  const supa = createServerSupabase();
+  const { data: { user } } = await supa.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+
   try {
     const body = await request.json();
 
@@ -375,8 +380,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ──── Política de Crédito — fonte única de verdade ────
-    const userId = body.user_id as string | undefined;
-    const politica = userId ? await loadPoliticaServidor(userId) : DEFAULT_POLITICA_V2;
+    const politica = await loadPoliticaServidor(user.id);
     const pe = politica.parametros_elegibilidade;
 
     // ──── Settings derivados da política (não de body.settings) ────

@@ -24,6 +24,7 @@ import type { SocioComMae } from "@/lib/sacados/matchVinculos";
 import type { ExtractedData } from "@/types";
 import type { CreditHubResult } from "@/lib/bureaus/credithub";
 import { createClient } from "@supabase/supabase-js";
+import { createServerSupabase } from "@/lib/supabase/server";
 
 async function consultarCreditHubComCache(cnpj: string, rawDataFromClient?: unknown): Promise<CreditHubResult> {
   const cnpjNum = cnpj.replace(/\D/g, "");
@@ -59,6 +60,10 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 }
 
 export async function POST(req: NextRequest) {
+  const supa = createServerSupabase();
+  const { data: { user } } = await supa.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+
   try {
     const body = await req.json();
     const { cnpj, data, creditHubRaw, collection_id } = body as { cnpj: string; data: ExtractedData; creditHubRaw?: unknown; collection_id?: string };
@@ -593,6 +598,10 @@ export async function POST(req: NextRequest) {
 
 // Permite invalidar cache via GET /api/bureaus?cnpj=XX&action=clear ou ?action=clear_all
 export async function GET(req: NextRequest) {
+  const supa = createServerSupabase();
+  const { data: { user } } = await supa.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+
   const cnpj = req.nextUrl.searchParams.get("cnpj")?.replace(/\D/g, "") || "";
   const action = req.nextUrl.searchParams.get("action");
   if (action === "clear_all") {

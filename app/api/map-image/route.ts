@@ -8,6 +8,7 @@
  *   retorna: { fotos, place_id, nome_encontrado, fallback }
  */
 import { NextRequest, NextResponse } from "next/server";
+import { createServerSupabase } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
@@ -116,6 +117,10 @@ async function validateMapContextWithGemini(
 // ── route ─────────────────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
+  const supa = createServerSupabase();
+  const { data: { user } } = await supa.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+
   const { searchParams } = req.nextUrl;
   const type        = searchParams.get("type") ?? "map";
   const address     = searchParams.get("address");
